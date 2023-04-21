@@ -77,11 +77,13 @@ impl From<RustSasState> for SasState {
 }
 
 /// Enum representing the different verification flows we support.
+#[derive(uniffi::Object)]
 pub struct Verification {
     pub(crate) inner: InnerVerification,
     pub(crate) runtime: Handle,
 }
 
+#[uniffi::export]
 impl Verification {
     /// Try to represent the `Verification` as an `Sas` verification object,
     /// returns `None` if the verification is not a `Sas` verification.
