@@ -145,11 +145,6 @@ dictionary ConfirmVerificationResult {
     SignatureUploadRequest? signature_request;
 };
 
-interface Verification {
-    QrCode? as_qr();
-    Sas? as_sas();
-};
-
 dictionary KeyRequestPair {
     Request? cancellation;
     Request key_request;
