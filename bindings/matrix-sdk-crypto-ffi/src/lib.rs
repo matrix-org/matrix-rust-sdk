@@ -157,7 +157,7 @@ pub struct PickledInboundGroupSession {
 }
 
 /// Error type for the migration process.
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {
     /// Generic catch all error variant.
     #[error("error migrating database: {error_message}")]

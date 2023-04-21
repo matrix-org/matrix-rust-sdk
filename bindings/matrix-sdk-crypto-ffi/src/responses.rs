@@ -41,6 +41,7 @@ impl From<RustSignatureUploadRequest> for SignatureUploadRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct UploadSigningKeysRequest {
     pub master_key: String,
     pub self_signing_key: String,
@@ -66,6 +67,7 @@ impl From<RustUploadSigningKeysRequest> for UploadSigningKeysRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct BootstrapCrossSigningResult {
     pub upload_signing_keys_request: UploadSigningKeysRequest,
     pub signature_request: SignatureUploadRequest,
