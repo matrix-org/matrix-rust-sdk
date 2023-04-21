@@ -123,26 +123,7 @@ dictionary ScanResult {
     OutgoingVerificationRequest request;
 };
 
-interface QrCode {
-    string other_user_id();
-    string other_device_id();
-    string flow_id();
-    string? room_id();
-    boolean we_started();
-    boolean is_done();
-    boolean is_cancelled();
-    CancelInfo? cancel_info();
-
-    boolean reciprocated();
-    boolean has_been_scanned();
-
-    ConfirmVerificationResult? confirm();
-    OutgoingVerificationRequest? cancel([ByRef] string cancel_code);
-    string? generate_qr_code();
-
-    void set_changes_listener(QrCodeListener listener);
-    QrCodeState state();
-};
+interface QrCode {};
 
 [Enum]
 interface QrCodeState {

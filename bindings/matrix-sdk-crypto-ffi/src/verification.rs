@@ -320,6 +320,7 @@ pub struct QrCode {
     pub(crate) runtime: Handle,
 }
 
+#[uniffi::export]
 impl QrCode {
     /// Get the user id of the other side.
     pub fn other_user_id(&self) -> String {
@@ -386,7 +387,7 @@ impl QrCode {
     /// list of cancel codes can be found in the [spec]
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
-    pub fn cancel(&self, cancel_code: &str) -> Option<OutgoingVerificationRequest> {
+    pub fn cancel(&self, cancel_code: String) -> Option<OutgoingVerificationRequest> {
         self.inner.cancel_with_code(cancel_code.into()).map(|r| r.into())
     }
 
@@ -424,7 +425,9 @@ impl QrCode {
     pub fn state(&self) -> QrCodeState {
         self.inner.state().into()
     }
+}
 
+impl QrCode {
     async fn changes_listener(
         mut stream: impl Stream<Item = QrVerificationState> + std::marker::Unpin,
         listener: Box<dyn QrCodeListener>,
