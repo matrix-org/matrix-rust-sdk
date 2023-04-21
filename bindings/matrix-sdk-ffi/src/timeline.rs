@@ -449,7 +449,7 @@ pub struct Message(matrix_sdk::room::timeline::Message);
 #[uniffi::export]
 impl Message {
     pub fn msgtype(&self) -> Option<MessageType> {
-        let message_type = (*self.0.msgtype()).into();
+        let message_type = self.0.msgtype().clone().into();
         if matches!(message_type, MessageType::Unsupported) {
             None
         } else {

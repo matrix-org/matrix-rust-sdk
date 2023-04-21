@@ -18,7 +18,7 @@ impl TimelineEvent {
     pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
         let event_type = match &self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {
-                TimelineEventType::MessageLike { content: (*event).try_into()? }
+                TimelineEventType::MessageLike { content: event.clone().try_into()? }
             }
             AnySyncTimelineEvent::State(_) => TimelineEventType::State,
         };
@@ -59,8 +59,11 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             AnySyncMessageLikeEvent::Reaction(_) => MessageLikeEventContent::Reaction,
             AnySyncMessageLikeEvent::RoomEncrypted(_) => MessageLikeEventContent::RoomEncrypted,
             AnySyncMessageLikeEvent::RoomMessage(content) => {
-                let original_content =
-                    content.as_original().context("Failed to get original content")?.content;
+                let original_content = content
+                    .as_original()
+                    .context("Failed to get original content")?
+                    .content
+                    .clone();
                 MessageLikeEventContent::RoomMessage { message: original_content.msgtype.into() }
             }
             AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
