@@ -37,10 +37,11 @@ use ruma::{
     RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info, instrument, warn};
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
+    deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent,
@@ -207,8 +208,32 @@ impl Room {
     }
 
     /// Is this room considered a direct message.
-    pub fn is_direct(&self) -> bool {
-        !self.inner.read().unwrap().base_info.dm_targets.is_empty()
+    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    pub async fn is_direct(&self) -> StoreResult<bool> {
+        match self.state() {
+            RoomState::Joined | RoomState::Left => {
+                Ok(!self.inner.read().unwrap().base_info.dm_targets.is_empty())
+            }
+            RoomState::Invited => {
+                let member = self.get_member(self.own_user_id()).await?;
+
+                match member {
+                    None => {
+                        info!("RoomMember not found for the user's own id");
+                        Ok(false)
+                    }
+                    Some(member) => match member.event.as_ref() {
+                        MemberEvent::Sync(_) => {
+                            warn!("Got MemberEvent::Sync in an invited room");
+                            Ok(false)
+                        }
+                        MemberEvent::Stripped(event) => {
+                            Ok(event.content.is_direct.unwrap_or(false))
+                        }
+                    },
+                }
+            }
+        }
     }
 
     /// If this room is a direct message, get the members that we're sharing the
@@ -813,13 +838,16 @@ mod test {
     use assign::assign;
     use matrix_sdk_test::async_test;
     use ruma::{
-        events::room::{
-            canonical_alias::RoomCanonicalAliasEventContent,
-            member::{
-                MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
-                SyncRoomMemberEvent,
+        events::{
+            room::{
+                canonical_alias::RoomCanonicalAliasEventContent,
+                member::{
+                    MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
+                    SyncRoomMemberEvent,
+                },
+                name::RoomNameEventContent,
             },
-            name::RoomNameEventContent,
+            StateEventType,
         },
         room_alias_id, room_id,
         serde::Raw,
@@ -1025,16 +1053,15 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
@@ -1052,16 +1079,15 @@ mod test {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
@@ -1082,16 +1108,15 @@ mod test {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
 
-        changes
-            .members
+        let members = changes
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(me.to_owned(), make_member_event(me, "Me"));
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
+        members.insert(me.into(), make_member_event(me, "Me").cast());
+
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);

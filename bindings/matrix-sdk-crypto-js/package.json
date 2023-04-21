@@ -1,6 +1,6 @@
 {
     "name": "@matrix-org/matrix-sdk-crypto-js",
-    "version": "0.1.0-alpha.6",
+    "version": "0.1.0-alpha.7",
     "homepage": "https://github.com/matrix-org/matrix-rust-sdk",
     "description": "Matrix encryption library, for JavaScript",
     "license": "Apache-2.0",

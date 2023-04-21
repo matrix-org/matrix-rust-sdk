@@ -402,6 +402,16 @@ impl Account {
     /// > subsequently claiming to have sent messages which they didn't.
     /// > sender must correspond to the user who sent the event, recipient to
     /// > the local user, and recipient_keys to the local Ed25519 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender` -  The `sender` field from the top level of the received
+    ///   event.
+    /// * `sender_key` - The `sender_key` from the cleartext `content` of the
+    ///   received event (which should also have been used to find or establish
+    ///   the Olm session that was used to decrypt the event -- so it is
+    ///   guaranteed to be correct).
+    /// * `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
@@ -417,7 +427,10 @@ impl Account {
                 self.user_id().to_owned(),
             )
             .into())
-        } else if event.sender() != sender {
+        }
+        // Check that the `sender` in the decrypted to-device event matches that at the
+        // top level of the encrypted event.
+        else if event.sender() != sender {
             Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
         } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
             Err(EventError::MismatchedKeys(

@@ -1,6 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{collections::BTreeMap, ops::Deref, time::Duration};
 
 use futures_util::StreamExt;
 use js_sys::{Array, Function, Map, Promise, Set};
@@ -582,7 +582,10 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         future_to_promise::<_, device::UserDevices>(async move {
-            Ok(me.get_user_devices(&user_id, None).await.map(Into::into)?)
+            // wait for up to a second for any in-flight device list requests to complete.
+            // The reason for this isn't so much to avoid races (some level of raciness is
+            // inevitable for this method) but to make testing easier.
+            Ok(me.get_user_devices(&user_id, Some(Duration::from_secs(1))).await.map(Into::into)?)
         })
     }
 

@@ -40,6 +40,7 @@ sanitize-filename-reader-friendly = "2.2.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tracing-core = { workspace = true }
 tracing-opentelemetry = { version = "0.18.0" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

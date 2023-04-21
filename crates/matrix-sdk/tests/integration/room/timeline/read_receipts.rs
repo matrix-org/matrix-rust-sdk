@@ -86,24 +86,24 @@ async fn read_receipts_updates() {
 
     // We don't list the read receipt of our own user on events.
     let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let first_event = first_item.as_event().unwrap().as_remote().unwrap();
+    let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
     let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_receipt_event_id, first_event.event_id());
+    assert_eq!(own_receipt_event_id, first_event.event_id().unwrap());
 
     // Implicit read receipt of @alice:localhost.
     let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
+    let second_event = second_item.as_event().unwrap();
     assert_eq!(second_event.read_receipts().len(), 1);
 
     // Read receipt of @alice:localhost is moved to third event.
     let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
-    let second_event = second_item.as_event().unwrap().as_remote().unwrap();
+    let second_event = second_item.as_event().unwrap();
     assert!(second_event.read_receipts().is_empty());
 
     let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
+    let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 1);
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
@@ -130,7 +130,7 @@ async fn read_receipts_updates() {
     server.reset().await;
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
-    assert_eq!(alice_receipt_event_id, third_event.event_id());
+    assert_eq!(alice_receipt_event_id, third_event.event_id().unwrap());
 
     // Read receipt on older event is ignored.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
@@ -191,7 +191,7 @@ async fn read_receipts_updates() {
     server.reset().await;
 
     let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
-    let third_event = third_item.as_event().unwrap().as_remote().unwrap();
+    let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 2);
 
     let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(bob).await.unwrap();
