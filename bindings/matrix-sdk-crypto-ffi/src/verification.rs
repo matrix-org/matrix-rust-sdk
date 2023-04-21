@@ -107,6 +107,7 @@ impl Verification {
 }
 
 /// The `m.sas.v1` verification flow.
+#[derive(uniffi::Object)]
 pub struct Sas {
     pub(crate) inner: InnerSas,
     pub(crate) runtime: Handle,
@@ -320,6 +321,7 @@ impl From<QrVerificationState> for QrCodeState {
 
 /// The `m.qr_code.scan.v1`, `m.qr_code.show.v1`, and `m.reciprocate.v1`
 /// verification flow.
+#[derive(uniffi::Object)]
 pub struct QrCode {
     pub(crate) inner: InnerQr,
     pub(crate) runtime: Handle,
@@ -476,6 +478,7 @@ impl From<RustCancelInfo> for CancelInfo {
 }
 
 /// A result type for starting SAS verifications.
+#[derive(uniffi::Record)]
 pub struct StartSasResult {
     /// The SAS verification object that got created.
     pub sas: Arc<Sas>,
@@ -485,6 +488,7 @@ pub struct StartSasResult {
 }
 
 /// A result type for scanning QR codes.
+#[derive(uniffi::Record)]
 pub struct ScanResult {
     /// The QR code verification object that got created.
     pub qr: Arc<QrCode>,
@@ -494,6 +498,7 @@ pub struct ScanResult {
 }
 
 /// A result type for requesting verifications.
+#[derive(uniffi::Record)]
 pub struct RequestVerificationResult {
     /// The verification request object that got created.
     pub verification: Arc<VerificationRequest>,
@@ -503,6 +508,7 @@ pub struct RequestVerificationResult {
 }
 
 /// A result type for confirming verifications.
+#[derive(uniffi::Record)]
 pub struct ConfirmVerificationResult {
     /// The requests that needs to be sent out to notify the other side that we
     /// confirmed the verification.
@@ -566,6 +572,7 @@ impl From<RustVerificationRequestState> for VerificationRequestState {
 
 /// The verificatoin request object which then can transition into some concrete
 /// verification method
+#[derive(uniffi::Object)]
 pub struct VerificationRequest {
     pub(crate) inner: InnerVerificationRequest,
     pub(crate) runtime: Handle,

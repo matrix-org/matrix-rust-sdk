@@ -9,22 +9,6 @@ callback interface ProgressListener {
 };
 
 [Error]
-enum KeyImportError {
-    "Export",
-    "CryptoStore",
-    "Json",
-};
-
-[Error]
-enum SignatureError {
-    "Signature",
-    "Identifier",
-    "CryptoStore",
-    "UnknownDevice",
-    "UnknownUserIdentity",
-};
-
-[Error]
 enum CryptoStoreError {
     "OpenStore",
     "CryptoStore",
@@ -34,57 +18,11 @@ enum CryptoStoreError {
     "Identifier",
 };
 
-dictionary KeysImportResult {
-    i64 imported;
-    i64 total;
-    record<DOMString, record<DOMString, sequence<string>>> keys;
-};
-
-dictionary Device {
-    string user_id;
-    string device_id;
-    record<DOMString, string> keys;
-    sequence<string> algorithms;
-    string? display_name;
-    boolean is_blocked;
-    boolean locally_trusted;
-    boolean cross_signing_trusted;
-};
-
-[Enum]
-interface UserIdentity {
-    Own(
-        string user_id,
-        boolean trusts_our_own_device,
-        string master_key,
-        string self_signing_key,
-        string user_signing_key
-    );
-    Other(
-        string user_id,
-        string master_key,
-        string self_signing_key
-    );
-};
-
-dictionary CrossSigningKeyExport {
-    string? master_key;
-    string? self_signing_key;
-    string? user_signing_key;
-};
-
 dictionary CancelInfo {
     string cancel_code;
     string reason;
     boolean cancelled_by_us;
 };
-
-dictionary StartSasResult {
-    Sas sas;
-    OutgoingVerificationRequest request;
-};
-
-interface Sas {};
 
 [Enum]
 interface SasState {
@@ -100,13 +38,6 @@ callback interface SasListener {
     void on_change(SasState state);
 };
 
-dictionary ScanResult {
-    QrCode qr;
-    OutgoingVerificationRequest request;
-};
-
-interface QrCode {};
-
 [Enum]
 interface QrCodeState {
     Started();
@@ -121,8 +52,6 @@ callback interface QrCodeListener {
     void on_change(QrCodeState state);
 };
 
-interface VerificationRequest {};
-
 [Enum]
 interface VerificationRequestState {
     Requested();
@@ -135,70 +64,11 @@ callback interface VerificationRequestListener {
     void on_change(VerificationRequestState state);
 };
 
-dictionary RequestVerificationResult {
-    VerificationRequest verification;
-    OutgoingVerificationRequest request;
-};
-
-dictionary ConfirmVerificationResult {
-    sequence<OutgoingVerificationRequest> requests;
-    SignatureUploadRequest? signature_request;
-};
-
-dictionary KeyRequestPair {
-    Request? cancellation;
-    Request key_request;
-};
-
-[Enum]
-interface OutgoingVerificationRequest {
-    ToDevice(string request_id, string event_type, string body);
-    InRoom(string request_id, string room_id, string event_type, string content);
-};
-
-[Enum]
-interface Request {
-    ToDevice(string request_id, string event_type, string body);
-    KeysUpload(string request_id, string body);
-    KeysQuery(string request_id, sequence<string> users);
-    KeysClaim(string request_id, record<DOMString, record<DOMString, string>> one_time_keys);
-    KeysBackup(string request_id, string version, string rooms);
-    RoomMessage(string request_id, string room_id, string event_type, string content);
-    SignatureUpload(string request_id, string body);
-};
-
-dictionary SignatureUploadRequest {
-    string body;
-};
-
-enum RequestType {
-    "KeysQuery",
-    "KeysClaim",
-    "KeysUpload",
-    "ToDevice",
-    "SignatureUpload",
-    "KeysBackup",
-    "RoomMessage",
-};
-
 enum LocalTrust {
     "Verified",
     "BlackListed",
     "Ignored",
     "Unset",
-};
-
-
-enum EventEncryptionAlgorithm {
-    "OlmV1Curve25519AesSha2",
-    "MegolmV1AesSha2",
-};
-
-enum HistoryVisibility {
-    "Invited",
-    "Joined",
-    "Shared",
-    "WorldReadable",
 };
 
 interface OlmMachine {
@@ -211,29 +81,11 @@ interface OlmMachine {
     );
 };
 
-dictionary PassphraseInfo {
-    string private_key_salt;
-    i32 private_key_iterations;
-};
-
-dictionary SignatureVerification {
-    SignatureState device_signature;
-    SignatureState user_identity_signature;
-    record<DOMString, SignatureState> other_devices_signatures;
-    boolean trusted;
-};
-
 enum SignatureState {
     "Missing",
     "Invalid",
     "ValidButNotTrusted",
     "ValidAndTrusted",
-};
-
-[Error]
-enum DecodeError {
-    "Decode",
-    "CryptoStore",
 };
 
 interface BackupRecoveryKey {
@@ -246,57 +98,4 @@ interface BackupRecoveryKey {
     constructor(string key);
     [Name=from_base58, Throws=DecodeError]
     constructor(string key);
-};
-
-dictionary MigrationData {
-    PickledAccount account;
-    sequence<PickledSession> sessions;
-    sequence<PickledInboundGroupSession> inbound_group_sessions;
-    string? backup_version;
-    string? backup_recovery_key;
-    sequence<u8> pickle_key;
-    CrossSigningKeyExport cross_signing;
-    sequence<string> tracked_users;
-    record<string, RoomSettings> room_settings;
-};
-
-dictionary SessionMigrationData {
-    string user_id;
-    string device_id;
-    string curve25519_key;
-    string ed25519_key;
-    sequence<PickledSession> sessions;
-    sequence<PickledInboundGroupSession> inbound_group_sessions;
-    sequence<u8> pickle_key;
-};
-
-dictionary PickledAccount {
-    string user_id;
-    string device_id;
-    string pickle;
-    boolean shared;
-    i64 uploaded_signed_key_count;
-};
-
-dictionary PickledSession {
-    string pickle;
-    string sender_key;
-    boolean created_using_fallback_key;
-    string creation_time;
-    string last_use_time;
-};
-
-dictionary PickledInboundGroupSession {
-    string pickle;
-    string sender_key;
-    record<DOMString, string> signing_key;
-    string room_id;
-    sequence<string> forwarding_chains;
-    boolean imported;
-    boolean backed_up;
-};
-
-dictionary RoomSettings {
-    EventEncryptionAlgorithm algorithm;
-    boolean only_allow_trusted_devices;
 };
