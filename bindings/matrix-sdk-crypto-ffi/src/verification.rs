@@ -566,6 +566,7 @@ pub struct VerificationRequest {
     pub(crate) runtime: Handle,
 }
 
+#[uniffi::export]
 impl VerificationRequest {
     /// The id of the other user that is participating in this verification
     /// request.
@@ -712,7 +713,7 @@ impl VerificationRequest {
     ///
     /// * `data` - The data that was extracted from the scanned QR code as an
     /// base64 encoded string, without padding.
-    pub fn scan_qr_code(&self, data: &str) -> Option<ScanResult> {
+    pub fn scan_qr_code(&self, data: String) -> Option<ScanResult> {
         let data = STANDARD_NO_PAD.decode(data).ok()?;
         let data = QrVerificationData::from_bytes(data).ok()?;
 
@@ -741,7 +742,9 @@ impl VerificationRequest {
     pub fn state(&self) -> VerificationRequestState {
         self.inner.state().into()
     }
+}
 
+impl VerificationRequest {
     async fn changes_listener(
         mut stream: impl Stream<Item = RustVerificationRequestState> + std::marker::Unpin,
         listener: Box<dyn VerificationRequestListener>,

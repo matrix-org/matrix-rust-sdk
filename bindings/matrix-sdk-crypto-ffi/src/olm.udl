@@ -139,35 +139,7 @@ callback interface QrCodeListener {
     void on_change(QrCodeState state);
 };
 
-interface VerificationRequest {
-    string other_user_id();
-    string? other_device_id();
-    string flow_id();
-    string? room_id();
-    boolean we_started();
-    boolean is_ready();
-    boolean is_done();
-    boolean is_passive();
-    boolean is_cancelled();
-    CancelInfo? cancel_info();
-
-    sequence<string>? their_supported_methods();
-    sequence<string>? our_supported_methods();
-
-    OutgoingVerificationRequest? accept(sequence<string> methods);
-
-    [Throws=CryptoStoreError]
-    StartSasResult? start_sas_verification();
-
-    [Throws=CryptoStoreError]
-    QrCode? start_qr_verification();
-    ScanResult? scan_qr_code([ByRef] string data);
-
-    OutgoingVerificationRequest? cancel();
-
-    void set_changes_listener(VerificationRequestListener listener);
-    VerificationRequestState state();
-};
+interface VerificationRequest {};
 
 [Enum]
 interface VerificationRequestState {
