@@ -56,7 +56,7 @@ pub use verification::{
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Struct collecting data that is important to migrate to the rust-sdk
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct MigrationData {
     /// The pickled version of the Olm Account
     account: PickledAccount,
@@ -79,6 +79,7 @@ pub struct MigrationData {
 }
 
 /// Struct collecting data that is important to migrate sessions to the rust-sdk
+#[derive(uniffi::Record)]
 pub struct SessionMigrationData {
     /// The user id that the data belongs to.
     user_id: String,
@@ -100,7 +101,7 @@ pub struct SessionMigrationData {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an account.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: String,
@@ -118,7 +119,7 @@ pub struct PickledAccount {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// a Session.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledSession {
     /// The pickle string holding the Olm Session.
     pub pickle: String,
@@ -136,7 +137,7 @@ pub struct PickledSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: String,
@@ -543,7 +544,7 @@ impl<T: Fn(i32, i32)> ProgressListener for T {
 }
 
 /// An encryption algorithm to be used to encrypt messages sent to a room.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, uniffi::Enum)]
 pub enum EventEncryptionAlgorithm {
     /// Olm version 1 using Curve25519, AES-256, and SHA-256.
     OlmV1Curve25519AesSha2,
@@ -575,6 +576,7 @@ impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
 }
 
 /// Who can see a room's history.
+#[derive(uniffi::Enum)]
 pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from the point
     /// they were invited onwards.
@@ -720,7 +722,7 @@ pub struct CrossSigningStatus {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
     pub master_key: Option<String>,
@@ -813,7 +815,7 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
 }
 
 /// Room encryption settings which are modified by state events or user options
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, uniffi::Record)]
 pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,

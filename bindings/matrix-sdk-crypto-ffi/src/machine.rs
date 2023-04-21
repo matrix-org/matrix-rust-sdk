@@ -79,6 +79,7 @@ impl Drop for OlmMachine {
 
 /// A pair of outgoing room key requests, both of those are sendToDevice
 /// requests.
+#[derive(uniffi::Record)]
 pub struct KeyRequestPair {
     /// The optional cancellation, this is None if no previous key request was
     /// sent out for this key, thus it doesn't need to be cancelled.
@@ -88,7 +89,7 @@ pub struct KeyRequestPair {
 }
 
 /// The result of a signature verification of a signed JSON object.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct SignatureVerification {
     /// The result of the signature verification using the public key of our own
     /// device.

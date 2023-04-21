@@ -7,7 +7,8 @@ use matrix_sdk_crypto::{
 use matrix_sdk_sqlite::OpenStoreError;
 use ruma::{IdParseError, OwnedUserId};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum KeyImportError {
     #[error(transparent)]
     Export(#[from] KeyExportError),
@@ -26,7 +27,8 @@ pub enum SecretImportError {
     Import(#[from] RustSecretImportError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SignatureError {
     #[error(transparent)]
     Signature(#[from] InnerSignatureError),
