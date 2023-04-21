@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::bail;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::room::timeline::{Profile, TimelineDetails};
@@ -449,11 +450,10 @@ pub struct Message(matrix_sdk::room::timeline::Message);
 #[uniffi::export]
 impl Message {
     pub fn msgtype(&self) -> Option<MessageType> {
-        let message_type = self.0.msgtype().clone().into();
-        if matches!(message_type, MessageType::Unsupported) {
-            None
-        } else {
+        if let Ok(message_type) = self.0.msgtype().clone().try_into() {
             Some(message_type)
+        } else {
+            None
         }
     }
 
@@ -479,13 +479,16 @@ pub enum MessageType {
     File { content: FileMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
-    Unsupported,
 }
 
-impl From<matrix_sdk::ruma::events::room::message::MessageType> for MessageType {
-    fn from(value: matrix_sdk::ruma::events::room::message::MessageType) -> Self {
+impl TryFrom<matrix_sdk::ruma::events::room::message::MessageType> for MessageType {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: matrix_sdk::ruma::events::room::message::MessageType,
+    ) -> anyhow::Result<Self> {
         use matrix_sdk::ruma::events::room::message::MessageType as MTy;
-        match value {
+        let message_type = match value {
             MTy::Emote(c) => MessageType::Emote {
                 content: EmoteMessageContent {
                     body: c.body.clone(),
@@ -532,8 +535,9 @@ impl From<matrix_sdk::ruma::events::room::message::MessageType> for MessageType 
                     formatted: c.formatted.as_ref().map(Into::into),
                 },
             },
-            _ => MessageType::Unsupported,
-        }
+            _ => bail!("Unsupported type"),
+        };
+        Ok(message_type)
     }
 }
 

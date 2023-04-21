@@ -56,7 +56,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             AnySyncMessageLikeEvent::KeyVerificationDone(_) => {
                 MessageLikeEventContent::KeyVerificationDone
             }
-            AnySyncMessageLikeEvent::Reaction(_) => MessageLikeEventContent::Reaction,
+            AnySyncMessageLikeEvent::Reaction(_) => MessageLikeEventContent::ReactionContent,
             AnySyncMessageLikeEvent::RoomEncrypted(_) => MessageLikeEventContent::RoomEncrypted,
             AnySyncMessageLikeEvent::RoomMessage(content) => {
                 let original_content = content
@@ -65,7 +65,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                     .content
                     .clone();
                 MessageLikeEventContent::RoomMessage {
-                    message_type: original_content.msgtype.into(),
+                    message_type: original_content.msgtype.try_into()?,
                 }
             }
             AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
@@ -96,7 +96,7 @@ pub enum MessageLikeEventContent {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
-    Reaction,
+    ReactionContent,
     RoomEncrypted,
     RoomMessage { message_type: MessageType },
     RoomRedaction,
