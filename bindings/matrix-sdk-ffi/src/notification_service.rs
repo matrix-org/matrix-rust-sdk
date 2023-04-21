@@ -49,7 +49,7 @@ impl NotificationItem {
             room_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             is_noisy,
-            is_direct: room.is_direct(),
+            is_direct: room.is_direct().await?,
             is_encrypted: room.is_encrypted().await?,
         };
         Ok(item)
