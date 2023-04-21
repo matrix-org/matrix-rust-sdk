@@ -17,7 +17,8 @@ pub enum KeyImportError {
     Json(#[from] serde_json::Error),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SecretImportError {
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
@@ -55,7 +56,7 @@ pub enum CryptoStoreError {
     Identifier(#[from] IdParseError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, uniffi::Error)]
 pub enum DecryptionError {
     Serialization { error: String },
     Identifier { error: String },

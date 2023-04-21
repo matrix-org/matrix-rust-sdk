@@ -1,10 +1,5 @@
 namespace matrix_sdk_crypto_ffi {};
 
-[Error]
-interface MigrationError {
-    Generic(string error_message);
-};
-
 callback interface Logger {
     void log(string log_line);
 };
@@ -30,13 +25,6 @@ enum SignatureError {
 };
 
 [Error]
-enum SecretImportError {
-    "Import",
-    "CryptoStore",
-};
-
-
-[Error]
 enum CryptoStoreError {
     "OpenStore",
     "CryptoStore",
@@ -44,15 +32,6 @@ enum CryptoStoreError {
     "Serialization",
     "InvalidUserId",
     "Identifier",
-};
-
-[Error]
-interface DecryptionError {
-    Identifier(string error);
-    Serialization(string error);
-    Megolm(string error);
-    MissingRoomKey(string error, string? withheld_code);
-    Store(string error);
 };
 
 dictionary KeysImportResult {
@@ -92,17 +71,6 @@ dictionary CrossSigningKeyExport {
     string? master_key;
     string? self_signing_key;
     string? user_signing_key;
-};
-
-dictionary UploadSigningKeysRequest {
-    string master_key;
-    string self_signing_key;
-    string user_signing_key;
-};
-
-dictionary BootstrapCrossSigningResult {
-   UploadSigningKeysRequest upload_signing_keys_request;
-   SignatureUploadRequest signature_request;
 };
 
 dictionary CancelInfo {
