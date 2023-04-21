@@ -25,6 +25,7 @@ mod platform;
 pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
+pub mod event;
 mod helpers;
 pub mod notification_service;
 pub mod room;
@@ -110,7 +111,7 @@ mod uniffi_types {
             PusherKind, SearchUsersResults, Session, UserProfile,
         },
         client_builder::ClientBuilder,
-        notification_service::{NotificationEventContent, NotificationItem},
+        event::{MessageLikeEventContent, TimelineEvent, TimelineEventType},
         room::{Membership, Room},
         room_member::{MembershipState, RoomMember},
         session_verification::{SessionVerificationController, SessionVerificationEmoji},

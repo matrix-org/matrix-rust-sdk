@@ -1,97 +1,9 @@
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
 use matrix_sdk::room::Room;
-use ruma::{
-    api::client::push::get_notifications::v3::Notification,
-    events::{AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-};
+use ruma::api::client::push::get_notifications::v3::Notification;
 
-// I need to make this an enum of structs just like TimelineEventContent
-pub struct NotificationEventContent(pub(crate) AnyMessageLikeEventContent);
-
-impl NotificationEventContent {}
-
-impl TryFrom<AnySyncMessageLikeEvent> for NotificationEventContent {
-    type Error = anyhow::Error;
-
-    fn try_from(value: AnySyncMessageLikeEvent) -> anyhow::Result<Self> {
-        let event = match value {
-            AnySyncMessageLikeEvent::CallAnswer(content) => AnyMessageLikeEventContent::CallAnswer(
-                content.as_original().context("Value not found")?.content.clone(),
-            ),
-            AnySyncMessageLikeEvent::CallInvite(content) => AnyMessageLikeEventContent::CallInvite(
-                content.as_original().context("Value not found")?.content.clone(),
-            ),
-            AnySyncMessageLikeEvent::CallHangup(content) => AnyMessageLikeEventContent::CallHangup(
-                content.as_original().context("Value not found")?.content.clone(),
-            ),
-            AnySyncMessageLikeEvent::CallCandidates(content) => {
-                AnyMessageLikeEventContent::CallCandidates(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationReady(content) => {
-                AnyMessageLikeEventContent::KeyVerificationReady(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationStart(content) => {
-                AnyMessageLikeEventContent::KeyVerificationStart(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationCancel(content) => {
-                AnyMessageLikeEventContent::KeyVerificationCancel(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationAccept(content) => {
-                AnyMessageLikeEventContent::KeyVerificationAccept(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationKey(content) => {
-                AnyMessageLikeEventContent::KeyVerificationKey(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationMac(content) => {
-                AnyMessageLikeEventContent::KeyVerificationMac(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::KeyVerificationDone(content) => {
-                AnyMessageLikeEventContent::KeyVerificationDone(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::Reaction(content) => AnyMessageLikeEventContent::Reaction(
-                content.as_original().context("Value not found")?.content.clone(),
-            ),
-            AnySyncMessageLikeEvent::RoomEncrypted(content) => {
-                AnyMessageLikeEventContent::RoomEncrypted(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::RoomMessage(content) => {
-                AnyMessageLikeEventContent::RoomMessage(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::RoomRedaction(content) => {
-                AnyMessageLikeEventContent::RoomRedaction(
-                    content.as_original().context("Value not found")?.content.clone(),
-                )
-            }
-            AnySyncMessageLikeEvent::Sticker(content) => AnyMessageLikeEventContent::Sticker(
-                content.as_original().context("Value not found")?.content.clone(),
-            ),
-            _ => bail!("Unsupported event type"),
-        };
-        Ok(Self(event))
-    }
-}
+use crate::event::TimelineEvent;
 
 #[allow(dead_code)]
 pub struct NotificationService {
@@ -99,7 +11,7 @@ pub struct NotificationService {
     user_id: String,
 }
 pub struct NotificationItem {
-    pub event_content: Arc<NotificationEventContent>,
+    pub event: Arc<TimelineEvent>,
     pub room_id: String,
 
     pub sender_display_name: Option<String>,
@@ -116,6 +28,7 @@ pub struct NotificationItem {
 impl NotificationItem {
     pub(crate) async fn new(notification: Notification, room: Room) -> anyhow::Result<Self> {
         let deserialized_event = notification.event.deserialize()?;
+        let event_id = deserialized_event.event_id().to_string();
 
         let sender = room.get_member(deserialized_event.sender()).await?;
         let mut sender_display_name = None;
@@ -128,16 +41,8 @@ impl NotificationItem {
         let is_noisy =
             notification.actions.iter().any(|a| a.sound().is_some() && a.should_notify());
 
-        let event_content: NotificationEventContent = match deserialized_event {
-            AnySyncTimelineEvent::MessageLike(event) => event,
-            AnySyncTimelineEvent::State(_) => {
-                bail!("State events can't be notifications")
-            }
-        }
-        .try_into()?;
-
         let item = Self {
-            event_content: Arc::new(event_content),
+            event: Arc::new(TimelineEvent(deserialized_event)),
             room_id: room.room_id().to_string(),
             sender_display_name,
             sender_avatar_url,

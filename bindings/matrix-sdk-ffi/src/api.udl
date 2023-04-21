@@ -13,6 +13,20 @@ callback interface ClientDelegate {
     void did_receive_notification(NotificationItem notification);
 };
 
+dictionary NotificationItem {
+    TimelineEvent event;
+    string room_id;
+    string? sender_display_name;
+    string? sender_avatar_url;
+    string room_display_name;
+    string? room_avatar_url;
+    boolean is_noisy;
+    boolean is_direct;
+    boolean is_encrypted;
+};
+
+interface TimelineEvent {};
+
 dictionary RequiredState {
     string key;
     string value;
@@ -311,20 +325,6 @@ interface MediaSource {
 interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
-
-dictionary NotificationItem {
-    NotificationEventContent event_content;
-    string room_id;
-    string? sender_display_name;
-    string? sender_avatar_url;
-    string room_display_name;
-    string? room_avatar_url;
-    boolean is_noisy;
-    boolean is_direct;
-    boolean is_encrypted;
-};
-
-interface NotificationEventContent {};
 
 interface NotificationService {
     constructor(string base_path, string user_id);
