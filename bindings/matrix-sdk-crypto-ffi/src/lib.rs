@@ -188,15 +188,16 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate(
     data: MigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        migrate_data(data, path, passphrase, progress_listener).await?;
+        migrate_data(data, &path, passphrase, progress_listener).await?;
         Ok(())
     })
 }
@@ -350,14 +351,15 @@ async fn save_changes(
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
-    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))?;
+    runtime.block_on(migrate_session_data(data, &path, passphrase, progress_listener))?;
     Ok(())
 }
 
@@ -497,9 +499,10 @@ fn collect_sessions(
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
 /// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
 /// and all its data will remain unencrypted.
+#[uniffi::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
@@ -959,12 +962,15 @@ mod test {
         let migration_data: MigrationData = serde_json::from_value(data)?;
 
         let dir = tempdir()?;
-        let path =
-            dir.path().to_str().expect("Creating a string from the tempdir path should not fail");
+        let path = dir
+            .path()
+            .to_str()
+            .expect("Creating a string from the tempdir path should not fail")
+            .to_owned();
 
-        migrate(migration_data, path, None, Box::new(|_, _| {}))?;
+        migrate(migration_data, path.clone(), None, Box::new(|_, _| {}))?;
 
-        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", path, None)?;
+        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", &path, None)?;
 
         assert_eq!(
             machine.identity_keys()["ed25519"],

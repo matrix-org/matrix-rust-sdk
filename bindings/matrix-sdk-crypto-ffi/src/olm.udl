@@ -1,26 +1,4 @@
-namespace matrix_sdk_crypto_ffi {
-    void set_logger(Logger logger);
-    [Throws=MigrationError]
-    void migrate(
-        MigrationData data,
-        [ByRef] string path,
-        string? passphrase,
-        ProgressListener progress_listener
-    );
-    [Throws=MigrationError]
-    void migrate_sessions(
-        SessionMigrationData data,
-        [ByRef] string path,
-        string? passphrase,
-        ProgressListener progress_listener
-    );
-    [Throws=MigrationError]
-    void migrate_room_settings(
-        record<string, RoomSettings> room_settings,
-        [ByRef] string path,
-        string? passphrase
-    );
-};
+namespace matrix_sdk_crypto_ffi {};
 
 [Error]
 interface MigrationError {
