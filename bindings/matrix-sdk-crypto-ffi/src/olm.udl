@@ -84,25 +84,7 @@ dictionary StartSasResult {
     OutgoingVerificationRequest request;
 };
 
-interface Sas {
-    string other_user_id();
-    string other_device_id();
-    string flow_id();
-    string? room_id();
-    boolean we_started();
-    boolean is_done();
-
-    OutgoingVerificationRequest? accept();
-    [Throws=CryptoStoreError]
-    ConfirmVerificationResult? confirm();
-    OutgoingVerificationRequest? cancel([ByRef] string cancel_code);
-
-    sequence<i32>? get_emoji_indices();
-    sequence<i32>? get_decimals();
-
-    void set_changes_listener(SasListener listener);
-    SasState state();
-};
+interface Sas {};
 
 [Enum]
 interface SasState {
