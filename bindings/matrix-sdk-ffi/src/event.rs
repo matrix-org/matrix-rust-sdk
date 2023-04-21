@@ -64,7 +64,9 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                     .context("Failed to get original content")?
                     .content
                     .clone();
-                MessageLikeEventContent::RoomMessage { message: original_content.msgtype.into() }
+                MessageLikeEventContent::RoomMessage {
+                    message_type: original_content.msgtype.into(),
+                }
             }
             AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
@@ -96,7 +98,7 @@ pub enum MessageLikeEventContent {
     KeyVerificationDone,
     Reaction,
     RoomEncrypted,
-    RoomMessage { message: MessageType },
+    RoomMessage { message_type: MessageType },
     RoomRedaction,
     Sticker,
 }

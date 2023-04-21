@@ -28,7 +28,6 @@ pub struct NotificationItem {
 impl NotificationItem {
     pub(crate) async fn new(notification: Notification, room: Room) -> anyhow::Result<Self> {
         let deserialized_event = notification.event.deserialize()?;
-        let event_id = deserialized_event.event_id().to_string();
 
         let sender = room.get_member(deserialized_event.sender()).await?;
         let mut sender_display_name = None;
