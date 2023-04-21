@@ -192,11 +192,6 @@ impl OlmMachine {
         Ok(OlmMachine { inner: ManuallyDrop::new(inner), runtime })
     }
 
-    /// Get the display name of our own device.
-    pub fn display_name(&self) -> Result<Option<String>, CryptoStoreError> {
-        Ok(self.runtime.block_on(self.inner.display_name())?)
-    }
-
     /// Get a cross signing user identity for the given user ID.
     ///
     /// # Arguments
