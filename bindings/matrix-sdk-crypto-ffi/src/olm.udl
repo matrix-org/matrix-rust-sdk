@@ -232,47 +232,6 @@ interface OlmMachine {
         [ByRef] string path,
         string? passphrase
     );
-
-    [Throws=CryptoStoreError]
-    sequence<Request> outgoing_requests();
-    [Throws=CryptoStoreError]
-    void mark_request_as_sent(
-        [ByRef] string request_id,
-        RequestType request_type,
-        [ByRef] string response
-    );
-
-    [Throws=CryptoStoreError]
-    UserIdentity? get_identity([ByRef] string user_id, u32 timeout);
-    [Throws=SignatureError]
-    SignatureUploadRequest verify_identity([ByRef] string user_id);
-    [Throws=CryptoStoreError]
-    Device? get_device([ByRef] string user_id, [ByRef] string device_id, u32 timeout);
-    [Throws=CryptoStoreError]
-    void set_local_trust([ByRef] string user_id, [ByRef] string device_id, LocalTrust trust_state);
-    [Throws=SignatureError]
-    SignatureUploadRequest verify_device([ByRef] string user_id, [ByRef] string device_id);
-    [Throws=CryptoStoreError]
-    sequence<Device> get_user_devices([ByRef] string user_id, u32 timeout);
-
-    [Throws=KeyImportError]
-    KeysImportResult import_room_keys(
-        [ByRef] string keys,
-        [ByRef] string passphrase,
-        ProgressListener progress_listener
-    );
-    [Throws=KeyImportError]
-    KeysImportResult import_decrypted_room_keys(
-        [ByRef] string keys,
-        ProgressListener progress_listener
-    );
-
-    [Throws=CryptoStoreError]
-    boolean is_identity_verified([ByRef] string user_id);
-
-    record<DOMString, record<DOMString, string>> sign([ByRef] string message);
-    [Throws=CryptoStoreError]
-    SignatureVerification verify_backup([ByRef] string auth_data);
 };
 
 dictionary PassphraseInfo {
