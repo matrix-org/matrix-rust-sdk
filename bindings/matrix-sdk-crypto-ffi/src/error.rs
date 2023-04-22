@@ -97,6 +97,8 @@ impl From<InnerStoreError> for DecryptionError {
 #[cfg(test)]
 mod tests {
 
+    use assert_matches::assert_matches;
+
     use super::*;
 
     #[test]
@@ -107,11 +109,10 @@ mod tests {
 
         let binding_error: DecryptionError = inner_error.into();
 
-        match binding_error {
-            DecryptionError::MissingRoomKey { error: _, withheld_code } => {
-                assert_eq!("m.unverified", withheld_code.unwrap())
-            }
-            _ => panic!("Unexpected mapping"),
-        }
+        let code = assert_matches!(
+            binding_error,
+            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(withheld_code) } => withheld_code
+        );
+        assert_eq!("m.unverified", code)
     }
 }
