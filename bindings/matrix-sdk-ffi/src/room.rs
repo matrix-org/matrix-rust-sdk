@@ -621,19 +621,20 @@ impl Room {
         })
     }
 
-    pub fn fetch_event_details(&self, event_id: String) {
+    pub fn fetch_event_details(&self, event_id: String) -> Result<(), ClientError> {
         let timeline = self
             .timeline
             .read()
             .unwrap()
-            .context("Timeline not setup, can't fetch details")?
+            .as_ref()
+            .context("Timeline not set up, can't fetch event details")?
             .clone();
 
-        RUNTIME.spawn(async move {
+        RUNTIME.block_on(async move {
             let event_id = <&EventId>::try_from(event_id.as_str())?;
             timeline.fetch_event_details(event_id).await.context("Fetching event details")?;
             Ok(())
-        });
+        })
     }
 }
 
