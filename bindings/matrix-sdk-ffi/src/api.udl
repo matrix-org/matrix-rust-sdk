@@ -165,25 +165,6 @@ callback interface SessionVerificationControllerDelegate {
     void did_finish();
 };
 
-interface SessionVerificationController {
-    void set_delegate(SessionVerificationControllerDelegate? delegate);
-
-    [Throws=ClientError]
-    void request_verification();
-
-    [Throws=ClientError]
-    void start_sas_verification();
-
-    [Throws=ClientError]
-    void approve_verification();
-
-    [Throws=ClientError]
-    void decline_verification();
-
-    [Throws=ClientError]
-    void cancel_verification();
-};
-
 interface Span {
     constructor(string file, u32 line, u32 column, LogLevel level, string target, string name);
     [Name=current]
