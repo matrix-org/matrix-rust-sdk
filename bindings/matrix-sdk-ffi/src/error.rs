@@ -1,4 +1,4 @@
-use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError};
+use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -14,6 +14,12 @@ impl From<anyhow::Error> for ClientError {
 
 impl From<matrix_sdk::Error> for ClientError {
     fn from(e: matrix_sdk::Error) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<StoreError> for ClientError {
+    fn from(e: StoreError) -> Self {
         anyhow::Error::from(e).into()
     }
 }
@@ -38,6 +44,18 @@ impl From<IdParseError> for ClientError {
 
 impl From<serde_json::Error> for ClientError {
     fn from(e: serde_json::Error) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<url::ParseError> for ClientError {
+    fn from(e: url::ParseError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
+impl From<mime::FromStrError> for ClientError {
+    fn from(e: mime::FromStrError) -> Self {
         anyhow::Error::from(e).into()
     }
 }

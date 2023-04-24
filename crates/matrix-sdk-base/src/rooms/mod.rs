@@ -3,6 +3,7 @@ mod normal;
 
 use std::{collections::HashSet, fmt};
 
+use bitflags::bitflags;
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomState};
 use ruma::{
@@ -13,9 +14,9 @@ use ruma::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
-            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
-            topic::RoomTopicEventContent,
+            join_rules::RoomJoinRulesEventContent, member::MembershipState,
+            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
+            tombstone::RoomTombstoneEventContent, topic::RoomTopicEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedStateEventContent,
         StaticStateEventContent, SyncStateEvent,
@@ -304,6 +305,47 @@ fn calculate_room_name(
         }
     } else {
         DisplayName::Calculated(names)
+    }
+}
+
+bitflags! {
+    /// Room memberships as a bitset.
+    ///
+    /// Note that, when used as a filter, [`RoomMemberships::empty()`] doesn't
+    /// filter the results and is equivalent to [`RoomMemberships::all()`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RoomMemberships: u16 {
+        /// An unknown (i.e. unspecced) membership.
+        const UNKNOWN = 0b00000001;
+        /// The member joined the room.
+        const JOIN    = 0b00000010;
+        /// The member was invited to the room.
+        const INVITE  = 0b00000100;
+        /// The member requested to join the room.
+        const KNOCK   = 0b00001000;
+        /// The member left the room.
+        const LEAVE   = 0b00010000;
+        /// The member was banned.
+        const BAN     = 0b00100000;
+
+        /// The member is active in the room (i.e. joined or invited).
+        const ACTIVE = Self::JOIN.bits() | Self::INVITE.bits();
+
+        /// The member has a known (i.e. specced) membership.
+        const KNOWN = Self::JOIN.bits() | Self::INVITE.bits() | Self::KNOCK.bits() | Self::LEAVE.bits() | Self::BAN.bits();
+    }
+}
+
+impl From<&MembershipState> for RoomMemberships {
+    fn from(value: &MembershipState) -> Self {
+        match value {
+            MembershipState::Ban => Self::BAN,
+            MembershipState::Invite => Self::INVITE,
+            MembershipState::Join => Self::JOIN,
+            MembershipState::Knock => Self::KNOCK,
+            MembershipState::Leave => Self::LEAVE,
+            _ => Self::UNKNOWN,
+        }
     }
 }
 

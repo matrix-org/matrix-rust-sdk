@@ -1,6 +1,6 @@
 //! Types related to events.
 
-use napi::bindgen_prelude::ToNapiValue;
+use napi::bindgen_prelude::{FromNapiValue, ToNapiValue};
 use napi_derive::*;
 use ruma::events::room::history_visibility::HistoryVisibility as RumaHistoryVisibility;
 

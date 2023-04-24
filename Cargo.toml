@@ -26,14 +26,14 @@ async-stream = "0.3.3"
 async-trait = "0.1.60"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-ctor = "0.1.26"
+ctor = "0.2.0"
 dashmap = "5.2.0"
-eyeball = "0.4.0"
+eyeball = "0.6.0"
 eyeball-im = "0.2.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "89e398fd062b4e763a3341fc7067428285d51d09", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "89e398fd062b4e763a3341fc7067428285d51d09" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "0143bd9b9f5dcfcaa835afb76f342c12f014f945", features = ["client-api-c", "compat-user-id"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "0143bd9b9f5dcfcaa835afb76f342c12f014f945" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"

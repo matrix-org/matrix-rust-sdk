@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
-use napi::bindgen_prelude::{BigInt, ToNapiValue};
+use napi::bindgen_prelude::{BigInt, FromNapiValue, ToNapiValue};
 use napi_derive::*;
 
 use crate::events;
