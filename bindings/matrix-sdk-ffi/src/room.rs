@@ -620,6 +620,22 @@ impl Room {
             Ok(())
         })
     }
+
+    pub fn fetch_event_details(&self, event_id: String) -> Result<(), ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .unwrap()
+            .as_ref()
+            .context("Timeline not set up, can't fetch event details")?
+            .clone();
+
+        RUNTIME.block_on(async move {
+            let event_id = <&EventId>::try_from(event_id.as_str())?;
+            timeline.fetch_event_details(event_id).await.context("Fetching event details")?;
+            Ok(())
+        })
+    }
 }
 
 impl std::ops::Deref for Room {
