@@ -2698,6 +2698,7 @@ name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "base64 0.21.0",
  "futures-util",
  "hmac",
