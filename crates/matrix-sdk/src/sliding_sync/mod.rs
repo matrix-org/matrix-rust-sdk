@@ -367,51 +367,60 @@ impl SlidingSync {
     }
 
     async fn sync_once(&self, stream_id: &str) -> Result<Option<UpdateSummary>> {
-        let mut requests_lists = BTreeMap::new();
+        let (request, request_config) = {
+            // Collect requests for lists.
+            let mut requests_lists = BTreeMap::new();
 
-        {
-            let mut lists = self.inner.lists.write().unwrap();
+            {
+                let mut lists = self.inner.lists.write().unwrap();
 
-            if lists.is_empty() {
-                return Ok(None);
+                if lists.is_empty() {
+                    return Ok(None);
+                }
+
+                for (name, list) in lists.iter_mut() {
+                    requests_lists.insert(name.clone(), list.next_request()?);
+                }
             }
 
-            for (name, list) in lists.iter_mut() {
-                requests_lists.insert(name.clone(), list.next_request()?);
-            }
-        }
+            // Collect the `pos` and `delta_token`.
+            let (pos, delta_token) = {
+                let position_lock = self.inner.position.read().unwrap();
 
-        let (pos, delta_token) = {
-            let position_lock = self.inner.position.read().unwrap();
+                (position_lock.pos.clone(), position_lock.delta_token.clone())
+            };
 
-            (position_lock.pos.clone(), position_lock.delta_token.clone())
+            // Collect other data.
+            let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
+            let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
+            let timeout = Duration::from_secs(30);
+            let extensions = self.prepare_extension_config(pos.as_deref());
+
+            (
+                // Build the request itself.
+                assign!(v4::Request::new(), {
+                    pos,
+                    delta_token,
+                    // We want to track whether the incoming response maps to this
+                    // request. We use the (optional) `txn_id` field for that.
+                    txn_id: Some(stream_id.to_owned()),
+                    timeout: Some(timeout),
+                    lists: requests_lists,
+                    room_subscriptions,
+                    unsubscribe_rooms,
+                    extensions,
+                }),
+                // Configure long-polling. We need 30 seconds for the long-poll itself, in
+                // addition to 30 more extra seconds for the network delays.
+                RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            )
         };
-
-        let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
-        let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
-        let timeout = Duration::from_secs(30);
-        let extensions = self.prepare_extension_config(pos.as_deref());
 
         debug!("Sending the sliding sync request");
 
-        // Configure long-polling. We need 30 seconds for the long-poll itself, in
-        // addition to 30 more extra seconds for the network delays.
-        let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
-
         // Prepare the request.
         let request = self.inner.client.send_with_homeserver(
-            assign!(v4::Request::new(), {
-                pos,
-                delta_token,
-                // We want to track whether the incoming response maps to this
-                // request. We use the (optional) `txn_id` field for that.
-                txn_id: Some(stream_id.to_owned()),
-                timeout: Some(timeout),
-                lists: requests_lists,
-                room_subscriptions,
-                unsubscribe_rooms,
-                extensions,
-            }),
+            request,
             Some(request_config),
             self.inner.homeserver.as_ref().map(ToString::to_string),
         );
