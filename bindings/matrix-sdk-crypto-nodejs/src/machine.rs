@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use napi::bindgen_prelude::{within_runtime_if_available, Either7, ToNapiValue};
+use napi::bindgen_prelude::{within_runtime_if_available, Either7, FromNapiValue, ToNapiValue};
 use napi_derive::*;
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::{value::RawValue, Value as JsonValue};
