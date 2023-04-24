@@ -871,6 +871,14 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
+    pub fn bump_event_types(self: Arc<Self>, bump_event_types: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.bump_event_types(
+            bump_event_types.into_iter().map(Into::into).collect::<Vec<_>>().as_slice(),
+        );
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSync>, ClientError> {
         let builder = unwrap_or_clone_arc(self);
         RUNTIME.block_on(async move {
