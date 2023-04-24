@@ -12,10 +12,12 @@ use ruma::{
     },
     assign, OwnedRoomId,
 };
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use url::Url;
 
 use super::{
-    cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner, SlidingSyncList,
+    cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner,
+    SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListBuilder,
     SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
@@ -32,6 +34,7 @@ pub struct SlidingSyncBuilder {
     lists: BTreeMap<String, SlidingSyncList>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    internal_channel: (Sender<SlidingSyncInternalMessage>, Receiver<SlidingSyncInternalMessage>),
 }
 
 impl SlidingSyncBuilder {
@@ -43,6 +46,7 @@ impl SlidingSyncBuilder {
             lists: BTreeMap::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
+            internal_channel: channel(8),
         }
     }
 
@@ -67,10 +71,12 @@ impl SlidingSyncBuilder {
     /// Add the given list to the lists.
     ///
     /// Replace any list with the name.
-    pub fn add_list(mut self, list: SlidingSyncList) -> Self {
+    pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Result<Self> {
+        let list = list_builder.build(self.internal_channel.0.clone())?;
+
         self.lists.insert(list.name().to_owned(), list);
 
-        self
+        Ok(self)
     }
 
     /// Activate e2ee, to-device-message and account data extensions if not yet
@@ -233,6 +239,8 @@ impl SlidingSyncBuilder {
 
             subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
+
+            internal_channel: self.internal_channel,
         }))
     }
 }

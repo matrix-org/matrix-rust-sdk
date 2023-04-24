@@ -5,10 +5,11 @@ use std::{fmt::Debug, sync::RwLock as StdRwLock};
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
+use tokio::sync::mpsc::Sender;
 
 use super::{
-    Error, SlidingSyncList, SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode,
-    SlidingSyncState,
+    super::SlidingSyncInternalMessage, Error, SlidingSyncList, SlidingSyncListInner,
+    SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 use crate::Result;
 
@@ -137,7 +138,10 @@ impl SlidingSyncListBuilder {
     }
 
     /// Build the list.
-    pub(in super::super) fn build(self) -> Result<SlidingSyncList> {
+    pub(in super::super) fn build(
+        self,
+        sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
+    ) -> Result<SlidingSyncList> {
         let request_generator = match &self.sync_mode {
             SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
                 self.full_sync_batch_size,
@@ -170,6 +174,8 @@ impl SlidingSyncListBuilder {
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 room_list: StdRwLock::new(ObservableVector::new()),
+
+                sliding_sync_internal_channel_sender,
             },
         })
     }

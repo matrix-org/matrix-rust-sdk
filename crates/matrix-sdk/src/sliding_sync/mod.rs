@@ -51,7 +51,13 @@ use ruma::{
     assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{spawn, sync::Mutex as AsyncMutex};
+use tokio::{
+    spawn,
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex as AsyncMutex,
+    },
+};
 use tracing::{debug, error, info_span, instrument, warn, Instrument, Span};
 use url::Url;
 use uuid::Uuid;
@@ -108,6 +114,8 @@ pub(super) struct SlidingSyncInner {
     /// the intended state of the extensions being supplied to sliding /sync
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Mutex<Option<ExtensionsConfig>>,
+
+    internal_channel: (Sender<SlidingSyncInternalMessage>, Receiver<SlidingSyncInternalMessage>),
 }
 
 impl SlidingSync {
@@ -207,7 +215,7 @@ impl SlidingSync {
         &self,
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
-        let list = list_builder.build()?;
+        let list = list_builder.build(self.inner.internal_channel.0.clone())?;
 
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
@@ -579,6 +587,8 @@ impl SlidingSync {
         }
     }
 }
+
+enum SlidingSyncInternalMessage {}
 
 #[cfg(any(test, feature = "testing"))]
 impl SlidingSync {

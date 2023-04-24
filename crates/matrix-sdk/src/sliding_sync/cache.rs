@@ -245,7 +245,7 @@ mod tests {
                     .sliding_sync()
                     .await
                     .storage_key(Some("hello".to_owned()))
-                    .add_list(SlidingSyncList::builder().name("list_foo").build()?)
+                    .add_list(SlidingSyncList::builder().name("list_foo"))?
                     .build()
                     .await?;
 
@@ -279,7 +279,7 @@ mod tests {
                     .sliding_sync()
                     .await
                     .storage_key(Some("hello".to_owned()))
-                    .add_list(SlidingSyncList::builder().name("list_foo").build()?)
+                    .add_list(SlidingSyncList::builder().name("list_foo"))?
                     .build()
                     .await?;
 
