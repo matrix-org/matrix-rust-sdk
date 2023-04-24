@@ -110,7 +110,7 @@ jobs:
 
   trigger-release:
     # and trigger the tagging release workflow
-    uses: matrix-org/matrix-rust-sdk/.github/workflows/release-crypto-nodejs.yml@main
+    uses: ./.github/workflows/release-crypto-nodejs.yml
     needs: ['prepare-release']
     name: "Trigger release Workflow"
     with:
