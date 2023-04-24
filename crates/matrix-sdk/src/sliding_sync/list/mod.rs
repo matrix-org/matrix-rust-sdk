@@ -3,14 +3,7 @@ mod frozen;
 mod request_generator;
 mod room_list_entry;
 
-use std::{
-    cmp::min,
-    collections::HashSet,
-    fmt::Debug,
-    iter,
-    ops::Not,
-    sync::{Arc, RwLock as StdRwLock},
-};
+use std::{cmp::min, collections::HashSet, fmt::Debug, iter, ops::Not, sync::RwLock as StdRwLock};
 
 pub use builder::*;
 use eyeball::unique::Observable;
@@ -30,9 +23,9 @@ use crate::Result;
 /// Holding a specific filtered list within the concept of sliding sync.
 ///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SlidingSyncList {
-    inner: Arc<SlidingSyncListInner>,
+    inner: SlidingSyncListInner,
 }
 
 impl SlidingSyncList {
@@ -985,7 +978,7 @@ mod tests {
     #[test]
     fn test_sliding_sync_list_new_builder() {
         let list = SlidingSyncList {
-            inner: Arc::new(SlidingSyncListInner {
+            inner: SlidingSyncListInner {
                 sync_mode: SlidingSyncMode::Growing,
                 sort: vec!["foo".to_owned(), "bar".to_owned()],
                 required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
@@ -1002,7 +995,7 @@ mod tests {
                     42,
                     Some(153),
                 )),
-            }),
+            },
         };
 
         let new_list = list.new_builder().build().unwrap();

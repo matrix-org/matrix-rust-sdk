@@ -156,7 +156,7 @@ impl SlidingSyncListBuilder {
         };
 
         Ok(SlidingSyncList {
-            inner: Arc::new(SlidingSyncListInner {
+            inner: SlidingSyncListInner {
                 // From the builder
                 sync_mode: self.sync_mode,
                 sort: self.sort,
@@ -173,7 +173,7 @@ impl SlidingSyncListBuilder {
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 room_list: StdRwLock::new(ObservableVector::new()),
-            }),
+            },
         })
     }
 }

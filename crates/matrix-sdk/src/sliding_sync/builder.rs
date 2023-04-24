@@ -24,7 +24,7 @@ use crate::{Client, Result};
 ///
 /// Get a new builder with methods like [`crate::Client::sliding_sync`], or
 /// [`crate::SlidingSync::builder`].
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,

@@ -23,7 +23,6 @@ mod list;
 mod room;
 
 use std::{
-    borrow::BorrowMut,
     collections::BTreeMap,
     fmt::Debug,
     mem,
@@ -188,12 +187,8 @@ impl SlidingSync {
     }
 
     /// Get access to the SlidingSyncList named `list_name`.
-    ///
-    /// Note: Remember that this list might have been changed since you started
-    /// listening to the stream and is therefor not necessarily up to date
-    /// with the lists used for the stream.
-    pub fn list(&self, list_name: &str) -> Option<SlidingSyncList> {
-        self.inner.lists.read().unwrap().get(list_name).cloned()
+    pub fn list(&self, _list_name: &str) -> Option<SlidingSyncList> {
+        todo!("this is going to be removed!");
     }
 
     /// Add the list to the list of lists.
@@ -201,10 +196,6 @@ impl SlidingSync {
     /// As lists need to have a unique `.name`, if a list with the same name
     /// is found the new list will replace the old one and the return it or
     /// `None`.
-    ///
-    /// Note: Remember that this change will only be applicable for any new
-    /// stream created after this. The old stream will still continue to use the
-    /// previous set of lists.
     pub fn add_list(&self, list: SlidingSyncList) -> Option<SlidingSyncList> {
         self.inner.lists.write().unwrap().insert(list.name().to_owned(), list)
     }
@@ -267,12 +258,11 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = lists.len()))]
+    #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
     fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
         mut sync_response: SyncResponse,
-        lists: &mut BTreeMap<String, SlidingSyncList>,
     ) -> Result<UpdateSummary, crate::Error> {
         {
             debug!(
@@ -328,6 +318,8 @@ impl SlidingSync {
             // Update the lists.
             let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
 
+            let mut lists = self.inner.lists.write().unwrap();
+
             for (name, updates) in sliding_sync_response.lists {
                 let Some(list) = lists.get_mut(&name) else {
                     error!("Response for list `{name}` - unknown to us; skipping");
@@ -354,16 +346,11 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
-    async fn sync_once(
-        &self,
-        stream_id: &str,
-        lists: Arc<Mutex<BTreeMap<String, SlidingSyncList>>>,
-    ) -> Result<Option<UpdateSummary>> {
+    async fn sync_once(&self, stream_id: &str) -> Result<Option<UpdateSummary>> {
         let mut requests_lists = BTreeMap::new();
 
         {
-            let mut lists_lock = lists.lock().unwrap();
-            let lists = lists_lock.borrow_mut();
+            let mut lists = self.inner.lists.write().unwrap();
 
             if lists.is_empty() {
                 return Ok(None);
@@ -487,7 +474,7 @@ impl SlidingSync {
 
             debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
-            let updates = this.handle_response(response, sync_response, lists.lock().unwrap().borrow_mut())?;
+            let updates = this.handle_response(response, sync_response)?;
 
             this.cache_to_storage().await?;
 
@@ -507,9 +494,6 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        // Copy all the lists.
-        let lists = Arc::new(Mutex::new(self.inner.lists.read().unwrap().clone()));
-
         // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
 
@@ -525,7 +509,7 @@ impl SlidingSync {
                     debug!(?self.inner.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&stream_id, lists.clone()).instrument(sync_span.clone()).await {
+                match self.sync_once(&stream_id).instrument(sync_span.clone()).await {
                     Ok(Some(updates)) => {
                         self.inner.reset_counter.store(0, Ordering::SeqCst);
 
