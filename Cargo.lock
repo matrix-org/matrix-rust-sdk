@@ -4236,7 +4236,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.8.2"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "assign",
  "js_int",
@@ -4251,7 +4251,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4262,7 +4262,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.16.2"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "assign",
  "bytes",
@@ -4279,7 +4279,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "base64 0.21.0",
  "bytes",
@@ -4312,7 +4312,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4323,7 +4323,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.1"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4332,7 +4332,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4347,7 +4347,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=89e398fd062b4e763a3341fc7067428285d51d09#89e398fd062b4e763a3341fc7067428285d51d09"
+source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
 dependencies = [
  "js_int",
  "ruma-common",
