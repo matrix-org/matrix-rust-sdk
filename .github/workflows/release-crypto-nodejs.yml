@@ -52,7 +52,6 @@ jobs:
             apt_install: gcc-arm-linux-gnueabihf
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            apt_install: musl-tools
           # ----------------------------------- macOS
           - target: aarch64-apple-darwin
             os: macos-latest
