@@ -336,6 +336,18 @@ bitflags! {
     }
 }
 
+impl RoomMemberships {
+    /// Whether the given membership matches this `RoomMemberships`.
+    pub fn matches(&self, membership: &MembershipState) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        let membership = Self::from(membership);
+        self.contains(membership)
+    }
+}
+
 impl From<&MembershipState> for RoomMemberships {
     fn from(value: &MembershipState) -> Self {
         match value {
