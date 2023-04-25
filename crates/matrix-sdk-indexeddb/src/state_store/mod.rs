@@ -151,7 +151,7 @@ fn serialize_event(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -
 
 fn deserialize_event<T: DeserializeOwned>(
     store_cipher: Option<&StoreCipher>,
-    event: JsValue,
+    event: &JsValue,
 ) -> Result<T> {
     match store_cipher {
         Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
@@ -294,7 +294,7 @@ impl IndexeddbStateStore {
         serialize_event(self.store_cipher.as_deref(), event)
     }
 
-    fn deserialize_event<T: DeserializeOwned>(&self, event: JsValue) -> Result<T> {
+    fn deserialize_event<T: DeserializeOwned>(&self, event: &JsValue) -> Result<T> {
         deserialize_event(self.store_cipher.as_deref(), event)
     }
 
@@ -333,7 +333,7 @@ impl IndexeddbStateStore {
                 .get_all_with_key(&range)?
                 .await?
                 .iter()
-                .filter_map(|f| self.deserialize_event::<RoomMember>(f).ok().map(|m| m.user_id))
+                .filter_map(|f| self.deserialize_event::<RoomMember>(&f).ok().map(|m| m.user_id))
                 .collect::<Vec<_>>()
         } else {
             let mut user_ids = Vec::new();
@@ -342,7 +342,7 @@ impl IndexeddbStateStore {
             if let Some(cursor) = cursor {
                 loop {
                     let value = cursor.value();
-                    let member = self.deserialize_event::<RoomMember>(value)?;
+                    let member = self.deserialize_event::<RoomMember>(&value)?;
 
                     if memberships.matches(&member.membership) {
                         user_ids.push(member.user_id);
@@ -366,7 +366,7 @@ impl IndexeddbStateStore {
             .object_store(keys::CUSTOM)?
             .get(jskey)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -430,7 +430,7 @@ impl_state_store! {
             .object_store(keys::KV)?
             .get(&encoded_key)?
             .await?
-            .map(|f| self.deserialize_event::<String>(f))
+            .map(|f| self.deserialize_event::<String>(&f))
             .transpose()?;
 
         let value = match key {
@@ -717,7 +717,7 @@ impl_state_store! {
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
-                                    self.deserialize_event::<(OwnedEventId, Receipt)>(f).ok()
+                                    self.deserialize_event::<(OwnedEventId, Receipt)>(&f).ok()
                                 })
                             {
                                 let key = match receipt.thread.as_str() {
@@ -767,7 +767,7 @@ impl_state_store! {
 
                 while let Some(key) = cursor.key() {
                     let raw_evt =
-                        self.deserialize_event::<Raw<AnySyncStateEvent>>(cursor.value())?;
+                        self.deserialize_event::<Raw<AnySyncStateEvent>>(&cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
                         if let Some(redaction) = redactions.get(&event_id) {
                             let version = {
@@ -775,7 +775,7 @@ impl_state_store! {
                                     room_version.replace(room_info
                                         .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
                                         .await?
-                                        .and_then(|f| self.deserialize_event::<RoomInfo>(f).ok())
+                                        .and_then(|f| self.deserialize_event::<RoomInfo>(&f).ok())
                                         .and_then(|info| info.room_version().cloned())
                                         .unwrap_or_else(|| {
                                             warn!(?room_id, "Unable to find the room version, assume version 9");
@@ -811,7 +811,7 @@ impl_state_store! {
             .object_store(keys::PRESENCE)?
             .get(&self.encode_key(keys::PRESENCE, user_id))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -826,7 +826,7 @@ impl_state_store! {
             .object_store(keys::ROOM_STATE)?
             .get(&self.encode_key(keys::ROOM_STATE, (room_id, event_type, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -843,7 +843,7 @@ impl_state_store! {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -857,7 +857,7 @@ impl_state_store! {
             .object_store(keys::PROFILES)?
             .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -872,7 +872,7 @@ impl_state_store! {
             .object_store(keys::STRIPPED_ROOM_STATE)?
             .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()?
         {
             Ok(Some(RawMemberEvent::Stripped(e)))
@@ -882,7 +882,7 @@ impl_state_store! {
             .object_store(keys::ROOM_STATE)?
             .get(&self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()?
         {
             Ok(Some(RawMemberEvent::Sync(e)))
@@ -899,7 +899,7 @@ impl_state_store! {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<RoomInfo>(f).ok())
+            .filter_map(|f| self.deserialize_event::<RoomInfo>(&f).ok())
             .collect();
 
         Ok(entries)
@@ -913,7 +913,7 @@ impl_state_store! {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>();
 
         Ok(entries)
@@ -929,7 +929,7 @@ impl_state_store! {
             .object_store(keys::DISPLAY_NAMES)?
             .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
-            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(f))
+            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
@@ -942,7 +942,7 @@ impl_state_store! {
             .object_store(keys::ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ACCOUNT_DATA, event_type))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -956,7 +956,7 @@ impl_state_store! {
             .object_store(keys::ROOM_ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -977,7 +977,7 @@ impl_state_store! {
             .object_store(keys::ROOM_USER_RECEIPTS)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -1007,7 +1007,7 @@ impl_state_store! {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -1030,7 +1030,7 @@ impl_state_store! {
             .object_store(keys::MEDIA)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
