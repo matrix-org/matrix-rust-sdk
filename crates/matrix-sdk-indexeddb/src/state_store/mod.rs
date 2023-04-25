@@ -33,7 +33,9 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::member::{
+            MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
@@ -342,10 +344,7 @@ impl IndexeddbStateStore {
                     let value = cursor.value();
                     let member = self.deserialize_event::<RoomMember>(value)?;
 
-                    if memberships.is_empty()
-                        || memberships
-                            .contains(RoomMemberships::from_bits_retain(member.membership))
-                    {
+                    if memberships.matches(&member.membership) {
                         user_ids.push(member.user_id);
                     }
 
@@ -1153,24 +1152,18 @@ impl_state_store! {
 #[derive(Debug, Serialize, Deserialize)]
 struct RoomMember {
     user_id: OwnedUserId,
-    membership: u16,
+    membership: MembershipState,
 }
 
 impl From<&SyncStateEvent<RoomMemberEventContent>> for RoomMember {
     fn from(event: &SyncStateEvent<RoomMemberEventContent>) -> Self {
-        Self {
-            user_id: event.state_key().clone(),
-            membership: RoomMemberships::from(event.membership()).bits(),
-        }
+        Self { user_id: event.state_key().clone(), membership: event.membership().clone() }
     }
 }
 
 impl From<&StrippedRoomMemberEvent> for RoomMember {
     fn from(event: &StrippedRoomMemberEvent) -> Self {
-        Self {
-            user_id: event.state_key.clone(),
-            membership: RoomMemberships::from(&event.content.membership).bits(),
-        }
+        Self { user_id: event.state_key.clone(), membership: event.content.membership.clone() }
     }
 }
 
