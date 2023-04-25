@@ -98,7 +98,13 @@ pub fn create_otlp_tracer(
 fn setup_tracing_helper(configuration: String, colors: bool) {
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(colors).with_writer(io::stderr))
+        .with(
+            fmt::layer()
+                .with_file(true)
+                .with_line_number(true)
+                .with_ansi(colors)
+                .with_writer(io::stderr),
+        )
         .init();
 }
 
@@ -116,7 +122,13 @@ fn setup_otlp_tracing_helper(
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))
-        .with(fmt::layer().with_ansi(colors).with_writer(io::stderr))
+        .with(
+            fmt::layer()
+                .with_file(true)
+                .with_line_number(true)
+                .with_ansi(colors)
+                .with_writer(io::stderr),
+        )
         .with(otlp_layer)
         .init();
 
