@@ -68,6 +68,8 @@ impl RemoteEventTimelineItem {
 /// Where we got an event from.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::room::timeline) enum RemoteEventOrigin {
+    /// The event came from a cache.
+    Cache,
     /// The event came from a sync response.
     Sync,
     /// The event came from pagination.
