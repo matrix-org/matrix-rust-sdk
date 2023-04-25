@@ -25,7 +25,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -53,7 +53,7 @@ pub struct MemoryStore {
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, RoomMemberships>>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
     room_info: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     room_state:
         Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
@@ -63,7 +63,7 @@ pub struct MemoryStore {
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, RoomMemberships>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
     room_user_receipts: Arc<
         DashMap<
@@ -237,7 +237,7 @@ impl MemoryStore {
                         self.members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key().to_owned(), event.membership().into());
+                            .insert(event.state_key().to_owned(), event.membership().clone());
                     }
                 }
             }
@@ -284,7 +284,7 @@ impl MemoryStore {
                         self.stripped_members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key, (&event.content.membership).into());
+                            .insert(event.state_key, event.content.membership.clone());
                     }
                 }
             }
@@ -447,10 +447,7 @@ impl MemoryStore {
         map.get(room_id)
             .map(|u| {
                 u.iter()
-                    .filter_map(|u| {
-                        (memberships.is_empty() || memberships.contains(*u.value()))
-                            .then(|| u.key().clone())
-                    })
+                    .filter_map(|u| memberships.matches(u.value()).then(|| u.key().clone()))
                     .collect()
             })
             .unwrap_or_default()
