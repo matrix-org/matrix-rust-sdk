@@ -177,7 +177,10 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
 #[derive(Debug)]
 pub(super) enum TimelineItemPosition {
     Start,
-    End,
+    End {
+        /// Whether this event is coming from a local cache.
+        from_cache: bool,
+    },
     #[cfg(feature = "e2e-encryption")]
     Update(usize),
 }
@@ -569,7 +572,8 @@ impl<'a> TimelineEventHandler<'a> {
                 let origin = match position {
                     TimelineItemPosition::Start => RemoteEventOrigin::Pagination,
                     // We only paginate backwards for now, so End only happens for syncs
-                    TimelineItemPosition::End => RemoteEventOrigin::Sync,
+                    TimelineItemPosition::End { from_cache: true } => RemoteEventOrigin::Cache,
+                    TimelineItemPosition::End { from_cache: false } => RemoteEventOrigin::Sync,
                     #[cfg(feature = "e2e-encryption")]
                     TimelineItemPosition::Update(idx) => self.items[*idx]
                         .as_event()
@@ -670,7 +674,9 @@ impl<'a> TimelineEventHandler<'a> {
                 self.items.insert(offset + 1, Arc::new(item.into()));
             }
 
-            Flow::Remote { position: TimelineItemPosition::End, txn_id, event_id, .. } => {
+            Flow::Remote {
+                position: TimelineItemPosition::End { .. }, txn_id, event_id, ..
+            } => {
                 let result = rfind_event_item(self.items, |it| {
                     txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
                         || it.event_id() == Some(event_id)
