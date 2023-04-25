@@ -34,7 +34,9 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::member::{
+            MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
@@ -873,10 +875,7 @@ impl SledStateStore {
                         .deserialize_value::<RoomMember>(&u.map_err(StoreError::backend)?.1)
                         .map_err(StoreError::backend)?;
 
-                    Ok((memberships.is_empty()
-                        || memberships
-                            .contains(RoomMemberships::from_bits_retain(member.membership)))
-                    .then_some(member.user_id))
+                    Ok(memberships.matches(&member.membership).then_some(member.user_id))
                 })
                 .filter_map(|u| u.transpose())
                 .collect::<StoreResult<Vec<_>>>()
@@ -1381,24 +1380,18 @@ impl StateStore for SledStateStore {
 #[derive(Debug, Serialize, Deserialize)]
 struct RoomMember {
     user_id: OwnedUserId,
-    membership: u16,
+    membership: MembershipState,
 }
 
 impl From<&SyncStateEvent<RoomMemberEventContent>> for RoomMember {
     fn from(event: &SyncStateEvent<RoomMemberEventContent>) -> Self {
-        Self {
-            user_id: event.state_key().clone(),
-            membership: RoomMemberships::from(event.membership()).bits(),
-        }
+        Self { user_id: event.state_key().clone(), membership: event.membership().clone() }
     }
 }
 
 impl From<&StrippedRoomMemberEvent> for RoomMember {
     fn from(event: &StrippedRoomMemberEvent) -> Self {
-        Self {
-            user_id: event.state_key.clone(),
-            membership: RoomMemberships::from(&event.content.membership).bits(),
-        }
+        Self { user_id: event.state_key.clone(), membership: event.content.membership.clone() }
     }
 }
 

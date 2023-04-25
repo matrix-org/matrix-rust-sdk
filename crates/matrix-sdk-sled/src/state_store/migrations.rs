@@ -30,7 +30,7 @@ use tracing::debug;
 use super::{keys, Result, RoomMember, SledStateStore, SledStoreError};
 use crate::encode_key::EncodeKey;
 
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 const VERSION_KEY: &str = "state-store-version";
 
@@ -87,8 +87,10 @@ impl SledStateStore {
             return Ok(());
         }
 
-        if old_version < 6 {
-            self.migrate_to_v6()?;
+        // Version 6 was dropped and migration is similar to v7.
+
+        if old_version < 7 {
+            self.migrate_to_v7()?;
             return Ok(());
         }
 
@@ -277,8 +279,12 @@ impl SledStateStore {
     }
 
     /// Remove the old user IDs stores and populate the new ones.
-    fn migrate_to_v6(&self) -> Result<()> {
+    fn migrate_to_v7(&self) -> Result<()> {
         {
+            // Reset v6 stores.
+            self.user_ids.clear()?;
+            self.stripped_user_ids.clear()?;
+
             // We only have joined and invited user IDs in the old stores, so instead we
             // use the room member events to populate the new stores.
             let state = &self.inner.open_tree(keys::ROOM_STATE)?;
@@ -345,7 +351,7 @@ impl SledStateStore {
         self.inner.drop_tree(old_keys::STRIPPED_JOINED_USER_ID)?;
         self.inner.drop_tree(old_keys::STRIPPED_INVITED_USER_ID)?;
 
-        self.set_db_version(6)
+        self.set_db_version(7)
     }
 }
 
@@ -697,7 +703,7 @@ mod test {
     }
 
     #[async_test]
-    pub async fn migrating_v5_to_v6() {
+    pub async fn migrating_v5_to_v7() {
         let room_id = room_id!("!room:localhost");
         let invite_member_event =
             Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
