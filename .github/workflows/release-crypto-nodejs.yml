@@ -83,8 +83,6 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install Node.js
         uses: actions/setup-node@v3
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
       - if: ${{ matrix.apt_install }}
         run: |
           sudo apt-get update
