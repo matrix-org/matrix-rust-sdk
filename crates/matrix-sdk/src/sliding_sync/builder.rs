@@ -14,16 +14,12 @@ use ruma::{
     events::TimelineEventType,
     OwnedRoomId,
 };
-use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
-    RwLock as AsyncRwLock,
-};
+use tokio::sync::{mpsc::channel, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
     cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner,
-    SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListBuilder,
-    SlidingSyncPositionMarkers, SlidingSyncRoom,
+    SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -31,16 +27,15 @@ use crate::{Client, Result};
 ///
 /// Get a new builder with methods like [`crate::Client::sliding_sync`], or
 /// [`crate::SlidingSync::builder`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Option<Client>,
-    lists: BTreeMap<String, SlidingSyncList>,
+    lists: Vec<SlidingSyncListBuilder>,
     bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-    internal_channel: (Sender<SlidingSyncInternalMessage>, Receiver<SlidingSyncInternalMessage>),
 }
 
 impl SlidingSyncBuilder {
@@ -49,11 +44,10 @@ impl SlidingSyncBuilder {
             storage_key: None,
             homeserver: None,
             client: None,
-            lists: BTreeMap::new(),
+            lists: Vec::new(),
             bump_event_types: Vec::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
-            internal_channel: channel(8),
         }
     }
 
@@ -79,9 +73,7 @@ impl SlidingSyncBuilder {
     ///
     /// Replace any list with the name.
     pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Result<Self> {
-        let list = list_builder.build(self.internal_channel.0.clone())?;
-
-        self.lists.insert(list.name().to_owned(), list);
+        self.lists.push(list_builder);
 
         Ok(self)
     }
@@ -223,12 +215,22 @@ impl SlidingSyncBuilder {
         let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
+        let (internal_channel_sender, internal_channel_receiver) = channel(8);
+
+        let mut lists = BTreeMap::new();
+
+        for list_builder in self.lists {
+            let list = list_builder.build(internal_channel_sender.clone())?;
+
+            lists.insert(list.name().to_owned(), list);
+        }
+
         // Load an existing state from the cache.
         if let Some(storage_key) = &self.storage_key {
             restore_sliding_sync_state(
                 &client,
                 storage_key,
-                &mut self.lists,
+                &mut lists,
                 &mut delta_token,
                 &mut rooms_found,
                 &mut self.extensions,
@@ -237,7 +239,7 @@ impl SlidingSyncBuilder {
         }
 
         let rooms = StdRwLock::new(rooms_found);
-        let lists = StdRwLock::new(self.lists);
+        let lists = StdRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
@@ -259,7 +261,10 @@ impl SlidingSyncBuilder {
             subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
 
-            internal_channel: (self.internal_channel.0, AsyncRwLock::new(self.internal_channel.1)),
+            internal_channel: (
+                internal_channel_sender,
+                AsyncRwLock::new(internal_channel_receiver),
+            ),
         }))
     }
 }

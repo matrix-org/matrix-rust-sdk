@@ -17,7 +17,7 @@ use crate::Result;
 pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Builder for [`SlidingSyncList`].
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
