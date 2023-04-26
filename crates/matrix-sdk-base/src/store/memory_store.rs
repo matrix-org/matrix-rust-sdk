@@ -18,7 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
     canonical_json::redact,
@@ -38,7 +38,7 @@ use tracing::{debug, warn};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent,
-    StateStoreDataKey, StateStoreDataValue,
+    RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -51,11 +51,9 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
-    joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
-    invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
     room_info: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     room_state:
         Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
@@ -65,9 +63,7 @@ pub struct MemoryStore {
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
-    stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
-    stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
     room_user_receipts: Arc<
         DashMap<
@@ -99,19 +95,15 @@ impl MemoryStore {
             sync_token: Default::default(),
             filters: Default::default(),
             account_data: Default::default(),
-            members: Default::default(),
             profiles: Default::default(),
             display_names: Default::default(),
-            joined_user_ids: Default::default(),
-            invited_user_ids: Default::default(),
+            members: Default::default(),
             room_info: Default::default(),
             room_state: Default::default(),
             room_account_data: Default::default(),
             stripped_room_infos: Default::default(),
             stripped_room_state: Default::default(),
             stripped_members: Default::default(),
-            stripped_joined_user_ids: Default::default(),
-            stripped_invited_user_ids: Default::default(),
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
@@ -240,47 +232,12 @@ impl MemoryStore {
                             }
                         };
 
-                        self.stripped_joined_user_ids.remove(room);
-                        self.stripped_invited_user_ids.remove(room);
-
-                        match event.membership() {
-                            MembershipState::Join => {
-                                self.joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .insert(event.state_key().to_owned());
-                                self.invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(event.state_key());
-                            }
-                            MembershipState::Invite => {
-                                self.invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .insert(event.state_key().to_owned());
-                                self.joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(event.state_key());
-                            }
-                            _ => {
-                                self.joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(event.state_key());
-                                self.invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(event.state_key());
-                            }
-                        }
+                        self.stripped_members.remove(room);
 
                         self.members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key().to_owned());
-                        self.stripped_members.remove(room);
+                            .insert(event.state_key().to_owned(), event.membership().clone());
                     }
                 }
             }
@@ -324,43 +281,10 @@ impl MemoryStore {
                             }
                         };
 
-                        match event.content.membership {
-                            MembershipState::Join => {
-                                self.stripped_joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .insert(event.state_key.clone());
-                                self.stripped_invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(&event.state_key);
-                            }
-                            MembershipState::Invite => {
-                                self.stripped_invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .insert(event.state_key.clone());
-                                self.stripped_joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(&event.state_key);
-                            }
-                            _ => {
-                                self.stripped_joined_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(&event.state_key);
-                                self.stripped_invited_user_ids
-                                    .entry(room.clone())
-                                    .or_default()
-                                    .remove(&event.state_key);
-                            }
-                        }
-
                         self.stripped_members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key.clone());
+                            .insert(event.state_key, event.content.membership.clone());
                     }
                 }
             }
@@ -507,42 +431,25 @@ impl MemoryStore {
         }
     }
 
-    fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        if let Some(u) = self.stripped_members.get(room_id) {
-            u.iter().map(|u| u.key().clone()).collect()
-        } else {
-            self.members
-                .get(room_id)
-                .map(|u| u.iter().map(|u| u.key().clone()).collect())
-                .unwrap_or_default()
-        }
-    }
+    /// Get the user IDs for the given room with the given memberships and
+    /// stripped state.
+    ///
+    /// If `memberships` is empty, returns all user IDs in the room with the
+    /// given stripped state.
+    fn get_user_ids_inner(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+        stripped: bool,
+    ) -> Vec<OwnedUserId> {
+        let map = if stripped { &self.stripped_members } else { &self.members };
 
-    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.invited_user_ids
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.clone()).collect())
-            .unwrap_or_default()
-    }
-
-    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.joined_user_ids
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.clone()).collect())
-            .unwrap_or_default()
-    }
-
-    fn get_stripped_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.stripped_invited_user_ids
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.clone()).collect())
-            .unwrap_or_default()
-    }
-
-    fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.stripped_joined_user_ids
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.clone()).collect())
+        map.get(room_id)
+            .map(|u| {
+                u.iter()
+                    .filter_map(|u| memberships.matches(u.value()).then(|| u.key().clone()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -631,11 +538,9 @@ impl MemoryStore {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        self.members.remove(room_id);
         self.profiles.remove(room_id);
         self.display_names.remove(room_id);
-        self.joined_user_ids.remove(room_id);
-        self.invited_user_ids.remove(room_id);
+        self.members.remove(room_id);
         self.room_info.remove(room_id);
         self.room_state.remove(room_id);
         self.room_account_data.remove(room_id);
@@ -711,24 +616,24 @@ impl StateStore for MemoryStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok(self.get_user_ids(room_id))
+    async fn get_user_ids(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>> {
+        let v = self.get_user_ids_inner(room_id, memberships, true);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_user_ids_inner(room_id, memberships, false))
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let v = self.get_stripped_invited_user_ids(room_id);
-        if !v.is_empty() {
-            return Ok(v);
-        }
-        Ok(self.get_invited_user_ids(room_id))
+        StateStore::get_user_ids(self, room_id, RoomMemberships::INVITE).await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let v = self.get_stripped_joined_user_ids(room_id);
-        if !v.is_empty() {
-            return Ok(v);
-        }
-        Ok(self.get_joined_user_ids(room_id))
+        StateStore::get_user_ids(self, room_id, RoomMemberships::JOIN).await
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {

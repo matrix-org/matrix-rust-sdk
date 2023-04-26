@@ -41,6 +41,7 @@ pub struct LoggerWrapper {
 }
 
 /// Set the logger that should be used to forward Rust logs over FFI.
+#[uniffi::export]
 pub fn set_logger(logger: Box<dyn Logger>) {
     let logger = LoggerWrapper { inner: Arc::new(Mutex::new(logger)) };
 

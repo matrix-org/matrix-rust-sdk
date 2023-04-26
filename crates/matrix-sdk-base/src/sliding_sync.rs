@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-#[cfg(feature = "e2e-encryption")]
-use ruma::UserId;
 use ruma::{
     api::client::sync::sync_events::{
         v3::{self, Ephemeral},
@@ -14,6 +12,8 @@ use ruma::{
 use tracing::{debug, info, instrument};
 
 use super::BaseClient;
+#[cfg(feature = "e2e-encryption")]
+use crate::RoomMemberships;
 use crate::{
     deserialized_responses::AmbiguityChanges,
     error::Result,
@@ -196,12 +196,9 @@ impl BaseClient {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
                             // tracking.
-                            let joined = store.get_joined_user_ids(room_id).await?;
-                            let invited = store.get_invited_user_ids(room_id).await?;
-
-                            let user_ids: Vec<&UserId> =
-                                joined.iter().chain(&invited).map(Deref::deref).collect();
-                            o.update_tracked_users(user_ids).await?
+                            let user_ids =
+                                store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
+                            o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                         }
 
                         if !user_ids.is_empty() {

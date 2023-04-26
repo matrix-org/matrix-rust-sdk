@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use matrix_sdk_crypto::Device as InnerDevice;
 
 /// An E2EE capable Matrix device.
+#[derive(uniffi::Record)]
 pub struct Device {
     /// The device owner.
     pub user_id: String,

@@ -7,7 +7,8 @@ use matrix_sdk_crypto::{
 use matrix_sdk_sqlite::OpenStoreError;
 use ruma::{IdParseError, OwnedUserId};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum KeyImportError {
     #[error(transparent)]
     Export(#[from] KeyExportError),
@@ -17,7 +18,8 @@ pub enum KeyImportError {
     Json(#[from] serde_json::Error),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SecretImportError {
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
@@ -25,7 +27,8 @@ pub enum SecretImportError {
     Import(#[from] RustSecretImportError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SignatureError {
     #[error(transparent)]
     Signature(#[from] InnerSignatureError),
@@ -55,7 +58,7 @@ pub enum CryptoStoreError {
     Identifier(#[from] IdParseError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, uniffi::Error)]
 pub enum DecryptionError {
     Serialization { error: String },
     Identifier { error: String },
@@ -69,7 +72,7 @@ impl From<MegolmError> for DecryptionError {
         match value {
             MegolmError::MissingRoomKey(withheld_code) => Self::MissingRoomKey {
                 error: "Withheld Inbound group session".to_owned(),
-                withheld_code: withheld_code.map(|w| w.to_string()),
+                withheld_code: withheld_code.map(|w| w.as_str().to_owned()),
             },
             _ => Self::Megolm { error: value.to_string() },
         }
@@ -91,5 +94,28 @@ impl From<IdParseError> for DecryptionError {
 impl From<InnerStoreError> for DecryptionError {
     fn from(err: InnerStoreError) -> Self {
         Self::Store { error: err.to_string() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use assert_matches::assert_matches;
+
+    use super::*;
+
+    #[test]
+    fn test_withheld_error_mapping() {
+        use matrix_sdk_crypto::types::events::room_key_withheld::WithheldCode;
+
+        let inner_error = MegolmError::MissingRoomKey(Some(WithheldCode::Unverified));
+
+        let binding_error: DecryptionError = inner_error.into();
+
+        let code = assert_matches!(
+            binding_error,
+            DecryptionError::MissingRoomKey { error: _, withheld_code: Some(withheld_code) } => withheld_code
+        );
+        assert_eq!("m.unverified", code)
     }
 }

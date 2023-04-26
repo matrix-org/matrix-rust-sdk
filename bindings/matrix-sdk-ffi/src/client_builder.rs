@@ -13,7 +13,7 @@ use sanitize_filename_reader_friendly::sanitize;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
-use crate::helpers::unwrap_or_clone_arc;
+use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
 
 #[derive(Clone)]
 pub struct ClientBuilder {
@@ -26,6 +26,22 @@ pub struct ClientBuilder {
     user_agent: Option<String>,
     sliding_sync_proxy: Option<String>,
     inner: MatrixClientBuilder,
+}
+
+impl ClientBuilder {
+    pub fn new() -> Self {
+        Self {
+            base_path: None,
+            username: None,
+            server_name: None,
+            homeserver_url: None,
+            server_versions: None,
+            passphrase: Zeroizing::new(None),
+            user_agent: None,
+            sliding_sync_proxy: None,
+            inner: MatrixClient::builder(),
+        }
+    }
 }
 
 #[uniffi::export]
@@ -77,24 +93,14 @@ impl ClientBuilder {
         builder.sliding_sync_proxy = sliding_sync_proxy;
         Arc::new(builder)
     }
+
+    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
+        Ok(self.build_inner()?)
+    }
 }
 
 impl ClientBuilder {
-    pub fn new() -> Self {
-        Self {
-            base_path: None,
-            username: None,
-            server_name: None,
-            homeserver_url: None,
-            server_versions: None,
-            passphrase: Zeroizing::new(None),
-            user_agent: None,
-            sliding_sync_proxy: None,
-            inner: MatrixClient::builder(),
-        }
-    }
-
-    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
+    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 

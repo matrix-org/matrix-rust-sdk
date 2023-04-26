@@ -56,7 +56,7 @@ pub use verification::{
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Struct collecting data that is important to migrate to the rust-sdk
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct MigrationData {
     /// The pickled version of the Olm Account
     account: PickledAccount,
@@ -79,6 +79,7 @@ pub struct MigrationData {
 }
 
 /// Struct collecting data that is important to migrate sessions to the rust-sdk
+#[derive(uniffi::Record)]
 pub struct SessionMigrationData {
     /// The user id that the data belongs to.
     user_id: String,
@@ -100,7 +101,7 @@ pub struct SessionMigrationData {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an account.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: String,
@@ -118,7 +119,7 @@ pub struct PickledAccount {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// a Session.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledSession {
     /// The pickle string holding the Olm Session.
     pub pickle: String,
@@ -136,7 +137,7 @@ pub struct PickledSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: String,
@@ -157,7 +158,7 @@ pub struct PickledInboundGroupSession {
 }
 
 /// Error type for the migration process.
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {
     /// Generic catch all error variant.
     #[error("error migrating database: {error_message}")]
@@ -188,15 +189,16 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate(
     data: MigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
     runtime.block_on(async move {
-        migrate_data(data, path, passphrase, progress_listener).await?;
+        migrate_data(data, &path, passphrase, progress_listener).await?;
         Ok(())
     })
 }
@@ -350,14 +352,15 @@ async fn save_changes(
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
+#[uniffi::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
-    runtime.block_on(migrate_session_data(data, path, passphrase, progress_listener))?;
+    runtime.block_on(migrate_session_data(data, &path, passphrase, progress_listener))?;
     Ok(())
 }
 
@@ -497,9 +500,10 @@ fn collect_sessions(
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
 /// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
 /// and all its data will remain unencrypted.
+#[uniffi::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
-    path: &str,
+    path: String,
     passphrase: Option<String>,
 ) -> Result<(), MigrationError> {
     let runtime = Runtime::new().context("initializing tokio runtime")?;
@@ -540,7 +544,7 @@ impl<T: Fn(i32, i32)> ProgressListener for T {
 }
 
 /// An encryption algorithm to be used to encrypt messages sent to a room.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, uniffi::Enum)]
 pub enum EventEncryptionAlgorithm {
     /// Olm version 1 using Curve25519, AES-256, and SHA-256.
     OlmV1Curve25519AesSha2,
@@ -572,6 +576,7 @@ impl TryFrom<RustEventEncryptionAlgorithm> for EventEncryptionAlgorithm {
 }
 
 /// Who can see a room's history.
+#[derive(uniffi::Enum)]
 pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from the point
     /// they were invited onwards.
@@ -717,7 +722,7 @@ pub struct CrossSigningStatus {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, uniffi::Record)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
     pub master_key: Option<String>,
@@ -810,7 +815,7 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
 }
 
 /// Room encryption settings which are modified by state events or user options
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, uniffi::Record)]
 pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
@@ -959,12 +964,15 @@ mod test {
         let migration_data: MigrationData = serde_json::from_value(data)?;
 
         let dir = tempdir()?;
-        let path =
-            dir.path().to_str().expect("Creating a string from the tempdir path should not fail");
+        let path = dir
+            .path()
+            .to_str()
+            .expect("Creating a string from the tempdir path should not fail")
+            .to_owned();
 
-        migrate(migration_data, path, None, Box::new(|_, _| {}))?;
+        migrate(migration_data, path.clone(), None, Box::new(|_, _| {}))?;
 
-        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", path, None)?;
+        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", &path, None)?;
 
         assert_eq!(
             machine.identity_keys()["ed25519"],

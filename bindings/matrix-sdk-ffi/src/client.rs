@@ -106,7 +106,7 @@ pub trait ClientDelegate: Sync + Send {
     fn did_receive_notification(&self, notification: NotificationItem);
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
@@ -162,7 +162,10 @@ impl Client {
 
         client
     }
+}
 
+#[uniffi::export]
+impl Client {
     /// Login using a username and password.
     pub fn login(
         &self,
@@ -170,7 +173,7 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let mut builder = self.client.login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
@@ -188,7 +191,7 @@ impl Client {
         &self,
         media_source: Arc<MediaSource>,
         mime_type: String,
-    ) -> anyhow::Result<Arc<MediaFileHandle>> {
+    ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.client.clone();
         let source = (*media_source).clone();
         let mime_type: mime::Mime = mime_type.parse()?;
@@ -206,10 +209,7 @@ impl Client {
             Ok(Arc::new(MediaFileHandle { inner: handle }))
         })
     }
-}
 
-#[uniffi::export]
-impl Client {
     /// Restores the client from a `Session`.
     pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
         let Session {
@@ -242,17 +242,13 @@ impl Client {
         })
     }
 
-    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
-        *self.delegate.write().unwrap() = delegate;
-    }
-
-    pub async fn async_homeserver(&self) -> String {
+    pub(crate) async fn async_homeserver(&self) -> String {
         self.client.homeserver().await.to_string()
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub async fn authentication_issuer(&self) -> Option<String> {
+    pub(crate) async fn authentication_issuer(&self) -> Option<String> {
         self.client.authentication_issuer().await
     }
 
@@ -269,7 +265,7 @@ impl Client {
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
-    pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
+    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.client.get_login_types().await?;
         let supports_password = login_types
             .flows
@@ -279,7 +275,7 @@ impl Client {
     }
 
     /// Gets information about the owner of a given access token.
-    pub fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
+    pub(crate) fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
         RUNTIME
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
@@ -287,6 +283,10 @@ impl Client {
 
 #[uniffi::export]
 impl Client {
+    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
+        *self.delegate.write().unwrap() = delegate;
+    }
+
     pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
@@ -744,10 +744,12 @@ fn gen_transaction_id() -> String {
 
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
+#[derive(uniffi::Object)]
 pub struct MediaFileHandle {
     inner: SdkMediaFileHandle,
 }
 
+#[uniffi::export]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> String {

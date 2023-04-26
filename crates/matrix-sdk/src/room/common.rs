@@ -3,7 +3,7 @@ use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
-    StateChanges,
+    RoomMemberships, StateChanges,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -431,9 +431,10 @@ impl Common {
     ///
     /// Use [active_members_no_sync()](#method.active_members_no_sync) if you
     /// want a method that doesn't do any requests.
+    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
     pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.active_members_no_sync().await
+        self.members_no_sync(RoomMemberships::ACTIVE).await
     }
 
     /// Get active members for this room, includes invited, joined members.
@@ -444,14 +445,9 @@ impl Common {
     ///
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.
+    #[deprecated = "Use members_no_sync with RoomMemberships::ACTIVE instead"]
     pub async fn active_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        Ok(self
-            .inner
-            .active_members()
-            .await?
-            .into_iter()
-            .map(|member| RoomMember::new(self.client.clone(), member))
-            .collect())
+        self.members_no_sync(RoomMemberships::ACTIVE).await
     }
 
     /// Get all the joined members of this room.
@@ -462,9 +458,10 @@ impl Common {
     ///
     /// Use [joined_members_no_sync()](#method.joined_members_no_sync) if you
     /// want a method that doesn't do any requests.
+    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
     pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.joined_members_no_sync().await
+        self.members_no_sync(RoomMemberships::JOIN).await
     }
 
     /// Get all the joined members of this room.
@@ -475,14 +472,9 @@ impl Common {
     ///
     /// Use [joined_members()](#method.joined_members) if you want to ensure to
     /// always get the full member list.
+    #[deprecated = "Use members_no_sync with RoomMemberships::JOIN instead"]
     pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        Ok(self
-            .inner
-            .joined_members()
-            .await?
-            .into_iter()
-            .map(|member| RoomMember::new(self.client.clone(), member))
-            .collect())
+        self.members_no_sync(RoomMemberships::JOIN).await
     }
 
     /// Get a specific member of this room.
@@ -524,8 +516,7 @@ impl Common {
             .map(|member| RoomMember::new(self.client.clone(), member)))
     }
 
-    /// Get all members for this room, includes invited, joined and left
-    /// members.
+    /// Get members for this room, with the given memberships.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
@@ -533,13 +524,12 @@ impl Common {
     ///
     /// Use [members_no_sync()](#method.members_no_sync) if you want a
     /// method that doesn't do any requests.
-    pub async fn members(&self) -> Result<Vec<RoomMember>> {
+    pub async fn members(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
-        self.members_no_sync().await
+        self.members_no_sync(memberships).await
     }
 
-    /// Get all members for this room, includes invited, joined and left
-    /// members.
+    /// Get members for this room, with the given memberships.
     ///
     /// *Note*: This method will not fetch the members from the homeserver if
     /// the member list isn't synchronized due to member lazy loading. Thus,
@@ -547,10 +537,10 @@ impl Common {
     ///
     /// Use [members()](#method.members) if you want to ensure to always get
     /// the full member list.
-    pub async fn members_no_sync(&self) -> Result<Vec<RoomMember>> {
+    pub async fn members_no_sync(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
-            .members()
+            .members(memberships)
             .await?
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
@@ -701,7 +691,8 @@ impl Common {
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
-        let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
+        let user_ids =
+            self.client.store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
@@ -800,7 +791,7 @@ impl Common {
         let this_room_id = self.inner.room_id();
 
         if is_direct {
-            let mut room_members = self.active_members().await?;
+            let mut room_members = self.members(RoomMemberships::ACTIVE).await?;
             room_members.retain(|member| member.user_id() != self.own_user_id());
 
             for member in room_members {
@@ -866,7 +857,7 @@ impl Common {
         // - Are blocked due to server ACLs
         // - Are IP addresses
         let members: Vec<_> = self
-            .joined_members_no_sync()
+            .members_no_sync(RoomMemberships::JOIN)
             .await?
             .into_iter()
             .filter(|member| {
