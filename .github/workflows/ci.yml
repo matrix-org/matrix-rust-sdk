@@ -18,6 +18,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_STRIP: symbols # an attempt at reducing the cache size
 
 jobs:
   xtask:
