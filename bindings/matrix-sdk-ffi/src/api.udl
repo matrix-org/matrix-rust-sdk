@@ -23,6 +23,7 @@ dictionary NotificationItem {
 };
 
 interface TimelineEvent {};
+
 dictionary UpdateSummary {
     sequence<string> lists;
     sequence<string> rooms;
