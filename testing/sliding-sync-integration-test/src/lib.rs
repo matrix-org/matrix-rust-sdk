@@ -27,10 +27,13 @@ use matrix_sdk::{
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
-async fn setup(name: String, use_sled_store: bool) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
+async fn setup(
+    name: String,
+    use_sqlite_store: bool,
+) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
     let sliding_sync_proxy_url =
         option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
-    let client = get_client_for_user(name, use_sled_store).await?;
+    let client = get_client_for_user(name, use_sqlite_store).await?;
     let sliding_sync_builder = client
         .sliding_sync()
         .await
@@ -47,10 +50,10 @@ async fn random_setup_with_rooms(
 
 async fn random_setup_with_rooms_opt_store(
     number_of_rooms: usize,
-    use_sled_store: bool,
+    use_sqlite_store: bool,
 ) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
     let namespace = uuid::Uuid::new_v4().to_string();
-    let (client, sliding_sync_builder) = setup(namespace.clone(), use_sled_store).await?;
+    let (client, sliding_sync_builder) = setup(namespace.clone(), use_sqlite_store).await?;
 
     for room_num in 0..number_of_rooms {
         make_room(&client, format!("{namespace}-{room_num}")).await?

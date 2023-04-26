@@ -19,7 +19,7 @@ e2e-encryption = [
     "matrix-sdk/e2e-encryption"
 ]
 eyre = ["matrix-sdk/eyre"]
-sled = ["matrix-sdk/sled"]
+sqlite = ["matrix-sdk/sqlite"]
 
 markdown = ["matrix-sdk/markdown"]
 native-tls = ["matrix-sdk/native-tls"]

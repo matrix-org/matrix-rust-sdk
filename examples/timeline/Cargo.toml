@@ -18,5 +18,5 @@ url = "2.2.2"
 
 [dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
-features = ["experimental-timeline", "sled"]
+features = ["experimental-timeline"]
 version = "0.6.0"

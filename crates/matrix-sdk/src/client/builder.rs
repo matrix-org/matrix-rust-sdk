@@ -118,19 +118,19 @@ impl ClientBuilder {
         self
     }
 
-    /// Set up the store configuration for a sled store.
+    /// Set up the store configuration for a SQLite store.
     ///
     /// This is the same as
-    /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_sqlite]::[make_store_config](matrix_sdk_sqlite::make_store_config)(path, passphrase)?)</code>.
     /// except it delegates the actual store config creation to when
     /// `.build().await` is called.
-    #[cfg(feature = "sled")]
-    pub fn sled_store(
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite_store(
         mut self,
         path: impl AsRef<std::path::Path>,
         passphrase: Option<&str>,
     ) -> Self {
-        self.store_config = BuilderStoreConfig::Sled {
+        self.store_config = BuilderStoreConfig::Sqlite {
             path: path.as_ref().to_owned(),
             passphrase: passphrase.map(ToOwned::to_owned),
         };
@@ -342,9 +342,9 @@ impl ClientBuilder {
 
         #[allow(clippy::infallible_destructuring_match)]
         let store_config = match self.store_config {
-            #[cfg(feature = "sled")]
-            BuilderStoreConfig::Sled { path, passphrase } => {
-                matrix_sdk_sled::make_store_config(&path, passphrase.as_deref()).await?
+            #[cfg(feature = "sqlite")]
+            BuilderStoreConfig::Sqlite { path, passphrase } => {
+                matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
             }
             #[cfg(feature = "indexeddb")]
             BuilderStoreConfig::IndexedDb { name, passphrase } => {
@@ -480,8 +480,8 @@ impl Default for HttpConfig {
 
 #[derive(Clone)]
 enum BuilderStoreConfig {
-    #[cfg(feature = "sled")]
-    Sled {
+    #[cfg(feature = "sqlite")]
+    Sqlite {
         path: std::path::PathBuf,
         passphrase: Option<String>,
     },
@@ -498,9 +498,9 @@ impl fmt::Debug for BuilderStoreConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::infallible_destructuring_match)]
         match self {
-            #[cfg(feature = "sled")]
-            Self::Sled { path, .. } => {
-                f.debug_struct("Sled").field("path", path).finish_non_exhaustive()
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite { path, .. } => {
+                f.debug_struct("Sqlite").field("path", path).finish_non_exhaustive()
             }
             #[cfg(feature = "indexeddb")]
             Self::IndexedDb { name, .. } => {
@@ -535,10 +535,10 @@ pub enum ClientBuildError {
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
-    /// Error opening the sled store.
-    #[cfg(feature = "sled")]
+    /// Error opening the sqlite store.
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
-    SledStore(#[from] matrix_sdk_sled::OpenStoreError),
+    SqliteStore(#[from] matrix_sdk_sqlite::OpenStoreError),
 }
 
 impl ClientBuildError {

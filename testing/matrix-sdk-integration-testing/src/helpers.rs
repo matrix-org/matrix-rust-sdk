@@ -36,7 +36,7 @@ pub fn test_server_conf() -> (String, String) {
     )
 }
 
-pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Result<Client> {
+pub async fn get_client_for_user(username: String, use_sqlite_store: bool) -> Result<Client> {
     let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
         return Ok(client.clone());
@@ -50,8 +50,8 @@ pub async fn get_client_for_user(username: String, use_sled_store: bool) -> Resu
         .user_agent("matrix-sdk-integation-tests")
         .homeserver_url(homeserver_url)
         .request_config(RequestConfig::short_retry());
-    let client = if use_sled_store {
-        client_builder.sled_store(tmp_dir.path(), None).build().await?
+    let client = if use_sqlite_store {
+        client_builder.sqlite_store(tmp_dir.path(), None).build().await?
     } else {
         client_builder.build().await?
     };

@@ -63,9 +63,9 @@ enum CiCommand {
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 enum FeatureSet {
     NoEncryption,
-    NoSled,
-    NoEncryptionAndSled,
-    SledCryptostore,
+    NoSqlite,
+    NoEncryptionAndSqlite,
+    SqliteCryptostore,
     RustlsTls,
     Markdown,
     Socks,
@@ -194,13 +194,13 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (
             FeatureSet::NoEncryption,
-            "--no-default-features --features sled,native-tls,experimental-sliding-sync",
+            "--no-default-features --features sqlite,native-tls,experimental-sliding-sync",
         ),
-        (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
-        (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
+        (FeatureSet::NoSqlite, "--no-default-features --features e2e-encryption,native-tls"),
+        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features native-tls"),
         (
-            FeatureSet::SledCryptostore,
-            "--no-default-features --features e2e-encryption,sled,native-tls",
+            FeatureSet::SqliteCryptostore,
+            "--no-default-features --features e2e-encryption,sqlite,native-tls",
         ),
         (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
         (FeatureSet::Markdown, "--features markdown"),
