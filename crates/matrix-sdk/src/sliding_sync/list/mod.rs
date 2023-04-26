@@ -232,6 +232,9 @@ impl SlidingSyncList {
     // Reset `Self`.
     pub(super) fn reset(&self) {
         self.inner.reset();
+
+        // When a list is reset, the sync loop must be “restarted”.
+        self.inner.sliding_sync_internal_channel_sender.blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop).unwrap();
     }
 }
 

@@ -33,6 +33,7 @@ use std::{
     time::Duration,
 };
 
+use async_stream::stream;
 pub use builder::*;
 pub use client::*;
 pub use error::*;
@@ -52,10 +53,10 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    spawn,
+    select, spawn,
     sync::{
         mpsc::{Receiver, Sender},
-        Mutex as AsyncMutex,
+        Mutex as AsyncMutex, RwLock as AsyncRwLock,
     },
 };
 use tracing::{debug, error, info_span, instrument, warn, Instrument, Span};
@@ -115,7 +116,8 @@ pub(super) struct SlidingSyncInner {
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
-    internal_channel: (Sender<SlidingSyncInternalMessage>, Receiver<SlidingSyncInternalMessage>),
+    internal_channel:
+        (Sender<SlidingSyncInternalMessage>, AsyncRwLock<Receiver<SlidingSyncInternalMessage>>),
 }
 
 impl SlidingSync {
@@ -522,7 +524,7 @@ impl SlidingSync {
     /// hence updating the lists.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+    pub fn stream(&mut self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
 
@@ -530,7 +532,7 @@ impl SlidingSync {
 
         let instrument_span = Span::current();
 
-        async_stream::stream! {
+        stream! {
             loop {
                 let sync_span = info_span!(parent: &instrument_span, "sync_once");
 
@@ -538,49 +540,72 @@ impl SlidingSync {
                     debug!(?self.inner.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&stream_id).instrument(sync_span.clone()).await {
-                    Ok(Some(updates)) => {
-                        self.inner.reset_counter.store(0, Ordering::SeqCst);
+                let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
 
-                        yield Ok(updates);
-                    }
+                select! {
+                    biased;
 
-                    Ok(None) => {
-                        break;
-                    }
+                    internal_message = internal_channel_receiver_lock.recv() => {
+                        use SlidingSyncInternalMessage::*;
 
-                    Err(error) => {
-                        if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                            // The session has expired.
-
-                            // Has it expired too many times?
-                            if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst) >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION {
-                                sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
-
-                                // The session has expired too many times, let's raise an error!
-                                yield Err(error.into());
-
+                        match internal_message {
+                            None | Some(BreakSyncLoop) => {
                                 break;
                             }
 
-                            // Let's reset the Sliding Sync session.
-                            sync_span.in_scope(|| {
-                                warn!("Session expired. Restarting Sliding Sync.");
+                            Some(ContinueSyncLoop) => {
+                                continue;
+                            }
+                        }
+                    }
 
-                                // To “restart” a Sliding Sync session, we set `pos` to its initial value.
-                                {
-                                    let mut position_lock = self.inner.position.write().unwrap();
+                    update_summary = self.sync_once(&stream_id).instrument(sync_span.clone()) => {
+                        match update_summary {
+                            Ok(Some(updates)) => {
+                                self.inner.reset_counter.store(0, Ordering::SeqCst);
 
-                                    Observable::set(&mut position_lock.pos, None);
+                                yield Ok(updates);
+                            }
+
+                            Ok(None) => {
+                                break;
+                            }
+
+                            Err(error) => {
+                                if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
+                                    // The session has expired.
+
+                                    // Has it expired too many times?
+                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst) >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION {
+                                        sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
+
+                                        // The session has expired too many times, let's raise an error!
+                                        yield Err(error.into());
+
+                                        break;
+                                    }
+
+                                    // Let's reset the Sliding Sync session.
+                                    sync_span.in_scope(|| {
+                                        warn!("Session expired. Restarting Sliding Sync.");
+
+                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value.
+                                        {
+                                            let mut position_lock = self.inner.position.write().unwrap();
+
+                                            Observable::set(&mut position_lock.pos, None);
+                                        }
+
+                                        debug!(?self.inner.extensions, "Sliding Sync has been reset");
+                                    });
                                 }
 
-                                debug!(?self.inner.extensions, "Sliding Sync has been reset");
-                            });
+                                yield Err(error.into());
+
+                                continue;
+                            }
                         }
 
-                        yield Err(error.into());
-
-                        continue;
                     }
                 }
             }
@@ -597,7 +622,11 @@ impl SlidingSync {
     }
 }
 
-enum SlidingSyncInternalMessage {}
+#[derive(Debug)]
+enum SlidingSyncInternalMessage {
+    BreakSyncLoop,
+    ContinueSyncLoop,
+}
 
 #[cfg(any(test, feature = "testing"))]
 impl SlidingSync {

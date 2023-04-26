@@ -12,7 +12,10 @@ use ruma::{
     },
     assign, OwnedRoomId,
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::{
+    mpsc::{channel, Receiver, Sender},
+    RwLock as AsyncRwLock,
+};
 use url::Url;
 
 use super::{
@@ -240,7 +243,7 @@ impl SlidingSyncBuilder {
             subscriptions: StdRwLock::new(self.subscriptions),
             unsubscribe: Default::default(),
 
-            internal_channel: self.internal_channel,
+            internal_channel: (self.internal_channel.0, AsyncRwLock::new(self.internal_channel.1)),
         }))
     }
 }
