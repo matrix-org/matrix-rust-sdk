@@ -1,7 +1,8 @@
 use anyhow::{bail, Context};
 use ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, RedactContent,
-    RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
+    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+    MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
+    RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
 
 use crate::{ClientError, MembershipState, MessageType};
@@ -81,11 +82,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::RoomJoinRules(_) => StateEventContent::RoomJoinRules,
             AnySyncStateEvent::RoomMember(content) => {
                 let state_key = content.state_key().to_string();
-                let original_content = content
-                    .as_original()
-                    .context("Failed to get original content")?
-                    .content
-                    .clone();
+                let original_content = get_state_event_original_content(content)?;
                 StateEventContent::RoomMemberContent {
                     user_id: state_key,
                     membership_state: original_content.membership.into(),
@@ -157,22 +154,14 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 MessageLikeEventContent::KeyVerificationDone
             }
             AnySyncMessageLikeEvent::Reaction(content) => {
-                let original_content = content
-                    .as_original()
-                    .context("Failed to get original content")?
-                    .content
-                    .clone();
+                let original_content = get_message_like_event_original_content(content)?;
                 MessageLikeEventContent::ReactionContent {
                     related_event_id: original_content.relates_to.event_id.to_string(),
                 }
             }
             AnySyncMessageLikeEvent::RoomEncrypted(_) => MessageLikeEventContent::RoomEncrypted,
             AnySyncMessageLikeEvent::RoomMessage(content) => {
-                let original_content = content
-                    .as_original()
-                    .context("Failed to get original content")?
-                    .content
-                    .clone();
+                let original_content = get_message_like_event_original_content(content)?;
                 MessageLikeEventContent::RoomMessage {
                     message_type: original_content.msgtype.try_into()?,
                 }
@@ -183,4 +172,24 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
         };
         Ok(content)
     }
+}
+
+fn get_state_event_original_content<T>(event: SyncStateEvent<T>) -> anyhow::Result<T>
+where
+    T: StaticStateEventContent + RedactContent + Clone,
+    <T as RedactContent>::Redacted: RedactedStateEventContent<StateKey = T::StateKey>,
+{
+    let original_content =
+        event.as_original().context("Failed to get original content")?.content.clone();
+    Ok(original_content)
+}
+
+fn get_message_like_event_original_content<T>(event: SyncMessageLikeEvent<T>) -> anyhow::Result<T>
+where
+    T: RumaMessageLikeEventContent + RedactContent + Clone,
+    <T as ruma::events::RedactContent>::Redacted: ruma::events::RedactedMessageLikeEventContent,
+{
+    let original_content =
+        event.as_original().context("Failed to get original content")?.content.clone();
+    Ok(original_content)
 }
