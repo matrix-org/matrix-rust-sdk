@@ -197,15 +197,13 @@ impl SlidingSync {
     }
 
     /// Find a list by its name, and do something on it if it exists.
-    pub fn on_list<F>(&self, list_name: &str, f: F)
+    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
     where
-        F: FnOnce(&SlidingSyncList),
+        F: FnOnce(&SlidingSyncList) -> R,
     {
         let lists = self.inner.lists.read().unwrap();
 
-        if let Some(list) = lists.get(list_name) {
-            f(list);
-        }
+        lists.get(list_name).map(f)
     }
 
     /// Add the list to the list of lists.
