@@ -1,5 +1,8 @@
 use anyhow::{bail, Context};
-use ruma::events::{AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent};
+use ruma::events::{
+    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, RedactContent,
+    RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
+};
 
 use crate::{ClientError, MembershipState, MessageType};
 
@@ -48,7 +51,7 @@ pub enum StateEventContent {
     RoomGuestAccess,
     RoomHistoryVisibility,
     RoomJoinRules,
-    RoomMember { user_id: String, membership_state: MembershipState },
+    RoomMemberContent { user_id: String, membership_state: MembershipState },
     RoomName,
     RoomPinnedEvents,
     RoomPowerLevels,
@@ -83,7 +86,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
                     .context("Failed to get original content")?
                     .content
                     .clone();
-                StateEventContent::RoomMember {
+                StateEventContent::RoomMemberContent {
                     user_id: state_key,
                     membership_state: original_content.membership.into(),
                 }
