@@ -1,9 +1,6 @@
 use std::ops::Deref;
 
-use ruma::events::room::{
-    MediaSource,
-    power_levels::PowerLevelAction,
-};
+use ruma::events::room::{power_levels::PowerLevelAction, MediaSource};
 
 use crate::{
     media::{MediaFormat, MediaRequest},
