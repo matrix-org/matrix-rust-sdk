@@ -174,20 +174,20 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
     }
 }
 
-fn get_state_event_original_content<T>(event: SyncStateEvent<T>) -> anyhow::Result<T>
+fn get_state_event_original_content<C>(event: SyncStateEvent<C>) -> anyhow::Result<C>
 where
-    T: StaticStateEventContent + RedactContent + Clone,
-    <T as RedactContent>::Redacted: RedactedStateEventContent<StateKey = T::StateKey>,
+    C: StaticStateEventContent + RedactContent + Clone,
+    <C as RedactContent>::Redacted: RedactedStateEventContent<StateKey = C::StateKey>,
 {
     let original_content =
         event.as_original().context("Failed to get original content")?.content.clone();
     Ok(original_content)
 }
 
-fn get_message_like_event_original_content<T>(event: SyncMessageLikeEvent<T>) -> anyhow::Result<T>
+fn get_message_like_event_original_content<C>(event: SyncMessageLikeEvent<C>) -> anyhow::Result<C>
 where
-    T: RumaMessageLikeEventContent + RedactContent + Clone,
-    <T as ruma::events::RedactContent>::Redacted: ruma::events::RedactedMessageLikeEventContent,
+    C: RumaMessageLikeEventContent + RedactContent + Clone,
+    <C as ruma::events::RedactContent>::Redacted: ruma::events::RedactedMessageLikeEventContent,
 {
     let original_content =
         event.as_original().context("Failed to get original content")?.content.clone();
