@@ -101,10 +101,68 @@ impl RoomMember {
             Ok(())
         })
     }
+
+    pub fn can_send(&self, state_event: StateEvent) -> bool {
+        use ruma::events::room::power_levels::PowerLevelAction;
+        self.inner.can_do(PowerLevelAction::SendState(state_event.into()))
+    }
 }
 
 impl RoomMember {
     pub fn new(room_member: SdkRoomMember) -> Self {
         RoomMember { inner: room_member }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum StateEvent {
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAliases,
+    RoomAvatar,
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomMember,
+    RoomName,
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite,
+    RoomTombstone,
+    RoomTopic,
+    SpaceChild,
+    SpaceParent,
+}
+
+impl Into<ruma::events::StateEventType> for StateEvent {
+    fn into(self) -> ruma::events::StateEventType {
+        match self {
+            Self::PolicyRuleRoom => ruma::events::StateEventType::PolicyRuleRoom,
+            Self::PolicyRuleServer => ruma::events::StateEventType::PolicyRuleServer,
+            Self::PolicyRuleUser => ruma::events::StateEventType::PolicyRuleUser,
+            Self::RoomAliases => ruma::events::StateEventType::RoomAliases,
+            Self::RoomAvatar => ruma::events::StateEventType::RoomAvatar,
+            Self::RoomCanonicalAlias => ruma::events::StateEventType::RoomCanonicalAlias,
+            Self::RoomCreate => ruma::events::StateEventType::RoomCreate,
+            Self::RoomEncryption => ruma::events::StateEventType::RoomEncryption,
+            Self::RoomGuestAccess => ruma::events::StateEventType::RoomGuestAccess,
+            Self::RoomHistoryVisibility => ruma::events::StateEventType::RoomHistoryVisibility,
+            Self::RoomJoinRules => ruma::events::StateEventType::RoomJoinRules,
+            Self::RoomMember => ruma::events::StateEventType::RoomMember,
+            Self::RoomName => ruma::events::StateEventType::RoomName,
+            Self::RoomPinnedEvents => ruma::events::StateEventType::RoomPinnedEvents,
+            Self::RoomPowerLevels => ruma::events::StateEventType::RoomPowerLevels,
+            Self::RoomServerAcl => ruma::events::StateEventType::RoomServerAcl,
+            Self::RoomThirdPartyInvite => ruma::events::StateEventType::RoomThirdPartyInvite,
+            Self::RoomTombstone => ruma::events::StateEventType::RoomTombstone,
+            Self::RoomTopic => ruma::events::StateEventType::RoomTopic,
+            Self::SpaceChild => ruma::events::StateEventType::SpaceChild,
+            Self::SpaceParent => ruma::events::StateEventType::SpaceParent,
+        }
     }
 }

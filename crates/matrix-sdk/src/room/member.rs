@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use ruma::events::room::MediaSource;
+use ruma::events::room::{
+    MediaSource,
+    power_levels::PowerLevelAction,
+};
 
 use crate::{
     media::{MediaFormat, MediaRequest},
@@ -84,5 +87,11 @@ impl RoomMember {
             Some(id) => id == self.inner.user_id(),
             None => false,
         }
+    }
+
+    /// Whether the given user can do the given action based on the power
+    /// levels.
+    pub fn can_do(&self, action: PowerLevelAction) -> bool {
+        self.inner.can_do(action)
     }
 }
