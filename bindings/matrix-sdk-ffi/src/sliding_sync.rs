@@ -485,11 +485,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSyncList>, ClientError> {
-        let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(builder.inner.build()?.into()))
-    }
-
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sort(sort);
@@ -565,7 +560,7 @@ impl SlidingSyncListBuilder {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
+#[derive(uniffi::Object)]
 pub struct SlidingSyncList {
     inner: matrix_sdk::SlidingSyncList,
 }
@@ -745,13 +740,8 @@ impl SlidingSync {
             .collect())
     }
 
-    #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn get_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
-    }
-
-    pub fn add_list(&self, list: Arc<SlidingSyncList>) -> Option<Arc<SlidingSyncList>> {
-        self.inner.add_list(list.inner.clone()).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) {
+        self.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
     }
 
     pub fn add_common_extensions(&self) {
@@ -798,7 +788,7 @@ impl SlidingSync {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
+#[derive(Debug, Clone, uniffi::Object)]
 pub struct SlidingSyncBuilder {
     inner: MatrixSlidingSyncBuilder,
     client: Client,
@@ -818,10 +808,9 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_list(self: Arc<Self>, v: Arc<SlidingSyncList>) -> Arc<Self> {
+    pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        let list = unwrap_or_clone_arc(v);
-        builder.inner = builder.inner.add_list(list.inner);
+        builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
         Arc::new(builder)
     }
 
