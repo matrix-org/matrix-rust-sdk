@@ -7,7 +7,10 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::StreamExt;
 use matrix_sdk::{
-    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
     room::{timeline::Timeline, Receipts, Room as SdkRoom},
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
@@ -28,7 +31,8 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{
     error::{ClientError, RoomError},
-    ImageInfo, RoomMember, TimelineDiff, TimelineItem, TimelineListener,
+    AudioInfo, FileInfo, ImageInfo, RoomMember, TimelineDiff, TimelineItem, TimelineListener,
+    VideoInfo,
 };
 
 #[derive(uniffi::Enum)]
@@ -687,6 +691,126 @@ impl Room {
             attachment_config = AttachmentConfig::new();
             attachment_config = attachment_config.info(attachment_info);
         }
+
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => return Err(RoomError::TimelineUnavailable),
+        };
+
+        RUNTIME.block_on(async move {
+            timeline
+                .send_attachment(url, mime_type, attachment_config)
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)?;
+            Ok(())
+        })
+    }
+
+    pub fn send_video(
+        &self,
+        url: String,
+        thumbnail_url: String,
+        video_info: VideoInfo,
+    ) -> Result<(), RoomError> {
+        let mime_type = match video_info.clone().mimetype {
+            Some(mimetype) => {
+                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+            }
+            None => Err(RoomError::InvalidAttachmentMimeType),
+        }?;
+
+        let mut attachment_config: AttachmentConfig;
+
+        let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(video_info.clone())
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Video(base_video_info);
+
+        if let Some(thumbnail_image_info) = video_info.thumbnail_info {
+            let thumbnail_data =
+                fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+
+            let thumbnail_info = BaseThumbnailInfo::try_from(thumbnail_image_info.clone())
+                .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+            let thumbnail_mime_type = match thumbnail_image_info.mimetype {
+                Some(mimetype) => {
+                    mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+                }
+                None => Err(RoomError::InvalidAttachmentMimeType),
+            }?;
+
+            let thumbnail = Thumbnail {
+                data: thumbnail_data,
+                content_type: thumbnail_mime_type,
+                info: Some(thumbnail_info),
+            };
+
+            attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
+        } else {
+            attachment_config = AttachmentConfig::new();
+            attachment_config = attachment_config.info(attachment_info);
+        }
+
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => return Err(RoomError::TimelineUnavailable),
+        };
+
+        RUNTIME.block_on(async move {
+            timeline
+                .send_attachment(url, mime_type, attachment_config)
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)?;
+            Ok(())
+        })
+    }
+
+    pub fn send_audio(&self, url: String, audio_info: AudioInfo) -> Result<(), RoomError> {
+        let mime_type = match audio_info.clone().mimetype {
+            Some(mimetype) => {
+                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+            }
+            None => Err(RoomError::InvalidAttachmentMimeType),
+        }?;
+
+        let base_audio_info: BaseAudioInfo =
+            BaseAudioInfo::try_from(audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Audio(base_audio_info);
+
+        let mut attachment_config = AttachmentConfig::new();
+        attachment_config = attachment_config.info(attachment_info);
+
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => return Err(RoomError::TimelineUnavailable),
+        };
+
+        RUNTIME.block_on(async move {
+            timeline
+                .send_attachment(url, mime_type, attachment_config)
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)?;
+            Ok(())
+        })
+    }
+
+    pub fn send_file(&self, url: String, file_info: FileInfo) -> Result<(), RoomError> {
+        let mime_type = match file_info.clone().mimetype {
+            Some(mimetype) => {
+                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+            }
+            None => Err(RoomError::InvalidAttachmentMimeType),
+        }?;
+
+        let base_file_info: BaseFileInfo =
+            BaseFileInfo::try_from(file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::File(base_file_info);
+
+        let mut attachment_config = AttachmentConfig::new();
+        attachment_config = attachment_config.info(attachment_info);
 
         let timeline = match &*self.timeline.read().unwrap() {
             Some(t) => Arc::clone(t),

@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 use matrix_sdk::{
-    attachment::{BaseImageInfo, BaseThumbnailInfo},
+    attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
     room::timeline::{Profile, TimelineDetails},
 };
 use ruma::UInt;
@@ -596,6 +596,17 @@ pub struct AudioInfo {
     pub mimetype: Option<String>,
 }
 
+impl TryFrom<AudioInfo> for BaseAudioInfo {
+    type Error = ();
+
+    fn try_from(value: AudioInfo) -> Result<Self, ()> {
+        Ok(BaseAudioInfo {
+            duration: value.duration.map(Duration::from_secs),
+            size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct VideoInfo {
     pub duration: Option<u64>,
@@ -608,12 +619,34 @@ pub struct VideoInfo {
     pub blurhash: Option<String>,
 }
 
+impl TryFrom<VideoInfo> for BaseVideoInfo {
+    type Error = ();
+
+    fn try_from(value: VideoInfo) -> Result<Self, ()> {
+        Ok(BaseVideoInfo {
+            duration: value.duration.map(Duration::from_secs),
+            height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
+            width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
+            size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
+            blurhash: value.blurhash,
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct FileInfo {
     pub mimetype: Option<String>,
     pub size: Option<u64>,
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
+}
+
+impl TryFrom<FileInfo> for BaseFileInfo {
+    type Error = ();
+
+    fn try_from(value: FileInfo) -> Result<Self, ()> {
+        Ok(BaseFileInfo { size: value.size.map(UInt::try_from).transpose().map_err(|_| ())? })
+    }
 }
 
 #[derive(Clone, uniffi::Record)]
