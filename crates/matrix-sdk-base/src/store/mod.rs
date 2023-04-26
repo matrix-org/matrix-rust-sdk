@@ -308,7 +308,7 @@ impl Deref for Store {
 }
 
 /// Store state changes and pass them to the StateStore.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
