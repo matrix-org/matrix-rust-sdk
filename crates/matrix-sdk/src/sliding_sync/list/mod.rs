@@ -83,7 +83,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(ranges);
-        self.reset();
+        self.reset()?;
 
         Ok(())
     }
@@ -98,7 +98,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges(&[(start, end)]);
-        self.reset();
+        self.reset()?;
 
         Ok(())
     }
@@ -113,7 +113,7 @@ impl SlidingSyncList {
         }
 
         self.inner.add_range((start, end));
-        self.reset();
+        self.reset()?;
 
         Ok(())
     }
@@ -130,7 +130,7 @@ impl SlidingSyncList {
         }
 
         self.inner.set_ranges::<UInt>(&[]);
-        self.reset();
+        self.reset()?;
 
         Ok(())
     }
@@ -230,11 +230,16 @@ impl SlidingSyncList {
     }
 
     // Reset `Self`.
-    pub(super) fn reset(&self) {
+    pub(super) fn reset(&self) -> Result<(), Error> {
         self.inner.reset();
 
         // When a list is reset, the sync loop must be “restarted”.
-        self.inner.sliding_sync_internal_channel_sender.blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop).unwrap();
+        self.inner
+            .sliding_sync_internal_channel_sender
+            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+            .map_err(|_| Error::InternalChannelIsBroken)?;
+
+        Ok(())
     }
 }
 
@@ -989,7 +994,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_new_builder() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList {
             inner: SlidingSyncListInner {
@@ -1036,7 +1041,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_set_ranges() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder()
             .name("foo")
@@ -1064,7 +1069,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_set_range() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         // Set range on `Selective`.
         {
@@ -1117,7 +1122,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_add_range() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         // Add range on `Selective`.
         {
@@ -1170,7 +1175,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_reset_ranges() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         // Reset ranges on `Selective`.
         {
@@ -1223,7 +1228,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_timeline_limit() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder()
             .name("foo")
@@ -1261,7 +1266,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_get_room_id() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .name("foo")
@@ -1340,7 +1345,7 @@ mod tests {
 
     #[test]
     fn test_generator_paging_full_sync() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Paging)
@@ -1385,7 +1390,7 @@ mod tests {
 
     #[test]
     fn test_generator_paging_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Paging)
@@ -1431,7 +1436,7 @@ mod tests {
 
     #[test]
     fn test_generator_growing_full_sync() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Growing)
@@ -1476,7 +1481,7 @@ mod tests {
 
     #[test]
     fn test_generator_growing_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Growing)
@@ -1522,7 +1527,7 @@ mod tests {
 
     #[test]
     fn test_generator_selective() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Selective)
@@ -1557,7 +1562,7 @@ mod tests {
 
     #[test]
     fn test_generator_selective_with_modifying_ranges_on_the_fly() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder()
             .sync_mode(crate::SlidingSyncMode::Selective)
@@ -1645,7 +1650,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
-        let (sender, _) = channel(1);
+        let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder()
             .name("foo")

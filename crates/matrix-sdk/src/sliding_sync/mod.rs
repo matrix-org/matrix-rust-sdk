@@ -585,7 +585,7 @@ impl SlidingSync {
                                         sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
 
                                         // The session has expired too many times, let's raise an error!
-                                        yield Err(error.into());
+                                        yield Err(error);
 
                                         break;
                                     }
@@ -605,7 +605,7 @@ impl SlidingSync {
                                     });
                                 }
 
-                                yield Err(error.into());
+                                yield Err(error);
 
                                 continue;
                             }
@@ -618,17 +618,20 @@ impl SlidingSync {
     }
 
     /// Resets the lists.
-    pub fn reset_lists(&self) {
+    pub fn reset_lists(&self) -> Result<(), Error> {
         let lists = self.inner.lists.read().unwrap();
 
         for (_, list) in lists.iter() {
-            list.reset();
+            list.reset()?;
         }
+
+        Ok(())
     }
 }
 
 #[derive(Debug)]
 enum SlidingSyncInternalMessage {
+    #[allow(unused)] // temporary
     BreakSyncLoop,
     ContinueSyncLoop,
 }
