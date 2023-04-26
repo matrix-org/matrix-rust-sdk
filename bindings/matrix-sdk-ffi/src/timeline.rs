@@ -2,8 +2,12 @@ use std::sync::Arc;
 
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
-use matrix_sdk::room::timeline::{Profile, TimelineDetails};
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use matrix_sdk::{
+    attachment::{BaseImageInfo, BaseThumbnailInfo},
+    room::timeline::{Profile, TimelineDetails},
+};
+use ruma::UInt;
 use tracing::warn;
 
 use crate::helpers::unwrap_or_clone_arc;
@@ -570,6 +574,19 @@ pub struct ImageInfo {
     pub blurhash: Option<String>,
 }
 
+impl TryFrom<ImageInfo> for BaseImageInfo {
+    type Error = ();
+
+    fn try_from(value: ImageInfo) -> Result<Self, ()> {
+        Ok(BaseImageInfo {
+            height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
+            width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
+            size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
+            blurhash: value.blurhash,
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct AudioInfo {
     // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support
@@ -605,6 +622,18 @@ pub struct ThumbnailInfo {
     pub width: Option<u64>,
     pub mimetype: Option<String>,
     pub size: Option<u64>,
+}
+
+impl TryFrom<ThumbnailInfo> for BaseThumbnailInfo {
+    type Error = ();
+
+    fn try_from(value: ThumbnailInfo) -> Result<Self, Self::Error> {
+        Ok(BaseThumbnailInfo {
+            height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
+            width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
+            size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
+        })
+    }
 }
 
 #[derive(Clone, uniffi::Record)]

@@ -16,11 +16,12 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
 
 use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
 use imbl::Vector;
+use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
@@ -37,6 +38,7 @@ use tracing::{error, instrument, warn};
 
 use super::{Joined, Receipts};
 use crate::{
+    attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
     Client, Result,
@@ -285,6 +287,40 @@ impl Timeline {
             Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
         };
         self.inner.update_event_send_state(&txn_id, send_state).await;
+    }
+
+    /// Sends an attachment to the room. It does not currently support local
+    /// echoes
+    ///
+    /// If the encryption feature is enabled, this method will transparently
+    /// encrypt the room message if the room is encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The url for the file to be sent
+    ///
+    /// * `mime_type` - The attachment's mime type
+    ///
+    /// * `config` - An attachment configuration object containing details about
+    ///   the attachment
+    /// like a thumbnail, its size, duration etc.
+    pub async fn send_attachment(
+        &self,
+        url: String,
+        mime_type: Mime,
+        config: AttachmentConfig,
+    ) -> Result<(), Error> {
+        // If this room isn't actually in joined state, we'll get a server error.
+        // Not ideal, but works for now.
+        let room = Joined { inner: self.room().clone() };
+
+        let body =
+            Path::new(&url).file_name().ok_or(Error::InvalidAttachmentBody)?.to_str().unwrap();
+        let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
+
+        _ = room.send_attachment(body, &mime_type, data, config).await;
+
+        Ok(())
     }
 
     /// Fetch unavailable details about the event with the given ID.
@@ -577,6 +613,14 @@ pub enum Error {
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]
     UnsupportedEvent,
+
+    /// Couldn't read the attachment data from the given URL
+    #[error("Invalid attachment data")]
+    InvalidAttachmentData,
+
+    /// The attachment name/body is invalid
+    #[error("Invalid attachment body")]
+    InvalidAttachmentBody,
 }
 
 /// Result of comparing events position in the timeline.

@@ -59,3 +59,18 @@ impl From<mime::FromStrError> for ClientError {
         anyhow::Error::from(e).into()
     }
 }
+
+#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum RoomError {
+    #[error("Invalid attachment data")]
+    InvalidAttachmentData,
+    #[error("Invalid attachment mime type")]
+    InvalidAttachmentMimeType,
+    #[error("Timeline unavailable")]
+    TimelineUnavailable,
+    #[error("Invalid thumbnail data")]
+    InvalidThumbnailData,
+    #[error("Failed sending attachment")]
+    FailedSendingAttachment,
+}
