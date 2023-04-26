@@ -92,7 +92,7 @@ async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<
     // Build the client with the previous settings from the session.
     let client = Client::builder()
         .homeserver_url(client_session.homeserver)
-        .sled_store(client_session.db_path, Some(&client_session.passphrase))
+        .sqlite_store(client_session.db_path, Some(&client_session.passphrase))
         .build()
         .await?;
 
@@ -165,7 +165,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 
     // Generating a subfolder for the database is not mandatory, but it is useful if
     // you allow several clients to run at the same time. Each one must have a
-    // separate database, which is a different folder with the sled store.
+    // separate database, which is a different folder with the SQLite store.
     let db_subfolder: String =
         (&mut rng).sample_iter(Alphanumeric).take(7).map(char::from).collect();
     let db_path = data_dir.join(db_subfolder);
@@ -186,10 +186,10 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 
         match Client::builder()
             .homeserver_url(&homeserver)
-            // We use the sled store, which is enabled by default. This is the crucial part to
+            // We use the SQLite store, which is enabled by default. This is the crucial part to
             // persist the encryption setup.
-            // Note that other store backends are available and you an even implement your own.
-            .sled_store(&db_path, Some(&passphrase))
+            // Note that other store backends are available and you can even implement your own.
+            .sqlite_store(&db_path, Some(&passphrase))
             .build()
             .await
         {

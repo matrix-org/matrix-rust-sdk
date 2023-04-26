@@ -2633,7 +2633,7 @@ dependencies = [
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-indexeddb",
- "matrix-sdk-sled",
+ "matrix-sdk-sqlite",
  "matrix-sdk-test",
  "mime",
  "mime2ext",

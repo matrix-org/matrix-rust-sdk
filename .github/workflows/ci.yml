@@ -34,9 +34,9 @@ jobs:
       matrix:
         name:
           - no-encryption
-          - no-sled
-          - no-encryption-and-sled
-          - sled-cryptostore
+          - no-sqlite
+          - no-encryption-and-sqlite
+          - sqlite-cryptostore
           - rustls-tls
           - markdown
           - socks
