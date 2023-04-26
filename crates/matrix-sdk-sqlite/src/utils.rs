@@ -17,7 +17,14 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction};
 
-#[derive(Debug)]
+pub(crate) fn chain<T>(
+    it1: impl IntoIterator<Item = T>,
+    it2: impl IntoIterator<Item = T>,
+) -> impl Iterator<Item = T> {
+    it1.into_iter().chain(it2)
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum Key {
     Plain(Vec<u8>),
     Hashed([u8; 32]),
