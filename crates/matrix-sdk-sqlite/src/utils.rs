@@ -42,18 +42,31 @@ impl rusqlite::ToSql for Key {
 
 #[async_trait]
 pub(crate) trait SqliteObjectExt {
-    async fn execute<P>(&self, sql: &'static str, params: P) -> rusqlite::Result<usize>
+    async fn execute<P>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+    ) -> rusqlite::Result<usize>
     where
         P: Params + Send + 'static;
 
-    async fn execute_batch(&self, sql: &'static str) -> rusqlite::Result<()>;
+    async fn execute_batch(&self, sql: impl AsRef<str> + Send + 'static) -> rusqlite::Result<()>;
 
-    async fn prepare<T, F>(&self, sql: &'static str, f: F) -> rusqlite::Result<T>
+    async fn prepare<T, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        f: F,
+    ) -> rusqlite::Result<T>
     where
         T: Send + 'static,
         F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + Send + 'static;
 
-    async fn query_row<T, P, F>(&self, sql: &'static str, params: P, f: F) -> rusqlite::Result<T>
+    async fn query_row<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
     where
         T: Send + 'static,
         P: Params + Send + 'static,
@@ -68,32 +81,45 @@ pub(crate) trait SqliteObjectExt {
 
 #[async_trait]
 impl SqliteObjectExt for deadpool_sqlite::Object {
-    async fn execute<P>(&self, sql: &'static str, params: P) -> rusqlite::Result<usize>
+    async fn execute<P>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+    ) -> rusqlite::Result<usize>
     where
         P: Params + Send + 'static,
     {
-        self.interact(move |conn| conn.execute(sql, params)).await.unwrap()
+        self.interact(move |conn| conn.execute(sql.as_ref(), params)).await.unwrap()
     }
 
-    async fn execute_batch(&self, sql: &'static str) -> rusqlite::Result<()> {
-        self.interact(move |conn| conn.execute_batch(sql)).await.unwrap()
+    async fn execute_batch(&self, sql: impl AsRef<str> + Send + 'static) -> rusqlite::Result<()> {
+        self.interact(move |conn| conn.execute_batch(sql.as_ref())).await.unwrap()
     }
 
-    async fn prepare<T, F>(&self, sql: &'static str, f: F) -> rusqlite::Result<T>
+    async fn prepare<T, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        f: F,
+    ) -> rusqlite::Result<T>
     where
         T: Send + 'static,
         F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.interact(move |conn| f(conn.prepare(sql)?)).await.unwrap()
+        self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.unwrap()
     }
 
-    async fn query_row<T, P, F>(&self, sql: &'static str, params: P, f: F) -> rusqlite::Result<T>
+    async fn query_row<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
     where
         T: Send + 'static,
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.interact(move |conn| conn.query_row(sql, params, f)).await.unwrap()
+        self.interact(move |conn| conn.query_row(sql.as_ref(), params, f)).await.unwrap()
     }
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
