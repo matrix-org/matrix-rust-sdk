@@ -28,8 +28,11 @@ use base64::{
 };
 use matrix_sdk_common::instant::Instant;
 
-const STANDARD_NO_PAD: GeneralPurpose =
-    GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
+const STANDARD_NO_PAD: GeneralPurpose = GeneralPurpose::new(
+    &alphabet::STANDARD,
+    general_purpose::NO_PAD
+        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+);
 
 /// Decode the input as base64 with no padding.
 pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
