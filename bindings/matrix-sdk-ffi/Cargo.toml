@@ -14,7 +14,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [features]
 default = ["bundled-sqlite"]
-bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
+bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
@@ -27,8 +27,6 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
-matrix-sdk-sqlite = { path = "../../crates/matrix-sdk-sqlite", features = ["crypto-store"] }
-matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled" }
 mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
@@ -68,6 +66,7 @@ features = [
     "markdown",
     "socks",
     "rustls-tls",
+    "sqlite",
 ]
 
 [target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
@@ -81,4 +80,5 @@ features = [
     "markdown",
     "native-tls",
     "socks",
+    "sqlite",
 ]
