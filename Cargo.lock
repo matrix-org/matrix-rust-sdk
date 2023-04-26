@@ -538,7 +538,7 @@ version = "1.0.0"
 dependencies = [
  "criterion",
  "matrix-sdk-crypto",
- "matrix-sdk-sled",
+ "matrix-sdk-sqlite",
  "matrix-sdk-test",
  "pprof",
  "ruma",
