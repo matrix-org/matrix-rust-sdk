@@ -39,6 +39,7 @@ jobs:
       matrix:
         include:
           # ----------------------------------- Linux
+          # Use Ubuntu LTS-1 for broader glibc compatibility.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-20.04
           - target: i686-unknown-linux-gnu
