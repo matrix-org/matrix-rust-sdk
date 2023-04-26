@@ -349,6 +349,29 @@ impl RoomMemberships {
 
         self.contains(membership)
     }
+
+    /// Get this `RoomMemberships` as a list of matching [`MembershipState`]s.
+    pub fn as_vec(&self) -> Vec<MembershipState> {
+        let mut memberships = Vec::new();
+
+        if self.contains(Self::JOIN) {
+            memberships.push(MembershipState::Join);
+        }
+        if self.contains(Self::INVITE) {
+            memberships.push(MembershipState::Invite);
+        }
+        if self.contains(Self::KNOCK) {
+            memberships.push(MembershipState::Knock);
+        }
+        if self.contains(Self::LEAVE) {
+            memberships.push(MembershipState::Leave);
+        }
+        if self.contains(Self::BAN) {
+            memberships.push(MembershipState::Ban);
+        }
+
+        memberships
+    }
 }
 
 #[cfg(test)]
