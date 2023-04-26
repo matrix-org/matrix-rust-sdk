@@ -33,6 +33,7 @@ e2e-encryption = [
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sqlite = ["dep:matrix-sdk-sqlite", "matrix-sdk-sqlite?/state-store"]
+bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = ["dep:matrix-sdk-indexeddb"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
