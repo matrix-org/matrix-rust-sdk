@@ -92,10 +92,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest]
+        # Use Ubuntu LTS-1 for broader glibc compatibility.
+        os: [ubuntu-20.04]
         node-version: [16.0, 18.0, 19.0, 20.0]
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             os-name: 🐧
 
           - os: macos-latest
