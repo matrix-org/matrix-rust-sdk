@@ -49,7 +49,9 @@ use ruma::{
             self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
         },
     },
-    assign, OwnedRoomId, RoomId,
+    assign,
+    events::TimelineEventType,
+    OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -106,13 +108,17 @@ pub(super) struct SlidingSyncInner {
     /// The rooms details
     rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
+    /// The `bump_event_types` field. See
+    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
+    bump_event_types: Vec<TimelineEventType>,
+
     subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
     unsubscribe: StdRwLock<Vec<OwnedRoomId>>,
 
     /// Number of times a Sliding Session session has been reset.
     reset_counter: AtomicU8,
 
-    /// the intended state of the extensions being supplied to sliding /sync
+    /// The intended state of the extensions being supplied to sliding /sync
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
@@ -406,6 +412,7 @@ impl SlidingSync {
                     txn_id: Some(stream_id.to_owned()),
                     timeout: Some(timeout),
                     lists: requests_lists,
+                    bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
                     unsubscribe_rooms,
                     extensions,

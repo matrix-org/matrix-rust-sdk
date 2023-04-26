@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::TimelineItem;
+use crate::{error::ClientError, TimelineItem};
 
 #[allow(dead_code)]
 pub struct NotificationService {
@@ -9,6 +9,7 @@ pub struct NotificationService {
 }
 
 /// Notification item struct.
+#[derive(uniffi::Record)]
 pub struct NotificationItem {
     /// Actual timeline item for the event sent.
     pub item: Arc<TimelineItem>,
@@ -32,7 +33,10 @@ impl NotificationService {
     pub fn new(base_path: String, user_id: String) -> Self {
         Self { base_path, user_id }
     }
+}
 
+#[uniffi::export]
+impl NotificationService {
     /// Get notification item for a given `room_id `and `event_id`.
     ///
     /// Returns `None` if this notification should not be displayed to the user.
@@ -40,7 +44,7 @@ impl NotificationService {
         &self,
         _room_id: String,
         _event_id: String,
-    ) -> anyhow::Result<Option<NotificationItem>> {
+    ) -> Result<Option<NotificationItem>, ClientError> {
         // TODO: Implement
         Ok(None)
     }

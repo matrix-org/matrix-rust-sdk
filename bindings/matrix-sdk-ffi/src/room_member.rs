@@ -3,7 +3,7 @@ use matrix_sdk::room::RoomMember as SdkRoomMember;
 use super::RUNTIME;
 use crate::ClientError;
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Enum)]
 pub enum MembershipState {
     /// The user is banned.
     Ban,

@@ -27,7 +27,8 @@ pub enum PkDecryptionError {
 }
 
 /// Error type for the decoding and storing of the backup key.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum DecodeError {
     /// An error happened while decoding the recovery key.
     #[error(transparent)]
@@ -40,7 +41,7 @@ pub enum DecodeError {
 
 /// Struct containing info about the way the backup key got derived from a
 /// passphrase.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, uniffi::Record)]
 pub struct PassphraseInfo {
     /// The salt that was used during key derivation.
     pub private_key_salt: String,

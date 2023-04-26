@@ -562,9 +562,10 @@ impl SlidingSyncListInner {
                     self.set_ranges(&[(0, range_end)]);
 
                     // Finally, let's update the list' state.
-                    Observable::update_eq(&mut self.state.write().unwrap(), |state| {
-                        *state = SlidingSyncState::PartiallyLoaded;
-                    });
+                    Observable::set_if_not_eq(
+                        &mut self.state.write().unwrap(),
+                        SlidingSyncState::PartiallyLoaded,
+                    );
                 }
                 // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
                 // mode.
@@ -579,17 +580,19 @@ impl SlidingSyncListInner {
                     self.set_ranges(&[(0, range_maximum)]);
 
                     // Finally, let's update the list' state.
-                    Observable::update_eq(&mut self.state.write().unwrap(), |state| {
-                        *state = SlidingSyncState::FullyLoaded;
-                    });
+                    Observable::set_if_not_eq(
+                        &mut self.state.write().unwrap(),
+                        SlidingSyncState::FullyLoaded,
+                    );
                 }
             }
 
             SlidingSyncListRequestGeneratorKind::Selective => {
                 // Selective mode always loads everything.
-                Observable::update_eq(&mut self.state.write().unwrap(), |state| {
-                    *state = SlidingSyncState::FullyLoaded;
-                });
+                Observable::set_if_not_eq(
+                    &mut self.state.write().unwrap(),
+                    SlidingSyncState::FullyLoaded,
+                );
             }
         }
 

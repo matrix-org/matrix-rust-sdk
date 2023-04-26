@@ -93,16 +93,16 @@ jobs:
       fail-fast: true
       matrix:
         os: [ubuntu-latest]
-        node-version: [14.0, 16.0, 18.0, 19.0]
+        node-version: [16.0, 18.0, 19.0, 20.0]
         include:
           - os: ubuntu-latest
             os-name: 🐧
 
           - os: macos-latest
             os-name: 🍏
-            node-version: 18.0
+            node-version: 20.0
 
-          - node-version: 18.0
+          - node-version: 20.0
             build-doc: true
 
     steps:
@@ -174,7 +174,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18.0
+          node-version: 20.0
 
       - name: Install NPM dependencies
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}

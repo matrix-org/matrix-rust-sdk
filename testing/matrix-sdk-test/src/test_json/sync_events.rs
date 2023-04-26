@@ -146,6 +146,21 @@ pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static MEMBER_BAN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "avatar_url": null,
+            "displayname": "example",
+            "membership": "ban"
+        },
+        "event_id": "$151800140517rfvjc:localhost",
+        "origin_server_ts": 151800140,
+        "sender": "@example:localhost",
+        "state_key": "@banned:localhost",
+        "type": "m.room.member",
+    })
+});
+
 pub static MEMBER_INVITE: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {

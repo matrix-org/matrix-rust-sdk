@@ -28,6 +28,7 @@ use ruma::{
 };
 use serde_json::json;
 
+#[derive(uniffi::Record)]
 pub struct SignatureUploadRequest {
     pub body: String,
 }
@@ -41,6 +42,7 @@ impl From<RustSignatureUploadRequest> for SignatureUploadRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct UploadSigningKeysRequest {
     pub master_key: String,
     pub self_signing_key: String,
@@ -66,6 +68,7 @@ impl From<RustUploadSigningKeysRequest> for UploadSigningKeysRequest {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct BootstrapCrossSigningResult {
     pub upload_signing_keys_request: UploadSigningKeysRequest,
     pub signature_request: SignatureUploadRequest,
@@ -82,6 +85,7 @@ impl From<(RustUploadSigningKeysRequest, RustSignatureUploadRequest)>
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum OutgoingVerificationRequest {
     ToDevice { request_id: String, event_type: String, body: String },
     InRoom { request_id: String, room_id: String, event_type: String, content: String },
@@ -112,7 +116,7 @@ impl From<ToDeviceRequest> for OutgoingVerificationRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, uniffi::Enum)]
 pub enum Request {
     ToDevice { request_id: String, event_type: String, body: String },
     KeysUpload { request_id: String, body: String },
@@ -221,6 +225,7 @@ pub(crate) fn response_from_string(body: &str) -> Response<Vec<u8>> {
         .expect("Can't create HTTP response")
 }
 
+#[derive(uniffi::Enum)]
 pub enum RequestType {
     KeysQuery,
     KeysClaim,
@@ -254,6 +259,7 @@ impl From<DeviceLists> for RumaDeviceLists {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct KeysImportResult {
     /// The number of room keys that were imported.
     pub imported: i64,

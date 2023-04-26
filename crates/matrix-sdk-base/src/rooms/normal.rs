@@ -44,7 +44,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent,
+    MinimalStateEvent, RoomMemberships,
 };
 
 /// The underlying room data structure collecting state for joined, left and
@@ -318,12 +318,13 @@ impl Room {
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
     pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
-        self.store.get_joined_user_ids(self.room_id()).await
+        self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
-    /// Get the all `RoomMember`s of this room that are known to the store.
-    pub async fn members(&self) -> StoreResult<Vec<RoomMember>> {
-        let user_ids = self.store.get_user_ids(self.room_id()).await?;
+    /// Get the `RoomMember`s of this room that are known to the store, with the
+    /// given memberships.
+    pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
+        let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
         let mut members = Vec::new();
 
         for u in user_ids {
@@ -339,38 +340,16 @@ impl Room {
 
     /// Get the list of `RoomMember`s that are considered to be joined members
     /// of this room.
+    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
-        let mut members = Vec::new();
-
-        for u in joined {
-            let m = self.get_member(&u).await?;
-
-            if let Some(member) = m {
-                members.push(member);
-            }
-        }
-
-        Ok(members)
+        self.members(RoomMemberships::JOIN).await
     }
 
     /// Get the list of `RoomMember`s that are considered to be joined or
     /// invited members of this room.
+    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
     pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
-        let invited = self.store.get_invited_user_ids(self.room_id()).await?;
-
-        let mut members = Vec::new();
-
-        for u in joined.iter().chain(&invited) {
-            let m = self.get_member(u).await?;
-
-            if let Some(member) = m {
-                members.push(member);
-            }
-        }
-
-        Ok(members)
+        self.members(RoomMemberships::ACTIVE).await
     }
 
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
@@ -391,7 +370,12 @@ impl Room {
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
         let members: Vec<RoomMember> = if summary.heroes.is_empty() {
-            self.active_members().await?.into_iter().filter(|u| !is_own_member(u)).take(5).collect()
+            self.members(RoomMemberships::ACTIVE)
+                .await?
+                .into_iter()
+                .filter(|u| !is_own_member(u))
+                .take(5)
+                .collect()
         } else {
             let members: Vec<_> =
                 stream::iter(summary.heroes.iter().filter(|u| !is_own_user_id(u)))

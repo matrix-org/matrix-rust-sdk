@@ -1,8 +1,5 @@
 namespace matrix_sdk_ffi {};
 
-
-interface TaskHandle {};
-
 [Error]
 interface ClientError {
     Generic(string msg);
@@ -10,16 +7,6 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
-};
-
-dictionary RequiredState {
-    string key;
-    string value;
-};
-
-dictionary RoomSubscription {
-    sequence<RequiredState>? required_state;
-    u32? timeline_limit;
 };
 
 dictionary UpdateSummary {
@@ -93,59 +80,10 @@ callback interface SlidingSyncListRoomItemsObserver {
 
 interface SlidingSyncListBuilder {
     constructor();
-
-    [Self=ByArc]
-    SlidingSyncListBuilder sync_mode(SlidingSyncMode mode);
-
-    [Throws=ClientError, Self=ByArc]
-    SlidingSyncList build();
-};
-
-interface SlidingSyncList {
-    TaskHandle observe_room_list(SlidingSyncListRoomListObserver observer);
-    TaskHandle observe_rooms_count(SlidingSyncListRoomsCountObserver observer);
-    TaskHandle observe_state(SlidingSyncListStateObserver observer);
-};
-
-interface SlidingSyncRoom {
-    [Throws=ClientError]
-    SlidingSyncSubscribeResult subscribe_and_add_timeline_listener(TimelineListener listener, RoomSubscription? settings);
-    [Throws=ClientError]
-    SlidingSyncSubscribeResult add_timeline_listener(TimelineListener listener);
-};
-
-dictionary SlidingSyncSubscribeResult {
-    sequence<TimelineItem> items;
-    TaskHandle task_handle;
-};
-
-interface SlidingSync {
-    void set_observer(SlidingSyncObserver? observer);
-
-    [Throws=ClientError]
-    void subscribe(string room_id, RoomSubscription? settings);
-    [Throws=ClientError]
-    void unsubscribe(string room_id);
-
-    [Throws=ClientError]
-    SlidingSyncRoom? get_room(string room_id);
-    [Throws=ClientError]
-    sequence<SlidingSyncRoom?> get_rooms(sequence<string> room_ids);
 };
 
 interface ClientBuilder {
     constructor();
-
-    [Throws=ClientError, Self=ByArc]
-    Client build();
-};
-
-interface SlidingSyncBuilder {
-    [Throws=ClientError, Self=ByArc]
-    SlidingSyncBuilder homeserver(string url);
-
-    [Throws=ClientError, Self=ByArc]
-    SlidingSync build();
 };
 
 dictionary CreateRoomParameters {
@@ -181,106 +119,7 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-interface Client {
-    void set_delegate(ClientDelegate? delegate);
-
-    [Throws=ClientError]
-    void login(string username, string password, string? initial_device_name, string? device_id);
-
-    [Throws=ClientError]
-    MediaFileHandle get_media_file(MediaSource source, string mime_type);
-};
-
-interface MediaFileHandle {
-    string path();
-};
-
-enum MembershipState {
-    /// The user is banned.
-    "Ban",
-    /// The user has been invited.
-    "Invite",
-    /// The user has joined.
-    "Join",
-    /// The user has requested to join.
-    "Knock",
-    /// The user has left.
-    "Leave",
-};
-
 interface RoomMember { };
-
-interface Room {
-    [Throws=ClientError]
-    string display_name();
-
-    [Throws=ClientError]
-    boolean is_encrypted();
-
-    [Throws=ClientError]
-    sequence<RoomMember> members();
-
-    [Throws=ClientError]
-    string? member_avatar_url(string user_id);
-
-    [Throws=ClientError]
-    string? member_display_name(string user_id);
-
-    sequence<TimelineItem> add_timeline_listener(TimelineListener listener);
-
-    // Loads older messages into the timeline.
-    //
-    // Raises an exception if there are no timeline listeners.
-    [Throws=ClientError]
-    void paginate_backwards(PaginationOptions opts);
-
-    [Throws=ClientError]
-    void send_read_receipt(string event_id);
-
-    [Throws=ClientError]
-    void send_read_marker(string fully_read_event_id, string? read_receipt_event_id);
-
-    void send(RoomMessageEventContent msg, string? txn_id);
-
-    [Throws=ClientError]
-    void send_reply(string msg, string in_reply_to_event_id, string? txn_id);
-
-    [Throws=ClientError]
-    void edit(string new_msg, string original_event_id, string? txn_id);
-
-    [Throws=ClientError]
-    void redact(string event_id, string? reason, string? txn_id);
-
-    [Throws=ClientError]
-    void report_content(string event_id, i32? score, string? reason);
-    
-    [Throws=ClientError]
-    void ignore_user(string user_id);
-
-    [Throws=ClientError]
-    void send_reaction(string event_id, string key);
-
-    [Throws=ClientError]
-    void leave();
-
-    [Throws=ClientError]
-    void reject_invitation();
-
-    [Throws=ClientError]
-    void accept_invitation();
-
-    [Throws=ClientError]
-    void set_topic(string topic);
-
-    [Throws=ClientError]
-    void upload_avatar(string mime_type, sequence<u8> data);
-
-    [Throws=ClientError]
-    void remove_avatar();
-
-    [Throws=ClientError]
-    void invite_user_by_id(string user_id);
-};
 
 callback interface TimelineListener {
     void on_update(TimelineDiff update);
@@ -311,19 +150,8 @@ interface AuthenticationService {
     constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
 };
 
-dictionary NotificationItem {
-    TimelineItem item;
-    string title;
-    string? subtitle;
-    boolean is_noisy;
-    string? avatar_url;
-};
-
 interface NotificationService {
     constructor(string base_path, string user_id);
-
-    [Throws=ClientError]
-    NotificationItem? get_notification_item(string room_id, string event_id);
 };
 
 interface SessionVerificationEmoji {};
@@ -335,25 +163,6 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
-};
-
-interface SessionVerificationController {
-    void set_delegate(SessionVerificationControllerDelegate? delegate);
-
-    [Throws=ClientError]
-    void request_verification();
-
-    [Throws=ClientError]
-    void start_sas_verification();
-
-    [Throws=ClientError]
-    void approve_verification();
-
-    [Throws=ClientError]
-    void decline_verification();
-
-    [Throws=ClientError]
-    void cancel_verification();
 };
 
 interface Span {
