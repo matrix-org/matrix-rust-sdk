@@ -23,6 +23,10 @@ crypto-store = [
     "matrix-sdk-base?/e2e-encryption",
 ]
 
+docsrs = [
+    "crypto-store",
+]
+
 [dependencies]
 async-trait = { workspace = true }
 fs_extra = "1.2.0"
