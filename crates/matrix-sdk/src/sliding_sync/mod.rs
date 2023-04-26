@@ -522,7 +522,7 @@ impl SlidingSync {
     /// hence updating the lists.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
-    pub fn stream(&mut self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
 
