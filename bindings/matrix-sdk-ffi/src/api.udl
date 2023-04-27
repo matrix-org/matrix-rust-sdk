@@ -7,6 +7,9 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
+};
+
+callback interface NotificationDelegate {
     void did_receive_notification(NotificationItem notification);
 };
 
