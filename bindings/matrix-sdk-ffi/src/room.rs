@@ -652,27 +652,22 @@ impl Room {
         thumbnail_url: String,
         image_info: ImageInfo,
     ) -> Result<(), RoomError> {
-        let mime_type = match &image_info.mimetype {
-            Some(mimetype) => {
-                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
-            }
-            None => Err(RoomError::InvalidAttachmentMimeType),
-        }?;
+        let mime_str = image_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
         let base_image_info =
             BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Image(base_image_info);
 
-        let mut attachment_config;
-
-        if let Some(thumbnail_image_info) = image_info.thumbnail_info {
-            let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
-            attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
-        } else {
-            attachment_config = AttachmentConfig::new();
-            attachment_config = attachment_config.info(attachment_info);
-        }
+        let attachment_config = match image_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
 
         self.send_attachment(url, mime_type, attachment_config)
     }
@@ -683,27 +678,22 @@ impl Room {
         thumbnail_url: String,
         video_info: VideoInfo,
     ) -> Result<(), RoomError> {
-        let mime_type = match &video_info.mimetype {
-            Some(mimetype) => {
-                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
-            }
-            None => Err(RoomError::InvalidAttachmentMimeType),
-        }?;
+        let mime_str = video_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
         let base_video_info: BaseVideoInfo =
             BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Video(base_video_info);
 
-        let mut attachment_config;
-
-        if let Some(thumbnail_image_info) = video_info.thumbnail_info {
-            let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
-            attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
-        } else {
-            attachment_config = AttachmentConfig::new();
-            attachment_config = attachment_config.info(attachment_info);
-        }
+        let attachment_config = match video_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
 
         self.send_attachment(url, mime_type, attachment_config)
     }
