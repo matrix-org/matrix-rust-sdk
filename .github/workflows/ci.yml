@@ -436,7 +436,7 @@ jobs:
       # run sliding sync and point it at the postgres container and synapse container.
       # the postgres container needs to be above this to make sure it has started prior to this service.
       slidingsync:
-        image: "ghcr.io/matrix-org/sliding-sync:v0.99.0"
+        image: "ghcr.io/matrix-org/sliding-sync:main"
         env:
           SYNCV3_SERVER: "http://synapse:8008"
           SYNCV3_SECRET: "SUPER_CI_SECRET"
