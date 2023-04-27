@@ -615,7 +615,7 @@ fn apply_sync_operations(
             // > knew about entries in this range.
             v4::SlidingOp::Sync => {
                 // Extract `start` and `end` from the operation's range.
-                let (start, mut end) = operation
+                let (start, end) = operation
                     .range
                     .ok_or_else(|| {
                         Error::BadResponse(
@@ -629,28 +629,20 @@ fn apply_sync_operations(
                         )
                     })?;
 
-                // The `end` bound of the range might not be correct… At the time of writing,
-                // there is a bug in the Sliding Sync Proxy that can return
-                // ranges greater than the `room_list` size.
-                //
-                // For example, if the client asks for a range `0..=9`, and there is only one
-                // room, the server will reply with one `room_id` (which is correct) but with
-                // the range `0..=9` instead of `0..=0`.
-                //
-                // So, a safe workaround is to take the minimum between `end` and the
-                // `room_list`'s length.
-                //
-                // The “safety” is ensured by the fact we also compare the size of the new range
-                // with the size of the `operation.room_ids` length later on.
-                //
-                // See https://github.com/matrix-org/sliding-sync/issues/52.
-                end = min(end, room_list.len());
-
                 // Range is invalid.
                 if start > end {
                     return Err(Error::BadResponse(format!(
                         "`range` bounds are invalid ({} > {})",
                         start, end,
+                    )));
+                }
+
+                // Range is too big.
+                if end > room_list.len() {
+                    return Err(Error::BadResponse(format!(
+                        "`range` is out of the `rooms_list`'s bounds ({} > {})",
+                        end,
+                        room_list.len(),
                     )));
                 }
 
@@ -1760,6 +1752,7 @@ mod tests {
 
     macro_rules! assert_sync_operations {
         (
+            $assert_description:literal :
             room_list = [ $( $room_list_entries:tt )* ],
             sync_operations = [
                 $(
@@ -1796,8 +1789,13 @@ mod tests {
 
             let result = apply_sync_operations(operations, &mut room_list, &mut rooms_that_have_received_an_update);
 
-            assert!(result.$result());
-            assert_eq!(*room_list, entries![ $( $expected_room_list_entries )* ]);
+            assert!(result.$result(), "{}; assert the `Result`", $assert_description);
+            assert_eq!(
+                *room_list,
+                entries![ $( $expected_room_list_entries )* ],
+                "{}; asserting the `room_list`",
+                $assert_description,
+            );
 
             $(
                 #[allow(unused_mut)]
@@ -1809,15 +1807,20 @@ mod tests {
                     )*
                 }
 
-                assert_eq!(rooms_that_have_received_an_update, expected_rooms_that_have_received_an_update);
+                assert_eq!(
+                    rooms_that_have_received_an_update,
+                    expected_rooms_that_have_received_an_update,
+                    "{}; asserting the rooms that have received an update",
+                    $assert_description,
+                );
             )?
         };
     }
 
     #[test]
     fn test_sync_operations_sync() {
-        // All room list is updated.
         assert_sync_operations! {
+            "All room list is updated":
             room_list = [E, E, E, F("!r3:x.y")],
             sync_operations = [
                 {
@@ -1833,8 +1836,8 @@ mod tests {
             rooms = ["!r3:x.y"],
         };
 
-        // Partial update.
         assert_sync_operations! {
+            "Partial update":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1847,7 +1850,9 @@ mod tests {
             result = is_ok,
             room_list = [F("!r0:x.y"), F("!r1:x.y"), E],
         };
+
         assert_sync_operations! {
+            "Partial update":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1861,24 +1866,23 @@ mod tests {
             room_list = [E, F("!r1:x.y"), F("!r2:x.y")],
         };
 
-        // The range returned by the server is too large compared to the `room_ids` but
-        // we can fix it on-the-fly.
         assert_sync_operations! {
+            "The range returned by the server is too large compared to the `room_ids`":
             room_list = [E],
             sync_operations = [
                 {
                     "op": SlidingOp::Sync,
-                    "range": [0, 9], // <- it should be [0, 0]
+                    "range": [0, 2], // <- it should be [0, 0]
                     "room_ids": ["!r0:x.y"],
                 }
             ]
             =>
-            result = is_ok, // <- because we have fixed it
-            room_list = [F("!r0:x.y")],
+            result = is_err,
+            room_list = [E],
         };
 
-        // Missing `range`.
         assert_sync_operations! {
+            "Missing `range`":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1891,8 +1895,8 @@ mod tests {
             room_list = [E, E, E],
         };
 
-        // Invalid `range`.
         assert_sync_operations! {
+            "Invalid `range`":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1906,8 +1910,8 @@ mod tests {
             room_list = [E, E, E],
         };
 
-        // Missing `room_ids`.
         assert_sync_operations! {
+            "Missing `room_ids`":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1920,8 +1924,8 @@ mod tests {
             room_list = [E, E, E],
         };
 
-        // Out of bounds operation.
         assert_sync_operations! {
+            "Out of bounds operation":
             room_list = [E, F("!r1:x.y"), E],
             sync_operations = [
                 {
@@ -1935,9 +1939,8 @@ mod tests {
             room_list = [E, F("!r1:x.y"), E],
         };
 
-        // The server replies with a particular range, but some room IDs are
-        // missing.
         assert_sync_operations! {
+            "The server replies with a particular range, but some room IDs are missing":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1951,9 +1954,8 @@ mod tests {
             room_list = [E, E, E],
         };
 
-        // The server replies with a particular range, but there is too much
-        // room IDs.
         assert_sync_operations! {
+            "The server replies with a particular range, but there is too much room IDs":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -1970,8 +1972,8 @@ mod tests {
 
     #[test]
     fn test_sync_operations_delete() {
-        // Delete a room entry in the middle.
         assert_sync_operations! {
+            "Delete a room entry in the middle":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -1986,8 +1988,8 @@ mod tests {
             rooms = ["!r0:x.y"],
         };
 
-        // Delete a room entry at the beginning.
         assert_sync_operations! {
+            "Delete a room entry at the beginning":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2000,8 +2002,8 @@ mod tests {
             room_list = [F("!r1:x.y"), F("!r2:x.y")],
         };
 
-        // Delete a room entry at the end.
         assert_sync_operations! {
+            "Delete a room entry at the end":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2014,8 +2016,8 @@ mod tests {
             room_list = [F("!r0:x.y"), F("!r1:x.y")],
         };
 
-        // Delete an out of bounds room entry.
         assert_sync_operations! {
+            "Delete an out of bounds room entry":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2031,8 +2033,8 @@ mod tests {
 
     #[test]
     fn test_sync_operations_insert() {
-        // Insert a room entry in the middle.
         assert_sync_operations! {
+            "Insert a room entry in the middle":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -2048,8 +2050,8 @@ mod tests {
             rooms = ["!r0:x.y"],
         };
 
-        // Insert a room entry at the beginning.
         assert_sync_operations! {
+            "Insert a room entry at the beginning":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -2063,8 +2065,8 @@ mod tests {
             room_list = [F("!r0:x.y"), E, E, E],
         };
 
-        // Insert a room entry at the end
         assert_sync_operations! {
+            "Insert a room entry at the end":
             room_list = [E, E, E],
             sync_operations = [
                 {
@@ -2078,8 +2080,8 @@ mod tests {
             room_list = [E, E, E, F("!r3:x.y")],
         };
 
-        // Insert an out of bounds room entry.
         assert_sync_operations! {
+            "Insert an out of bounds room entry":
             room_list = [E, F("!r1:x.y"), E],
             sync_operations = [
                 {
@@ -2096,8 +2098,8 @@ mod tests {
 
     #[test]
     fn test_sync_operations_invalidate() {
-        // Invalidating an empty room.
         assert_sync_operations! {
+            "Invalidating an empty room":
             room_list = [E, F("!r1:x.y")],
             sync_operations = [
                 {
@@ -2112,8 +2114,8 @@ mod tests {
             rooms = ["!r1:x.y"],
         };
 
-        // Invalidating a filled room.
         assert_sync_operations! {
+            "Invalidating a filled room":
             room_list = [F("!r0:x.y"), F("!r1:x.y")],
             sync_operations = [
                 {
@@ -2128,8 +2130,8 @@ mod tests {
             rooms = ["!r1:x.y"],
         };
 
-        // Invalidating an invalidated room.
         assert_sync_operations! {
+            "Invalidating an invalidated room":
             room_list = [I("!r0:x.y"), F("!r1:x.y")],
             sync_operations = [
                 {
@@ -2144,8 +2146,8 @@ mod tests {
             rooms = ["!r1:x.y"],
         };
 
-        // Partial update.
         assert_sync_operations! {
+            "Partial update from the beginning":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2157,7 +2159,9 @@ mod tests {
             result = is_ok,
             room_list = [I("!r0:x.y"), I("!r1:x.y"), F("!r2:x.y")],
         };
+
         assert_sync_operations! {
+            "Partial update from the end":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2170,8 +2174,8 @@ mod tests {
             room_list = [F("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
         };
 
-        // Full update.
         assert_sync_operations! {
+            "Full update":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2184,8 +2188,8 @@ mod tests {
             room_list = [I("!r0:x.y"), I("!r1:x.y"), I("!r2:x.y")],
         };
 
-        // The range returned by the server is too large compared to the `room_lists`.
         assert_sync_operations! {
+            "The range returned by the server is too large compared to the `room_lists`":
             room_list = [F("!r0:x.y")],
             sync_operations = [
                 {
@@ -2195,11 +2199,11 @@ mod tests {
             ]
             =>
             result = is_err,
-            room_list = [I("!r0:x.y")],
+            room_list = [F("!r0:x.y")],
         };
 
-        // Missing `range`.
         assert_sync_operations! {
+            "Missing `range`":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2211,8 +2215,8 @@ mod tests {
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
 
-        // Invalid `range`.
         assert_sync_operations! {
+            "Invalid `range`":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
             sync_operations = [
                 {
@@ -2225,10 +2229,10 @@ mod tests {
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
 
-        // Out of bounds operation.
         assert_sync_operations! {
+            "Out of bounds operation":
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
-            operations = [
+            sync_operations = [
                 {
                     "op": SlidingOp::Delete,
                     "range": [2, 3],
