@@ -54,7 +54,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
@@ -297,6 +297,7 @@ impl BaseClient {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_timeline(
         &self,
         room: &Room,
@@ -438,6 +439,7 @@ impl BaseClient {
         Ok(timeline)
     }
 
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
@@ -467,6 +469,7 @@ impl BaseClient {
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_state(
         &self,
         events: &[Raw<AnySyncStateEvent>],
@@ -478,13 +481,11 @@ impl BaseClient {
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
 
-        let room_id = room_info.room_id.clone();
-
         for raw_event in events {
             let event = match raw_event.deserialize() {
-                Ok(e) => e,
+                Ok(ev) => ev,
                 Err(e) => {
-                    warn!(?room_id, "Couldn't deserialize state event: {e:?}");
+                    warn!("Couldn't deserialize state event: {e}");
                     continue;
                 }
             };
@@ -492,7 +493,7 @@ impl BaseClient {
             room_info.handle_state_event(&event);
 
             if let AnySyncStateEvent::RoomMember(member) = &event {
-                ambiguity_cache.handle_event(changes, &room_id, member).await?;
+                ambiguity_cache.handle_event(changes, &room_info.room_id, member).await?;
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
@@ -516,12 +517,13 @@ impl BaseClient {
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        changes.profiles.insert((*room_id).to_owned(), profiles);
-        changes.state.insert((*room_id).to_owned(), state_events);
+        changes.profiles.insert((*room_info.room_id).to_owned(), profiles);
+        changes.state.insert((*room_info.room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }
 
+    #[instrument(skip_all, fields(?room_id))]
     pub(crate) async fn handle_room_account_data(
         &self,
         room_id: &RoomId,
@@ -535,6 +537,7 @@ impl BaseClient {
         }
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn handle_account_data(
         &self,
         events: &[Raw<AnyGlobalAccountDataEvent>],
@@ -580,6 +583,7 @@ impl BaseClient {
     }
 
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip_all)]
     pub(crate) async fn preprocess_to_device_events(
         &self,
         to_device_events: Vec<Raw<ruma::events::AnyToDeviceEvent>>,
@@ -656,6 +660,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
+    #[instrument(skip_all)]
     pub async fn receive_sync_response(
         &self,
         response: api::sync::sync_events::v3::Response,
@@ -907,6 +912,7 @@ impl BaseClient {
     /// * `room_id` - The room id this response belongs to.
     ///
     /// * `response` - The raw response that was received from the server.
+    #[instrument(skip_all, fields(?room_id))]
     pub async fn receive_members(
         &self,
         room_id: &RoomId,
