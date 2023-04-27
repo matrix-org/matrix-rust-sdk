@@ -31,8 +31,8 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{
     error::{ClientError, RoomError},
-    AudioInfo, FileInfo, ImageInfo, RoomMember, TimelineDiff, TimelineItem, TimelineListener,
-    VideoInfo,
+    AudioInfo, FileInfo, ImageInfo, RoomMember, ThumbnailInfo, TimelineDiff, TimelineItem,
+    TimelineListener, VideoInfo,
 };
 
 #[derive(uniffi::Enum)]
@@ -652,58 +652,28 @@ impl Room {
         thumbnail_url: String,
         image_info: ImageInfo,
     ) -> Result<(), RoomError> {
-        let mime_type = match image_info.clone().mimetype {
+        let mime_type = match &image_info.mimetype {
             Some(mimetype) => {
                 mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
             }
             None => Err(RoomError::InvalidAttachmentMimeType),
         }?;
 
-        let mut attachment_config: AttachmentConfig;
-
         let base_image_info = BaseImageInfo::try_from(image_info.clone())
             .map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Image(base_image_info);
 
+        let mut attachment_config: AttachmentConfig;
         if let Some(thumbnail_image_info) = image_info.thumbnail_info {
-            let thumbnail_data =
-                fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
-
-            let thumbnail_info = BaseThumbnailInfo::try_from(thumbnail_image_info.clone())
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-
-            let thumbnail_mime_type = match thumbnail_image_info.mimetype {
-                Some(mimetype) => {
-                    mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
-                }
-                None => Err(RoomError::InvalidAttachmentMimeType),
-            }?;
-
-            let thumbnail = Thumbnail {
-                data: thumbnail_data,
-                content_type: thumbnail_mime_type,
-                info: Some(thumbnail_info),
-            };
-
+            let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
             attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
         } else {
             attachment_config = AttachmentConfig::new();
             attachment_config = attachment_config.info(attachment_info);
         }
 
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => return Err(RoomError::TimelineUnavailable),
-        };
-
-        RUNTIME.block_on(async move {
-            timeline
-                .send_attachment(url, mime_type, attachment_config)
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
-        })
+        self.send_attachment(url, mime_type, attachment_config)
     }
 
     pub fn send_video(
@@ -719,51 +689,21 @@ impl Room {
             None => Err(RoomError::InvalidAttachmentMimeType),
         }?;
 
-        let mut attachment_config: AttachmentConfig;
-
         let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(video_info.clone())
             .map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Video(base_video_info);
 
+        let mut attachment_config: AttachmentConfig;
         if let Some(thumbnail_image_info) = video_info.thumbnail_info {
-            let thumbnail_data =
-                fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
-
-            let thumbnail_info = BaseThumbnailInfo::try_from(thumbnail_image_info.clone())
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-
-            let thumbnail_mime_type = match thumbnail_image_info.mimetype {
-                Some(mimetype) => {
-                    mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
-                }
-                None => Err(RoomError::InvalidAttachmentMimeType),
-            }?;
-
-            let thumbnail = Thumbnail {
-                data: thumbnail_data,
-                content_type: thumbnail_mime_type,
-                info: Some(thumbnail_info),
-            };
-
+            let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
             attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
         } else {
             attachment_config = AttachmentConfig::new();
             attachment_config = attachment_config.info(attachment_info);
         }
 
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => return Err(RoomError::TimelineUnavailable),
-        };
-
-        RUNTIME.block_on(async move {
-            timeline
-                .send_attachment(url, mime_type, attachment_config)
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
-        })
+        self.send_attachment(url, mime_type, attachment_config)
     }
 
     pub fn send_audio(&self, url: String, audio_info: AudioInfo) -> Result<(), RoomError> {
@@ -782,18 +722,7 @@ impl Room {
         let mut attachment_config = AttachmentConfig::new();
         attachment_config = attachment_config.info(attachment_info);
 
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => return Err(RoomError::TimelineUnavailable),
-        };
-
-        RUNTIME.block_on(async move {
-            timeline
-                .send_attachment(url, mime_type, attachment_config)
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
-        })
+        self.send_attachment(url, mime_type, attachment_config)
     }
 
     pub fn send_file(&self, url: String, file_info: FileInfo) -> Result<(), RoomError> {
@@ -812,18 +741,52 @@ impl Room {
         let mut attachment_config = AttachmentConfig::new();
         attachment_config = attachment_config.info(attachment_info);
 
-        let timeline = match &*self.timeline.read().unwrap() {
-            Some(t) => Arc::clone(t),
-            None => return Err(RoomError::TimelineUnavailable),
-        };
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+}
 
-        RUNTIME.block_on(async move {
-            timeline
-                .send_attachment(url, mime_type, attachment_config)
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
+impl Room {
+    fn build_thumbnail_info(
+        &self,
+        thumbnail_url: String,
+        thumbnail_info: ThumbnailInfo,
+    ) -> Result<Thumbnail, RoomError> {
+        let thumbnail_data =
+            fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+
+        let base_thumbnail_info = BaseThumbnailInfo::try_from(thumbnail_info.clone())
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let thumbnail_mime_type = match thumbnail_info.mimetype {
+            Some(mimetype) => {
+                mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+            }
+            None => Err(RoomError::InvalidAttachmentMimeType),
+        }?;
+
+        Ok(Thumbnail {
+            data: thumbnail_data,
+            content_type: thumbnail_mime_type,
+            info: Some(base_thumbnail_info),
         })
+    }
+
+    fn send_attachment(
+        &self,
+        url: String,
+        mime_type: Mime,
+        attachment_config: AttachmentConfig,
+    ) -> Result<(), RoomError> {
+        match &*self.timeline.read().unwrap() {
+            Some(timeline) => RUNTIME.block_on(async move {
+                timeline
+                    .send_attachment(url, mime_type, attachment_config)
+                    .await
+                    .map_err(|_| RoomError::FailedSendingAttachment)?;
+                Ok(())
+            }),
+            None => Err(RoomError::TimelineUnavailable),
+        }
     }
 }
 
