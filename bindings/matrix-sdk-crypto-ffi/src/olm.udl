@@ -8,16 +8,6 @@ callback interface ProgressListener {
     void on_progress(i32 progress, i32 total);
 };
 
-[Error]
-enum CryptoStoreError {
-    "OpenStore",
-    "CryptoStore",
-    "OlmError",
-    "Serialization",
-    "InvalidUserId",
-    "Identifier",
-};
-
 dictionary CancelInfo {
     string cancel_code;
     string reason;

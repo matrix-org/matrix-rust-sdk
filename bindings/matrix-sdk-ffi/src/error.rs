@@ -1,6 +1,6 @@
 use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum ClientError {
     #[error("client error: {msg}")]
     Generic { msg: String },

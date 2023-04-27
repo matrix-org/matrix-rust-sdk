@@ -170,6 +170,7 @@ impl Span {
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum LogLevel {
     Error,
     Warn,

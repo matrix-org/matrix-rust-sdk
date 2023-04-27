@@ -1,10 +1,5 @@
 namespace matrix_sdk_ffi {};
 
-[Error]
-interface ClientError {
-    Generic(string msg);
-};
-
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
 };
@@ -165,12 +160,4 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
-};
-
-enum LogLevel {
-    "Error",
-    "Warn",
-    "Info",
-    "Debug",
-    "Trace",
 };
