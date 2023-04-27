@@ -59,6 +59,7 @@ use crate::{
 };
 
 /// A high level state machine that handles E2EE for Matrix.
+#[derive(uniffi::Object)]
 pub struct OlmMachine {
     pub(crate) inner: ManuallyDrop<InnerMachine>,
     pub(crate) runtime: Runtime,
@@ -128,6 +129,7 @@ impl From<RustSignatureCheckResult> for SignatureVerification {
     }
 }
 
+#[uniffi::export]
 impl OlmMachine {
     /// Create a new `OlmMachine`
     ///
@@ -142,14 +144,15 @@ impl OlmMachine {
     /// * `passphrase` - The passphrase that should be used to encrypt the data
     ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
     ///   store and all its data will remain unencrypted.
+    #[uniffi::constructor]
     pub fn new(
-        user_id: &str,
-        device_id: &str,
-        path: &str,
+        user_id: String,
+        device_id: String,
+        path: String,
         mut passphrase: Option<String>,
-    ) -> Result<Self, CryptoStoreError> {
-        let user_id = parse_user_id(user_id)?;
-        let device_id = device_id.into();
+    ) -> Result<Arc<Self>, CryptoStoreError> {
+        let user_id = parse_user_id(&user_id)?;
+        let device_id = device_id.as_str().into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
@@ -160,41 +163,9 @@ impl OlmMachine {
         let inner =
             runtime.block_on(InnerMachine::with_store(&user_id, device_id, Arc::new(store)))?;
 
-        Ok(OlmMachine { inner: ManuallyDrop::new(inner), runtime })
+        Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
     }
 
-    fn import_room_keys_helper(
-        &self,
-        keys: Vec<ExportedRoomKey>,
-        from_backup: bool,
-        progress_listener: Box<dyn ProgressListener>,
-    ) -> Result<KeysImportResult, KeyImportError> {
-        let listener = |progress: usize, total: usize| {
-            progress_listener.on_progress(progress as i32, total as i32)
-        };
-
-        let result =
-            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
-
-        Ok(KeysImportResult {
-            imported: result.imported_count as i64,
-            total: result.total_count as i64,
-            keys: result
-                .keys
-                .into_iter()
-                .map(|(r, m)| {
-                    (
-                        r.to_string(),
-                        m.into_iter().map(|(s, k)| (s, k.into_iter().collect())).collect(),
-                    )
-                })
-                .collect(),
-        })
-    }
-}
-
-#[uniffi::export]
-impl OlmMachine {
     /// Get the user ID of the owner of this `OlmMachine`.
     pub fn user_id(&self) -> String {
         self.inner.user_id().to_string()
@@ -1400,5 +1371,36 @@ impl OlmMachine {
             .runtime
             .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
             .into())
+    }
+}
+
+impl OlmMachine {
+    fn import_room_keys_helper(
+        &self,
+        keys: Vec<ExportedRoomKey>,
+        from_backup: bool,
+        progress_listener: Box<dyn ProgressListener>,
+    ) -> Result<KeysImportResult, KeyImportError> {
+        let listener = |progress: usize, total: usize| {
+            progress_listener.on_progress(progress as i32, total as i32)
+        };
+
+        let result =
+            self.runtime.block_on(self.inner.import_room_keys(keys, from_backup, listener))?;
+
+        Ok(KeysImportResult {
+            imported: result.imported_count as i64,
+            total: result.total_count as i64,
+            keys: result
+                .keys
+                .into_iter()
+                .map(|(r, m)| {
+                    (
+                        r.to_string(),
+                        m.into_iter().map(|(s, k)| (s, k.into_iter().collect())).collect(),
+                    )
+                })
+                .collect(),
+        })
     }
 }
