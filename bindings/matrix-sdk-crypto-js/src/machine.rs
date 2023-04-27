@@ -222,7 +222,7 @@ impl OlmMachine {
         to_device_events: &str,
         changed_devices: &sync_events::DeviceLists,
         one_time_key_counts: &Map,
-        unused_fallback_keys: &Set,
+        unused_fallback_keys: Option<Set>,
     ) -> Result<Promise, JsError> {
         let to_device_events = serde_json::from_str(to_device_events)?;
         let changed_devices = changed_devices.inner.clone();
@@ -239,13 +239,18 @@ impl OlmMachine {
                 Some((key, value))
             })
             .collect();
-        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> = Some(
-            unused_fallback_keys
-                .values()
-                .into_iter()
-                .filter_map(|js_value| Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?)))
-                .collect(),
-        );
+
+        // Convert the unused_fallback_keys JS Set to a `Vec<DeviceKeyAlgorithm>`
+        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =  match unused_fallback_keys {
+            Some(fallback_keys) => {
+                Some(fallback_keys
+                    .values()
+                    .into_iter()
+                    .filter_map(|js_value| Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?)))
+                    .collect())
+            },
+            _ => None,
+        };
 
         let me = self.inner.clone();
 

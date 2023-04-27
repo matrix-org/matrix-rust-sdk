@@ -220,6 +220,19 @@ describe(OlmMachine.name, () => {
         expect(receiveSyncChanges).toEqual([]);
     });
 
+    test("can receive sync changes with unusedFallbackKeys as undefined", async () => {
+        const m = await machine();
+        const toDeviceEvents = JSON.stringify([]);
+        const changedDevices = new DeviceLists();
+        const oneTimeKeyCounts = new Map();
+
+        const receiveSyncChanges = JSON.parse(
+            await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, undefined),
+        );
+
+        expect(receiveSyncChanges).toEqual([]);
+    });
+
     test("can get the outgoing requests that need to be send out", async () => {
         const m = await machine();
         const toDeviceEvents = JSON.stringify([]);
