@@ -241,14 +241,16 @@ impl OlmMachine {
             .collect();
 
         // Convert the unused_fallback_keys JS Set to a `Vec<DeviceKeyAlgorithm>`
-        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =  match unused_fallback_keys {
-            Some(fallback_keys) => {
-                Some(fallback_keys
+        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> = match unused_fallback_keys {
+            Some(fallback_keys) => Some(
+                fallback_keys
                     .values()
                     .into_iter()
-                    .filter_map(|js_value| Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?)))
-                    .collect())
-            },
+                    .filter_map(|js_value| {
+                        Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?))
+                    })
+                    .collect(),
+            ),
             _ => None,
         };
 
