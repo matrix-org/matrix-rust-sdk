@@ -1,7 +1,4 @@
-use std::{
-    fmt,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
 use eyeball::shared::Observable as SharedObservable;
@@ -119,12 +116,6 @@ pub struct Client {
     /// when calling `sliding_sync()`.
     pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
     pub(crate) sliding_sync_reset_broadcast_tx: Arc<SharedObservable<()>>,
-}
-
-impl fmt::Debug for Client {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Client").field("client", &self.client).finish_non_exhaustive()
-    }
 }
 
 impl Client {

@@ -782,7 +782,7 @@ impl SlidingSync {
     }
 }
 
-#[derive(Debug, Clone, uniffi::Object)]
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncBuilder {
     inner: MatrixSlidingSyncBuilder,
     client: Client,
@@ -804,7 +804,7 @@ impl SlidingSyncBuilder {
 
     pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
+        builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner);
         Arc::new(builder)
     }
 

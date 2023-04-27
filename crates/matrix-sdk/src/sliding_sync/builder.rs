@@ -72,10 +72,9 @@ impl SlidingSyncBuilder {
     /// Add the given list to the lists.
     ///
     /// Replace any list with the name.
-    pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Result<Self> {
+    pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Self {
         self.lists.push(list_builder);
-
-        Ok(self)
+        self
     }
 
     /// Activate e2ee, to-device-message and account data extensions if not yet
