@@ -441,7 +441,15 @@ impl OlmMachine {
     /// exist on the server and thus will reset the trust between all the
     /// devices.
     ///
-    /// Uploading these keys will require user interactive auth.
+    /// # Returns
+    ///
+    /// A pair of requests which should be sent out to the server. Once
+    /// sent, the responses should be passed back to the state machine using
+    /// [`mark_request_as_sent`].
+    ///
+    /// These requests may require user interactive auth.
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent`mark_request_
     pub async fn bootstrap_cross_signing(
         &self,
         reset: bool,

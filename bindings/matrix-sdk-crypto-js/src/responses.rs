@@ -9,6 +9,7 @@ pub(crate) use ruma::api::client::{
         claim_keys::v3::Response as KeysClaimResponse, get_keys::v3::Response as KeysQueryResponse,
         upload_keys::v3::Response as KeysUploadResponse,
         upload_signatures::v3::Response as SignatureUploadResponse,
+        upload_signing_keys::v3::Response as SigningKeysUploadResponse,
     },
     message::send_message_event::v3::Response as RoomMessageResponse,
     to_device::send_event_to_device::v3::Response as ToDeviceResponse,
@@ -32,6 +33,7 @@ pub(crate) enum OwnedResponse {
     SignatureUpload(SignatureUploadResponse),
     RoomMessage(RoomMessageResponse),
     KeysBackup(KeysBackupResponse),
+    SigningKeysUpload(SigningKeysUploadResponse),
 }
 
 impl From<KeysUploadResponse> for OwnedResponse {
@@ -76,9 +78,25 @@ impl From<KeysBackupResponse> for OwnedResponse {
     }
 }
 
+impl From<SigningKeysUploadResponse> for OwnedResponse {
+    fn from(response: SigningKeysUploadResponse) -> OwnedResponse {
+        Self::SigningKeysUpload(response)
+    }
+}
+
 impl TryFrom<(RequestType, http::Response<Vec<u8>>)> for OwnedResponse {
     type Error = JsError;
 
+    /// Convert an http response object into the underlying ruma model of the
+    /// response, and wrap as an OwnedResponse.
+    ///
+    /// (This is used in
+    /// `matrix_sdk_crypto_js::OlmMachine::mark_request_as_sent`.)
+    ///
+    /// # Arguments
+    ///
+    /// * `request_type` - the type of the request that got this response
+    /// * `response` - the raw HTTP response
     fn try_from(
         (request_type, response): (RequestType, http::Response<Vec<u8>>),
     ) -> Result<Self, Self::Error> {
@@ -110,11 +128,27 @@ impl TryFrom<(RequestType, http::Response<Vec<u8>>)> for OwnedResponse {
             RequestType::KeysBackup => {
                 KeysBackupResponse::try_from_http_response(response).map(Into::into)
             }
+
+            RequestType::SigningKeysUpload => {
+                // SigningKeysUploadResponse::try_from_http_response returns a
+                // FromHttpResponseError<UiaaResponse> instead of a
+                // ruma_client_api::error::Error, so we have to hande it
+                // separately. In practice, the application is supposed to
+                // have dealt with UIA before we get here, so we just map it straight into a
+                // regular JsError anyway.
+                return SigningKeysUploadResponse::try_from_http_response(response)
+                    .map(Into::into)
+                    .map_err(JsError::from);
+            }
         }
         .map_err(JsError::from)
     }
 }
 
+// Make `OwnedResponse` implement `Into<IncomingResponse>`.
+//
+// Required so that we can pass `OwnedResponse` into the real
+// `matrix_sdk_crypto_js::OlmMachine::mark_request_as_sent`.
 impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
     fn from(response: &'a OwnedResponse) -> Self {
         match response {
@@ -125,6 +159,9 @@ impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
             OwnedResponse::SignatureUpload(response) => IncomingResponse::SignatureUpload(response),
             OwnedResponse::RoomMessage(response) => IncomingResponse::RoomMessage(response),
             OwnedResponse::KeysBackup(response) => IncomingResponse::KeysBackup(response),
+            OwnedResponse::SigningKeysUpload(response) => {
+                IncomingResponse::SigningKeysUpload(response)
+            }
         }
     }
 }

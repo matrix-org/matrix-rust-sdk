@@ -428,6 +428,8 @@ impl OlmMachine {
     /// between all the devices.
     ///
     /// Uploading these keys will require user interactive auth.
+    ///
+    /// Returns an `Array` of `OutgoingRequest`s
     #[wasm_bindgen(js_name = "bootstrapCrossSigning")]
     pub fn bootstrap_cross_signing(&self, reset: bool) -> Promise {
         let me = self.inner.clone();
