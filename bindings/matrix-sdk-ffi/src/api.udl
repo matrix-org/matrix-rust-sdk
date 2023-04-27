@@ -96,14 +96,6 @@ callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
-interface SlidingSyncListBuilder {
-    constructor();
-};
-
-interface ClientBuilder {
-    constructor();
-};
-
 dictionary CreateRoomParameters {
     string? name;
     string? topic = null;
@@ -164,14 +156,6 @@ interface MediaSource {
     string url();
 };
 
-interface AuthenticationService {
-    constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
-};
-
-interface NotificationService {
-    constructor(string base_path, string user_id);
-};
-
 interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
@@ -181,12 +165,6 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
-};
-
-interface Span {
-    constructor(string file, u32 line, u32 column, LogLevel level, string target, string name);
-    [Name=current]
-    constructor();
 };
 
 enum LogLevel {

@@ -51,24 +51,24 @@ impl NotificationItem {
 }
 
 #[allow(dead_code)]
+#[derive(uniffi::Object)]
 pub struct NotificationService {
     base_path: String,
     user_id: String,
 }
 
+#[uniffi::export]
 impl NotificationService {
     /// Creates a new notification service.
     ///
     /// Will be used to fetch an event after receiving a notification.
     /// Please note that this will be called on a new process than the
     /// application context.
-    pub fn new(base_path: String, user_id: String) -> Self {
-        Self { base_path, user_id }
+    #[uniffi::constructor]
+    pub fn new(base_path: String, user_id: String) -> Arc<Self> {
+        Arc::new(Self { base_path, user_id })
     }
-}
 
-#[uniffi::export]
-impl NotificationService {
     /// Get notification item for a given `room_id `and `event_id`.
     ///
     /// Returns `None` if this notification should not be displayed to the user.
