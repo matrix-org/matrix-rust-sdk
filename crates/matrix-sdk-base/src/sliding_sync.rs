@@ -66,15 +66,14 @@ impl BaseClient {
         // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
         // counts.
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = {
-            self.preprocess_to_device_events(
+        let to_device_events = self
+            .preprocess_to_device_events(
                 to_device_events,
                 &e2ee.device_lists,
                 &e2ee.device_one_time_keys_count,
                 e2ee.device_unused_fallback_key_types.as_deref(),
             )
-            .await?
-        };
+            .await?;
 
         let store = self.store.clone();
         let mut changes = StateChanges::default();
@@ -191,9 +190,19 @@ impl BaseClient {
         }
 
         // Process receipts now we have rooms
-        for (room_id, receipt_edu) in &receipts.rooms {
-            if let Ok(receipt_edu) = receipt_edu.deserialize() {
-                changes.add_receipts(room_id, receipt_edu.content);
+        for (room_id, raw) in &receipts.rooms {
+            match raw.deserialize() {
+                Ok(event) => {
+                    changes.add_receipts(room_id, event.content);
+                }
+                Err(e) => {
+                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                    #[rustfmt::skip]
+                    info!(
+                        ?room_id, event_id,
+                        "Failed to deserialize ephemeral room event: {e}"
+                    );
+                }
             }
         }
 
