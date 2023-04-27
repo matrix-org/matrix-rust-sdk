@@ -3,13 +3,8 @@ use std::sync::Arc;
 use matrix_sdk::room::Room;
 use ruma::api::client::push::get_notifications::v3::Notification;
 
-use crate::event::TimelineEvent;
+use crate::{error::ClientError, event::TimelineEvent};
 
-#[allow(dead_code)]
-pub struct NotificationService {
-    base_path: String,
-    user_id: String,
-}
 pub struct NotificationItem {
     pub event: Arc<TimelineEvent>,
     pub room_id: String,
@@ -55,6 +50,12 @@ impl NotificationItem {
     }
 }
 
+#[allow(dead_code)]
+pub struct NotificationService {
+    base_path: String,
+    user_id: String,
+}
+
 impl NotificationService {
     /// Creates a new notification service.
     ///
@@ -64,7 +65,9 @@ impl NotificationService {
     pub fn new(base_path: String, user_id: String) -> Self {
         Self { base_path, user_id }
     }
+}
 
+impl NotificationService {
     /// Get notification item for a given `room_id `and `event_id`.
     ///
     /// Returns `None` if this notification should not be displayed to the user.
@@ -72,7 +75,7 @@ impl NotificationService {
         &self,
         _room_id: String,
         _event_id: String,
-    ) -> anyhow::Result<Option<NotificationItem>> {
+    ) -> Result<Option<NotificationItem>, ClientError> {
         // TODO: Implement
         Ok(None)
     }
