@@ -1,3 +1,8 @@
+# v0.1.0-alpha.8
+
+-   `importCrossSigningKeys`: change the parameters to be individual keys
+    rather than a `CrossSigningKeyExport` object.
+
 # v0.1.0-alpha.7
 
 -   Add new accessors `Device.algorithms` and `Device.isSignedByOwner`
