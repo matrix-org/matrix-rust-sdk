@@ -23,11 +23,14 @@ use futures_util::future::join_all;
 use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    events::ToDeviceEventType, serde::Raw, to_device::DeviceIdOrAllDevices, DeviceId,
-    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::{AnyToDeviceEventContent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use serde_json::Value;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
@@ -782,6 +785,111 @@ impl GroupSessionManager {
                 "Stored the changed sessions after encrypting an room key"
             );
         }
+
+        Ok(requests)
+    }
+
+    pub async fn share_content_directly(
+        &self,
+        targets: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        event_type: String,
+        content: Value,
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        let mut changes = Changes::default();
+        // the to device requests
+        let mut requests = vec![];
+
+        let mut target_devices: Vec<Device> = Vec::new();
+
+        // Get the actual Devices
+        // How do we manage unknown devices? Should we ignore or bubble a store error?
+        for (user_id, device_list) in targets.iter() {
+            for device in device_list {
+                let result = self.store.get_device(user_id.as_ref(), device.as_ref()).await;
+                match result {
+                    Ok(Some(device)) => target_devices.push(device),
+                    _ => {
+                        warn!(
+                            user_id = user_id.to_string(),
+                            device_id = device.to_string(),
+                            "Send encrypted to device: Ignoring unkwnown device"
+                        )
+                    }
+                }
+            }
+        }
+
+        // TODO We need to create a task that encrypts using
+        // device.maybe_encrypt_content()
+        let encrypt_chunk = |devices: Vec<Device>, event_type: Arc<str>, content: Arc<Value>| async move {
+            let mut messages = BTreeMap::new();
+            let mut sessions = vec![];
+
+            let tasks: Vec<_> = devices
+                .into_iter()
+                .map(|d| {
+                    spawn({
+                        let event_type = event_type.to_owned();
+                        let content = content.to_owned();
+
+                        async move { d.maybe_encrypt_content(&event_type, &content).await }
+                    })
+                })
+                .collect();
+
+            for result in join_all(tasks).await {
+                let result = result.expect("Encryption task panicked");
+                if let Some((session, content)) = result? {
+                    let any_cast: Raw<AnyToDeviceEventContent> = content.cast();
+                    messages
+                        .entry(session.user_id.as_ref().to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(
+                            DeviceIdOrAllDevices::DeviceId(session.device_id.as_ref().to_owned()),
+                            any_cast,
+                        );
+                    sessions.push(session);
+                }
+            }
+
+            Ok::<_, OlmError>((sessions, messages))
+        };
+
+        let event_type: Arc<str> = event_type.into();
+        let content: Arc<Value> = content.into();
+
+        // We need to chunck the devices to limit the size of the event to sent
+        let tasks: Vec<_> = target_devices
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .map(|chunk| {
+                spawn(encrypt_chunk(chunk.to_vec(), event_type.to_owned(), content.to_owned()))
+            })
+            .collect();
+
+        for result in join_all(tasks).await {
+            let result = result.expect("Encryption task panicked");
+
+            let (used_sessions, messages) = result?;
+
+            let txn_id = TransactionId::new();
+            let request = ToDeviceRequest {
+                event_type: ToDeviceEventType::RoomEncrypted,
+                txn_id: txn_id.clone(),
+                messages,
+            };
+
+            changes.sessions.extend(used_sessions);
+            requests.push(request.into());
+        }
+
+        trace!(requess_count = requests.len(), "Encrypted to devices event");
+
+        // TODO
+        // Persist the ongoing to_devices in the ReadOnlyDevice?
+        // Like we do for Outbound session, and use mark_request_as sent to clean it
+
+        // pesist changes to used olm sessions!!
+        self.store.save_changes(changes).await?;
 
         Ok(requests)
     }

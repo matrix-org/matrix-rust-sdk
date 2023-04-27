@@ -464,6 +464,20 @@ impl Device {
         }
     }
 
+    pub(crate) async fn maybe_encrypt_content(
+        &self,
+        event_type: &str,
+        content: &Value,
+    ) -> OlmResult<Option<(Session, Raw<ToDeviceEncryptedEventContent>)>> {
+        match self.encrypt(event_type, content.clone()).await {
+            Ok(ret) => Ok(Some(ret)),
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Encrypt the given inbound group session as a forwarded room key for this
     /// device.
     pub async fn encrypt_room_key_for_forwarding(

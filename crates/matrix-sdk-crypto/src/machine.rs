@@ -740,6 +740,33 @@ impl OlmMachine {
         self.encrypt_room_event_raw(room_id, content, &event_type).await
     }
 
+    /// Get to-device requests to share an encrypted content to the provided
+    /// targets.
+    ///
+    /// Notice that olm sessions need to be established between devices so the
+    /// content can be encrypted, should be done by calling
+    /// [`OlmMachine::get_missing_sessions`].
+    ///
+    /// The response of a successful to device requests needs to be passed to
+    /// the `OlmMachine` with the [`mark_request_as_sent`]
+    ///
+    /// # Arguments
+    ///
+    /// * `targets` - A map of user id to list of device id.
+    ///
+    /// * `event_type` - The plaintext type of the event.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted as a json [`Value`].
+    pub async fn share_encrypted_to_device_event(
+        &self,
+        targets: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        event_type: String,
+        content: Value,
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        self.group_session_manager.share_content_directly(targets, event_type, content).await
+    }
+
     /// Encrypt a json [`Value`] content for the given room.
     ///
     /// This method is equivalent to the [`OlmMachine::encrypt_room_event()`]
@@ -1743,7 +1770,7 @@ pub(crate) mod tests {
             key::verification::VerificationMethod,
             room::message::{MessageType, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
-            MessageLikeEvent, OriginalMessageLikeEvent,
+            AnyToDeviceEventContent, MessageLikeEvent, OriginalMessageLikeEvent,
         },
         room_id,
         serde::Raw,
@@ -2226,6 +2253,61 @@ pub(crate) mod tests {
         } else {
             panic!("Wrong event type found {event:?}");
         }
+    }
+
+    #[async_test]
+    async fn test_send_encrypted_to_device() {
+        let (alice, bob) = get_machine_pair_with_session().await;
+
+        let custom_event_type = "m.new_device";
+
+        let custom_content = json!({
+            "content": {
+                "device_id": "XYZABCDE",
+                "rooms": ["!726s6s6q:example.com"]
+            }
+        });
+
+        let mut targets = BTreeMap::new();
+        targets.entry(bob.user_id().to_owned()).or_insert(vec![bob_device_id().to_owned()]);
+
+        let requests = alice
+            .share_encrypted_to_device_event(
+                targets,
+                custom_event_type.to_owned(),
+                custom_content.clone(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(1, requests.len());
+        assert_eq!("m.room.encrypted", requests.first().unwrap().event_type.to_string());
+
+        let messages = &requests.first().unwrap().messages;
+
+        println!("Messages {:?}", messages);
+
+        let event =
+            ToDeviceEvent::new(alice.user_id().to_owned(), to_device_requests_to_content(requests));
+
+        let event = json_convert(&event).unwrap();
+
+        let decrypted = bob
+            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(1, decrypted.len());
+
+        let decrypted_event = decrypted[0].deserialize().unwrap();
+
+        assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
+
+        // HELP
+        // How do I compare the content?
+        // I can't find a way to extract the value from decrypted_event.content()
+        // Does AnyToDeviceEventContent::_Custom exists? can it help?
+        println!("Decrypted message {:?}", decrypted_event.content());
     }
 
     #[async_test]
