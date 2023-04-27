@@ -451,8 +451,8 @@ let active_list = SlidingSyncList::builder()
      ]);
 
 let sliding_sync = sliding_sync_builder
-    .add_list(active_list)?
-    .add_list(full_sync_list)?
+    .add_list(active_list)
+    .add_list(full_sync_list)
     .build()
     .await?;
 
