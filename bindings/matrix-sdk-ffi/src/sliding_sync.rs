@@ -107,25 +107,17 @@ pub enum SlidingSyncError {
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
-    BadResponse {
-        msg: String,
-    },
+    BadResponse { msg: String },
     /// Called `.build()` on a builder type, but the given required field was
     /// missing.
-    BuildMissingField {
-        msg: String,
-    },
+    BuildMissingField { msg: String },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
-    RequestGeneratorHasNotBeenInitialized {
-        msg: String,
-    },
+    RequestGeneratorHasNotBeenInitialized { msg: String },
     /// Someone has tried to modify a sliding sync list's ranges, but the
     /// selected sync mode doesn't allow that.
-    CannotModifyRanges {
-        msg: String,
-    },
+    CannotModifyRanges { msg: String },
     /// Ranges have a `start` bound greater than `end`.
     InvalidRange {
         /// Start bound.
@@ -133,9 +125,10 @@ pub enum SlidingSyncError {
         /// End bound.
         end: u32,
     },
-    Unknown {
-        error: String,
-    },
+    /// The SlidingSync internal channel is broken.
+    InternalChannelIsBroken,
+    /// Unknown or other error.
+    Unknown { error: String },
 }
 
 impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
@@ -150,6 +143,7 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
             }
             E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
+            E::InternalChannelIsBroken => Self::InternalChannelIsBroken,
             error => Self::Unknown { error: error.to_string() },
         }
     }
@@ -748,8 +742,8 @@ impl SlidingSync {
         self.inner.add_common_extensions();
     }
 
-    pub fn reset_lists(&self) {
-        self.inner.reset_lists()
+    pub fn reset_lists(&self) -> Result<(), SlidingSyncError> {
+        self.inner.reset_lists().map_err(Into::into)
     }
 
     pub fn sync(&self) -> Arc<TaskHandle> {
