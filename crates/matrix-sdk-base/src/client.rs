@@ -725,13 +725,21 @@ impl BaseClient {
                 )
                 .await?;
 
-            if let Some(event) =
-                new_info.ephemeral.events.iter().find_map(|e| match e.deserialize() {
-                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
-                    _ => None,
-                })
-            {
-                changes.add_receipts(&room_id, event);
+            for raw in &new_info.ephemeral.events {
+                match raw.deserialize() {
+                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => {
+                        changes.add_receipts(&room_id, event.content);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                        #[rustfmt::skip]
+                        info!(
+                            ?room_id, event_id,
+                            "Failed to deserialize ephemeral room event: {e}"
+                        );
+                    }
+                }
             }
 
             if new_info.timeline.limited {
