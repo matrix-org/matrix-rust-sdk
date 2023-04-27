@@ -659,12 +659,13 @@ impl Room {
             None => Err(RoomError::InvalidAttachmentMimeType),
         }?;
 
-        let base_image_info = BaseImageInfo::try_from(image_info.clone())
-            .map_err(|_| RoomError::InvalidAttachmentData)?;
+        let base_image_info =
+            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Image(base_image_info);
 
-        let mut attachment_config: AttachmentConfig;
+        let mut attachment_config;
+
         if let Some(thumbnail_image_info) = image_info.thumbnail_info {
             let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
             attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
@@ -682,19 +683,20 @@ impl Room {
         thumbnail_url: String,
         video_info: VideoInfo,
     ) -> Result<(), RoomError> {
-        let mime_type = match video_info.clone().mimetype {
+        let mime_type = match &video_info.mimetype {
             Some(mimetype) => {
                 mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
             }
             None => Err(RoomError::InvalidAttachmentMimeType),
         }?;
 
-        let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(video_info.clone())
-            .map_err(|_| RoomError::InvalidAttachmentData)?;
+        let base_video_info: BaseVideoInfo =
+            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Video(base_video_info);
 
-        let mut attachment_config: AttachmentConfig;
+        let mut attachment_config;
+
         if let Some(thumbnail_image_info) = video_info.thumbnail_info {
             let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
             attachment_config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
@@ -707,7 +709,7 @@ impl Room {
     }
 
     pub fn send_audio(&self, url: String, audio_info: AudioInfo) -> Result<(), RoomError> {
-        let mime_type = match audio_info.clone().mimetype {
+        let mime_type = match &audio_info.mimetype {
             Some(mimetype) => {
                 mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
             }
@@ -715,7 +717,7 @@ impl Room {
         }?;
 
         let base_audio_info: BaseAudioInfo =
-            BaseAudioInfo::try_from(audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::Audio(base_audio_info);
 
@@ -726,7 +728,7 @@ impl Room {
     }
 
     pub fn send_file(&self, url: String, file_info: FileInfo) -> Result<(), RoomError> {
-        let mime_type = match file_info.clone().mimetype {
+        let mime_type = match &file_info.mimetype {
             Some(mimetype) => {
                 mimetype.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
             }
@@ -734,7 +736,7 @@ impl Room {
         }?;
 
         let base_file_info: BaseFileInfo =
-            BaseFileInfo::try_from(file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let attachment_info = AttachmentInfo::File(base_file_info);
 
@@ -754,7 +756,7 @@ impl Room {
         let thumbnail_data =
             fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
 
-        let base_thumbnail_info = BaseThumbnailInfo::try_from(thumbnail_info.clone())
+        let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
             .map_err(|_| RoomError::InvalidAttachmentData)?;
 
         let thumbnail_mime_type = match thumbnail_info.mimetype {

@@ -315,7 +315,7 @@ impl Timeline {
         let room = Joined { inner: self.room().clone() };
 
         let body =
-            Path::new(&url).file_name().ok_or(Error::InvalidAttachmentBody)?.to_str().unwrap();
+            Path::new(&url).file_name().ok_or(Error::InvalidAttachmentFileName)?.to_str().unwrap();
         let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
 
         _ = room.send_attachment(body, &mime_type, data, config).await;
@@ -618,9 +618,9 @@ pub enum Error {
     #[error("Invalid attachment data")]
     InvalidAttachmentData,
 
-    /// The attachment name/body is invalid
-    #[error("Invalid attachment body")]
-    InvalidAttachmentBody,
+    /// The attachment file name used as a body is invalid
+    #[error("Invalid attachment file name")]
+    InvalidAttachmentFileName,
 }
 
 /// Result of comparing events position in the timeline.

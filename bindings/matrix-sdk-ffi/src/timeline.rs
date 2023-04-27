@@ -574,15 +574,15 @@ pub struct ImageInfo {
     pub blurhash: Option<String>,
 }
 
-impl TryFrom<ImageInfo> for BaseImageInfo {
+impl TryFrom<&ImageInfo> for BaseImageInfo {
     type Error = ();
 
-    fn try_from(value: ImageInfo) -> Result<Self, ()> {
+    fn try_from(value: &ImageInfo) -> Result<Self, ()> {
         Ok(BaseImageInfo {
             height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
             width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
             size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
-            blurhash: value.blurhash,
+            blurhash: value.blurhash.clone(),
         })
     }
 }
@@ -596,10 +596,10 @@ pub struct AudioInfo {
     pub mimetype: Option<String>,
 }
 
-impl TryFrom<AudioInfo> for BaseAudioInfo {
+impl TryFrom<&AudioInfo> for BaseAudioInfo {
     type Error = ();
 
-    fn try_from(value: AudioInfo) -> Result<Self, ()> {
+    fn try_from(value: &AudioInfo) -> Result<Self, ()> {
         Ok(BaseAudioInfo {
             duration: value.duration.map(Duration::from_secs),
             size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
@@ -619,16 +619,16 @@ pub struct VideoInfo {
     pub blurhash: Option<String>,
 }
 
-impl TryFrom<VideoInfo> for BaseVideoInfo {
+impl TryFrom<&VideoInfo> for BaseVideoInfo {
     type Error = ();
 
-    fn try_from(value: VideoInfo) -> Result<Self, ()> {
+    fn try_from(value: &VideoInfo) -> Result<Self, ()> {
         Ok(BaseVideoInfo {
             duration: value.duration.map(Duration::from_secs),
             height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
             width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
             size: value.size.map(UInt::try_from).transpose().map_err(|_| ())?,
-            blurhash: value.blurhash,
+            blurhash: value.blurhash.clone(),
         })
     }
 }
@@ -641,10 +641,10 @@ pub struct FileInfo {
     pub thumbnail_source: Option<Arc<MediaSource>>,
 }
 
-impl TryFrom<FileInfo> for BaseFileInfo {
+impl TryFrom<&FileInfo> for BaseFileInfo {
     type Error = ();
 
-    fn try_from(value: FileInfo) -> Result<Self, ()> {
+    fn try_from(value: &FileInfo) -> Result<Self, ()> {
         Ok(BaseFileInfo { size: value.size.map(UInt::try_from).transpose().map_err(|_| ())? })
     }
 }
@@ -657,10 +657,10 @@ pub struct ThumbnailInfo {
     pub size: Option<u64>,
 }
 
-impl TryFrom<ThumbnailInfo> for BaseThumbnailInfo {
+impl TryFrom<&ThumbnailInfo> for BaseThumbnailInfo {
     type Error = ();
 
-    fn try_from(value: ThumbnailInfo) -> Result<Self, Self::Error> {
+    fn try_from(value: &ThumbnailInfo) -> Result<Self, Self::Error> {
         Ok(BaseThumbnailInfo {
             height: value.height.map(UInt::try_from).transpose().map_err(|_| ())?,
             width: value.width.map(UInt::try_from).transpose().map_err(|_| ())?,
