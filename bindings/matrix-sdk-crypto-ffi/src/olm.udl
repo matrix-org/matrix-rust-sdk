@@ -71,31 +71,9 @@ enum LocalTrust {
     "Unset",
 };
 
-interface OlmMachine {
-    [Throws=CryptoStoreError]
-    constructor(
-        [ByRef] string user_id,
-        [ByRef] string device_id,
-        [ByRef] string path,
-        string? passphrase
-    );
-};
-
 enum SignatureState {
     "Missing",
     "Invalid",
     "ValidButNotTrusted",
     "ValidAndTrusted",
-};
-
-interface BackupRecoveryKey {
-    constructor();
-    [Name=from_passphrase]
-    constructor(string passphrase, string salt, i32 rounds);
-    [Name=new_from_passphrase]
-    constructor(string passphrase);
-    [Name=from_base64, Throws=DecodeError]
-    constructor(string key);
-    [Name=from_base58, Throws=DecodeError]
-    constructor(string key);
 };

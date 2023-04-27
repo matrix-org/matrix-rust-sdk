@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter, ops::DerefMut};
+use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 
 use hmac::Hmac;
 use matrix_sdk_crypto::{
@@ -12,6 +12,7 @@ use thiserror::Error;
 use zeroize::Zeroize;
 
 /// The private part of the backup key, the one used for recovery.
+#[derive(uniffi::Object)]
 pub struct BackupRecoveryKey {
     pub(crate) inner: RecoveryKey,
     pub(crate) passphrase_info: Option<PassphraseInfo>,
@@ -62,46 +63,40 @@ pub struct MegolmV1BackupKey {
     pub backup_algorithm: String,
 }
 
-#[uniffi::export]
-impl BackupRecoveryKey {
-    /// Convert the recovery key to a base 58 encoded string.
-    pub fn to_base58(&self) -> String {
-        self.inner.to_base58()
-    }
-
-    /// Convert the recovery key to a base 64 encoded string.
-    pub fn to_base64(&self) -> String {
-        self.inner.to_base64()
-    }
-}
-
 impl BackupRecoveryKey {
     const KEY_SIZE: usize = 32;
     const SALT_SIZE: usize = 32;
     const PBKDF_ROUNDS: i32 = 500_000;
+}
 
+#[uniffi::export]
+impl BackupRecoveryKey {
     /// Create a new random [`BackupRecoveryKey`].
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
             inner: RecoveryKey::new()
                 .expect("Can't gather enough randomness to create a recovery key"),
             passphrase_info: None,
-        }
+        })
     }
 
     /// Try to create a [`BackupRecoveryKey`] from a base 64 encoded string.
-    pub fn from_base64(key: String) -> Result<Self, DecodeError> {
-        Ok(Self { inner: RecoveryKey::from_base64(&key)?, passphrase_info: None })
+    #[uniffi::constructor]
+    pub fn from_base64(key: String) -> Result<Arc<Self>, DecodeError> {
+        Ok(Arc::new(Self { inner: RecoveryKey::from_base64(&key)?, passphrase_info: None }))
     }
 
     /// Try to create a [`BackupRecoveryKey`] from a base 58 encoded string.
-    pub fn from_base58(key: String) -> Result<Self, DecodeError> {
-        Ok(Self { inner: RecoveryKey::from_base58(&key)?, passphrase_info: None })
+    #[uniffi::constructor]
+    pub fn from_base58(key: String) -> Result<Arc<Self>, DecodeError> {
+        Ok(Arc::new(Self { inner: RecoveryKey::from_base58(&key)?, passphrase_info: None }))
     }
 
     /// Create a new [`BackupRecoveryKey`] from the given passphrase.
-    pub fn new_from_passphrase(passphrase: String) -> Self {
+    #[uniffi::constructor]
+    pub fn new_from_passphrase(passphrase: String) -> Arc<Self> {
         let mut rng = thread_rng();
         let salt: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
@@ -113,7 +108,8 @@ impl BackupRecoveryKey {
     }
 
     /// Restore a [`BackupRecoveryKey`] from the given passphrase.
-    pub fn from_passphrase(passphrase: String, salt: String, rounds: i32) -> Self {
+    #[uniffi::constructor]
+    pub fn from_passphrase(passphrase: String, salt: String, rounds: i32) -> Arc<Self> {
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
         let rounds = rounds as u32;
 
@@ -123,18 +119,25 @@ impl BackupRecoveryKey {
 
         key.zeroize();
 
-        Self {
+        Arc::new(Self {
             inner: recovery_key,
             passphrase_info: Some(PassphraseInfo {
                 private_key_salt: salt,
                 private_key_iterations: rounds as i32,
             }),
-        }
+        })
     }
-}
 
-#[uniffi::export]
-impl BackupRecoveryKey {
+    /// Convert the recovery key to a base 58 encoded string.
+    pub fn to_base58(&self) -> String {
+        self.inner.to_base58()
+    }
+
+    /// Convert the recovery key to a base 64 encoded string.
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
+
     /// Get the public part of the backup key.
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let public_key = self.inner.megolm_v1_public_key();
