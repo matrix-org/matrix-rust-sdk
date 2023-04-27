@@ -9,6 +9,24 @@ callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
 };
 
+callback interface NotificationDelegate {
+    void did_receive_notification(NotificationItem notification);
+};
+
+dictionary NotificationItem {
+    TimelineEvent event;
+    string room_id;
+    string? sender_display_name;
+    string? sender_avatar_url;
+    string room_display_name;
+    string? room_avatar_url;
+    boolean is_noisy;
+    boolean is_direct;
+    boolean is_encrypted;
+};
+
+interface TimelineEvent {};
+
 dictionary UpdateSummary {
     sequence<string> lists;
     sequence<string> rooms;
