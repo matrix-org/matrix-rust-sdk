@@ -549,10 +549,11 @@ impl Client {
         })
     }
 
-    /// Registers a notification handler on the delegate if required
-    /// the sliding sync requires to have registered m.room.member with value
+    /// Registers a notification handler on the delegate if required.
+    ///
+    /// The sliding sync requires to have registered m.room.member with value
     /// $ME and m.room.power_levels to be able to intercept the events.
-    /// This function blocks execution and should be dispatched concurrently
+    /// This function blocks execution and should be dispatched concurrently.
     pub fn register_notification_handler(&self) {
         let delegate = Arc::clone(&self.delegate);
         let handler = move |notification, room: SdkRoom, _| {

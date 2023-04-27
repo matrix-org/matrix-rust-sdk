@@ -450,11 +450,7 @@ pub struct Message(matrix_sdk::room::timeline::Message);
 #[uniffi::export]
 impl Message {
     pub fn msgtype(&self) -> Option<MessageType> {
-        if let Ok(message_type) = self.0.msgtype().clone().try_into() {
-            Some(message_type)
-        } else {
-            None
-        }
+        self.0.msgtype().clone().try_into().ok()
     }
 
     pub fn body(&self) -> String {
