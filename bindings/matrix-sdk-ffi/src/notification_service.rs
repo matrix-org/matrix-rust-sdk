@@ -67,6 +67,7 @@ impl NotificationService {
     }
 }
 
+#[uniffi::export]
 impl NotificationService {
     /// Get notification item for a given `room_id `and `event_id`.
     ///
