@@ -35,7 +35,6 @@ impl TimelineEvent {
 #[derive(uniffi::Enum)]
 pub enum TimelineEventType {
     MessageLike { content: MessageLikeEventContent },
-    // we don't support state events yet so they do not have any content
     State { content: StateEventContent },
 }
 
