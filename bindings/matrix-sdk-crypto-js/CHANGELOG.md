@@ -1,3 +1,7 @@
+# v0.1.0-alpha.8
+
+-  Make `unused_fallback_keys` as optional in `Machine.receive_sync_changes`
+
 # v0.1.0-alpha.7
 
 -   Add new accessors `Device.algorithms` and `Device.isSignedByOwner`
