@@ -40,7 +40,7 @@ use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
 // Re-exports for more convenient use inside other submodules
-use self::{client::Client, client_builder::ClientBuilder, error::ClientError};
+use self::{client::Client, error::ClientError};
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
