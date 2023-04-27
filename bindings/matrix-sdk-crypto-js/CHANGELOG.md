@@ -1,4 +1,4 @@
-# v0.1.0-alpha.7
+# v0.1.0-alpha.8
 
 -   Extend `OlmDevice.markRequestAsSent` to accept respinses to
     `SigningKeysUploadRequest`s.
