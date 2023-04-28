@@ -19,7 +19,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, Relation},
+            message::{self, MessageType, Relation, RoomMessageEventContent, SyncRoomMessageEvent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -30,11 +30,13 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyTimelineEvent,
-        FullStateEventContent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+        StateEventType,
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
+use tracing::error;
 
 use super::{Profile, TimelineDetails};
 use crate::{
@@ -117,6 +119,37 @@ pub struct Message {
 }
 
 impl Message {
+    /// Construct a `Message` from a `m.room.message` event.
+    pub(in crate::room::timeline) fn from_event(
+        c: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) -> Self {
+        let edited = relations.has_replacement();
+        let edit = relations.replace.and_then(|r| match *r {
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
+                .content
+                .relates_to
+            {
+                Some(Relation::Replacement(re)) => Some(re),
+                _ => {
+                    error!("got m.room.message event with an edit without a valid m.replace relation");
+                    None
+                }
+            },
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
+            _ => {
+                error!("got m.room.message event with an edit of a different event type");
+                None
+            }
+        });
+
+        Self {
+            msgtype: edit.map_or(c.msgtype, |e| e.new_content),
+            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
+            edited,
+        }
+    }
+
     /// Get the `msgtype`-specific data of this message.
     pub fn msgtype(&self) -> &MessageType {
         &self.msgtype
@@ -225,11 +258,7 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent.into());
         };
 
-        let message = Message {
-            msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited: event.relations().replace.is_some(),
-        };
+        let message = Message::from_event(c, event.relations());
         let sender = event.sender().to_owned();
         let sender_profile =
             TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);
