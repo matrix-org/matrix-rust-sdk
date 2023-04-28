@@ -26,7 +26,7 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, RoomMessageEventContent},
+            message::{self, sanitize::RemoveReplyFallback, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -52,7 +52,10 @@ use super::{
     rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, ReactionGroup,
     TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
-use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    room::timeline::{MembershipChange, DEFAULT_SANITIZER_MODE},
+};
 
 pub(super) enum Flow {
     Local {
@@ -382,8 +385,12 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             };
 
+            let mut msgtype = replacement.new_content;
+            // Edit's content is never supposed to contain the reply fallback.
+            msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+
             let new_content = TimelineItemContent::Message(Message {
-                msgtype: replacement.new_content,
+                msgtype,
                 in_reply_to: msg.in_reply_to.clone(),
                 edited: true,
             });

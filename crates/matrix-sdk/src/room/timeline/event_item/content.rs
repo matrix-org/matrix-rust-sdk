@@ -19,7 +19,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, Relation, RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{
+                self, sanitize::RemoveReplyFallback, MessageType, Relation,
+                RoomMessageEventContent, SyncRoomMessageEvent,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -40,7 +43,7 @@ use tracing::error;
 
 use super::{Profile, TimelineDetails};
 use crate::{
-    room::timeline::{inner::RoomDataProvider, Error as TimelineError},
+    room::timeline::{inner::RoomDataProvider, Error as TimelineError, DEFAULT_SANITIZER_MODE},
     Result,
 };
 
@@ -143,11 +146,27 @@ impl Message {
             }
         });
 
-        Self {
-            msgtype: edit.map_or(c.msgtype, |e| e.new_content),
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited,
-        }
+        let in_reply_to = c.relates_to.and_then(InReplyToDetails::from_relation);
+        let msgtype = match edit {
+            Some(mut e) => {
+                // Edit's content is never supposed to contain the reply fallback.
+                e.new_content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+                e.new_content
+            }
+            None => {
+                let remove_reply_fallback = if in_reply_to.is_some() {
+                    RemoveReplyFallback::Yes
+                } else {
+                    RemoveReplyFallback::No
+                };
+
+                let mut msgtype = c.msgtype;
+                msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
+                msgtype
+            }
+        };
+
+        Self { msgtype, in_reply_to, edited }
     }
 
     /// Get the `msgtype`-specific data of this message.

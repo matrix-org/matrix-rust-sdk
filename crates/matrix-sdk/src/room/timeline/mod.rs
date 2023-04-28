@@ -29,6 +29,7 @@ use ruma::{
     assign,
     events::{
         receipt::{Receipt, ReceiptThread},
+        room::message::sanitize::HtmlSanitizerMode,
         AnyMessageLikeEventContent,
     },
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
@@ -69,6 +70,9 @@ pub use self::{
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
 };
+
+/// The default sanitizer mode used when sanitizing HTML.
+const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 
 /// A high-level view into a regular¹ room's contents.
 ///
