@@ -45,9 +45,7 @@ pub use room::*;
 use ruma::{
     api::client::{
         error::ErrorKind,
-        sync::sync_events::v4::{
-            self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ToDeviceConfig,
-        },
+        sync::sync_events::v4::{self, ExtensionsConfig},
     },
     assign,
     events::TimelineEventType,
@@ -156,16 +154,16 @@ impl SlidingSync {
         let mut lock = self.inner.extensions.lock().unwrap();
         let mut cfg = lock.get_or_insert_with(Default::default);
 
-        if cfg.to_device.is_none() {
-            cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+        if cfg.to_device.enabled.is_none() {
+            cfg.to_device.enabled = Some(true);
         }
 
-        if cfg.e2ee.is_none() {
-            cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+        if cfg.e2ee.enabled.is_none() {
+            cfg.e2ee.enabled = Some(true);
         }
 
-        if cfg.account_data.is_none() {
-            cfg.account_data = Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+        if cfg.account_data.enabled.is_none() {
+            cfg.account_data.enabled = Some(false);
         }
     }
 
@@ -189,7 +187,6 @@ impl SlidingSync {
             .unwrap()
             .get_or_insert_with(Default::default)
             .to_device
-            .get_or_insert_with(Default::default)
             .since = Some(since);
     }
 
@@ -257,11 +254,8 @@ impl SlidingSync {
             //
             // The token is also loaded from storage in the `SlidingSyncBuilder::build()`
             // method.
-            let mut to_device = extensions.to_device.unwrap_or_default();
-            to_device.enabled = Some(true);
-
-            extensions.to_device = Some(to_device);
-            extensions.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+            extensions.to_device.enabled = Some(true);
+            extensions.e2ee.enabled = Some(true);
 
             extensions
         } else {
@@ -273,10 +267,10 @@ impl SlidingSync {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(|e| e.to_device.as_ref()?.since.to_owned());
+                .and_then(|e| e.to_device.since.clone());
 
             let mut extensions: ExtensionsConfig = Default::default();
-            extensions.to_device = Some(assign!(ToDeviceConfig::default(), { since }));
+            extensions.to_device.since = since;
 
             extensions
         }
@@ -642,7 +636,7 @@ impl From<&SlidingSync> for FrozenSlidingSync {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(|ext| ext.to_device.as_ref()?.since.clone()),
+                .and_then(|ext| ext.to_device.since.clone()),
         }
     }
 }
@@ -660,6 +654,7 @@ pub struct UpdateSummary {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
+    use ruma::api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig};
     use wiremock::MockServer;
 
     use super::*;
@@ -677,9 +672,9 @@ mod test {
         // e2ee anyways.
         assert_matches!(
             extensions.to_device,
-            Some(ToDeviceConfig { enabled: Some(true), since: None, .. })
+            ToDeviceConfig { enabled: Some(true), since: None, .. }
         );
-        assert_matches!(extensions.e2ee, Some(E2EEConfig { enabled: Some(true), .. }));
+        assert_matches!(extensions.e2ee, E2EEConfig { enabled: Some(true), .. });
 
         let some_since = "some_since".to_owned();
         sync.update_to_device_since(some_since.to_owned());
@@ -690,16 +685,16 @@ mod test {
         // stickyness.
         assert_matches!(
             extensions.to_device,
-            Some(ToDeviceConfig { enabled: None, since: Some(since), .. }) if since == some_since
+            ToDeviceConfig { enabled: None, since: Some(since), .. } if since == some_since
         );
-        assert_matches!(extensions.e2ee, None);
+        assert_matches!(extensions.e2ee, E2EEConfig { enabled: None, .. });
 
         let extensions = sync.prepare_extension_config(None);
         // Even if there isn't a `pos`, if we have a to-device `since` token, we put it
         // into the request.
         assert_matches!(
             extensions.to_device,
-            Some(ToDeviceConfig { enabled: Some(true), since: Some(since), .. }) if since == some_since
+            ToDeviceConfig { enabled: Some(true), since: Some(since), .. } if since == some_since
         );
 
         Ok(())

@@ -10,7 +10,6 @@ use ruma::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
-    assign,
     events::TimelineEventType,
     OwnedRoomId,
 };
@@ -85,17 +84,16 @@ impl SlidingSyncBuilder {
     pub fn with_common_extensions(mut self) -> Self {
         {
             let mut cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+            if cfg.to_device.enabled.is_none() {
+                cfg.to_device.enabled = Some(true);
             }
 
-            if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+            if cfg.e2ee.enabled.is_none() {
+                cfg.e2ee.enabled = Some(true);
             }
 
-            if cfg.account_data.is_none() {
-                cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+            if cfg.account_data.enabled.is_none() {
+                cfg.account_data.enabled = Some(true);
             }
         }
         self
@@ -109,25 +107,24 @@ impl SlidingSyncBuilder {
     pub fn with_all_extensions(mut self) -> Self {
         {
             let mut cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.is_none() {
-                cfg.to_device = Some(assign!(ToDeviceConfig::default(), { enabled: Some(true) }));
+            if cfg.to_device.enabled.is_none() {
+                cfg.to_device.enabled = Some(true);
             }
 
-            if cfg.e2ee.is_none() {
-                cfg.e2ee = Some(assign!(E2EEConfig::default(), { enabled: Some(true) }));
+            if cfg.e2ee.enabled.is_none() {
+                cfg.e2ee.enabled = Some(true);
             }
 
-            if cfg.account_data.is_none() {
-                cfg.account_data =
-                    Some(assign!(AccountDataConfig::default(), { enabled: Some(true) }));
+            if cfg.account_data.enabled.is_none() {
+                cfg.account_data.enabled = Some(true);
             }
 
-            if cfg.receipts.is_none() {
-                cfg.receipts = Some(assign!(ReceiptsConfig::default(), { enabled: Some(true) }));
+            if cfg.receipts.enabled.is_none() {
+                cfg.receipts.enabled = Some(true);
             }
 
-            if cfg.typing.is_none() {
-                cfg.typing = Some(assign!(TypingConfig::default(), { enabled: Some(true) }));
+            if cfg.typing.enabled.is_none() {
+                cfg.typing.enabled = Some(true);
             }
         }
         self
@@ -135,61 +132,62 @@ impl SlidingSyncBuilder {
 
     /// Set the E2EE extension configuration.
     pub fn with_e2ee_extension(mut self, e2ee: E2EEConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).e2ee = Some(e2ee);
+        self.extensions.get_or_insert_with(Default::default).e2ee = e2ee;
         self
     }
 
     /// Unset the E2EE extension configuration.
     pub fn without_e2ee_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).e2ee = None;
+        self.extensions.get_or_insert_with(Default::default).e2ee = E2EEConfig::default();
         self
     }
 
     /// Set the ToDevice extension configuration.
     pub fn with_to_device_extension(mut self, to_device: ToDeviceConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).to_device = Some(to_device);
+        self.extensions.get_or_insert_with(Default::default).to_device = to_device;
         self
     }
 
     /// Unset the ToDevice extension configuration.
     pub fn without_to_device_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).to_device = None;
+        self.extensions.get_or_insert_with(Default::default).to_device = ToDeviceConfig::default();
         self
     }
 
     /// Set the account data extension configuration.
     pub fn with_account_data_extension(mut self, account_data: AccountDataConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).account_data = Some(account_data);
+        self.extensions.get_or_insert_with(Default::default).account_data = account_data;
         self
     }
 
     /// Unset the account data extension configuration.
     pub fn without_account_data_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).account_data = None;
+        self.extensions.get_or_insert_with(Default::default).account_data =
+            AccountDataConfig::default();
         self
     }
 
     /// Set the Typing extension configuration.
     pub fn with_typing_extension(mut self, typing: TypingConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).typing = Some(typing);
+        self.extensions.get_or_insert_with(Default::default).typing = typing;
         self
     }
 
     /// Unset the Typing extension configuration.
     pub fn without_typing_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).typing = None;
+        self.extensions.get_or_insert_with(Default::default).typing = TypingConfig::default();
         self
     }
 
     /// Set the Receipt extension configuration.
     pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipts = Some(receipt);
+        self.extensions.get_or_insert_with(Default::default).receipts = receipt;
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipts = None;
+        self.extensions.get_or_insert_with(Default::default).receipts = ReceiptsConfig::default();
         self
     }
 
