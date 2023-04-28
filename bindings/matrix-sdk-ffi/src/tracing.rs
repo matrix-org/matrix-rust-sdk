@@ -95,7 +95,6 @@ fn span_or_event_enabled(callsite: &'static DefaultCallsite) -> bool {
     }
 }
 
-#[derive(uniffi::Object)]
 pub struct Span(tracing::Span);
 
 #[uniffi::export]
