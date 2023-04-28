@@ -154,15 +154,15 @@ impl SlidingSync {
         let mut lock = self.inner.extensions.lock().unwrap();
         let mut cfg = lock.get_or_insert_with(Default::default);
 
-        if cfg.to_device.is_empty() {
+        if cfg.to_device.enabled.is_none() {
             cfg.to_device.enabled = Some(true);
         }
 
-        if cfg.e2ee.is_empty() {
+        if cfg.e2ee.enabled.is_none() {
             cfg.e2ee.enabled = Some(true);
         }
 
-        if cfg.account_data.is_empty() {
+        if cfg.account_data.enabled.is_none() {
             cfg.account_data.enabled = Some(false);
         }
     }

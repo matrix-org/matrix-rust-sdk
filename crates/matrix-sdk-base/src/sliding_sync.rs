@@ -52,9 +52,6 @@ impl BaseClient {
 
         let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
-        // Destructure the single `None` of the E2EE extension into separate objects
-        // since that's what the `OlmMachine` API expects.
-
         info!(
             to_device_events = to_device_events.len(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
