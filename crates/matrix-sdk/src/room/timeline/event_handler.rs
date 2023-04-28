@@ -26,7 +26,7 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, Relation, RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{self, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -49,9 +49,8 @@ use super::{
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails, Message,
-    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
-    VirtualTimelineItem,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, ReactionGroup,
+    TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
 use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
 
@@ -944,30 +943,7 @@ impl NewEventTimelineItem {
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     ) -> Self {
-        let edited = relations.has_replacement();
-        let edit = relations.replace.and_then(|r| match *r {
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
-                .content
-                .relates_to
-            {
-                Some(Relation::Replacement(re)) => Some(re),
-                _ => {
-                    error!("got m.room.message event with an edit without a valid m.relate relation");
-                    None
-                }
-            },
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
-            _ => {
-                error!("got m.room.message event with an edit of a different event type");
-                None
-            }
-        });
-
-        let content = TimelineItemContent::Message(Message {
-            msgtype: edit.map_or(c.msgtype, |e| e.new_content),
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited,
-        });
+        let content = TimelineItemContent::Message(Message::from_event(c, relations));
 
         Self::from_content(content)
     }
