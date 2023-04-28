@@ -46,7 +46,7 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-timeline = ["ruma/unstable-msc2677", "dep:chrono"]
+experimental-timeline = ["ruma/unstable-msc2677", "ruma/unstable-sanitize", "dep:chrono"]
 
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
