@@ -51,7 +51,6 @@ impl NotificationItem {
 }
 
 #[allow(dead_code)]
-#[derive(uniffi::Object)]
 pub struct NotificationService {
     base_path: String,
     user_id: String,
