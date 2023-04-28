@@ -74,3 +74,10 @@ pub enum RoomError {
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 }
+
+#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum TimelineError {
+    #[error("Required value missing from the media info")]
+    MissingMediaInfoField,
+}
