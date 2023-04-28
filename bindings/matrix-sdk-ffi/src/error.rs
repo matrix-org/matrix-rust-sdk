@@ -80,4 +80,6 @@ pub enum RoomError {
 pub enum TimelineError {
     #[error("Required value missing from the media info")]
     MissingMediaInfoField,
+    #[error("Media info field invalid")]
+    InvalidMediaInfoField,
 }

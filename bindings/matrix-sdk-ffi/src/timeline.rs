@@ -579,11 +579,11 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
 
     fn try_from(value: &ImageInfo) -> Result<Self, TimelineError> {
         let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
 
         Ok(BaseImageInfo {
@@ -611,7 +611,7 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
         let duration =
             value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
 
         Ok(BaseAudioInfo { duration: Some(duration), size: Some(size) })
     }
@@ -636,11 +636,11 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
         let duration =
             value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
         let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
 
         Ok(BaseVideoInfo {
@@ -666,7 +666,7 @@ impl TryFrom<&FileInfo> for BaseFileInfo {
 
     fn try_from(value: &FileInfo) -> Result<Self, TimelineError> {
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
 
         Ok(BaseFileInfo { size: Some(size) })
     }
@@ -685,11 +685,11 @@ impl TryFrom<&ThumbnailInfo> for BaseThumbnailInfo {
 
     fn try_from(value: &ThumbnailInfo) -> Result<Self, TimelineError> {
         let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::MissingMediaInfoField)?;
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
 
         Ok(BaseThumbnailInfo { height: Some(height), width: Some(width), size: Some(size) })
     }
