@@ -197,10 +197,10 @@ pub fn unpack_relates_to<C>(
             }),
             None,
         ),
-        message::Relation::Thread(Thread { event_id, in_reply_to: Some(in_reply_to_), .. }) => {
-            let reply_details = Some(InReplyToDetails {
-                event_id: in_reply_to_.event_id,
-                event: TimelineDetails::Unavailable,
+        message::Relation::Thread(Thread { event_id, in_reply_to, .. }) => {
+            let reply_details = in_reply_to.map(|rep| InReplyToDetails {
+              event_id: rep.event_id,
+              event: TimelineDetails::Unavailable,
             });
             let thread_details = Some(event_id);
             (reply_details, thread_details)
