@@ -8,6 +8,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        relation::Thread,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -113,6 +114,7 @@ impl TimelineItemContent {
 pub struct Message {
     pub(in crate::room::timeline) msgtype: MessageType,
     pub(in crate::room::timeline) in_reply_to: Option<InReplyToDetails>,
+    pub(in crate::room::timeline) in_thread: Option<OwnedEventId>,
     pub(in crate::room::timeline) edited: bool,
 }
 
@@ -139,6 +141,12 @@ impl Message {
         self.edited
     }
 
+    /// Get the thread event id (alwasy root event id of thread) that this
+    /// message relates to
+    pub fn in_thread(&self) -> Option<&OwnedEventId> {
+        self.in_thread.as_ref()
+    }
+
     pub(in crate::room::timeline) fn with_in_reply_to(
         &self,
         in_reply_to: InReplyToDetails,
@@ -150,11 +158,12 @@ impl Message {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, edited } = self;
+        let Self { msgtype: _, in_reply_to, edited, in_thread } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
             .field("in_reply_to", in_reply_to)
+            .field("thread id", in_thread)
             .field("edited", edited)
             .finish_non_exhaustive()
     }
@@ -175,14 +184,28 @@ pub struct InReplyToDetails {
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
-impl InReplyToDetails {
-    pub(in crate::room::timeline) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
-        match relation {
-            message::Relation::Reply { in_reply_to } => {
-                Some(Self { event_id: in_reply_to.event_id, event: TimelineDetails::Unavailable })
-            }
-            _ => None,
+/// Unpacks relationship information for an event's `relates_to` field,
+/// returning possible reply to details and thread details
+pub fn unpack_relates_to<C>(
+    relation: Relation<C>,
+) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+    match relation {
+        message::Relation::Reply { in_reply_to } => (
+            Some(InReplyToDetails {
+                event_id: in_reply_to.event_id,
+                event: TimelineDetails::Unavailable,
+            }),
+            None,
+        ),
+        message::Relation::Thread(Thread { event_id, in_reply_to: Some(in_reply_to_), .. }) => {
+            let reply_details = Some(InReplyToDetails {
+                event_id: in_reply_to_.event_id,
+                event: TimelineDetails::Unavailable,
+            });
+            let thread_details = Some(event_id);
+            (reply_details, thread_details)
         }
+        _ => (None, None),
     }
 }
 
@@ -225,10 +248,13 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent.into());
         };
 
+        let (in_reply_to, in_thread) = c.relates_to.map(unpack_relates_to).unwrap_or((None, None));
+
         let message = Message {
             msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
+            in_reply_to,
             edited: event.relations().replace.is_some(),
+            in_thread: in_thread,
         };
         let sender = event.sender().to_owned();
         let sender_profile =

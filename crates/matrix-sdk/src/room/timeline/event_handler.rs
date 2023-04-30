@@ -49,7 +49,7 @@ use super::{
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails, Message,
+    rfind_event_by_id, rfind_event_item, unpack_relates_to, EventTimelineItem, Message,
     ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem,
 };
@@ -387,6 +387,7 @@ impl<'a> TimelineEventHandler<'a> {
                 msgtype: replacement.new_content,
                 in_reply_to: msg.in_reply_to.clone(),
                 edited: true,
+                in_thread: msg.in_thread.clone(),
             });
 
             let edit_json = match &self.flow {
@@ -963,9 +964,12 @@ impl NewEventTimelineItem {
             }
         });
 
+        let (in_reply_to, in_thread) = c.relates_to.map(unpack_relates_to).unwrap_or((None, None));
+
         let content = TimelineItemContent::Message(Message {
             msgtype: edit.map_or(c.msgtype, |e| e.new_content),
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
+            in_reply_to,
+            in_thread,
             edited,
         });
 

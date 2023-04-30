@@ -464,6 +464,10 @@ impl Message {
     pub fn is_edited(&self) -> bool {
         self.0.is_edited()
     }
+
+    pub fn in_thread(&self) -> Option<String> {
+        self.0.in_thread().map(|event_id| event_id.to_string())
+    }
 }
 
 #[derive(Clone, uniffi::Enum)]

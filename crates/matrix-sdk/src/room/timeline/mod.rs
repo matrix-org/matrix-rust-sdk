@@ -58,9 +58,9 @@ pub(crate) use self::builder::TimelineBuilder;
 use self::inner::{TimelineInner, TimelineInnerState};
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
-        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        unpack_relates_to, AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage,
+        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
+        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
