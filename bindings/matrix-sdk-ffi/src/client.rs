@@ -195,6 +195,7 @@ impl Client {
     pub fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
+        body: Option<String>,
         mime_type: String,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.client.clone();
@@ -206,6 +207,7 @@ impl Client {
                 .media()
                 .get_media_file(
                     &MediaRequest { source, format: MediaFormat::File },
+                    body,
                     &mime_type,
                     true,
                 )
