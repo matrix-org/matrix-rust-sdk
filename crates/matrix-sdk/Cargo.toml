@@ -87,7 +87,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
 matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
-mime_guess = "2.0.4"
+mime2ext = "0.1.52"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
