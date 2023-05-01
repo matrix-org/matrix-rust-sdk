@@ -465,8 +465,8 @@ impl Message {
         self.0.is_edited()
     }
 
-    pub fn in_thread(&self) -> Option<String> {
-        self.0.in_thread().map(|event_id| event_id.to_string())
+    pub fn in_thread(&self) -> Option<InThreadDetails> {
+        self.0.in_thread().map(InThreadDetails::from)
     }
 }
 
@@ -727,6 +727,18 @@ impl From<&matrix_sdk::ruma::events::room::message::FileInfo> for FileInfo {
             thumbnail_info,
             thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
         }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct InThreadDetails {
+    pub thread_id: String,
+    pub is_fallback: bool,
+}
+
+impl From<&matrix_sdk::room::timeline::InThreadDetails> for InThreadDetails {
+    fn from(inner: &matrix_sdk::room::timeline::InThreadDetails) -> Self {
+        InThreadDetails { thread_id: inner.thread_id.to_string(), is_fallback: inner.is_fallback }
     }
 }
 

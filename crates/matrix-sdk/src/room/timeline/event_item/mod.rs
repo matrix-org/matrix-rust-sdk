@@ -32,8 +32,8 @@ mod remote;
 
 pub use self::content::{
     unpack_relates_to, AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage,
-    InReplyToDetails, MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup,
-    RepliedToEvent, RoomMembershipChange, Sticker, TimelineItemContent,
+    InReplyToDetails, InThreadDetails, MemberProfileChange, MembershipChange, Message, OtherState,
+    ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker, TimelineItemContent,
 };
 pub(super) use self::{
     local::LocalEventTimelineItem,

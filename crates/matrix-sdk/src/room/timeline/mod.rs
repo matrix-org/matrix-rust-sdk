@@ -59,9 +59,9 @@ use self::inner::{TimelineInner, TimelineInnerState};
 pub use self::{
     event_item::{
         unpack_relates_to, AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage,
-        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
-        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineDetails, TimelineItemContent,
+        EventSendState, EventTimelineItem, InReplyToDetails, InThreadDetails, MemberProfileChange,
+        MembershipChange, Message, OtherState, Profile, ReactionGroup, RepliedToEvent,
+        RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,

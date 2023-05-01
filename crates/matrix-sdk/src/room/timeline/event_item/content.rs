@@ -114,7 +114,7 @@ impl TimelineItemContent {
 pub struct Message {
     pub(in crate::room::timeline) msgtype: MessageType,
     pub(in crate::room::timeline) in_reply_to: Option<InReplyToDetails>,
-    pub(in crate::room::timeline) in_thread: Option<OwnedEventId>,
+    pub(in crate::room::timeline) in_thread: Option<InThreadDetails>,
     pub(in crate::room::timeline) edited: bool,
 }
 
@@ -141,9 +141,8 @@ impl Message {
         self.edited
     }
 
-    /// Get the thread event id (alwasy root event id of thread) that this
-    /// message relates to
-    pub fn in_thread(&self) -> Option<&OwnedEventId> {
+    /// Get thread details for this event, if any
+    pub fn in_thread(&self) -> Option<&InThreadDetails> {
         self.in_thread.as_ref()
     }
 
@@ -184,11 +183,22 @@ pub struct InReplyToDetails {
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
+/// Thread details for an event
+#[derive(Clone, Debug)]
+pub struct InThreadDetails {
+    /// The thread root ID
+    pub thread_id: OwnedEventId,
+    /// Determines whether or not the event is a reply to an event
+    /// in the thread or if the corresponding `InReplyToDetails`
+    /// in `Message` is meant as fallback for older clients.
+    pub is_fallback: bool,
+}
+
 /// Unpacks relationship information for an event's `relates_to` field,
 /// returning possible reply to details and thread details
 pub fn unpack_relates_to<C>(
     relation: Relation<C>,
-) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+) -> (Option<InReplyToDetails>, Option<InThreadDetails>) {
     match relation {
         message::Relation::Reply { in_reply_to } => (
             Some(InReplyToDetails {
@@ -197,12 +207,13 @@ pub fn unpack_relates_to<C>(
             }),
             None,
         ),
-        message::Relation::Thread(Thread { event_id, in_reply_to, .. }) => {
+        message::Relation::Thread(Thread { event_id, in_reply_to, is_falling_back, .. }) => {
             let reply_details = in_reply_to.map(|rep| InReplyToDetails {
                 event_id: rep.event_id,
                 event: TimelineDetails::Unavailable,
             });
-            let thread_details = Some(event_id);
+            let thread_details =
+                Some(InThreadDetails { thread_id: event_id, is_fallback: is_falling_back });
             (reply_details, thread_details)
         }
         _ => (None, None),
