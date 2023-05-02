@@ -1361,15 +1361,19 @@ impl OlmMachine {
     ///     }
     /// }
     /// ```
+    /// 
+    /// * `compute_all_signatures` - If true will check all signatures, if 
+    /// false will stop as soon as a valid and trusted signature is found
     pub fn verify_backup(
         &self,
         backup_info: String,
+        compute_all_signatures: bool,
     ) -> Result<SignatureVerification, CryptoStoreError> {
         let backup_info = serde_json::from_str(&backup_info)?;
 
         Ok(self
             .runtime
-            .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
+            .block_on(self.inner.backup_machine().verify_backup(backup_info, compute_all_signatures))?
             .into())
     }
 }
