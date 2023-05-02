@@ -29,7 +29,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10.2"
 thiserror = { workspace = true }
-tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true }

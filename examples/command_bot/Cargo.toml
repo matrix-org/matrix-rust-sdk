@@ -12,7 +12,6 @@ test = false
 anyhow = "1"
 tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3.15"
-url = "2.2.2"
 
 [dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
