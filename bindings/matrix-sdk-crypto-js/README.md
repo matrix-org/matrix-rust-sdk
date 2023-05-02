@@ -16,17 +16,17 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 These WebAssembly bindings are written in [Rust]. To build them, you
 need to install the Rust compiler, see [the Install Rust
 Page](https://www.rust-lang.org/tools/install). Then, the workflow is
-pretty classical by using [npm], see [the Downloading and installing
+pretty classical by using [yarn], see [the Downloading and installing
 Node.js and npm
-Page](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm).
+Page](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) and [installing yarn](https://classic.yarnpkg.com/lang/en/docs/install).
 
-Once the Rust compiler, Node.js and npm are installed, you can run the
+Once the Rust compiler, Node.js and yarn are installed, you can run the
 following commands:
 
 ```sh
-$ npm install
-$ npm run build
-$ npm run test
+$ yarn install
+$ yarn build
+$ yarn test
 ```
 
 A `matrix_sdk_crypto.js`, `matrix_sdk_crypto.d.ts` and a
@@ -44,7 +44,7 @@ To generate the documentation locally, please run the following
 command:
 
 ```sh
-$ npm run doc
+$ yarn doc
 ```
 
 The documentation is generated in the `./docs` directory.
