@@ -78,44 +78,24 @@ impl HomeserverLoginDetails {
     }
 }
 
+#[uniffi::export]
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
+    #[uniffi::constructor]
     pub fn new(
         base_path: String,
         passphrase: Option<String>,
         custom_sliding_sync_proxy: Option<String>,
-    ) -> Self {
-        AuthenticationService {
+    ) -> Arc<Self> {
+        Arc::new(AuthenticationService {
             base_path,
             passphrase,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
-        }
+        })
     }
 
-    /// Get the homeserver login details from a client.
-    async fn details_from_client(
-        &self,
-        client: &Arc<Client>,
-    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let login_details = join3(
-            client.async_homeserver(),
-            client.authentication_issuer(),
-            client.supports_password_login(),
-        )
-        .await;
-
-        let url = login_details.0;
-        let authentication_issuer = login_details.1;
-        let supports_password_login = login_details.2?;
-
-        Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
-    }
-}
-
-#[uniffi::export]
-impl AuthenticationService {
     pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
         self.homeserver_details.read().unwrap().clone()
     }
@@ -126,7 +106,7 @@ impl AuthenticationService {
         &self,
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
-        let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+        let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
 
         // Attempt discovery as a server name first.
         let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
@@ -152,7 +132,7 @@ impl AuthenticationService {
                 return Err(e);
             }
             // When discovery fails, fallback to the homeserver URL if supplied.
-            let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
+            let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
             builder = builder.homeserver_url(server_name_or_homeserver_url);
             builder.build_inner()
         })?;
@@ -205,7 +185,7 @@ impl AuthenticationService {
             sliding_sync_proxy = None;
         }
 
-        let client = Arc::new(ClientBuilder::new())
+        let client = ClientBuilder::new()
             .base_path(self.base_path.clone())
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
@@ -258,7 +238,7 @@ impl AuthenticationService {
             user_id: whoami.user_id.clone(),
             device_id,
         };
-        let client = Arc::new(ClientBuilder::new())
+        let client = ClientBuilder::new()
             .base_path(self.base_path.clone())
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
@@ -268,5 +248,26 @@ impl AuthenticationService {
         // Restore the client using the session.
         client.restore_session_inner(session)?;
         Ok(client)
+    }
+}
+
+impl AuthenticationService {
+    /// Get the homeserver login details from a client.
+    async fn details_from_client(
+        &self,
+        client: &Arc<Client>,
+    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
+        let login_details = join3(
+            client.async_homeserver(),
+            client.authentication_issuer(),
+            client.supports_password_login(),
+        )
+        .await;
+
+        let url = login_details.0;
+        let authentication_issuer = login_details.1;
+        let supports_password_login = login_details.2?;
+
+        Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
     }
 }

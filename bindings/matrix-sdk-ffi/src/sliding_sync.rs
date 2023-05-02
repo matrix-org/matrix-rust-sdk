@@ -430,7 +430,7 @@ pub trait SlidingSyncListStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncListBuilder {
     inner: matrix_sdk::SlidingSyncListBuilder,
 }
@@ -471,14 +471,13 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
     }
 }
 
-impl SlidingSyncListBuilder {
-    pub fn new() -> Self {
-        Self { inner: matrix_sdk::SlidingSyncList::builder() }
-    }
-}
-
 #[uniffi::export]
 impl SlidingSyncListBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder() })
+    }
+
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sync_mode(mode);

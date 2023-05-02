@@ -972,7 +972,12 @@ mod test {
 
         migrate(migration_data, path.clone(), None, Box::new(|_, _| {}))?;
 
-        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", &path, None)?;
+        let machine = OlmMachine::new(
+            "@ganfra146:matrix.org".to_owned(),
+            "DEWRCMENGS".to_owned(),
+            path,
+            None,
+        )?;
 
         assert_eq!(
             machine.identity_keys()["ed25519"],

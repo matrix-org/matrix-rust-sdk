@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 use super::{client::Client, RUNTIME};
 use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
@@ -28,24 +28,13 @@ pub struct ClientBuilder {
     inner: MatrixClientBuilder,
 }
 
-impl ClientBuilder {
-    pub fn new() -> Self {
-        Self {
-            base_path: None,
-            username: None,
-            server_name: None,
-            homeserver_url: None,
-            server_versions: None,
-            passphrase: Zeroizing::new(None),
-            user_agent: None,
-            sliding_sync_proxy: None,
-            inner: MatrixClient::builder(),
-        }
-    }
-}
-
 #[uniffi::export]
 impl ClientBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.base_path = Some(path);
@@ -168,6 +157,16 @@ impl ClientBuilder {
 
 impl Default for ClientBuilder {
     fn default() -> Self {
-        Self::new()
+        Self {
+            base_path: None,
+            username: None,
+            server_name: None,
+            homeserver_url: None,
+            server_versions: None,
+            passphrase: Zeroizing::new(None),
+            user_agent: None,
+            sliding_sync_proxy: None,
+            inner: MatrixClient::builder(),
+        }
     }
 }

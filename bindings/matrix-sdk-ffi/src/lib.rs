@@ -26,6 +26,7 @@ pub mod authentication_service;
 pub mod client;
 pub mod client_builder;
 mod error;
+pub mod event;
 mod helpers;
 pub mod notification_service;
 pub mod room;
@@ -39,7 +40,7 @@ use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
 // Re-exports for more convenient use inside other submodules
-use self::{client::Client, client_builder::ClientBuilder, error::ClientError};
+use self::{client::Client, error::ClientError};
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
@@ -51,8 +52,8 @@ pub use matrix_sdk::{
 pub use platform::*;
 
 pub use self::{
-    authentication_service::*, client::*, notification_service::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
+    authentication_service::*, client::*, event::*, notification_service::*, room::*,
+    room_member::*, session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
 
 uniffi::include_scaffolding!("api");
