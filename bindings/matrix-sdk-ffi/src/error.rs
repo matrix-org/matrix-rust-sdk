@@ -59,3 +59,27 @@ impl From<mime::FromStrError> for ClientError {
         anyhow::Error::from(e).into()
     }
 }
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum RoomError {
+    #[error("Invalid attachment data")]
+    InvalidAttachmentData,
+    #[error("Invalid attachment mime type")]
+    InvalidAttachmentMimeType,
+    #[error("Timeline unavailable")]
+    TimelineUnavailable,
+    #[error("Invalid thumbnail data")]
+    InvalidThumbnailData,
+    #[error("Failed sending attachment")]
+    FailedSendingAttachment,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum TimelineError {
+    #[error("Required value missing from the media info")]
+    MissingMediaInfoField,
+    #[error("Media info field invalid")]
+    InvalidMediaInfoField,
+}

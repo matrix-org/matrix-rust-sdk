@@ -1,13 +1,17 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::bail;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
-use matrix_sdk::room::timeline::{Profile, TimelineDetails};
 pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use matrix_sdk::{
+    attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
+    room::timeline::{Profile, TimelineDetails},
+};
+use ruma::UInt;
 use tracing::warn;
 
-use crate::helpers::unwrap_or_clone_arc;
+use crate::{error::TimelineError, helpers::unwrap_or_clone_arc};
 
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
@@ -582,6 +586,27 @@ pub struct ImageInfo {
     pub blurhash: Option<String>,
 }
 
+impl TryFrom<&ImageInfo> for BaseImageInfo {
+    type Error = TimelineError;
+
+    fn try_from(value: &ImageInfo) -> Result<Self, TimelineError> {
+        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
+
+        Ok(BaseImageInfo {
+            height: Some(height),
+            width: Some(width),
+            size: Some(size),
+            blurhash: Some(blurhash),
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct AudioInfo {
     // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support
@@ -589,6 +614,19 @@ pub struct AudioInfo {
     pub duration: Option<u64>,
     pub size: Option<u64>,
     pub mimetype: Option<String>,
+}
+
+impl TryFrom<&AudioInfo> for BaseAudioInfo {
+    type Error = TimelineError;
+
+    fn try_from(value: &AudioInfo) -> Result<Self, TimelineError> {
+        let duration =
+            value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
+        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+
+        Ok(BaseAudioInfo { duration: Some(duration), size: Some(size) })
+    }
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -603,6 +641,30 @@ pub struct VideoInfo {
     pub blurhash: Option<String>,
 }
 
+impl TryFrom<&VideoInfo> for BaseVideoInfo {
+    type Error = TimelineError;
+
+    fn try_from(value: &VideoInfo) -> Result<Self, TimelineError> {
+        let duration =
+            value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
+        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
+
+        Ok(BaseVideoInfo {
+            duration: Some(duration),
+            height: Some(height),
+            width: Some(width),
+            size: Some(size),
+            blurhash: Some(blurhash),
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct FileInfo {
     pub mimetype: Option<String>,
@@ -611,12 +673,38 @@ pub struct FileInfo {
     pub thumbnail_source: Option<Arc<MediaSource>>,
 }
 
+impl TryFrom<&FileInfo> for BaseFileInfo {
+    type Error = TimelineError;
+
+    fn try_from(value: &FileInfo) -> Result<Self, TimelineError> {
+        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+
+        Ok(BaseFileInfo { size: Some(size) })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct ThumbnailInfo {
     pub height: Option<u64>,
     pub width: Option<u64>,
     pub mimetype: Option<String>,
     pub size: Option<u64>,
+}
+
+impl TryFrom<&ThumbnailInfo> for BaseThumbnailInfo {
+    type Error = TimelineError;
+
+    fn try_from(value: &ThumbnailInfo) -> Result<Self, TimelineError> {
+        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
+            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+
+        Ok(BaseThumbnailInfo { height: Some(height), width: Some(width), size: Some(size) })
+    }
 }
 
 #[derive(Clone, uniffi::Record)]
