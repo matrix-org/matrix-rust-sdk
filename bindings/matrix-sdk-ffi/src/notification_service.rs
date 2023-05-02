@@ -18,6 +18,9 @@ pub struct NotificationItem {
     pub is_noisy: bool,
     pub is_direct: bool,
     pub is_encrypted: bool,
+    pub is_read: bool,
+
+    pub timestamp: u64,
 }
 
 impl NotificationItem {
@@ -45,13 +48,14 @@ impl NotificationItem {
             is_noisy,
             is_direct: room.is_direct().await?,
             is_encrypted: room.is_encrypted().await?,
+            is_read: notification.read,
+            timestamp: notification.ts.0.into(),
         };
         Ok(item)
     }
 }
 
 #[allow(dead_code)]
-#[derive(uniffi::Object)]
 pub struct NotificationService {
     base_path: String,
     user_id: String,

@@ -397,11 +397,11 @@ impl OlmMachine {
 
     /// Export all the private cross signing keys we have.
     ///
-    /// The export will contain the seed for the ed25519 keys as a
-    /// unpadded base64 encoded string.
+    /// The export will contain the seeds for the ed25519 keys as
+    /// unpadded base64 encoded strings.
     ///
-    /// This method returns None if we don’t have any private cross
-    /// signing keys.
+    /// Returns `null` if we don’t have any private cross signing keys;
+    /// otherwise returns a `CrossSigningKeyExport`.
     #[wasm_bindgen(js_name = "exportCrossSigningKeys")]
     pub fn export_cross_signing_keys(&self) -> Promise {
         let me = self.inner.clone();
@@ -413,12 +413,22 @@ impl OlmMachine {
 
     /// Import our private cross signing keys.
     ///
-    /// The export needs to contain the seed for the ed25519 keys as
-    /// an unpadded base64 encoded string.
+    /// The keys should be provided as unpadded-base64-encoded strings.
+    ///
+    /// Returns a `CrossSigningStatus`.
     #[wasm_bindgen(js_name = "importCrossSigningKeys")]
-    pub fn import_cross_signing_keys(&self, export: store::CrossSigningKeyExport) -> Promise {
+    pub fn import_cross_signing_keys(
+        &self,
+        master_key: Option<String>,
+        self_signing_key: Option<String>,
+        user_signing_key: Option<String>,
+    ) -> Promise {
         let me = self.inner.clone();
-        let export = export.inner;
+        let export = matrix_sdk_crypto::store::CrossSigningKeyExport {
+            master_key,
+            self_signing_key,
+            user_signing_key,
+        };
 
         future_to_promise(async move {
             Ok(me.import_cross_signing_keys(export).await.map(olm::CrossSigningStatus::from)?)
