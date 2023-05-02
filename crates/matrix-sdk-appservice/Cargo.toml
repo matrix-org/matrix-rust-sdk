@@ -33,7 +33,6 @@ docs = []
 axum = { version = "0.6.1", default-features = false, features = ["json"] }
 dashmap = { workspace = true }
 http = { workspace = true }
-http-body = "0.4.5"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"] }
 matrix-sdk = { version = "0.6.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 regex = "1.5.5"

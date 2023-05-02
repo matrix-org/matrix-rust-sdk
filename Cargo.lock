@@ -1440,7 +1440,6 @@ dependencies = [
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
@@ -1459,7 +1458,6 @@ name = "example-custom-events"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dirs",
  "matrix-sdk",
  "serde",
  "tokio",
@@ -1495,7 +1493,6 @@ name = "example-getting-started"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dirs",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2668,7 +2665,6 @@ dependencies = [
  "axum",
  "dashmap",
  "http",
- "http-body",
  "hyper",
  "matrix-sdk",
  "matrix-sdk-test",
@@ -2693,14 +2689,12 @@ version = "0.6.1"
 dependencies = [
  "assert_matches",
  "assign",
- "async-stream",
  "async-trait",
  "bitflags 2.2.1",
  "ctor 0.2.0",
  "dashmap",
  "eyeball",
  "futures",
- "futures-core",
  "futures-util",
  "http",
  "matrix-sdk-common",
@@ -2716,7 +2710,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen-test",
- "zeroize",
 ]
 
 [[package]]
@@ -2753,7 +2746,6 @@ dependencies = [
  "ctor 0.2.0",
  "ctr",
  "dashmap",
- "event-listener",
  "eyeball",
  "futures",
  "futures-core",
@@ -2806,7 +2798,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "uniffi",
  "vodozemac",
@@ -2898,7 +2889,6 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "base64 0.21.0",
- "dashmap",
  "getrandom 0.2.9",
  "gloo-utils",
  "indexed_db_futures",
@@ -2939,7 +2929,6 @@ dependencies = [
 name = "matrix-sdk-qrcode"
 version = "0.4.0"
 dependencies = [
- "base64 0.21.0",
  "byteorder",
  "image 0.23.14",
  "qrcode",
@@ -2953,15 +2942,12 @@ name = "matrix-sdk-sled"
 version = "0.2.0"
 dependencies = [
  "assert_matches",
- "async-stream",
  "async-trait",
- "dashmap",
  "fs_extra",
  "futures-core",
  "futures-util",
  "glob",
  "matrix-sdk-base",
- "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
@@ -2981,17 +2967,11 @@ name = "matrix-sdk-sqlite"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
- "async-stream",
  "async-trait",
  "ctor 0.2.0",
- "dashmap",
  "deadpool-sqlite",
- "fs_extra",
- "futures-core",
- "futures-util",
  "glob",
  "matrix-sdk-base",
- "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
@@ -3047,7 +3027,6 @@ dependencies = [
 name = "matrix-sdk-test-macros"
 version = "0.3.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "syn 1.0.109",
 ]
@@ -6227,7 +6206,6 @@ dependencies = [
  "fs_extra",
  "serde",
  "serde_json",
- "uniffi",
  "uniffi_bindgen",
  "xshell",
 ]
