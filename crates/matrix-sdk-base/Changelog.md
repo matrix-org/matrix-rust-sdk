@@ -12,6 +12,14 @@
 - `Room::members` takes a `RoomMemberships` to be able to filter the results by any membership
   state.
   - `Room::active_members` and `Room::joined_members` are deprecated.
+- `RoomMember` has new methods:
+  - `can_ban`
+  - `can_invite`
+  - `can_kick`
+  - `can_redact`
+  - `can_send_message`
+  - `can_send_state`
+  - `can_trigger_room_notification`
 
 ## 0.5.1
 
