@@ -60,7 +60,7 @@ impl From<mime::FromStrError> for ClientError {
     }
 }
 
-#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum RoomError {
     #[error("Invalid attachment data")]
@@ -75,7 +75,7 @@ pub enum RoomError {
     FailedSendingAttachment,
 }
 
-#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum TimelineError {
     #[error("Required value missing from the media info")]

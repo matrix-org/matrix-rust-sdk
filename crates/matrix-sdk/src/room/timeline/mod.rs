@@ -20,6 +20,7 @@ use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
 
 use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
+use futures_util::TryFutureExt;
 use imbl::Vector;
 use mime::Mime;
 use pin_project_lite::pin_project;
@@ -318,7 +319,9 @@ impl Timeline {
             Path::new(&url).file_name().ok_or(Error::InvalidAttachmentFileName)?.to_str().unwrap();
         let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
 
-        _ = room.send_attachment(body, &mime_type, data, config).await;
+        room.send_attachment(body, &mime_type, data, config)
+            .map_err(|_| Error::FailedSendingAttachment)
+            .await?;
 
         Ok(())
     }
@@ -621,6 +624,10 @@ pub enum Error {
     /// The attachment file name used as a body is invalid
     #[error("Invalid attachment file name")]
     InvalidAttachmentFileName,
+
+    /// The attachment could not be sent
+    #[error("Failed sending attachment")]
+    FailedSendingAttachment,
 }
 
 /// Result of comparing events position in the timeline.
