@@ -19,7 +19,7 @@
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
-use std::{fs::File, time::Duration};
+use std::time::Duration;
 
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
@@ -32,7 +32,7 @@ use ruma::{
     MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
@@ -60,6 +60,10 @@ pub struct Media {
 pub struct MediaFileHandle {
     /// The temporary file that contains the media.
     file: NamedTempFile,
+    /// An intermediary temporary directory used in certain cases.
+    ///
+    /// Only stored for its `Drop` semantics.
+    _directory: Option<TempDir>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -158,40 +162,43 @@ impl Media {
             }
         });
 
-        let file = match (filename, filename_with_extension, inferred_extension) {
+        let (temp_file, temp_dir) = match (filename, filename_with_extension, inferred_extension) {
             // If the body is a file name and has an extension use that
             (Some(_), Some(filename_with_extension), Some(_)) => {
-                // We're potentially using the same file name multiple times
-                // which might lead to tempfile() failing. Use `make` instead
-                // to avoid that
-                TempFileBuilder::new()
+                // Use an intermediary directory to avoid conflicts
+                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_file = TempFileBuilder::new()
                     .prefix(filename_with_extension)
                     .rand_bytes(0)
-                    .make(|path| File::create(path))?
+                    .tempfile_in(&temp_dir)?;
+                (temp_file, Some(temp_dir))
             }
             // If the body is a file name but doesn't have an extension try inferring one for it
             (Some(filename), None, Some(inferred_extension)) => {
-                // We're potentially using the same file name multiple times
-                // which might lead to tempfile() failing. Use `make` instead
-                // to avoid that
-                TempFileBuilder::new()
+                // Use an intermediary directory to avoid conflicts
+                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_file = TempFileBuilder::new()
                     .prefix(filename)
                     .suffix(&(".".to_owned() + inferred_extension))
                     .rand_bytes(0)
-                    .make(|path| File::create(path))?
+                    .tempfile_in(&temp_dir)?;
+                (temp_file, Some(temp_dir))
             }
             // If the only thing we have is an inferred extension then use that together with a
             // randomly generated file name
-            (None, None, Some(inferred_extension)) => {
-                TempFileBuilder::new().suffix(&&(".".to_owned() + inferred_extension)).tempfile()?
-            }
+            (None, None, Some(inferred_extension)) => (
+                TempFileBuilder::new()
+                    .suffix(&&(".".to_owned() + inferred_extension))
+                    .tempfile()?,
+                None,
+            ),
             // Otherwise just use a completely random file name
-            _ => TempFileBuilder::new().tempfile()?,
+            _ => (TempFileBuilder::new().tempfile()?, None),
         };
 
-        TokioFile::from_std(file.reopen()?).write_all(&data).await?;
+        TokioFile::from_std(temp_file.reopen()?).write_all(&data).await?;
 
-        Ok(MediaFileHandle { file })
+        Ok(MediaFileHandle { file: temp_file, _directory: temp_dir })
     }
 
     /// Get a media file's content.
