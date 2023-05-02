@@ -4336,7 +4336,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.8.2"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "assign",
  "js_int",
@@ -4351,7 +4351,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4362,7 +4362,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.16.2"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "assign",
  "bytes",
@@ -4379,7 +4379,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "base64 0.21.0",
  "bytes",
@@ -4412,7 +4412,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4423,7 +4423,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4432,7 +4432,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4440,14 +4440,14 @@ dependencies = [
  "quote",
  "ruma-identifiers-validation",
  "serde",
- "syn 1.0.109",
+ "syn 2.0.15",
  "toml 0.7.3",
 ]
 
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -5529,7 +5529,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "uniffi"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "camino",
@@ -5550,7 +5550,7 @@ dependencies = [
 [[package]]
 name = "uniffi_bindgen"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "askama",
@@ -5572,7 +5572,7 @@ dependencies = [
 [[package]]
 name = "uniffi_build"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "camino",
@@ -5582,7 +5582,7 @@ dependencies = [
 [[package]]
 name = "uniffi_checksum_derive"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -5591,7 +5591,7 @@ dependencies = [
 [[package]]
 name = "uniffi_core"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5606,7 +5606,7 @@ dependencies = [
 [[package]]
 name = "uniffi_macros"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "bincode",
  "camino",
@@ -5624,7 +5624,7 @@ dependencies = [
 [[package]]
 name = "uniffi_meta"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5637,7 +5637,7 @@ dependencies = [
 [[package]]
 name = "uniffi_testing"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "anyhow",
  "camino",
@@ -5936,7 +5936,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb#9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb"
 dependencies = [
  "nom",
 ]

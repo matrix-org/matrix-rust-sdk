@@ -30,6 +30,8 @@ jobs:
 
     - name: Load cache
       uses: Swatinem/rust-cache@v2
+      with:
+        save-if: ${{ github.ref == 'refs/head/main' }}
 
     - name: Install tarpaulin
       uses: taiki-e/install-action@v2

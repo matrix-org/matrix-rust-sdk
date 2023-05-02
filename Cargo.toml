@@ -32,8 +32,8 @@ eyeball = "0.6.0"
 eyeball-im = "0.2.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "0143bd9b9f5dcfcaa835afb76f342c12f014f945", features = ["client-api-c", "compat-user-id"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "0143bd9b9f5dcfcaa835afb76f342c12f014f945" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "54a4223caa1c1052464ecdba0f1e08f126e07bcd", features = ["client-api-c", "compat-user-id"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "54a4223caa1c1052464ecdba0f1e08f126e07bcd" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
@@ -42,8 +42,8 @@ thiserror = "1.0.38"
 tokio = { version = "1.24", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-core = "0.1.30"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "aa91307b6ac27aae6d5c7ad971b762df952d2745" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "aa91307b6ac27aae6d5c7ad971b762df952d2745" }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb" }
+uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "9e01d2281bb4a603fc9ed6409a02ad1854cdc8fb" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::bail;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::room::timeline::{Profile, TimelineDetails};
@@ -449,56 +450,7 @@ pub struct Message(matrix_sdk::room::timeline::Message);
 #[uniffi::export]
 impl Message {
     pub fn msgtype(&self) -> Option<MessageType> {
-        use matrix_sdk::ruma::events::room::message::MessageType as MTy;
-        match self.0.msgtype() {
-            MTy::Emote(c) => Some(MessageType::Emote {
-                content: EmoteMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                },
-            }),
-            MTy::Image(c) => Some(MessageType::Image {
-                content: ImageMessageContent {
-                    body: c.body.clone(),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
-                },
-            }),
-            MTy::Audio(c) => Some(MessageType::Audio {
-                content: AudioMessageContent {
-                    body: c.body.clone(),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
-                },
-            }),
-            MTy::Video(c) => Some(MessageType::Video {
-                content: VideoMessageContent {
-                    body: c.body.clone(),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
-                },
-            }),
-            MTy::File(c) => Some(MessageType::File {
-                content: FileMessageContent {
-                    body: c.body.clone(),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
-                },
-            }),
-            MTy::Notice(c) => Some(MessageType::Notice {
-                content: NoticeMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                },
-            }),
-            MTy::Text(c) => Some(MessageType::Text {
-                content: TextMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                },
-            }),
-            _ => None,
-        }
+        self.0.msgtype().clone().try_into().ok()
     }
 
     pub fn body(&self) -> String {
@@ -523,6 +475,66 @@ pub enum MessageType {
     File { content: FileMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
+}
+
+impl TryFrom<matrix_sdk::ruma::events::room::message::MessageType> for MessageType {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: matrix_sdk::ruma::events::room::message::MessageType,
+    ) -> anyhow::Result<Self> {
+        use matrix_sdk::ruma::events::room::message::MessageType as MTy;
+        let message_type = match value {
+            MTy::Emote(c) => MessageType::Emote {
+                content: EmoteMessageContent {
+                    body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                },
+            },
+            MTy::Image(c) => MessageType::Image {
+                content: ImageMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            },
+            MTy::Audio(c) => MessageType::Audio {
+                content: AudioMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            },
+            MTy::Video(c) => MessageType::Video {
+                content: VideoMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            },
+            MTy::File(c) => MessageType::File {
+                content: FileMessageContent {
+                    body: c.body.clone(),
+                    source: Arc::new(c.source.clone()),
+                    info: c.info.as_deref().map(Into::into),
+                },
+            },
+            MTy::Notice(c) => MessageType::Notice {
+                content: NoticeMessageContent {
+                    body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                },
+            },
+            MTy::Text(c) => MessageType::Text {
+                content: TextMessageContent {
+                    body: c.body.clone(),
+                    formatted: c.formatted.as_ref().map(Into::into),
+                },
+            },
+            _ => bail!("Unsupported type"),
+        };
+        Ok(message_type)
+    }
 }
 
 #[derive(Clone, uniffi::Record)]

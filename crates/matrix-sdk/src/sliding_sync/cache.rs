@@ -174,9 +174,8 @@ pub(super) async fn restore_sliding_sync_state(
 
             // Let's update the `SlidingSync`.
             if let Some(since) = to_device_since {
-                if let Some(to_device_ext) =
-                    extensions.get_or_insert_with(Default::default).to_device.as_mut()
-                {
+                let to_device_ext = &mut extensions.get_or_insert_with(Default::default).to_device;
+                if to_device_ext.enabled == Some(true) {
                     to_device_ext.since = Some(since);
                 }
             }
