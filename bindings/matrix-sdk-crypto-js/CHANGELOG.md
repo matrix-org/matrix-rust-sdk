@@ -1,6 +1,8 @@
 # v0.1.0-alpha.8
 
--   Make `unused_fallback_keys` as optional in `Machine.receive_sync_changes`
+-   `importCrossSigningKeys`: change the parameters to be individual keys
+    rather than a `CrossSigningKeyExport` object.
+-   Make `unused_fallback_keys` optional in `Machine.receive_sync_changes`
 
 # v0.1.0-alpha.7
 
