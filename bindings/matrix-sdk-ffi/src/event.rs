@@ -19,6 +19,10 @@ impl TimelineEvent {
         self.0.sender().to_string()
     }
 
+    pub fn timestamp(&self) -> u64 {
+        self.0.origin_server_ts().0.into()
+    }
+
     pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
         let event_type = match &self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {

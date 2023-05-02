@@ -22,8 +22,6 @@ dictionary NotificationItem {
     boolean is_noisy;
     boolean is_direct;
     boolean is_encrypted;
-    boolean is_read;
-    u64 timestamp;
 };
 
 interface TimelineEvent {};
