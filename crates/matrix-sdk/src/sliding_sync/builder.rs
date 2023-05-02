@@ -83,7 +83,7 @@ impl SlidingSyncBuilder {
     /// does not matter.
     pub fn with_common_extensions(mut self) -> Self {
         {
-            let mut cfg = self.extensions.get_or_insert_with(Default::default);
+            let cfg = self.extensions.get_or_insert_with(Default::default);
             if cfg.to_device.enabled.is_none() {
                 cfg.to_device.enabled = Some(true);
             }
@@ -106,7 +106,7 @@ impl SlidingSyncBuilder {
     /// does not matter.
     pub fn with_all_extensions(mut self) -> Self {
         {
-            let mut cfg = self.extensions.get_or_insert_with(Default::default);
+            let cfg = self.extensions.get_or_insert_with(Default::default);
             if cfg.to_device.enabled.is_none() {
                 cfg.to_device.enabled = Some(true);
             }

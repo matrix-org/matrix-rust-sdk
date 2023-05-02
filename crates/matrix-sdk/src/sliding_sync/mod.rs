@@ -152,7 +152,7 @@ impl SlidingSync {
     /// Add the common extensions if not already configured.
     pub fn add_common_extensions(&self) {
         let mut lock = self.inner.extensions.lock().unwrap();
-        let mut cfg = lock.get_or_insert_with(Default::default);
+        let cfg = lock.get_or_insert_with(Default::default);
 
         if cfg.to_device.enabled.is_none() {
             cfg.to_device.enabled = Some(true);
