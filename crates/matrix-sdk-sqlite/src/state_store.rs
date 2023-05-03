@@ -180,7 +180,7 @@ impl SqliteStateStore {
 
     fn remove_maybe_stripped_room_data(
         &self,
-        txn: &Transaction,
+        txn: &Transaction<'_>,
         room_id: &RoomId,
         stripped: bool,
     ) -> rusqlite::Result<()> {
@@ -1245,7 +1245,7 @@ impl StateStore for SqliteStateStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(ruma::OwnedEventId, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
