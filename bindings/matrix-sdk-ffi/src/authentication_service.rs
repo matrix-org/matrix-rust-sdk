@@ -11,6 +11,7 @@ use zeroize::Zeroize;
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 use crate::error::ClientError;
 
+#[derive(uniffi::Object)]
 pub struct AuthenticationService {
     base_path: String,
     passphrase: Option<String>,
