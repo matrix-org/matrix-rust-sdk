@@ -552,9 +552,25 @@ impl SlidingSyncListBuilder {
         builder.inner = builder.inner.reset_ranges();
         Arc::new(builder)
     }
+
+    pub fn once_built(self: Arc<Self>, callback: Box<dyn SlidingSyncListOnceBuilt>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.once_built(
+            move |list: matrix_sdk::SlidingSyncList| -> matrix_sdk::SlidingSyncList {
+                let list = callback.update_list(Arc::new(list.into()));
+
+                unwrap_or_clone_arc(list).inner
+            },
+        );
+        Arc::new(builder)
+    }
 }
 
-#[derive(uniffi::Object)]
+pub trait SlidingSyncListOnceBuilt: Sync + Send {
+    fn update_list(&self, list: Arc<SlidingSyncList>) -> Arc<SlidingSyncList>;
+}
+
+#[derive(Clone)]
 pub struct SlidingSyncList {
     inner: matrix_sdk::SlidingSyncList,
 }

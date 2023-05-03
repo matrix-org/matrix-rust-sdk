@@ -78,8 +78,14 @@ callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
+interface SlidingSyncList {};
+
 interface SlidingSyncListBuilder {
     constructor();
+};
+
+callback interface SlidingSyncListOnceBuilt {
+    SlidingSyncList update_list(SlidingSyncList list);
 };
 
 interface ClientBuilder {
