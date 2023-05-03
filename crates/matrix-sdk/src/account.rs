@@ -593,6 +593,7 @@ impl Account {
         sid: &SessionId,
         auth_data: Option<AuthData>,
     ) -> Result<add_3pid::v3::Response> {
+        #[rustfmt::skip] // rustfmt wants to merge the next two lines
         let request =
             assign!(add_3pid::v3::Request::new(client_secret.to_owned(), sid.to_owned()), {
                 auth: auth_data
