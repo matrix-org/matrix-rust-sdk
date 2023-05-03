@@ -1,7 +1,6 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
-#[cfg(feature = "e2e-encryption")]
 use ruma::api::client::sync::sync_events::{
     v3::{self, Ephemeral, RoomSummary},
     v4,
