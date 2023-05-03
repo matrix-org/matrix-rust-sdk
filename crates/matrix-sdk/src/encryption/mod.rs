@@ -200,6 +200,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -210,6 +211,7 @@ impl Client {
                 let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -222,6 +224,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -234,6 +237,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
