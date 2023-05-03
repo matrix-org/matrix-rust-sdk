@@ -101,10 +101,134 @@ impl RoomMember {
             Ok(())
         })
     }
+
+    pub fn can_ban(&self) -> bool {
+        self.inner.can_ban()
+    }
+
+    pub fn can_invite(&self) -> bool {
+        self.inner.can_invite()
+    }
+
+    pub fn can_kick(&self) -> bool {
+        self.inner.can_kick()
+    }
+
+    pub fn can_redact(&self) -> bool {
+        self.inner.can_redact()
+    }
+
+    pub fn can_send_state(&self, state_event: StateEventType) -> bool {
+        self.inner.can_send_state(state_event.into())
+    }
+
+    pub fn can_send_message(&self, event: MessageLikeEventType) -> bool {
+        self.inner.can_send_message(event.into())
+    }
+
+    pub fn can_trigger_room_notification(&self) -> bool {
+        self.inner.can_trigger_room_notification()
+    }
 }
 
 impl RoomMember {
     pub fn new(room_member: SdkRoomMember) -> Self {
         RoomMember { inner: room_member }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum StateEventType {
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAliases,
+    RoomAvatar,
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomMemberEvent,
+    RoomName,
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite,
+    RoomTombstone,
+    RoomTopic,
+    SpaceChild,
+    SpaceParent,
+}
+
+impl From<StateEventType> for ruma::events::StateEventType {
+    fn from(val: StateEventType) -> Self {
+        match val {
+            StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
+            StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
+            StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
+            StateEventType::RoomAliases => Self::RoomAliases,
+            StateEventType::RoomAvatar => Self::RoomAvatar,
+            StateEventType::RoomCanonicalAlias => Self::RoomCanonicalAlias,
+            StateEventType::RoomCreate => Self::RoomCreate,
+            StateEventType::RoomEncryption => Self::RoomEncryption,
+            StateEventType::RoomGuestAccess => Self::RoomGuestAccess,
+            StateEventType::RoomHistoryVisibility => Self::RoomHistoryVisibility,
+            StateEventType::RoomJoinRules => Self::RoomJoinRules,
+            StateEventType::RoomMemberEvent => Self::RoomMember,
+            StateEventType::RoomName => Self::RoomName,
+            StateEventType::RoomPinnedEvents => Self::RoomPinnedEvents,
+            StateEventType::RoomPowerLevels => Self::RoomPowerLevels,
+            StateEventType::RoomServerAcl => Self::RoomServerAcl,
+            StateEventType::RoomThirdPartyInvite => Self::RoomThirdPartyInvite,
+            StateEventType::RoomTombstone => Self::RoomTombstone,
+            StateEventType::RoomTopic => Self::RoomTopic,
+            StateEventType::SpaceChild => Self::SpaceChild,
+            StateEventType::SpaceParent => Self::SpaceParent,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum MessageLikeEventType {
+    CallAnswer,
+    CallInvite,
+    CallHangup,
+    CallCandidates,
+    KeyVerificationReady,
+    KeyVerificationStart,
+    KeyVerificationCancel,
+    KeyVerificationAccept,
+    KeyVerificationKey,
+    KeyVerificationMac,
+    KeyVerificationDone,
+    ReactionSent,
+    RoomEncrypted,
+    RoomMessage,
+    RoomRedaction,
+    Sticker,
+}
+
+impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
+    fn from(val: MessageLikeEventType) -> Self {
+        match val {
+            MessageLikeEventType::CallAnswer => Self::CallAnswer,
+            MessageLikeEventType::CallInvite => Self::CallInvite,
+            MessageLikeEventType::CallHangup => Self::CallHangup,
+            MessageLikeEventType::CallCandidates => Self::CallCandidates,
+            MessageLikeEventType::KeyVerificationReady => Self::KeyVerificationReady,
+            MessageLikeEventType::KeyVerificationStart => Self::KeyVerificationStart,
+            MessageLikeEventType::KeyVerificationCancel => Self::KeyVerificationCancel,
+            MessageLikeEventType::KeyVerificationAccept => Self::KeyVerificationAccept,
+            MessageLikeEventType::KeyVerificationKey => Self::KeyVerificationKey,
+            MessageLikeEventType::KeyVerificationMac => Self::KeyVerificationMac,
+            MessageLikeEventType::KeyVerificationDone => Self::KeyVerificationDone,
+            MessageLikeEventType::ReactionSent => Self::Reaction,
+            MessageLikeEventType::RoomEncrypted => Self::RoomEncrypted,
+            MessageLikeEventType::RoomMessage => Self::RoomMessage,
+            MessageLikeEventType::RoomRedaction => Self::RoomRedaction,
+            MessageLikeEventType::Sticker => Self::Sticker,
+        }
     }
 }
