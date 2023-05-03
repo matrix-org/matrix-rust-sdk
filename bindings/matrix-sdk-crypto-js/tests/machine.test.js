@@ -63,7 +63,7 @@ describe(OlmMachine.name, () => {
         expect(databases).toHaveLength(2);
         expect(databases).toStrictEqual([
             { name: `${store_name}::matrix-sdk-crypto-meta`, version: 1 },
-            { name: `${store_name}::matrix-sdk-crypto`, version: 2 },
+            { name: `${store_name}::matrix-sdk-crypto`, version: 3 },
         ]);
 
         // Creating a new Olm machine, with the stored state.
@@ -154,7 +154,7 @@ describe(OlmMachine.name, () => {
         expect(databases).toHaveLength(2);
         expect(databases).toStrictEqual([
             { name: `${store_name}::matrix-sdk-crypto-meta`, version: 1 },
-            { name: `${store_name}::matrix-sdk-crypto`, version: 2 },
+            { name: `${store_name}::matrix-sdk-crypto`, version: 3 },
         ]);
 
         // Let's force to close the `OlmMachine`.
@@ -215,6 +215,19 @@ describe(OlmMachine.name, () => {
 
         const receiveSyncChanges = JSON.parse(
             await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys),
+        );
+
+        expect(receiveSyncChanges).toEqual([]);
+    });
+
+    test("can receive sync changes with unusedFallbackKeys as undefined", async () => {
+        const m = await machine();
+        const toDeviceEvents = JSON.stringify([]);
+        const changedDevices = new DeviceLists();
+        const oneTimeKeyCounts = new Map();
+
+        const receiveSyncChanges = JSON.parse(
+            await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, undefined),
         );
 
         expect(receiveSyncChanges).toEqual([]);

@@ -344,7 +344,7 @@ impl SessionManager {
                     }
                 };
 
-                let session = match self.account.create_outbound_session(device, key_map).await {
+                let session = match self.account.create_outbound_session(&device, key_map).await {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(

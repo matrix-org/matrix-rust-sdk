@@ -158,7 +158,6 @@ impl LoginBuilder {
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `LoginBuilder` directly.
     #[instrument(
-        parent = &self.client.inner.root_span,
         target = "matrix_sdk::client",
         name = "login",
         skip_all,
@@ -295,13 +294,7 @@ where
     ///
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `SsoLoginBuilder` directly.
-    #[instrument(
-        parent = &self.client.inner.root_span,
-        target = "matrix_sdk::client",
-        name = "login",
-        skip_all,
-        fields(method = "sso"),
-    )]
+    #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::{
             convert::Infallible,

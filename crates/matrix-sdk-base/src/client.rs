@@ -16,7 +16,6 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 use std::{
-    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
@@ -55,10 +54,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
-#[cfg(feature = "e2e-encryption")]
-use crate::error::Error;
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
     error::Result,
@@ -70,6 +67,8 @@ use crate::{
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     Session, SessionMeta, SessionTokens,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::{error::Error, RoomMemberships};
 
 /// A no IO Client implementation.
 ///
@@ -298,6 +297,7 @@ impl BaseClient {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_timeline(
         &self,
         room: &Room,
@@ -323,42 +323,40 @@ impl BaseClient {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
-                        AnySyncTimelineEvent::State(s) => match s {
-                            AnySyncStateEvent::RoomMember(member) => {
-                                ambiguity_cache.handle_event(changes, room_id, member).await?;
+                        AnySyncTimelineEvent::State(s) => {
+                            match s {
+                                AnySyncStateEvent::RoomMember(member) => {
+                                    ambiguity_cache.handle_event(changes, room_id, member).await?;
 
-                                match member.membership() {
-                                    MembershipState::Join | MembershipState::Invite => {
-                                        user_ids.insert(member.state_key().to_owned());
+                                    match member.membership() {
+                                        MembershipState::Join | MembershipState::Invite => {
+                                            user_ids.insert(member.state_key().to_owned());
+                                        }
+                                        _ => {
+                                            user_ids.remove(member.state_key());
+                                        }
                                     }
-                                    _ => {
-                                        user_ids.remove(member.state_key());
+
+                                    // Senders can fake the profile easily so we keep track
+                                    // of profiles that the member set themselves to avoid
+                                    // having confusing profile changes when a member gets
+                                    // kicked/banned.
+                                    if member.state_key() == member.sender() {
+                                        changes
+                                            .profiles
+                                            .entry(room_id.to_owned())
+                                            .or_default()
+                                            .insert(member.sender().to_owned(), member.into());
                                     }
                                 }
-
-                                // Senders can fake the profile easily so we keep track
-                                // of profiles that the member set themselves to avoid
-                                // having confusing profile changes when a member gets
-                                // kicked/banned.
-                                if member.state_key() == member.sender() {
-                                    changes
-                                        .profiles
-                                        .entry(room_id.to_owned())
-                                        .or_default()
-                                        .insert(member.sender().to_owned(), member.into());
+                                _ => {
+                                    room_info.handle_state_event(s);
                                 }
+                            }
 
-                                changes.members.entry(room_id.to_owned()).or_default().insert(
-                                    member.state_key().to_owned(),
-                                    event.event.clone().cast(),
-                                );
-                            }
-                            _ => {
-                                room_info.handle_state_event(s);
-                                let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
-                                changes.add_state_event(room_id, s.clone(), raw_event);
-                            }
-                        },
+                            let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
+                            changes.add_state_event(room_id, s.clone(), raw_event);
+                        }
 
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncTimelineEvent::MessageLike(
@@ -441,20 +439,17 @@ impl BaseClient {
         Ok(timeline)
     }
 
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
     ) {
-        let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
 
         for raw_event in events {
             match raw_event.deserialize() {
-                Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                    members.insert(member.state_key.clone(), raw_event.clone().cast());
-                }
                 Ok(e) => {
                     room_info.handle_stripped_state_event(&e);
                     state_events
@@ -471,10 +466,10 @@ impl BaseClient {
             }
         }
 
-        changes.stripped_members.insert(room_info.room_id().to_owned(), members);
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_state(
         &self,
         events: &[Raw<AnySyncStateEvent>],
@@ -482,26 +477,23 @@ impl BaseClient {
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
 
-        let room_id = room_info.room_id.clone();
-
         for raw_event in events {
             let event = match raw_event.deserialize() {
-                Ok(e) => e,
+                Ok(ev) => ev,
                 Err(e) => {
-                    warn!(?room_id, "Couldn't deserialize state event: {e:?}");
+                    warn!("Couldn't deserialize state event: {e}");
                     continue;
                 }
             };
 
             room_info.handle_state_event(&event);
 
-            if let AnySyncStateEvent::RoomMember(member) = event {
-                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
+            if let AnySyncStateEvent::RoomMember(member) = &event {
+                ambiguity_cache.handle_event(changes, &room_info.room_id, member).await?;
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
@@ -515,25 +507,23 @@ impl BaseClient {
                 // having confusing profile changes when a member gets
                 // kicked/banned.
                 if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), member.borrow().into());
+                    profiles.insert(member.sender().to_owned(), member.into());
                 }
-
-                members.insert(member.state_key().to_owned(), raw_event.clone().cast());
-            } else {
-                state_events
-                    .entry(event.event_type())
-                    .or_insert_with(BTreeMap::new)
-                    .insert(event.state_key().to_owned(), raw_event.clone());
             }
+
+            state_events
+                .entry(event.event_type())
+                .or_insert_with(BTreeMap::new)
+                .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        changes.members.insert((*room_id).to_owned(), members);
-        changes.profiles.insert((*room_id).to_owned(), profiles);
-        changes.state.insert((*room_id).to_owned(), state_events);
+        changes.profiles.insert((*room_info.room_id).to_owned(), profiles);
+        changes.state.insert((*room_info.room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }
 
+    #[instrument(skip_all, fields(?room_id))]
     pub(crate) async fn handle_room_account_data(
         &self,
         room_id: &RoomId,
@@ -547,6 +537,7 @@ impl BaseClient {
         }
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn handle_account_data(
         &self,
         events: &[Raw<AnyGlobalAccountDataEvent>],
@@ -592,6 +583,7 @@ impl BaseClient {
     }
 
     #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip_all)]
     pub(crate) async fn preprocess_to_device_events(
         &self,
         to_device_events: Vec<Raw<ruma::events::AnyToDeviceEvent>>,
@@ -668,6 +660,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
+    #[instrument(skip_all)]
     pub async fn receive_sync_response(
         &self,
         response: api::sync::sync_events::v3::Response,
@@ -732,13 +725,21 @@ impl BaseClient {
                 )
                 .await?;
 
-            if let Some(event) =
-                new_info.ephemeral.events.iter().find_map(|e| match e.deserialize() {
-                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
-                    _ => None,
-                })
-            {
-                changes.add_receipts(&room_id, event);
+            for raw in &new_info.ephemeral.events {
+                match raw.deserialize() {
+                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => {
+                        changes.add_receipts(&room_id, event.content);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                        #[rustfmt::skip]
+                        info!(
+                            ?room_id, event_id,
+                            "Failed to deserialize ephemeral room event: {e}"
+                        );
+                    }
+                }
             }
 
             if new_info.timeline.limited {
@@ -769,12 +770,9 @@ impl BaseClient {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
                         // tracking.
-                        let joined = self.store.get_joined_user_ids(&room_id).await?;
-                        let invited = self.store.get_invited_user_ids(&room_id).await?;
-
-                        let user_ids: Vec<&UserId> =
-                            joined.iter().chain(&invited).map(Deref::deref).collect();
-                        o.update_tracked_users(user_ids).await?
+                        let user_ids =
+                            self.store.get_user_ids(&room_id, RoomMemberships::ACTIVE).await?;
+                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                     }
 
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
@@ -922,6 +920,7 @@ impl BaseClient {
     /// * `room_id` - The room id this response belongs to.
     ///
     /// * `response` - The raw response that was received from the server.
+    #[instrument(skip_all, fields(?room_id))]
     pub async fn receive_members(
         &self,
         room_id: &RoomId,
@@ -980,10 +979,12 @@ impl BaseClient {
                 }
 
                 changes
-                    .members
+                    .state
                     .entry(room_id.to_owned())
                     .or_default()
-                    .insert(member.state_key().to_owned(), raw_event.clone().cast());
+                    .entry(member.event_type())
+                    .or_default()
+                    .insert(member.state_key().to_string(), raw_event.clone().cast());
                 chunk.push(member);
             }
 
@@ -1068,21 +1069,20 @@ impl BaseClient {
                     .map(|r| (r.history_visibility(), r.encryption_settings()))
                     .unwrap_or((HistoryVisibility::Joined, None));
 
-                let joined = self.store.get_joined_user_ids(room_id).await?;
-                let invited = self.store.get_invited_user_ids(room_id).await?;
-
                 // Don't share the group session with members that are invited
                 // if the history visibility is set to `Joined`
-                let members = if history_visibility == HistoryVisibility::Joined {
-                    joined.iter().chain(&[])
+                let filter = if history_visibility == HistoryVisibility::Joined {
+                    RoomMemberships::JOIN
                 } else {
-                    joined.iter().chain(&invited)
+                    RoomMemberships::ACTIVE
                 };
+
+                let members = self.store.get_user_ids(room_id, filter).await?;
 
                 let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility, false);
 
-                Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
+                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
@@ -1148,10 +1148,11 @@ impl BaseClient {
         let member_count = room_info.active_members_count();
 
         // TODO: Use if let chain once stable
-        let user_display_name = if let Some(Ok(member)) = changes
-            .members
+        let user_display_name = if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
+            .state
             .get(room_id)
-            .and_then(|members| members.get(user_id))
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|members| members.get(user_id.as_str()))
             .map(Raw::deserialize)
         {
             member
@@ -1208,10 +1209,11 @@ impl BaseClient {
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
         // TODO: Use if let chain once stable
-        if let Some(Ok(member)) = changes
-            .members
+        if let Some(Ok(AnySyncStateEvent::RoomMember(member))) = changes
+            .state
             .get(room_id)
-            .and_then(|members| members.get(user_id))
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|members| members.get(user_id.as_str()))
             .map(Raw::deserialize)
         {
             push_rules.user_display_name = member

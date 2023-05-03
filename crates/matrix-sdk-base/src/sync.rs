@@ -14,9 +14,11 @@
 
 //! The SDK's representation of the result of a `/sync` request.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::{
+    deserialized_responses::SyncTimelineEvent, DebugRawEvent, DebugRawEventNoId,
+};
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
@@ -37,7 +39,7 @@ use crate::deserialized_responses::AmbiguityChanges;
 ///
 /// This type is intended to be applicable regardless of the endpoint used for
 /// syncing.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct SyncResponse {
     /// Updates to rooms.
     pub rooms: Rooms,
@@ -58,6 +60,22 @@ pub struct SyncResponse {
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SyncResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyncResponse")
+            .field("rooms", &self.rooms)
+            .field("presence", &self.presence)
+            .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
+            .field("to_device_events", &DebugListOfRawEventsNoId(&self.to_device_events))
+            .field("device_lists", &self.device_lists)
+            .field("device_one_time_keys_count", &self.device_one_time_keys_count)
+            .field("ambiguity_changes", &self.ambiguity_changes)
+            .field("notifications", &self.notifications)
+            .finish()
+    }
 }
 
 /// Updates to rooms in a [`SyncResponse`].
@@ -160,5 +178,53 @@ pub struct Timeline {
 impl Timeline {
     pub(crate) fn new(limited: bool, prev_batch: Option<String>) -> Self {
         Self { limited, prev_batch, ..Default::default() }
+    }
+}
+
+struct DebugListOfRawEventsNoId<'a, T>(&'a [Raw<T>]);
+
+impl<'a, T> fmt::Debug for DebugListOfRawEventsNoId<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        list.entries(self.0.iter().map(DebugRawEventNoId));
+        list.finish()
+    }
+}
+
+struct DebugNotificationMap<'a>(&'a BTreeMap<OwnedRoomId, Vec<Notification>>);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugNotificationMap<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        map.entries(self.0.iter().map(|(room_id, raw)| (room_id, DebugNotificationList(raw))));
+        map.finish()
+    }
+}
+
+struct DebugNotificationList<'a>(&'a [Notification]);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugNotificationList<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        list.entries(self.0.iter().map(DebugNotification));
+        list.finish()
+    }
+}
+
+struct DebugNotification<'a>(&'a Notification);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugNotification<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DebugNotification")
+            .field("actions", &self.0.actions)
+            .field("event", &DebugRawEvent(&self.0.event))
+            .field("profile_tag", &self.0.profile_tag)
+            .field("read", &self.0.read)
+            .field("room_id", &self.0.room_id)
+            .field("ts", &self.0.ts)
+            .finish()
     }
 }

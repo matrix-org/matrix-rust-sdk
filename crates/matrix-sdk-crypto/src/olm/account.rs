@@ -402,6 +402,16 @@ impl Account {
     /// > subsequently claiming to have sent messages which they didn't.
     /// > sender must correspond to the user who sent the event, recipient to
     /// > the local user, and recipient_keys to the local Ed25519 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender` -  The `sender` field from the top level of the received
+    ///   event.
+    /// * `sender_key` - The `sender_key` from the cleartext `content` of the
+    ///   received event (which should also have been used to find or establish
+    ///   the Olm session that was used to decrypt the event -- so it is
+    ///   guaranteed to be correct).
+    /// * `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
@@ -417,7 +427,10 @@ impl Account {
                 self.user_id().to_owned(),
             )
             .into())
-        } else if event.sender() != sender {
+        }
+        // Check that the `sender` in the decrypted to-device event matches that at the
+        // top level of the encrypted event.
+        else if event.sender() != sender {
             Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
         } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
             Err(EventError::MismatchedKeys(
@@ -997,7 +1010,7 @@ impl ReadOnlyAccount {
     ///   that the other account created and shared with us.
     pub async fn create_outbound_session(
         &self,
-        device: ReadOnlyDevice,
+        device: &ReadOnlyDevice,
         key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
@@ -1169,8 +1182,7 @@ impl ReadOnlyAccount {
 
         let device = ReadOnlyDevice::from_account(other).await;
 
-        let mut our_session =
-            self.create_outbound_session(device.clone(), &one_time).await.unwrap();
+        let mut our_session = self.create_outbound_session(&device, &one_time).await.unwrap();
 
         other.mark_keys_as_published().await;
 

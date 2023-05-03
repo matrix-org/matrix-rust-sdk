@@ -9,7 +9,7 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, RoomState,
+    Client, RoomMemberships, RoomState,
 };
 use tokio::sync::Notify;
 
@@ -105,11 +105,11 @@ async fn test_repeated_join_leave() -> Result<()> {
 
     // Now check the underlying state store that it also has the correct information
     // (for when the client restarts).
-    let invited = karl.store().get_invited_user_ids(room_id).await?;
+    let invited = karl.store().get_user_ids(room_id, RoomMemberships::INVITE).await?;
     assert_eq!(invited.len(), 1);
     assert_eq!(invited[0], karl_id);
 
-    let joined = karl.store().get_joined_user_ids(room_id).await?;
+    let joined = karl.store().get_user_ids(room_id, RoomMemberships::JOIN).await?;
     assert!(!joined.contains(&karl_id));
 
     let event = karl

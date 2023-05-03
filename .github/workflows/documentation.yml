@@ -25,10 +25,12 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       # Keep in sync with xtask docs
       - name: Build rust documentation

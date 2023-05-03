@@ -1,10 +1,10 @@
 use ruma::{
     events::{
-        BundledRelations, EventContent, EventContentFromType, MessageLikeEventContent,
-        MessageLikeEventType, MessageLikeUnsigned, OriginalSyncMessageLikeEvent,
-        OriginalSyncStateEvent, PossiblyRedactedStateEventContent, RedactContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, RedactedSyncMessageLikeEvent,
-        RedactedSyncStateEvent, StateEventContent, StateEventType, StaticStateEventContent,
+        EventContent, EventContentFromType, MessageLikeEventContent, MessageLikeEventType,
+        MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent,
+        StateEventContent, StateEventType, StaticStateEventContent,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -36,16 +36,6 @@ impl SyncTimelineEventWithoutContent {
             SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => ev.origin_server_ts,
             SyncTimelineEventWithoutContent::OriginalState(ev) => ev.origin_server_ts,
             SyncTimelineEventWithoutContent::RedactedState(ev) => ev.origin_server_ts,
-        }
-    }
-
-    pub(crate) fn relations(&self) -> &BundledRelations {
-        static DEFAULT_BUNDLED_RELATIONS: BundledRelations = BundledRelations::new();
-        match self {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => &ev.unsigned.relations,
-            SyncTimelineEventWithoutContent::OriginalState(ev) => &ev.unsigned.relations,
-            SyncTimelineEventWithoutContent::RedactedMessageLike(_)
-            | SyncTimelineEventWithoutContent::RedactedState(_) => &DEFAULT_BUNDLED_RELATIONS,
         }
     }
 
@@ -101,7 +91,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEventWithoutContent {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct NoMessageLikeEventContent {
     #[serde(skip)]
     pub event_type: MessageLikeEventType,
@@ -154,7 +144,7 @@ impl StaticStateEventContent for NoStateEventContent {
     // We don't care about the `prev_content` since it wont deserialize with useful
     // data. Use this type which is `StateUnsigned` minus the `prev_content`
     // field.
-    type Unsigned = MessageLikeUnsigned;
+    type Unsigned = MessageLikeUnsigned<NoMessageLikeEventContent>;
     type PossiblyRedacted = Self;
 }
 impl RedactedStateEventContent for NoStateEventContent {

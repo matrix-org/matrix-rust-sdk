@@ -1,11 +1,16 @@
 use std::{
     convert::TryFrom,
+    fs,
     sync::{Arc, RwLock},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use futures_util::StreamExt;
 use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
     room::{timeline::Timeline, Receipts, Room as SdkRoom},
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
@@ -19,12 +24,17 @@ use matrix_sdk::{
         },
         EventId, UserId,
     },
+    RoomMemberships,
 };
 use mime::Mime;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{RoomMember, TimelineDiff, TimelineItem, TimelineListener};
+use crate::{
+    error::{ClientError, RoomError},
+    AudioInfo, FileInfo, ImageInfo, RoomMember, ThumbnailInfo, TimelineDiff, TimelineItem,
+    TimelineListener, VideoInfo,
+};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -35,9 +45,20 @@ pub enum Membership {
 
 pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
+#[derive(uniffi::Object)]
 pub struct Room {
     room: SdkRoom,
     timeline: TimelineLock,
+}
+
+impl Room {
+    pub(crate) fn new(room: SdkRoom) -> Self {
+        Room { room, timeline: Default::default() }
+    }
+
+    pub(crate) fn with_timeline(room: SdkRoom, timeline: TimelineLock) -> Self {
+        Room { room, timeline }
+    }
 }
 
 #[uniffi::export]
@@ -59,7 +80,7 @@ impl Room {
     }
 
     pub fn is_direct(&self) -> bool {
-        self.room.is_direct()
+        RUNTIME.block_on(async move { self.room.is_direct().await.unwrap_or(false) })
     }
 
     pub fn is_public(&self) -> bool {
@@ -87,6 +108,20 @@ impl Room {
             SdkRoom::Invited(_) => Membership::Invited,
             SdkRoom::Joined(_) => Membership::Joined,
             SdkRoom::Left(_) => Membership::Left,
+        }
+    }
+
+    pub fn inviter(&self) -> Option<Arc<RoomMember>> {
+        match &self.room {
+            SdkRoom::Invited(i) => RUNTIME.block_on(async move {
+                i.invite_details()
+                    .await
+                    .ok()
+                    .and_then(|a| a.inviter)
+                    .map(|m| Arc::new(RoomMember::new(m)))
+            }),
+            SdkRoom::Joined(_) => None,
+            SdkRoom::Left(_) => None,
         }
     }
 
@@ -125,22 +160,13 @@ impl Room {
             timeline.fetch_members().await;
         });
     }
-}
 
-impl Room {
-    pub fn new(room: SdkRoom) -> Self {
-        Room { room, timeline: Default::default() }
-    }
-    pub fn with_timeline(room: SdkRoom, timeline: TimelineLock) -> Self {
-        Room { room, timeline }
-    }
-
-    pub fn display_name(&self) -> Result<String> {
+    pub fn display_name(&self) -> Result<String, ClientError> {
         let r = self.room.clone();
         RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
     }
 
-    pub fn is_encrypted(&self) -> Result<bool> {
+    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
         let room = self.room.clone();
         RUNTIME.block_on(async move {
             let is_encrypted = room.is_encrypted().await?;
@@ -148,11 +174,11 @@ impl Room {
         })
     }
 
-    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>> {
+    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>, ClientError> {
         let room = self.room.clone();
         RUNTIME.block_on(async move {
             let members = room
-                .members()
+                .members(RoomMemberships::empty())
                 .await?
                 .iter()
                 .map(|m| Arc::new(RoomMember::new(m.clone())))
@@ -161,7 +187,7 @@ impl Room {
         })
     }
 
-    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {
+    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
@@ -172,7 +198,7 @@ impl Room {
         })
     }
 
-    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>> {
+    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
@@ -219,18 +245,25 @@ impl Room {
         })
     }
 
-    pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<()> {
+    /// Loads older messages into the timeline.
+    ///
+    /// Raises an exception if there are no timeline listeners.
+    pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<(), ClientError> {
         if let Some(timeline) = &*self.timeline.read().unwrap() {
             RUNTIME.block_on(async move { Ok(timeline.paginate_backwards(opts.into()).await?) })
         } else {
-            bail!("No timeline listeners registered, can't paginate");
+            Err(anyhow!("No timeline listeners registered, can't paginate").into())
         }
     }
 
-    pub fn send_read_receipt(&self, event_id: String) -> Result<()> {
+    pub fn send_read_receipt(&self, event_id: String) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send read receipts to room that isn't in joined state"),
+            _ => {
+                return Err(
+                    anyhow!("Can't send read receipts to room that isn't in joined state").into()
+                )
+            }
         };
 
         let event_id = EventId::parse(event_id)?;
@@ -246,10 +279,14 @@ impl Room {
         &self,
         fully_read_event_id: String,
         read_receipt_event_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send read markers to room that isn't in joined state"),
+            _ => {
+                return Err(
+                    anyhow!("Can't send read markers to room that isn't in joined state").into()
+                )
+            }
         };
 
         let fully_read =
@@ -286,15 +323,15 @@ impl Room {
         msg: String,
         in_reply_to_event_id: String,
         txn_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send to a room that isn't in joined state"),
+            _ => return Err(anyhow!("Can't send to a room that isn't in joined state").into()),
         };
 
         let timeline = match &*self.timeline.read().unwrap() {
             Some(t) => Arc::clone(t),
-            None => bail!("Timeline not set up, can't send message"),
+            None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
         let event_id: &EventId =
@@ -328,15 +365,15 @@ impl Room {
         new_msg: String,
         original_event_id: String,
         txn_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send to a room that isn't in joined state"),
+            _ => return Err(anyhow!("Can't send to a room that isn't in joined state").into()),
         };
 
         let timeline = match &*self.timeline.read().unwrap() {
             Some(t) => Arc::clone(t),
-            None => bail!("Timeline not set up, can't send message"),
+            None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
         let event_id: &EventId =
@@ -351,7 +388,7 @@ impl Room {
                 .context("Couldn't deserialise event")?;
 
             if self.own_user_id() != event_content.sender() {
-                bail!("Can't edit an event not sent by own user")
+                bail!("Can't edit an event not sent by own user");
             }
 
             let replacement = Replacement::new(
@@ -385,10 +422,10 @@ impl Room {
         event_id: String,
         reason: Option<String>,
         txn_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't redact in a room that isn't in joined state"),
+            _ => return Err(anyhow!("Can't redact in a room that isn't in joined state").into()),
         };
 
         RUNTIME.block_on(async move {
@@ -398,10 +435,14 @@ impl Room {
         })
     }
 
-    pub fn send_reaction(&self, event_id: String, key: String) -> Result<()> {
+    pub fn send_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't send reaction in a room that isn't in joined state"),
+            _ => {
+                return Err(
+                    anyhow!("Can't send reaction in a room that isn't in joined state").into()
+                )
+            }
         };
 
         RUNTIME.block_on(async move {
@@ -430,7 +471,7 @@ impl Room {
         event_id: String,
         score: Option<i32>,
         reason: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<(), ClientError> {
         let int_score = score.map(|value| value.into());
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
@@ -455,7 +496,7 @@ impl Room {
     /// # Arguments
     ///
     /// * `event_id` - The ID of the user to ignore.
-    pub fn ignore_user(&self, user_id: String) -> Result<()> {
+    pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(user_id)?;
             self.client().account().ignore_user(&user_id).await?;
@@ -466,10 +507,10 @@ impl Room {
     /// Leaves the joined room.
     ///
     /// Will throw an error if used on an room that isn't in a joined state
-    pub fn leave(&self) -> Result<()> {
+    pub fn leave(&self) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't leave a room that isn't in joined state"),
+            _ => return Err(anyhow!("Can't leave a room that isn't in joined state").into()),
         };
 
         RUNTIME.block_on(async move {
@@ -478,13 +519,18 @@ impl Room {
         })
     }
 
-    /// Rejects invitation for the invited room.
+    /// Rejects the invitation for the invited room.
     ///
     /// Will throw an error if used on an room that isn't in an invited state
-    pub fn reject_invitation(&self) -> Result<()> {
+    pub fn reject_invitation(&self) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Invited(i) => i.clone(),
-            _ => bail!("Can't reject an invite for a room that isn't in invited state"),
+            _ => {
+                return Err(anyhow!(
+                    "Can't reject an invite for a room that isn't in invited state"
+                )
+                .into())
+            }
         };
 
         RUNTIME.block_on(async move {
@@ -493,11 +539,33 @@ impl Room {
         })
     }
 
+    /// Accepts the invitation for the invited room.
+    ///
+    /// Will throw an error if used on an room that isn't in an invited state
+    pub fn accept_invitation(&self) -> Result<(), ClientError> {
+        let room = match &self.room {
+            SdkRoom::Invited(i) => i.clone(),
+            _ => {
+                return Err(anyhow!(
+                    "Can't accept an invite for a room that isn't in invited state"
+                )
+                .into())
+            }
+        };
+
+        RUNTIME.block_on(async move {
+            room.accept_invitation().await?;
+            Ok(())
+        })
+    }
+
     /// Sets a new topic in the room.
-    pub fn set_topic(&self, topic: String) -> Result<()> {
+    pub fn set_topic(&self, topic: String) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't set a topic in a room that isn't in joined state"),
+            _ => {
+                return Err(anyhow!("Can't set a topic in a room that isn't in joined state").into())
+            }
         };
 
         RUNTIME.block_on(async move {
@@ -518,10 +586,14 @@ impl Room {
     ///   image/jpeg
     /// * `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
-    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<()> {
+    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't set a avatar in a room that isn't in joined state"),
+            _ => {
+                return Err(
+                    anyhow!("Can't set a avatar in a room that isn't in joined state").into()
+                )
+            }
         };
 
         RUNTIME.block_on(async move {
@@ -533,14 +605,171 @@ impl Room {
     }
 
     /// Removes the current room avatar
-    pub fn remove_avatar(&self) -> Result<()> {
+    pub fn remove_avatar(&self) -> Result<(), ClientError> {
         let room = match &self.room {
             SdkRoom::Joined(j) => j.clone(),
-            _ => bail!("Can't remove a avatar in a room that isn't in joined state"),
+            _ => {
+                return Err(
+                    anyhow!("Can't remove a avatar in a room that isn't in joined state").into()
+                )
+            }
         };
 
         RUNTIME.block_on(async move {
             room.remove_avatar().await?;
+            Ok(())
+        })
+    }
+
+    pub fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
+        let room = match &self.room {
+            SdkRoom::Joined(joined_room) => joined_room.clone(),
+            _ => return Err(anyhow!("Can't invite user to room that isn't in joined state").into()),
+        };
+
+        RUNTIME.block_on(async move {
+            let user = <&UserId>::try_from(user_id.as_str())
+                .context("Could not create user from string")?;
+            room.invite_user_by_id(user).await?;
+            Ok(())
+        })
+    }
+
+    pub fn fetch_event_details(&self, event_id: String) -> Result<(), ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .unwrap()
+            .as_ref()
+            .context("Timeline not set up, can't fetch event details")?
+            .clone();
+
+        RUNTIME.block_on(async move {
+            let event_id = <&EventId>::try_from(event_id.as_str())?;
+            timeline.fetch_event_details(event_id).await.context("Fetching event details")?;
+            Ok(())
+        })
+    }
+
+    pub fn send_image(
+        &self,
+        url: String,
+        thumbnail_url: String,
+        image_info: ImageInfo,
+    ) -> Result<(), RoomError> {
+        let mime_str = image_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_image_info =
+            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Image(base_image_info);
+
+        let attachment_config = match image_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_video(
+        &self,
+        url: String,
+        thumbnail_url: String,
+        video_info: VideoInfo,
+    ) -> Result<(), RoomError> {
+        let mime_str = video_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_video_info: BaseVideoInfo =
+            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Video(base_video_info);
+
+        let attachment_config = match video_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_audio(&self, url: String, audio_info: AudioInfo) -> Result<(), RoomError> {
+        let mime_str = audio_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_audio_info: BaseAudioInfo =
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Audio(base_audio_info);
+        let attachment_config = AttachmentConfig::new().info(attachment_info);
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_file(&self, url: String, file_info: FileInfo) -> Result<(), RoomError> {
+        let mime_str = file_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_file_info: BaseFileInfo =
+            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::File(base_file_info);
+        let attachment_config = AttachmentConfig::new().info(attachment_info);
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+}
+
+impl Room {
+    fn build_thumbnail_info(
+        &self,
+        thumbnail_url: String,
+        thumbnail_info: ThumbnailInfo,
+    ) -> Result<Thumbnail, RoomError> {
+        let thumbnail_data =
+            fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+
+        let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let mime_str =
+            thumbnail_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        Ok(Thumbnail {
+            data: thumbnail_data,
+            content_type: mime_type,
+            info: Some(base_thumbnail_info),
+        })
+    }
+
+    fn send_attachment(
+        &self,
+        url: String,
+        mime_type: Mime,
+        attachment_config: AttachmentConfig,
+    ) -> Result<(), RoomError> {
+        let timeline_guard = self.timeline.read().unwrap();
+        let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
+
+        RUNTIME.block_on(async move {
+            timeline
+                .send_attachment(url, mime_type, attachment_config)
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)?;
             Ok(())
         })
     }

@@ -24,7 +24,7 @@ use std::time::Duration;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 #[cfg(not(target_arch = "wasm32"))]
-use mime_guess;
+use mime2ext;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
@@ -32,7 +32,7 @@ use ruma::{
     MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
@@ -60,6 +60,10 @@ pub struct Media {
 pub struct MediaFileHandle {
     /// The temporary file that contains the media.
     file: NamedTempFile,
+    /// An intermediary temporary directory used in certain cases.
+    ///
+    /// Only stored for its `Drop` semantics.
+    _directory: Option<TempDir>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -140,22 +144,61 @@ impl Media {
     pub async fn get_media_file(
         &self,
         request: &MediaRequest,
+        body: Option<String>,
         content_type: &Mime,
         use_cache: bool,
     ) -> Result<MediaFileHandle> {
         let data = self.get_media_content(request, use_cache).await?;
 
-        let mut suffix = String::from("");
-        if let Some(extension) =
-            mime_guess::get_mime_extensions(content_type).and_then(|a| a.first())
-        {
-            suffix = String::from(".") + extension;
-        }
+        let inferred_extension = mime2ext::mime2ext(content_type);
 
-        let file = TempFileBuilder::new().suffix(&suffix).tempfile()?;
-        TokioFile::from_std(file.reopen()?).write_all(&data).await?;
+        let body_path = body.as_ref().map(Path::new);
+        let filename = body_path.and_then(|f| f.file_name().and_then(|f| f.to_str()));
+        let filename_with_extension = body_path.and_then(|f| {
+            if f.extension().is_some() {
+                f.file_name().and_then(|f| f.to_str())
+            } else {
+                None
+            }
+        });
 
-        Ok(MediaFileHandle { file })
+        let (temp_file, temp_dir) = match (filename, filename_with_extension, inferred_extension) {
+            // If the body is a file name and has an extension use that
+            (Some(_), Some(filename_with_extension), Some(_)) => {
+                // Use an intermediary directory to avoid conflicts
+                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_file = TempFileBuilder::new()
+                    .prefix(filename_with_extension)
+                    .rand_bytes(0)
+                    .tempfile_in(&temp_dir)?;
+                (temp_file, Some(temp_dir))
+            }
+            // If the body is a file name but doesn't have an extension try inferring one for it
+            (Some(filename), None, Some(inferred_extension)) => {
+                // Use an intermediary directory to avoid conflicts
+                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_file = TempFileBuilder::new()
+                    .prefix(filename)
+                    .suffix(&(".".to_owned() + inferred_extension))
+                    .rand_bytes(0)
+                    .tempfile_in(&temp_dir)?;
+                (temp_file, Some(temp_dir))
+            }
+            // If the only thing we have is an inferred extension then use that together with a
+            // randomly generated file name
+            (None, None, Some(inferred_extension)) => (
+                TempFileBuilder::new()
+                    .suffix(&&(".".to_owned() + inferred_extension))
+                    .tempfile()?,
+                None,
+            ),
+            // Otherwise just use a completely random file name
+            _ => (TempFileBuilder::new().tempfile()?, None),
+        };
+
+        TokioFile::from_std(temp_file.reopen()?).write_all(&data).await?;
+
+        Ok(MediaFileHandle { file: temp_file, _directory: temp_dir })
     }
 
     /// Get a media file's content.

@@ -25,8 +25,9 @@ use std::{
 use atomic::Atomic;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
-    DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
+    events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
+    serde::Raw,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -40,12 +41,15 @@ use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
+    },
     store::{Changes, DeviceChanges, DynCryptoStore, Result as StoreResult},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
-            room::encrypted::ToDeviceEncryptedEventContent, EventType,
+            room::encrypted::ToDeviceEncryptedEventContent, room_key_withheld::WithheldCode,
+            EventType,
         },
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
@@ -53,6 +57,17 @@ use crate::{
     MegolmError, OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest,
     VerificationRequest,
 };
+
+pub enum MaybeEncryptedRoomKey {
+    Encrypted {
+        used_session: Session,
+        share_info: ShareInfo,
+        message: Raw<AnyToDeviceEventContent>,
+    },
+    Withheld {
+        code: WithheldCode,
+    },
+}
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -68,6 +83,14 @@ pub struct ReadOnlyDevice {
         deserialize_with = "local_trust_deserializer"
     )]
     trust_state: Arc<Atomic<LocalTrust>>,
+    /// Flag remembering if we successfully sent an `m.no_olm` withheld code to
+    /// this device.
+    #[serde(
+        default,
+        serialize_with = "atomic_bool_serializer",
+        deserialize_with = "atomic_bool_deserializer"
+    )]
+    withheld_code_sent: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for ReadOnlyDevice {
@@ -79,6 +102,7 @@ impl std::fmt::Debug for ReadOnlyDevice {
             .field("keys", self.keys())
             .field("deleted", &self.deleted.load(Ordering::SeqCst))
             .field("trust_state", &self.trust_state)
+            .field("withheld_code_sent", &self.withheld_code_sent)
             .finish()
     }
 }
@@ -335,6 +359,11 @@ impl Device {
         self.verification_machine.store.get_sessions(&k.to_base64()).await
     }
 
+    #[cfg(test)]
+    pub(crate) async fn get_most_recent_session(&self) -> OlmResult<Option<Session>> {
+        self.inner.get_most_recent_session(self.verification_machine.store.inner()).await
+    }
+
     /// Is this device considered to be verified.
     ///
     /// This method returns true if either [`is_locally_trusted()`] returns true
@@ -409,6 +438,30 @@ impl Device {
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
+    }
+
+    pub(crate) async fn maybe_encrypt_room_key(
+        &self,
+        session: OutboundGroupSession,
+    ) -> OlmResult<MaybeEncryptedRoomKey> {
+        let content = session.as_content().await;
+        let message_index = session.message_index().await;
+        let event_type = content.event_type();
+        let content =
+            serde_json::to_value(content).expect("We can always serialize our own room key");
+
+        match self.encrypt(event_type, content).await {
+            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                used_session: session,
+                message: encrypted.cast(),
+            }),
+
+            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
@@ -525,6 +578,7 @@ impl ReadOnlyDevice {
             inner: device_keys.into(),
             trust_state: Arc::new(Atomic::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
+            withheld_code_sent: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -593,6 +647,16 @@ impl ReadOnlyDevice {
         self.trust_state.store(state, Ordering::Relaxed)
     }
 
+    pub(crate) fn mark_withheld_code_as_sent(&self) {
+        self.withheld_code_sent.store(true, Ordering::Relaxed)
+    }
+
+    /// Returns true if the `m.no_olm` withheld code was already sent to this
+    /// device.
+    pub fn was_withheld_code_sent(&self) -> bool {
+        self.withheld_code_sent.load(Ordering::Relaxed)
+    }
+
     /// Get the list of algorithms this device supports.
     pub fn algorithms(&self) -> &[EventEncryptionAlgorithm] {
         &self.inner.algorithms
@@ -609,6 +673,34 @@ impl ReadOnlyDevice {
         #[cfg(not(feature = "experimental-algorithms"))]
         {
             self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+        }
+    }
+
+    /// Find and return the most recently created Olm [`Session`] we are sharing
+    /// with this device.
+    pub(crate) async fn get_most_recent_session(
+        &self,
+        store: &DynCryptoStore,
+    ) -> OlmResult<Option<Session>> {
+        if let Some(sender_key) = self.curve25519_key() {
+            if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
+                let mut sessions = s.lock().await;
+
+                sessions.sort_by_key(|s| s.creation_time);
+
+                Ok(sessions.last().cloned())
+            } else {
+                Ok(None)
+            }
+        } else {
+            warn!(
+                user_id = ?self.user_id(),
+                device_id = ?self.device_id(),
+                "Trying to find a Olm session of a device, but the device doesn't have a \
+                Curve25519 key",
+            );
+
+            Err(EventError::MissingSenderKey.into())
         }
     }
 
@@ -680,44 +772,29 @@ impl ReadOnlyDevice {
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let Some(sender_key) = self.curve25519_key() else {
-            warn!(
+        let session = self.get_most_recent_session(store).await?;
+
+        if let Some(mut session) = session {
+            let message = session.encrypt(self, event_type, content).await?;
+
+            trace!(
                 user_id = ?self.user_id(),
                 device_id = ?self.device_id(),
-                "Trying to encrypt a Megolm session, but the device doesn't \
-                have a curve25519 key",
+                session_id = session.session_id(),
+                "Successfully encrypted a Megolm session",
             );
-            return Err(EventError::MissingSenderKey.into());
-        };
 
-        let session = if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
-            let mut sessions = s.lock().await;
-            sessions.sort_by_key(|s| s.last_use_time);
-            sessions.get(0).cloned()
+            Ok((session, message))
         } else {
-            None
-        };
-
-        let Some(mut session) = session else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
                 but no Olm session is found",
                 self.user_id(),
                 self.device_id()
             );
-            return Err(OlmError::MissingSession);
-        };
 
-        let message = session.encrypt(self, event_type, content).await?;
-
-        trace!(
-            user_id = ?self.user_id(),
-            device_id = ?self.device_id(),
-            session_id = session.session_id(),
-            "Successfully encrypted a Megolm session",
-        );
-
-        Ok((session, message))
+            Err(OlmError::MissingSession)
+        }
     }
 
     /// Update a device with a new device keys struct.
@@ -827,6 +904,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             inner: device_keys.clone().into(),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
+            withheld_code_sent: Arc::new(AtomicBool::new(false)),
         };
 
         device.verify_device_keys(device_keys)?;

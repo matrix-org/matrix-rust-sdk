@@ -18,7 +18,10 @@ use std::{
 };
 
 use ruma::{
-    events::room::member::{MembershipState, SyncRoomMemberEvent},
+    events::{
+        room::member::{MembershipState, SyncRoomMemberEvent},
+        StateEventType,
+    },
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tracing::trace;
@@ -158,10 +161,13 @@ impl AmbiguityCache {
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
-        let old_event = if let Some(m) =
-            changes.members.get(room_id).and_then(|m| m.get(member_event.state_key()))
+        let old_event = if let Some(m) = changes
+            .state
+            .get(room_id)
+            .and_then(|events| events.get(&StateEventType::RoomMember))
+            .and_then(|m| m.get(member_event.state_key().as_str()))
         {
-            Some(RawMemberEvent::Sync(m.clone()))
+            Some(RawMemberEvent::Sync(m.clone().cast()))
         } else {
             self.store.get_member_event(room_id, member_event.state_key()).await?
         };

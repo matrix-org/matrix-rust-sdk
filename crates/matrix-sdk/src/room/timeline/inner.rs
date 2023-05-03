@@ -57,11 +57,7 @@ use super::{
     Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
     TimelineItemContent,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    room::{self, timeline::event_item::RemoteEventTimelineItem},
-    Error, Result,
-};
+use crate::{events::SyncTimelineEventWithoutContent, room, Error, Result};
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
@@ -154,7 +150,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 event.event,
                 event.encryption_info,
                 event.push_actions,
-                TimelineItemPosition::End,
+                TimelineItemPosition::End { from_cache: true },
                 state,
                 &self.room_data_provider,
                 self.track_read_receipts,
@@ -186,7 +182,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             raw,
             encryption_info,
             push_actions,
-            TimelineItemPosition::End,
+            TimelineItemPosition::End { from_cache: false },
             &mut state,
             &self.room_data_provider,
             self.track_read_receipts,
@@ -206,8 +202,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let event_meta = TimelineEventMetadata {
             sender,
             sender_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
             is_own_event: true,
-            relations: Default::default(),
             // FIXME: Should we supply something here for encrypted rooms?
             encryption_info: None,
             read_receipts: Default::default(),
@@ -215,8 +211,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             is_highlighted: false,
         };
 
-        let flow = Flow::Local { txn_id, timestamp: MilliSecondsSinceUnixEpoch::now() };
-        let kind = TimelineEventKind::Message { content };
+        let flow = Flow::Local { txn_id };
+        let kind = TimelineEventKind::Message { content, relations: Default::default() };
 
         let mut state = self.state.lock().await;
         TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
@@ -251,7 +247,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return;
         };
 
-        let EventTimelineItem::Local(item) = item else {
+        let Some(local_item) = item.as_local() else {
             // Remote echo already received. This is very unlikely.
             trace!("Remote echo received before send-event response");
             return;
@@ -259,12 +255,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
-        if let EventSendState::Sent { event_id: existing_event_id } = item.send_state() {
+        if let EventSendState::Sent { event_id: existing_event_id } = &local_item.send_state {
             let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        let new_item = TimelineItem::Event(item.with_send_state(send_state).into());
+        let new_item = TimelineItem::Event(item.with_kind(local_item.with_send_state(send_state)));
         state.items.set(idx, Arc::new(new_item));
     }
 
@@ -388,14 +384,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("session_id", session_id);
 
-                let EventTimelineItem::Remote(remote_event) = event_item else {
+                let Some(remote_event) = event_item.as_remote() else {
                     error!("Key for unable-to-decrypt timeline item is not an event ID");
                     return None;
                 };
 
-                tracing::Span::current().record("event_id", debug(remote_event.event_id()));
+                tracing::Span::current().record("event_id", debug(&remote_event.event_id));
 
-                let raw = remote_event.raw().cast_ref();
+                let raw = remote_event.original_json.cast_ref();
                 match olm_machine.decrypt_room_event(raw, room_id).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
@@ -546,23 +542,21 @@ impl TimelineInner {
         }
     }
 
-    pub(super) async fn fetch_in_reply_to_details(
-        &self,
-        event_id: &EventId,
-    ) -> Result<RemoteEventTimelineItem> {
+    pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
-            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
+        let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
-        let details = fetch_replied_to_event(
+        let item = item.clone();
+        let event = fetch_replied_to_event(
             state,
             index,
             &item,
@@ -575,25 +569,28 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, mut item) = rfind_event_by_id(&state.items, item.event_id())
-            .and_then(|(pos, item)| item.as_remote().map(|item| (pos, item.clone())))
+        let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
         let TimelineItemContent::Message(message) = item.content().clone() else {
-            return Ok(item);
+            return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
-            return Ok(item);
+            return Ok(());
         };
 
-        item.set_content(TimelineItemContent::Message(message.with_in_reply_to(
-            InReplyToDetails { event_id: in_reply_to.event_id.clone(), details },
-        )));
-        state.items.set(index, Arc::new(TimelineItem::Event(item.clone().into())));
+        let mut item = item.clone();
+        item.set_content(TimelineItemContent::Message(
+            message.with_in_reply_to(InReplyToDetails {
+                event_id: in_reply_to.event_id.clone(),
+                event,
+            }),
+        ));
+        state.items.set(index, Arc::new(item.into()));
 
-        Ok(item)
+        Ok(())
     }
 
     /// Get the latest read receipt for the given user.
@@ -674,7 +671,7 @@ impl TimelineInner {
 async fn fetch_replied_to_event(
     mut state: MutexGuard<'_, TimelineInnerState>,
     index: usize,
-    item: &RemoteEventTimelineItem,
+    item: &EventTimelineItem,
     message: &Message,
     in_reply_to: &EventId,
     room: &room::Common,
@@ -694,13 +691,12 @@ async fn fetch_replied_to_event(
         return details;
     };
 
-    let event_item = item
-        .with_content(TimelineItemContent::Message(message.with_in_reply_to(InReplyToDetails {
-            event_id: in_reply_to.to_owned(),
-            details: TimelineDetails::Pending,
-        })))
-        .into();
-    state.items.set(index, Arc::new(TimelineItem::Event(event_item)));
+    let reply = message.with_in_reply_to(InReplyToDetails {
+        event_id: in_reply_to.to_owned(),
+        event: TimelineDetails::Pending,
+    });
+    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None);
+    state.items.set(index, Arc::new(event_item.into()));
 
     // Don't hold the state lock while the network request is made
     drop(state);
@@ -793,33 +789,30 @@ async fn handle_remote_event<P: RoomDataProvider>(
     room_data_provider: &P,
     track_read_receipts: bool,
 ) -> HandleEventResult {
-    let (event_id, sender, origin_server_ts, txn_id, relations, event_kind) =
-        match raw.deserialize() {
+    let (event_id, sender, timestamp, txn_id, event_kind) = match raw.deserialize() {
+        Ok(event) => (
+            event.event_id().to_owned(),
+            event.sender().to_owned(),
+            event.origin_server_ts(),
+            event.transaction_id().map(ToOwned::to_owned),
+            event.into(),
+        ),
+        Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
             Ok(event) => (
                 event.event_id().to_owned(),
                 event.sender().to_owned(),
                 event.origin_server_ts(),
                 event.transaction_id().map(ToOwned::to_owned),
-                event.relations().to_owned(),
-                event.into(),
+                TimelineEventKind::failed_to_parse(event, e),
             ),
-            Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
-                Ok(event) => (
-                    event.event_id().to_owned(),
-                    event.sender().to_owned(),
-                    event.origin_server_ts(),
-                    event.transaction_id().map(ToOwned::to_owned),
-                    event.relations().to_owned(),
-                    TimelineEventKind::failed_to_parse(event, e),
-                ),
-                Err(e) => {
-                    let event_type: Option<String> = raw.get_field("type").ok().flatten();
-                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
-                    return HandleEventResult::default();
-                }
-            },
-        };
+            Err(e) => {
+                let event_type: Option<String> = raw.get_field("type").ok().flatten();
+                let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
+                warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+                return HandleEventResult::default();
+            }
+        },
+    };
 
     let is_own_event = sender == room_data_provider.own_user_id();
     let sender_profile = room_data_provider.profile(&sender).await;
@@ -832,13 +825,13 @@ async fn handle_remote_event<P: RoomDataProvider>(
     let event_meta = TimelineEventMetadata {
         sender,
         sender_profile,
+        timestamp,
         is_own_event,
-        relations,
         encryption_info,
         read_receipts,
         is_highlighted,
     };
-    let flow = Flow::Remote { event_id, origin_server_ts, raw_event: raw, txn_id, position };
+    let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position };
 
     TimelineEventHandler::new(event_meta, flow, timeline_state, track_read_receipts)
         .handle_event(event_kind)

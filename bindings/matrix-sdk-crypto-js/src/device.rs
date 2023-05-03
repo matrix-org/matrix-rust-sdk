@@ -4,6 +4,7 @@ use js_sys::{Array, Map, Promise};
 use wasm_bindgen::prelude::*;
 
 use crate::{
+    encryption::EncryptionAlgorithm,
     future::future_to_promise,
     identifiers::{self, DeviceId, UserId},
     impl_from_to_inner,
@@ -61,6 +62,12 @@ impl Device {
     #[wasm_bindgen(js_name = "isCrossSigningTrusted")]
     pub fn is_cross_signing_trusted(&self) -> bool {
         self.inner.is_cross_signing_trusted()
+    }
+
+    /// Is this device cross-signed by its owner?
+    #[wasm_bindgen(js_name = "isCrossSignedByOwner")]
+    pub fn is_cross_signed_by_owner(&self) -> bool {
+        self.inner.is_cross_signed_by_owner()
     }
 
     /// Set the local trust state of the device to the given state.
@@ -133,6 +140,19 @@ impl Device {
         }
 
         map
+    }
+
+    /// Get the list of algorithms this device supports.
+    ///
+    /// Returns `Array<EncryptionAlgorithm>`.
+    #[wasm_bindgen(getter)]
+    pub fn algorithms(&self) -> Array {
+        self.inner
+            .algorithms()
+            .iter()
+            .map(|alg| EncryptionAlgorithm::from(alg.clone()))
+            .map(JsValue::from)
+            .collect()
     }
 
     /// Get a map containing all the device signatures.

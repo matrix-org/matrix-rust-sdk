@@ -21,18 +21,19 @@ rust-version = "1.65"
 
 [workspace.dependencies]
 anyhow = "1.0.68"
+assert_matches = "1.5.0"
 async-stream = "0.3.3"
 async-trait = "0.1.60"
 base64 = "0.21.0"
 byteorder = "1.4.3"
-ctor = "0.1.26"
+ctor = "0.2.0"
 dashmap = "5.2.0"
-eyeball = "0.4.0"
+eyeball = "0.6.0"
 eyeball-im = "0.2.0"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
-ruma = { git = "https://github.com/ruma/ruma", rev = "8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5", features = ["client-api-c"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "8eea3e05490fa9a318f9ed66c3a75272e6ef0ee5" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "54a4223caa1c1052464ecdba0f1e08f126e07bcd", features = ["client-api-c", "compat-user-id"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "54a4223caa1c1052464ecdba0f1e08f126e07bcd" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
@@ -40,8 +41,9 @@ serde_json = "1.0.91"
 thiserror = "1.0.38"
 tokio = { version = "1.24", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
-uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "41e94c0a4834137d8d359b829e2d4b334f5ab5b5" }
+tracing-core = "0.1.30"
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "75b9df455d1b67d25291c09634ff22160e4abcbf" }
+uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "75b9df455d1b67d25291c09634ff22160e4abcbf" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "fb609ca1e4df5a7a818490ae86ac694119e41e71" }
 zeroize = "1.3.0"
 
@@ -61,13 +63,13 @@ debug = 0
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
 
-# Custom profile with full debugging info, use `--profile debug` to select
+# Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]
 inherits = "dev"
 debug = 2
 
 # Custom profile for use in (debug) builds of the binding crates, use
-# `--profile release_dbg` to select
+# `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dev"
 incremental = false

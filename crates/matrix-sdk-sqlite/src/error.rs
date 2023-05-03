@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use deadpool_sqlite::{CreatePoolError, PoolError};
+#[cfg(feature = "state-store")]
+use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
 use thiserror::Error;
@@ -62,6 +64,8 @@ pub enum Error {
     #[error(transparent)]
     Decode(rmp_serde::decode::Error),
     #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
     Encryption(matrix_sdk_store_encryption::Error),
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
@@ -69,6 +73,8 @@ pub enum Error {
     Pickle(#[from] vodozemac::PickleError),
     #[error("An object failed to be decrypted while unpickling")]
     Unpickle,
+    #[error("Redaction failed: {0}")]
+    Redaction(#[source] ruma::canonical_json::RedactionError),
 }
 
 macro_rules! impl_from {
@@ -91,6 +97,18 @@ impl_from!(matrix_sdk_store_encryption::Error => Error::Encryption);
 impl From<Error> for CryptoStoreError {
     fn from(e: Error) -> Self {
         CryptoStoreError::backend(e)
+    }
+}
+
+#[cfg(feature = "state-store")]
+impl From<Error> for StateStoreError {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::Json(e) => StateStoreError::Json(e),
+            Error::Encryption(e) => StateStoreError::Encryption(e),
+            Error::Redaction(e) => StateStoreError::Redaction(e),
+            e => StateStoreError::backend(e),
+        }
     }
 }
 

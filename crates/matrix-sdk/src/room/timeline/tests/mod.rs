@@ -49,6 +49,7 @@ use super::{inner::RoomDataProvider, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
+mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod invalid;

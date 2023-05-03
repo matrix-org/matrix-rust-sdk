@@ -14,16 +14,23 @@
 
 use matrix_sdk_base::{
     store::{Result as StoreResult, StoreError},
-    StateStoreDataKey,
+    RoomInfo, StateStoreDataKey,
+};
+use ruma::{
+    events::{
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        StateEventType,
+    },
+    serde::Raw,
 };
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use sled::{transaction::TransactionError, Batch, Transactional, Tree};
 use tracing::debug;
 
-use super::{keys, Result, SledStateStore, SledStoreError};
+use super::{keys, Result, RoomMember, SledStateStore, SledStoreError};
 use crate::encode_key::EncodeKey;
 
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 7;
 
 const VERSION_KEY: &str = "state-store-version";
 
@@ -73,6 +80,17 @@ impl SledStateStore {
 
         if old_version < 4 {
             self.migrate_to_v4()?;
+        }
+
+        if old_version < 5 {
+            self.migrate_to_v5()?;
+            return Ok(());
+        }
+
+        // Version 6 was dropped and migration is similar to v7.
+
+        if old_version < 7 {
+            self.migrate_to_v7()?;
             return Ok(());
         }
 
@@ -190,22 +208,173 @@ impl SledStateStore {
 
         self.set_db_version(4)
     }
+
+    /// Move the member events with the other state events.
+    fn migrate_to_v5(&self) -> Result<()> {
+        {
+            let members = &self.inner.open_tree(old_keys::MEMBER)?;
+            let mut state_batch = sled::Batch::default();
+
+            for room_info in
+                self.room_info.iter().map(|r| self.deserialize_value::<RoomInfo>(&r?.1))
+            {
+                let room_info = room_info?;
+                let room_id = room_info.room_id();
+                let prefix = self.encode_key(old_keys::MEMBER, room_id);
+
+                for entry in members.scan_prefix(prefix) {
+                    let (_, value) = entry?;
+                    let raw_member_event =
+                        self.deserialize_value::<Raw<SyncRoomMemberEvent>>(&value)?;
+                    let state_key =
+                        raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
+                    let key = self.encode_key(
+                        keys::ROOM_STATE,
+                        (room_id, StateEventType::RoomMember, state_key),
+                    );
+                    state_batch.insert(key, value);
+                }
+            }
+
+            let stripped_members = &self.inner.open_tree(old_keys::STRIPPED_ROOM_MEMBER)?;
+            let mut stripped_state_batch = sled::Batch::default();
+
+            for room_info in
+                self.stripped_room_infos.iter().map(|r| self.deserialize_value::<RoomInfo>(&r?.1))
+            {
+                let room_info = room_info?;
+                let room_id = room_info.room_id();
+                let prefix = self.encode_key(old_keys::STRIPPED_ROOM_MEMBER, room_id);
+
+                for entry in stripped_members.scan_prefix(prefix) {
+                    let (_, value) = entry?;
+                    let raw_member_event =
+                        self.deserialize_value::<Raw<StrippedRoomMemberEvent>>(&value)?;
+                    let state_key =
+                        raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
+                    let key = self.encode_key(
+                        keys::STRIPPED_ROOM_STATE,
+                        (room_id, StateEventType::RoomMember, state_key),
+                    );
+                    stripped_state_batch.insert(key, value);
+                }
+            }
+
+            let ret: Result<(), TransactionError<SledStoreError>> =
+                (&self.room_state, &self.stripped_room_state).transaction(
+                    |(room_state, stripped_room_state)| {
+                        room_state.apply_batch(&state_batch)?;
+                        stripped_room_state.apply_batch(&stripped_state_batch)?;
+
+                        Ok(())
+                    },
+                );
+            ret?;
+        }
+
+        self.inner.drop_tree(old_keys::MEMBER)?;
+        self.inner.drop_tree(old_keys::STRIPPED_ROOM_MEMBER)?;
+
+        self.set_db_version(5)
+    }
+
+    /// Remove the old user IDs stores and populate the new ones.
+    fn migrate_to_v7(&self) -> Result<()> {
+        {
+            // Reset v6 stores.
+            self.user_ids.clear()?;
+            self.stripped_user_ids.clear()?;
+
+            // We only have joined and invited user IDs in the old stores, so instead we
+            // use the room member events to populate the new stores.
+            let state = &self.inner.open_tree(keys::ROOM_STATE)?;
+            let mut user_ids_batch = sled::Batch::default();
+
+            for room_info in
+                self.room_info.iter().map(|r| self.deserialize_value::<RoomInfo>(&r?.1))
+            {
+                let room_info = room_info?;
+                let room_id = room_info.room_id();
+                let prefix =
+                    self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember));
+
+                for entry in state.scan_prefix(prefix) {
+                    let (_, value) = entry?;
+                    let member_event = self
+                        .deserialize_value::<Raw<SyncRoomMemberEvent>>(&value)?
+                        .deserialize()?;
+                    let key = self.encode_key(keys::USER_ID, (room_id, member_event.state_key()));
+                    let value = self.serialize_value(&RoomMember::from(&member_event))?;
+                    user_ids_batch.insert(key, value);
+                }
+            }
+
+            let stripped_state = &self.inner.open_tree(keys::STRIPPED_ROOM_STATE)?;
+            let mut stripped_user_ids_batch = sled::Batch::default();
+
+            for room_info in
+                self.stripped_room_infos.iter().map(|r| self.deserialize_value::<RoomInfo>(&r?.1))
+            {
+                let room_info = room_info?;
+                let room_id = room_info.room_id();
+                let prefix = self
+                    .encode_key(keys::STRIPPED_ROOM_STATE, (room_id, StateEventType::RoomMember));
+
+                for entry in stripped_state.scan_prefix(prefix) {
+                    let (_, value) = entry?;
+                    let stripped_member_event = self
+                        .deserialize_value::<Raw<StrippedRoomMemberEvent>>(&value)?
+                        .deserialize()?;
+                    let key = self.encode_key(
+                        keys::STRIPPED_USER_ID,
+                        (room_id, &stripped_member_event.state_key),
+                    );
+                    let value = self.serialize_value(&RoomMember::from(&stripped_member_event))?;
+                    stripped_user_ids_batch.insert(key, value);
+                }
+            }
+
+            let ret: Result<(), TransactionError<SledStoreError>> =
+                (&self.user_ids, &self.stripped_user_ids).transaction(
+                    |(user_ids, stripped_user_ids)| {
+                        user_ids.apply_batch(&user_ids_batch)?;
+                        stripped_user_ids.apply_batch(&stripped_user_ids_batch)?;
+
+                        Ok(())
+                    },
+                );
+            ret?;
+        }
+
+        self.inner.drop_tree(old_keys::JOINED_USER_ID)?;
+        self.inner.drop_tree(old_keys::INVITED_USER_ID)?;
+        self.inner.drop_tree(old_keys::STRIPPED_JOINED_USER_ID)?;
+        self.inner.drop_tree(old_keys::STRIPPED_INVITED_USER_ID)?;
+
+        self.set_db_version(7)
+    }
 }
 
 mod old_keys {
     /// Old stores.
     pub const SYNC_TOKEN: &str = "sync_token";
     pub const SESSION: &str = "session";
+    pub const MEMBER: &str = "member";
+    pub const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
+    pub const INVITED_USER_ID: &str = "invited-user-id";
+    pub const JOINED_USER_ID: &str = "joined-user-id";
+    pub const STRIPPED_INVITED_USER_ID: &str = "stripped-invited-user-id";
+    pub const STRIPPED_JOINED_USER_ID: &str = "stripped-joined-user-id";
 }
 
 pub const V1_DB_STORES: &[&str] = &[
     keys::ACCOUNT_DATA,
     old_keys::SYNC_TOKEN,
     keys::DISPLAY_NAME,
-    keys::INVITED_USER_ID,
-    keys::JOINED_USER_ID,
+    old_keys::INVITED_USER_ID,
+    old_keys::JOINED_USER_ID,
     keys::MEDIA,
-    keys::MEMBER,
+    old_keys::MEMBER,
     keys::PRESENCE,
     keys::PROFILE,
     keys::ROOM_ACCOUNT_DATA,
@@ -215,21 +384,30 @@ pub const V1_DB_STORES: &[&str] = &[
     keys::ROOM_USER_RECEIPT,
     keys::ROOM,
     old_keys::SESSION,
-    keys::STRIPPED_INVITED_USER_ID,
-    keys::STRIPPED_JOINED_USER_ID,
+    old_keys::STRIPPED_INVITED_USER_ID,
+    old_keys::STRIPPED_JOINED_USER_ID,
     keys::STRIPPED_ROOM_INFO,
-    keys::STRIPPED_ROOM_MEMBER,
+    old_keys::STRIPPED_ROOM_MEMBER,
     keys::STRIPPED_ROOM_STATE,
     keys::CUSTOM,
 ];
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_base::StateStoreDataKey;
-    use matrix_sdk_test::async_test;
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        deserialized_responses::RawMemberEvent, RoomInfo, RoomMemberships, RoomState,
+        StateStoreDataKey,
+    };
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        events::{AnySyncStateEvent, StateEventType},
+        events::{
+            room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            AnySyncStateEvent, StateEventType,
+        },
         room_id,
+        serde::Raw,
+        user_id,
     };
     use serde_json::json;
     use tempfile::TempDir;
@@ -445,5 +623,200 @@ mod test {
             .into_filter()
             .unwrap();
         assert_eq!(stored_filter_2_id, filter_2_id);
+    }
+
+    #[async_test]
+    pub async fn migrating_v4_to_v5() {
+        let room_id = room_id!("!room:localhost");
+        let member_event =
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+        let user_id = user_id!("@invited:localhost");
+
+        let stripped_room_id = room_id!("!stripped_room:localhost");
+        let stripped_member_event =
+            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_user_id = user_id!("@example:localhost");
+
+        let folder = TempDir::new().unwrap();
+        {
+            let store = SledStateStore::builder()
+                .path(folder.path().to_path_buf())
+                .passphrase("secret".to_owned())
+                .build()
+                .unwrap();
+
+            let members = store.inner.open_tree(old_keys::MEMBER).unwrap();
+            members
+                .insert(
+                    store.encode_key(old_keys::MEMBER, (room_id, user_id)),
+                    store.serialize_value(&member_event).unwrap(),
+                )
+                .unwrap();
+            let room_infos = store.inner.open_tree(keys::ROOM_INFO).unwrap();
+            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            room_infos
+                .insert(
+                    store.encode_key(keys::ROOM_INFO, room_id),
+                    store.serialize_value(&room_info).unwrap(),
+                )
+                .unwrap();
+
+            let stripped_members = store.inner.open_tree(old_keys::STRIPPED_ROOM_MEMBER).unwrap();
+            stripped_members
+                .insert(
+                    store.encode_key(
+                        old_keys::STRIPPED_ROOM_MEMBER,
+                        (stripped_room_id, stripped_user_id),
+                    ),
+                    store.serialize_value(&stripped_member_event).unwrap(),
+                )
+                .unwrap();
+            let stripped_room_infos = store.inner.open_tree(keys::STRIPPED_ROOM_INFO).unwrap();
+            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            stripped_room_infos
+                .insert(
+                    store.encode_key(keys::STRIPPED_ROOM_INFO, stripped_room_id),
+                    store.serialize_value(&stripped_room_info).unwrap(),
+                )
+                .unwrap();
+
+            store.set_db_version(4).unwrap();
+        }
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        let stored_member_event = assert_matches!(
+            store.get_member_event(room_id, user_id).await,
+            Ok(Some(RawMemberEvent::Sync(e))) => e
+        );
+        assert_eq!(stored_member_event.json().get(), member_event.json().get());
+
+        let stored_stripped_member_event = assert_matches!(
+            store.get_member_event(stripped_room_id, stripped_user_id).await,
+            Ok(Some(RawMemberEvent::Stripped(e))) => e
+        );
+        assert_eq!(stored_stripped_member_event.json().get(), stripped_member_event.json().get());
+    }
+
+    #[async_test]
+    pub async fn migrating_v5_to_v7() {
+        let room_id = room_id!("!room:localhost");
+        let invite_member_event =
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+        let invite_user_id = user_id!("@invited:localhost");
+        let ban_member_event =
+            Raw::new(&*test_json::MEMBER_BAN).unwrap().cast::<SyncRoomMemberEvent>();
+        let ban_user_id = user_id!("@banned:localhost");
+
+        let stripped_room_id = room_id!("!stripped_room:localhost");
+        let stripped_member_event =
+            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_user_id = user_id!("@example:localhost");
+
+        let folder = TempDir::new().unwrap();
+        {
+            let store = SledStateStore::builder()
+                .path(folder.path().to_path_buf())
+                .passphrase("secret".to_owned())
+                .build()
+                .unwrap();
+
+            let state = store.inner.open_tree(keys::ROOM_STATE).unwrap();
+            state
+                .insert(
+                    store.encode_key(
+                        keys::ROOM_STATE,
+                        (room_id, StateEventType::RoomMember, invite_user_id),
+                    ),
+                    store.serialize_value(&invite_member_event).unwrap(),
+                )
+                .unwrap();
+            state
+                .insert(
+                    store.encode_key(
+                        keys::ROOM_STATE,
+                        (room_id, StateEventType::RoomMember, ban_user_id),
+                    ),
+                    store.serialize_value(&ban_member_event).unwrap(),
+                )
+                .unwrap();
+            let room_infos = store.inner.open_tree(keys::ROOM_INFO).unwrap();
+            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            room_infos
+                .insert(
+                    store.encode_key(keys::ROOM_INFO, room_id),
+                    store.serialize_value(&room_info).unwrap(),
+                )
+                .unwrap();
+
+            let stripped_state = store.inner.open_tree(keys::STRIPPED_ROOM_STATE).unwrap();
+            stripped_state
+                .insert(
+                    store.encode_key(
+                        keys::STRIPPED_ROOM_STATE,
+                        (stripped_room_id, StateEventType::RoomMember, stripped_user_id),
+                    ),
+                    store.serialize_value(&stripped_member_event).unwrap(),
+                )
+                .unwrap();
+            let stripped_room_infos = store.inner.open_tree(keys::STRIPPED_ROOM_INFO).unwrap();
+            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            stripped_room_infos
+                .insert(
+                    store.encode_key(keys::STRIPPED_ROOM_INFO, stripped_room_id),
+                    store.serialize_value(&stripped_room_info).unwrap(),
+                )
+                .unwrap();
+
+            store.set_db_version(5).unwrap();
+        }
+
+        let store = SledStateStore::builder()
+            .path(folder.path().to_path_buf())
+            .passphrase("secret".to_owned())
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            store.get_user_ids(room_id, RoomMemberships::JOIN, false).await.unwrap().len(),
+            0
+        );
+        assert_eq!(
+            store.get_user_ids(room_id, RoomMemberships::INVITE, false).await.unwrap().as_slice(),
+            [invite_user_id.to_owned()]
+        );
+        let user_ids = store.get_user_ids(room_id, RoomMemberships::empty(), false).await.unwrap();
+        assert_eq!(user_ids.len(), 2);
+        assert!(user_ids.contains(&invite_user_id.to_owned()));
+        assert!(user_ids.contains(&ban_user_id.to_owned()));
+
+        assert_eq!(
+            store
+                .get_user_ids(stripped_room_id, RoomMemberships::JOIN, true)
+                .await
+                .unwrap()
+                .as_slice(),
+            [stripped_user_id.to_owned()]
+        );
+        assert_eq!(
+            store
+                .get_user_ids(stripped_room_id, RoomMemberships::INVITE, true)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            store
+                .get_user_ids(stripped_room_id, RoomMemberships::empty(), true)
+                .await
+                .unwrap()
+                .as_slice(),
+            [stripped_user_id.to_owned()]
+        );
     }
 }

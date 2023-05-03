@@ -14,6 +14,5 @@ clap = { version = "4.0.18", features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 fs_extra = "1"
-uniffi = { workspace = true }
 uniffi_bindgen = { workspace = true }
 xshell = "0.1.17"

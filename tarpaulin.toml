@@ -21,8 +21,6 @@ exclude = [
     # testing
     "matrix-sdk-test",
     "matrix-sdk-test-macros",
-    # labs
-    "jack-in",
     # repo automation (ci, codegen)
     "uniffi-bindgen",
     "xtask",

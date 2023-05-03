@@ -16,17 +16,20 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
 
 use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
+use futures_util::TryFutureExt;
 use imbl::Vector;
+use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     assign,
     events::{
         receipt::{Receipt, ReceiptThread},
+        room::message::sanitize::HtmlSanitizerMode,
         AnyMessageLikeEventContent,
     },
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
@@ -37,6 +40,7 @@ use tracing::{error, instrument, warn};
 
 use super::{Joined, Receipts};
 use crate::{
+    attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     room::{self, MessagesOptions},
     Client, Result,
@@ -59,13 +63,16 @@ use self::inner::{TimelineInner, TimelineInnerState};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
-        EventTimelineItem, InReplyToDetails, LocalEventTimelineItem, MemberProfileChange,
-        MembershipChange, Message, OtherState, Profile, ReactionGroup, RemoteEventTimelineItem,
-        RepliedToEvent, RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
+        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
+        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
     virtual_item::VirtualTimelineItem,
 };
+
+/// The default sanitizer mode used when sanitizing HTML.
+const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -269,7 +276,7 @@ impl Timeline {
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
-    #[instrument(skip(self, content), parent = &self.inner.room().client.inner.root_span, fields(room_id = ?self.room().room_id()))]
+    #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
     pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
@@ -285,6 +292,42 @@ impl Timeline {
             Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
         };
         self.inner.update_event_send_state(&txn_id, send_state).await;
+    }
+
+    /// Sends an attachment to the room. It does not currently support local
+    /// echoes
+    ///
+    /// If the encryption feature is enabled, this method will transparently
+    /// encrypt the room message if the room is encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The url for the file to be sent
+    ///
+    /// * `mime_type` - The attachment's mime type
+    ///
+    /// * `config` - An attachment configuration object containing details about
+    ///   the attachment
+    /// like a thumbnail, its size, duration etc.
+    pub async fn send_attachment(
+        &self,
+        url: String,
+        mime_type: Mime,
+        config: AttachmentConfig,
+    ) -> Result<(), Error> {
+        // If this room isn't actually in joined state, we'll get a server error.
+        // Not ideal, but works for now.
+        let room = Joined { inner: self.room().clone() };
+
+        let body =
+            Path::new(&url).file_name().ok_or(Error::InvalidAttachmentFileName)?.to_str().unwrap();
+        let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
+
+        room.send_attachment(body, &mime_type, data, config)
+            .map_err(|_| Error::FailedSendingAttachment)
+            .await?;
+
+        Ok(())
     }
 
     /// Fetch unavailable details about the event with the given ID.
@@ -308,8 +351,7 @@ impl Timeline {
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
-        self.inner.fetch_in_reply_to_details(event_id).await?;
-        Ok(())
+        self.inner.fetch_in_reply_to_details(event_id).await
     }
 
     /// Fetch all member events for the room this timeline is displaying.
@@ -338,7 +380,7 @@ impl Timeline {
     /// only keeps track of read receipts received from the homeserver, this
     /// keeps also track of implicit read receipts in this timeline, i.e.
     /// when a room member sends an event.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn latest_user_read_receipt(
         &self,
         user_id: &UserId,
@@ -351,7 +393,7 @@ impl Timeline {
     /// This uses [`Joined::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -374,7 +416,7 @@ impl Timeline {
     /// This uses [`Joined::send_multiple_receipts`] internally, but checks
     /// first if the receipts point to events in this timeline that are more
     /// recent than the current ones, to avoid unnecessary requests.
-    #[instrument(skip(self), parent = &self.room().client.inner.root_span)]
+    #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {
             if !self
@@ -578,6 +620,18 @@ pub enum Error {
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]
     UnsupportedEvent,
+
+    /// Couldn't read the attachment data from the given URL
+    #[error("Invalid attachment data")]
+    InvalidAttachmentData,
+
+    /// The attachment file name used as a body is invalid
+    #[error("Invalid attachment file name")]
+    InvalidAttachmentFileName,
+
+    /// The attachment could not be sent
+    #[error("Failed sending attachment")]
+    FailedSendingAttachment,
 }
 
 /// Result of comparing events position in the timeline.

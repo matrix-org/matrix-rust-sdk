@@ -8,6 +8,8 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::DebugRawEvent;
+
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
@@ -299,30 +301,6 @@ impl fmt::Debug for TimelineEvent {
             .field("encryption_info", encryption_info)
             .field("push_actions", push_actions)
             .finish()
-    }
-}
-
-struct DebugRawEvent<'a, T>(&'a Raw<T>);
-
-#[cfg(not(tarpaulin_include))]
-impl<T> fmt::Debug for DebugRawEvent<'_, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RawEvent")
-            .field("event_id", &DebugEventId(self.0.get_field("event_id")))
-            .finish_non_exhaustive()
-    }
-}
-
-struct DebugEventId(serde_json::Result<Option<OwnedEventId>>);
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for DebugEventId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Ok(Some(id)) => id.fmt(f),
-            Ok(None) => f.write_str("Missing"),
-            Err(e) => f.debug_tuple("Invalid").field(&e).finish(),
-        }
     }
 }
 

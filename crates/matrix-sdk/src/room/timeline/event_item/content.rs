@@ -19,7 +19,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, Relation},
+            message::{
+                self, sanitize::RemoveReplyFallback, MessageType, Relation,
+                RoomMessageEventContent, SyncRoomMessageEvent,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -30,19 +33,21 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyTimelineEvent,
-        FullStateEventContent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+        StateEventType,
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
+use tracing::error;
 
 use super::{Profile, TimelineDetails};
 use crate::{
-    room::timeline::{inner::RoomDataProvider, Error as TimelineError},
+    room::timeline::{inner::RoomDataProvider, Error as TimelineError, DEFAULT_SANITIZER_MODE},
     Result,
 };
 
-/// The content of an [`EventTimelineItem`].
+/// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
     /// An `m.room.message` event or extensible event, including edits.
@@ -117,6 +122,53 @@ pub struct Message {
 }
 
 impl Message {
+    /// Construct a `Message` from a `m.room.message` event.
+    pub(in crate::room::timeline) fn from_event(
+        c: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) -> Self {
+        let edited = relations.has_replacement();
+        let edit = relations.replace.and_then(|r| match *r {
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
+                .content
+                .relates_to
+            {
+                Some(Relation::Replacement(re)) => Some(re),
+                _ => {
+                    error!("got m.room.message event with an edit without a valid m.replace relation");
+                    None
+                }
+            },
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
+            _ => {
+                error!("got m.room.message event with an edit of a different event type");
+                None
+            }
+        });
+
+        let in_reply_to = c.relates_to.and_then(InReplyToDetails::from_relation);
+        let msgtype = match edit {
+            Some(mut e) => {
+                // Edit's content is never supposed to contain the reply fallback.
+                e.new_content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+                e.new_content
+            }
+            None => {
+                let remove_reply_fallback = if in_reply_to.is_some() {
+                    RemoveReplyFallback::Yes
+                } else {
+                    RemoveReplyFallback::No
+                };
+
+                let mut msgtype = c.msgtype;
+                msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
+                msgtype
+            }
+        };
+
+        Self { msgtype, in_reply_to, edited }
+    }
+
     /// Get the `msgtype`-specific data of this message.
     pub fn msgtype(&self) -> &MessageType {
         &self.msgtype
@@ -150,9 +202,13 @@ impl Message {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { msgtype: _, in_reply_to, edited } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
-        f.debug_struct("Message").field("edited", &self.edited).finish_non_exhaustive()
+        f.debug_struct("Message")
+            .field("in_reply_to", in_reply_to)
+            .field("edited", edited)
+            .finish_non_exhaustive()
     }
 }
 
@@ -164,20 +220,18 @@ pub struct InReplyToDetails {
 
     /// The details of the event.
     ///
-    /// Use [`Timeline::fetch_item_details`] to fetch the data if it is
-    /// unavailable. The `replies_nesting_level` field in
-    /// [`TimelineDetailsSettings`] decides if this should be fetched.
+    /// Use [`Timeline::fetch_event_details`] to fetch the data if it is
+    /// unavailable.
     ///
-    /// [`Timeline::fetch_item_details`]: super::Timeline::fetch_item_details
-    /// [`TimelineDetailsSettings`]: super::TimelineDetailsSettings
-    pub details: TimelineDetails<Box<RepliedToEvent>>,
+    /// [`Timeline::fetch_event_details`]: crate::room::timeline::Timeline::fetch_event_details
+    pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
 impl InReplyToDetails {
     pub(in crate::room::timeline) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
         match relation {
             message::Relation::Reply { in_reply_to } => {
-                Some(Self { event_id: in_reply_to.event_id, details: TimelineDetails::Unavailable })
+                Some(Self { event_id: in_reply_to.event_id, event: TimelineDetails::Unavailable })
             }
             _ => None,
         }
@@ -223,11 +277,7 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent.into());
         };
 
-        let message = Message {
-            msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited: event.relations().replace.is_some(),
-        };
+        let message = Message::from_event(c, event.relations());
         let sender = event.sender().to_owned();
         let sender_profile =
             TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);

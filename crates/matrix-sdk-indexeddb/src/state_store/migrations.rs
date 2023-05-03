@@ -20,19 +20,27 @@ use std::{
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
 use js_sys::Date as JsDate;
-use matrix_sdk_base::StateStoreDataKey;
+use matrix_sdk_base::{RoomInfo, StateStoreDataKey};
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{
+    events::{
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        StateEventType,
+    },
+    serde::Raw,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
 use super::{
-    deserialize_event, encode_key, encode_to_range, keys, serialize_event, Result, ALL_STORES,
+    deserialize_event, encode_key, encode_to_range, keys, serialize_event, Result, RoomMember,
+    ALL_STORES,
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 4;
+const CURRENT_DB_VERSION: u32 = 6;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -56,6 +64,12 @@ struct StoreKeyWrapper(Vec<u8>);
 mod old_keys {
     pub const SESSION: &str = "session";
     pub const SYNC_TOKEN: &str = "sync_token";
+    pub const MEMBERS: &str = "members";
+    pub const STRIPPED_MEMBERS: &str = "stripped_members";
+    pub const JOINED_USER_IDS: &str = "joined_user_ids";
+    pub const INVITED_USER_IDS: &str = "invited_user_ids";
+    pub const STRIPPED_JOINED_USER_IDS: &str = "stripped_joined_user_ids";
+    pub const STRIPPED_INVITED_USER_IDS: &str = "stripped_invited_user_ids";
 }
 
 pub async fn upgrade_meta_db(
@@ -199,6 +213,12 @@ pub async fn upgrade_inner_db(
             if old_version < 4 {
                 migration.merge(migrate_to_v4(&pre_db, store_cipher).await?);
             }
+            if old_version < 5 {
+                migration.merge(migrate_to_v5(&pre_db, store_cipher).await?);
+            }
+            if old_version < 6 {
+                migration.merge(migrate_to_v6(&pre_db, store_cipher).await?);
+            }
         }
 
         pre_db.close();
@@ -240,20 +260,20 @@ pub async fn upgrade_inner_db(
 pub const V1_STORES: &[&str] = &[
     old_keys::SESSION,
     keys::ACCOUNT_DATA,
-    keys::MEMBERS,
+    old_keys::MEMBERS,
     keys::PROFILES,
     keys::DISPLAY_NAMES,
-    keys::JOINED_USER_IDS,
-    keys::INVITED_USER_IDS,
+    old_keys::JOINED_USER_IDS,
+    old_keys::INVITED_USER_IDS,
     keys::ROOM_STATE,
     keys::ROOM_INFOS,
     keys::PRESENCE,
     keys::ROOM_ACCOUNT_DATA,
     keys::STRIPPED_ROOM_INFOS,
-    keys::STRIPPED_MEMBERS,
+    old_keys::STRIPPED_MEMBERS,
     keys::STRIPPED_ROOM_STATE,
-    keys::STRIPPED_JOINED_USER_IDS,
-    keys::STRIPPED_INVITED_USER_IDS,
+    old_keys::STRIPPED_JOINED_USER_IDS,
+    old_keys::STRIPPED_INVITED_USER_IDS,
     keys::ROOM_USER_RECEIPTS,
     keys::ROOM_EVENT_RECEIPTS,
     keys::MEDIA,
@@ -331,7 +351,7 @@ async fn v3_fix_store(
 
     if let Some(cursor) = cursor {
         loop {
-            let raw_json: Box<RawJsonValue> = deserialize_event(store_cipher, cursor.value())?;
+            let raw_json: Box<RawJsonValue> = deserialize_event(store_cipher, &cursor.value())?;
 
             if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
                 cursor.update(&serialize_event(store_cipher, &fixed_json)?)?.await?;
@@ -407,28 +427,204 @@ async fn migrate_to_v4(
     })
 }
 
+/// Move the member events with other state events.
+async fn migrate_to_v5(
+    db: &IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<OngoingMigration> {
+    let tx = db.transaction_on_multi_with_mode(
+        &[
+            old_keys::MEMBERS,
+            old_keys::STRIPPED_MEMBERS,
+            keys::ROOM_STATE,
+            keys::STRIPPED_ROOM_STATE,
+            keys::ROOM_INFOS,
+            keys::STRIPPED_ROOM_INFOS,
+        ],
+        IdbTransactionMode::Readwrite,
+    )?;
+
+    let members_store = tx.object_store(old_keys::MEMBERS)?;
+    let state_store = tx.object_store(keys::ROOM_STATE)?;
+    let room_infos = tx
+        .object_store(keys::ROOM_INFOS)?
+        .get_all()?
+        .await?
+        .iter()
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .collect::<Vec<_>>();
+
+    for room_info in room_infos {
+        let room_id = room_info.room_id();
+        let range = encode_to_range(store_cipher, old_keys::MEMBERS, room_id)?;
+        for value in members_store.get_all_with_key(&range)?.await?.iter() {
+            let raw_member_event =
+                deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?;
+            let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
+            let key = encode_key(
+                store_cipher,
+                keys::ROOM_STATE,
+                (room_id, StateEventType::RoomMember, state_key),
+            );
+
+            state_store.add_key_val(&key, &value)?;
+        }
+    }
+
+    let stripped_members_store = tx.object_store(old_keys::STRIPPED_MEMBERS)?;
+    let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+    let stripped_room_infos = tx
+        .object_store(keys::STRIPPED_ROOM_INFOS)?
+        .get_all()?
+        .await?
+        .iter()
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .collect::<Vec<_>>();
+
+    for room_info in stripped_room_infos {
+        let room_id = room_info.room_id();
+        let range = encode_to_range(store_cipher, old_keys::STRIPPED_MEMBERS, room_id)?;
+        for value in stripped_members_store.get_all_with_key(&range)?.await?.iter() {
+            let raw_member_event =
+                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?;
+            let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
+            let key = encode_key(
+                store_cipher,
+                keys::STRIPPED_ROOM_STATE,
+                (room_id, StateEventType::RoomMember, state_key),
+            );
+
+            stripped_state_store.add_key_val(&key, &value)?;
+        }
+    }
+
+    tx.await.into_result()?;
+
+    Ok(OngoingMigration {
+        drop_stores: [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS].into_iter().collect(),
+        create_stores: Default::default(),
+        data: Default::default(),
+    })
+}
+
+/// Remove the old user IDs stores and populate the new ones.
+async fn migrate_to_v6(
+    db: &IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<OngoingMigration> {
+    // We only have joined and invited user IDs in the old store, so instead we will
+    // use the room member events to populate the new store.
+    let tx = db.transaction_on_multi_with_mode(
+        &[keys::ROOM_STATE, keys::ROOM_INFOS, keys::STRIPPED_ROOM_STATE, keys::STRIPPED_ROOM_INFOS],
+        IdbTransactionMode::Readonly,
+    )?;
+
+    let state_store = tx.object_store(keys::ROOM_STATE)?;
+    let room_infos = tx
+        .object_store(keys::ROOM_INFOS)?
+        .get_all()?
+        .await?
+        .iter()
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .collect::<Vec<_>>();
+    let mut values = Vec::new();
+
+    for room_info in room_infos {
+        let room_id = room_info.room_id();
+        let range =
+            encode_to_range(store_cipher, keys::ROOM_STATE, (room_id, StateEventType::RoomMember))?;
+        for value in state_store.get_all_with_key(&range)?.await?.iter() {
+            let member_event = deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
+                .deserialize()?;
+            let key = encode_key(store_cipher, keys::USER_IDS, (room_id, member_event.state_key()));
+            let value = serialize_event(store_cipher, &RoomMember::from(&member_event))?;
+
+            values.push((key, value));
+        }
+    }
+
+    let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+    let stripped_room_infos = tx
+        .object_store(keys::STRIPPED_ROOM_INFOS)?
+        .get_all()?
+        .await?
+        .iter()
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .collect::<Vec<_>>();
+    let mut stripped_values = Vec::new();
+
+    for room_info in stripped_room_infos {
+        let room_id = room_info.room_id();
+        let range = encode_to_range(
+            store_cipher,
+            keys::STRIPPED_ROOM_STATE,
+            (room_id, StateEventType::RoomMember),
+        )?;
+        for value in stripped_state_store.get_all_with_key(&range)?.await?.iter() {
+            let stripped_member_event =
+                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?
+                    .deserialize()?;
+            let key = encode_key(
+                store_cipher,
+                keys::STRIPPED_USER_IDS,
+                (room_id, &stripped_member_event.state_key),
+            );
+            let value = serialize_event(store_cipher, &RoomMember::from(&stripped_member_event))?;
+
+            stripped_values.push((key, value));
+        }
+    }
+
+    tx.await.into_result()?;
+
+    let mut data = HashMap::new();
+    if !values.is_empty() {
+        data.insert(keys::USER_IDS, values);
+    }
+    if !stripped_values.is_empty() {
+        data.insert(keys::STRIPPED_USER_IDS, stripped_values);
+    }
+
+    Ok(OngoingMigration {
+        drop_stores: HashSet::from_iter([
+            old_keys::JOINED_USER_IDS,
+            old_keys::INVITED_USER_IDS,
+            old_keys::STRIPPED_JOINED_USER_IDS,
+            old_keys::STRIPPED_INVITED_USER_IDS,
+        ]),
+        create_stores: HashSet::from_iter([keys::USER_IDS, keys::STRIPPED_USER_IDS]),
+        data,
+    })
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
-    use matrix_sdk_base::{StateStore, StateStoreDataKey, StoreError};
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_base::{
+        deserialized_responses::RawMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStore,
+        StateStoreDataKey, StoreError,
+    };
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        events::{AnySyncStateEvent, StateEventType},
+        events::{
+            room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            AnySyncStateEvent, StateEventType,
+        },
         room_id,
+        serde::Raw,
+        user_id,
     };
     use serde_json::json;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
 
-    use super::{
-        old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, V1_STORES,
-    };
+    use super::{old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
     use crate::{
         safe_encode::SafeEncode,
-        state_store::{encode_key, keys, serialize_event, Result, ALL_STORES},
+        state_store::{encode_key, keys, serialize_event, Result},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };
 
@@ -441,13 +637,52 @@ mod tests {
             move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
                 let db = evt.db();
 
-                // Initialize stores.
+                // Stores common to all versions.
+                let common_stores = &[
+                    keys::ACCOUNT_DATA,
+                    keys::PROFILES,
+                    keys::DISPLAY_NAMES,
+                    keys::ROOM_STATE,
+                    keys::ROOM_INFOS,
+                    keys::PRESENCE,
+                    keys::ROOM_ACCOUNT_DATA,
+                    keys::STRIPPED_ROOM_INFOS,
+                    keys::STRIPPED_ROOM_STATE,
+                    keys::ROOM_USER_RECEIPTS,
+                    keys::ROOM_EVENT_RECEIPTS,
+                    keys::MEDIA,
+                    keys::CUSTOM,
+                ];
+
+                for name in common_stores {
+                    db.create_object_store(name)?;
+                }
+
                 if version < 4 {
-                    for name in V1_STORES {
+                    for name in [old_keys::SYNC_TOKEN, old_keys::SESSION] {
                         db.create_object_store(name)?;
                     }
-                } else {
-                    for name in ALL_STORES {
+                }
+                if version >= 4 {
+                    db.create_object_store(keys::KV)?;
+                }
+                if version < 5 {
+                    for name in [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS] {
+                        db.create_object_store(name)?;
+                    }
+                }
+                if version < 6 {
+                    for name in [
+                        old_keys::INVITED_USER_IDS,
+                        old_keys::JOINED_USER_IDS,
+                        old_keys::STRIPPED_INVITED_USER_IDS,
+                        old_keys::STRIPPED_JOINED_USER_IDS,
+                    ] {
+                        db.create_object_store(name)?;
+                    }
+                }
+                if version >= 6 {
+                    for name in [keys::USER_IDS, keys::STRIPPED_USER_IDS] {
                         db.create_object_store(name)?;
                     }
                 }
@@ -742,6 +977,220 @@ mod tests {
             .into_filter()
             .unwrap();
         assert_eq!(stored_filter_2_id, filter_2_id);
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v5() -> Result<()> {
+        let name = format!("migrating-v5-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        let room_id = room_id!("!room:localhost");
+        let member_event =
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+        let user_id = user_id!("@invited:localhost");
+
+        let stripped_room_id = room_id!("!stripped_room:localhost");
+        let stripped_member_event =
+            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_user_id = user_id!("@example:localhost");
+
+        // Populate DB with old table.
+        {
+            let db = create_fake_db(&name, 4).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[
+                    old_keys::MEMBERS,
+                    keys::ROOM_INFOS,
+                    old_keys::STRIPPED_MEMBERS,
+                    keys::STRIPPED_ROOM_INFOS,
+                ],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let members_store = tx.object_store(old_keys::MEMBERS)?;
+            members_store.put_key_val(
+                &encode_key(None, old_keys::MEMBERS, (room_id, user_id)),
+                &serialize_event(None, &member_event)?,
+            )?;
+            let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
+            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            room_infos_store.put_key_val(
+                &encode_key(None, keys::ROOM_INFOS, room_id),
+                &serialize_event(None, &room_info)?,
+            )?;
+
+            let stripped_members_store = tx.object_store(old_keys::STRIPPED_MEMBERS)?;
+            stripped_members_store.put_key_val(
+                &encode_key(None, old_keys::STRIPPED_MEMBERS, (stripped_room_id, stripped_user_id)),
+                &serialize_event(None, &stripped_member_event)?,
+            )?;
+            let stripped_room_infos_store = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            stripped_room_infos_store.put_key_val(
+                &encode_key(None, keys::STRIPPED_ROOM_INFOS, stripped_room_id),
+                &serialize_event(None, &stripped_room_info)?,
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        let stored_member_event = assert_matches!(
+            store.get_member_event(room_id, user_id).await,
+            Ok(Some(RawMemberEvent::Sync(e))) => e
+        );
+        assert_eq!(stored_member_event.json().get(), member_event.json().get());
+
+        let stored_stripped_member_event = assert_matches!(
+            store.get_member_event(stripped_room_id, stripped_user_id).await,
+            Ok(Some(RawMemberEvent::Stripped(e))) => e
+        );
+        assert_eq!(stored_stripped_member_event.json().get(), stripped_member_event.json().get());
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v6() -> Result<()> {
+        let name = format!("migrating-v6-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        let room_id = room_id!("!room:localhost");
+        let invite_member_event =
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+        let invite_user_id = user_id!("@invited:localhost");
+        let ban_member_event =
+            Raw::new(&*test_json::MEMBER_BAN).unwrap().cast::<SyncRoomMemberEvent>();
+        let ban_user_id = user_id!("@banned:localhost");
+
+        let stripped_room_id = room_id!("!stripped_room:localhost");
+        let stripped_member_event =
+            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_user_id = user_id!("@example:localhost");
+
+        // Populate DB with old table.
+        {
+            let db = create_fake_db(&name, 5).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[
+                    keys::ROOM_STATE,
+                    keys::ROOM_INFOS,
+                    keys::STRIPPED_ROOM_STATE,
+                    keys::STRIPPED_ROOM_INFOS,
+                    old_keys::INVITED_USER_IDS,
+                    old_keys::JOINED_USER_IDS,
+                    old_keys::STRIPPED_INVITED_USER_IDS,
+                    old_keys::STRIPPED_JOINED_USER_IDS,
+                ],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let state_store = tx.object_store(keys::ROOM_STATE)?;
+            state_store.put_key_val(
+                &encode_key(
+                    None,
+                    keys::ROOM_STATE,
+                    (room_id, StateEventType::RoomMember, invite_user_id),
+                ),
+                &serialize_event(None, &invite_member_event)?,
+            )?;
+            state_store.put_key_val(
+                &encode_key(
+                    None,
+                    keys::ROOM_STATE,
+                    (room_id, StateEventType::RoomMember, ban_user_id),
+                ),
+                &serialize_event(None, &ban_member_event)?,
+            )?;
+            let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
+            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            room_infos_store.put_key_val(
+                &encode_key(None, keys::ROOM_INFOS, room_id),
+                &serialize_event(None, &room_info)?,
+            )?;
+
+            let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+            stripped_state_store.put_key_val(
+                &encode_key(
+                    None,
+                    keys::STRIPPED_ROOM_STATE,
+                    (stripped_room_id, StateEventType::RoomMember, stripped_user_id),
+                ),
+                &serialize_event(None, &stripped_member_event)?,
+            )?;
+            let stripped_room_infos_store = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            stripped_room_infos_store.put_key_val(
+                &encode_key(None, keys::STRIPPED_ROOM_INFOS, stripped_room_id),
+                &serialize_event(None, &stripped_room_info)?,
+            )?;
+
+            // Populate the old user IDs stores to check the data is not reused.
+            let joined_user_id = user_id!("@joined_user:localhost");
+            tx.object_store(old_keys::JOINED_USER_IDS)?.put_key_val(
+                &encode_key(None, old_keys::JOINED_USER_IDS, (room_id, joined_user_id)),
+                &serialize_event(None, &joined_user_id)?,
+            )?;
+            let invited_user_id = user_id!("@invited_user:localhost");
+            tx.object_store(old_keys::INVITED_USER_IDS)?.put_key_val(
+                &encode_key(None, old_keys::INVITED_USER_IDS, (room_id, invited_user_id)),
+                &serialize_event(None, &invited_user_id)?,
+            )?;
+            let stripped_joined_user_id = user_id!("@stripped_joined_user:localhost");
+            tx.object_store(old_keys::STRIPPED_JOINED_USER_IDS)?.put_key_val(
+                &encode_key(
+                    None,
+                    old_keys::STRIPPED_JOINED_USER_IDS,
+                    (room_id, stripped_joined_user_id),
+                ),
+                &serialize_event(None, &stripped_joined_user_id)?,
+            )?;
+            let stripped_invited_user_id = user_id!("@stripped_invited_user:localhost");
+            tx.object_store(old_keys::STRIPPED_INVITED_USER_IDS)?.put_key_val(
+                &encode_key(
+                    None,
+                    old_keys::STRIPPED_INVITED_USER_IDS,
+                    (room_id, stripped_invited_user_id),
+                ),
+                &serialize_event(None, &stripped_invited_user_id)?,
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        assert_eq!(store.get_user_ids(room_id, RoomMemberships::JOIN).await.unwrap().len(), 0);
+        assert_eq!(
+            store.get_user_ids(room_id, RoomMemberships::INVITE).await.unwrap().as_slice(),
+            [invite_user_id.to_owned()]
+        );
+        let user_ids = store.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
+        assert_eq!(user_ids.len(), 2);
+        assert!(user_ids.contains(&invite_user_id.to_owned()));
+        assert!(user_ids.contains(&ban_user_id.to_owned()));
+
+        assert_eq!(
+            store.get_user_ids(stripped_room_id, RoomMemberships::JOIN).await.unwrap().as_slice(),
+            [stripped_user_id.to_owned()]
+        );
+        assert_eq!(
+            store.get_user_ids(stripped_room_id, RoomMemberships::INVITE).await.unwrap().len(),
+            0
+        );
+        assert_eq!(
+            store
+                .get_user_ids(stripped_room_id, RoomMemberships::empty())
+                .await
+                .unwrap()
+                .as_slice(),
+            [stripped_user_id.to_owned()]
+        );
 
         Ok(())
     }

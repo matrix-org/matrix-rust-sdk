@@ -39,7 +39,7 @@
 //! [`CryptoStore`]: trait.Cryptostore.html
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
@@ -71,7 +71,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
-    types::EventEncryptionAlgorithm,
+    types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
@@ -141,6 +141,8 @@ pub struct Changes {
     pub key_requests: Vec<GossipRequest>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+    /// Stores when a `m.room_key.withheld` is received
+    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
 }
 

@@ -97,7 +97,7 @@ async fn retry_message_decryption() {
 
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
-    let event = item.as_event().unwrap().as_remote().unwrap();
+    let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "It's a secret to everybody");
@@ -199,7 +199,7 @@ async fn retry_edit_decryption() {
     let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
 
-    let item = items[1].as_event().unwrap().as_remote().unwrap();
+    let item = items[1].as_event().unwrap();
 
     assert_matches!(item.encryption_info(), Some(_));
     let msg = assert_matches!(item.content(), TimelineItemContent::Message(msg) => msg);
@@ -389,7 +389,7 @@ async fn retry_message_decryption_highlighted() {
 
     let item =
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
-    let event = item.as_event().unwrap().as_remote().unwrap();
+    let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
     let text = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg.body());
     assert_eq!(text, "A secret to everybody but Alice");

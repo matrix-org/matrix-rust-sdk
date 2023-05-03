@@ -32,7 +32,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{client, ClientError};
+use crate::{client, ClientError, NotificationItem};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -105,10 +105,15 @@ pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
-#[derive(Clone)]
+pub trait NotificationDelegate: Sync + Send {
+    fn did_receive_notification(&self, notification: NotificationItem);
+}
+
+#[derive(Clone, uniffi::Object)]
 pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
+    notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
     /// The sliding sync proxy that the client is configured to use by default.
@@ -139,6 +144,7 @@ impl Client {
         let client = Client {
             client,
             delegate: Arc::new(RwLock::new(None)),
+            notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx: Default::default(),
@@ -161,7 +167,10 @@ impl Client {
 
         client
     }
+}
 
+#[uniffi::export]
+impl Client {
     /// Login using a username and password.
     pub fn login(
         &self,
@@ -169,7 +178,7 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let mut builder = self.client.login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
@@ -186,8 +195,9 @@ impl Client {
     pub fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
+        body: Option<String>,
         mime_type: String,
-    ) -> anyhow::Result<Arc<MediaFileHandle>> {
+    ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.client.clone();
         let source = (*media_source).clone();
         let mime_type: mime::Mime = mime_type.parse()?;
@@ -197,6 +207,7 @@ impl Client {
                 .media()
                 .get_media_file(
                     &MediaRequest { source, format: MediaFormat::File },
+                    body,
                     &mime_type,
                     true,
                 )
@@ -205,10 +216,7 @@ impl Client {
             Ok(Arc::new(MediaFileHandle { inner: handle }))
         })
     }
-}
 
-#[uniffi::export]
-impl Client {
     /// Restores the client from a `Session`.
     pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
         let Session {
@@ -241,17 +249,13 @@ impl Client {
         })
     }
 
-    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
-        *self.delegate.write().unwrap() = delegate;
-    }
-
-    pub async fn async_homeserver(&self) -> String {
+    pub(crate) async fn async_homeserver(&self) -> String {
         self.client.homeserver().await.to_string()
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub async fn authentication_issuer(&self) -> Option<String> {
+    pub(crate) async fn authentication_issuer(&self) -> Option<String> {
         self.client.authentication_issuer().await
     }
 
@@ -268,7 +272,7 @@ impl Client {
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
-    pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
+    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.client.get_login_types().await?;
         let supports_password = login_types
             .flows
@@ -278,7 +282,7 @@ impl Client {
     }
 
     /// Gets information about the owner of a given access token.
-    pub fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
+    pub(crate) fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
         RUNTIME
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
@@ -286,6 +290,10 @@ impl Client {
 
 #[uniffi::export]
 impl Client {
+    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
+        *self.delegate.write().unwrap() = delegate;
+    }
+
     pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
@@ -547,6 +555,34 @@ impl Client {
             Ok(user_profile)
         })
     }
+
+    /// Sets a notification delegate and a handler.
+    ///
+    /// The sliding sync requires to have registered m.room.member with value
+    /// $ME and m.room.power_levels to be able to intercept the events.
+    /// This function blocks execution and should be dispatched concurrently.
+    pub fn set_notification_delegate(
+        &self,
+        notification_delegate: Option<Box<dyn NotificationDelegate>>,
+    ) {
+        *self.notification_delegate.write().unwrap() = notification_delegate;
+        let notification_delegate = Arc::clone(&self.notification_delegate);
+        let handler = move |notification, room: SdkRoom, _| {
+            let notification_delegate = Arc::clone(&notification_delegate);
+            async move {
+                if let Ok(notification_item) = NotificationItem::new(notification, room).await {
+                    if let Some(notification_delegate) =
+                        notification_delegate.read().unwrap().as_ref()
+                    {
+                        notification_delegate.did_receive_notification(notification_item);
+                    }
+                }
+            }
+        };
+        RUNTIME.block_on(async move {
+            self.client.register_notification_handler(handler).await;
+        })
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -722,10 +758,12 @@ fn gen_transaction_id() -> String {
 
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
+#[derive(uniffi::Object)]
 pub struct MediaFileHandle {
     inner: SdkMediaFileHandle,
 }
 
+#[uniffi::export]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> String {

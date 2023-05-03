@@ -31,13 +31,11 @@ pub use matrix_sdk_base::crypto::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
     },
-    vodozemac, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
-    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
+    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
     SessionCreationError, SignatureError, VERSION,
 };
-use matrix_sdk_base::crypto::{
-    CrossSigningStatus, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
-};
+use matrix_sdk_base::crypto::{OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -202,6 +200,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -212,6 +211,7 @@ impl Client {
                 let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -224,6 +224,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -236,6 +237,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
+                #[rustfmt::skip] // rustfmt wants to merge the next two lines
                 let content =
                     assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))

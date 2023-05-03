@@ -1,7 +1,7 @@
 //! Types for [Matrix](https://matrix.org/) identifiers for devices,
 //! events, keys, rooms, servers, users and URIs.
 
-use napi::bindgen_prelude::ToNapiValue;
+use napi::bindgen_prelude::{FromNapiValue, ToNapiValue};
 use napi_derive::*;
 
 use crate::into_err;

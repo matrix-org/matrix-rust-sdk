@@ -35,7 +35,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     store::{Result, StateStoreExt},
-    RoomInfo, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
+    RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// `StateStore` integration tests.
@@ -125,7 +125,6 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut room_ambiguity_map = BTreeMap::new();
         let mut room_profiles = BTreeMap::new();
-        let mut room_members = BTreeMap::new();
 
         let member_json: &JsonValue = &test_json::MEMBER;
         let member_event: SyncRoomMemberEvent =
@@ -133,7 +132,6 @@ impl StateStoreIntegrationTests for DynStateStore {
         let displayname = member_event.as_original().unwrap().content.displayname.clone().unwrap();
         room_ambiguity_map.insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
         room_profiles.insert(user_id.to_owned(), (&member_event).into());
-        room_members.insert(user_id.to_owned(), Raw::new(&member_json).unwrap().cast());
 
         let member_state_raw =
             serde_json::from_value::<Raw<AnySyncStateEvent>>(member_json.clone()).unwrap();
@@ -146,8 +144,6 @@ impl StateStoreIntegrationTests for DynStateStore {
             serde_json::from_value(invited_member_json.clone()).unwrap();
         room_ambiguity_map.entry(displayname).or_default().insert(invited_user_id.to_owned());
         room_profiles.insert(invited_user_id.to_owned(), (&invited_member_event).into());
-        room_members
-            .insert(invited_user_id.to_owned(), Raw::new(&invited_member_json).unwrap().cast());
 
         let invited_member_state_raw =
             serde_json::from_value::<Raw<AnySyncStateEvent>>(invited_member_json.clone()).unwrap();
@@ -165,7 +161,6 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         changes.ambiguity_maps.insert(room_id.to_owned(), room_ambiguity_map);
         changes.profiles.insert(room_id.to_owned(), room_profiles);
-        changes.members.insert(room_id.to_owned(), room_members);
         changes.add_room(room);
 
         let mut stripped_room = RoomInfo::new(stripped_room_id, RoomState::Invited);
@@ -335,17 +330,17 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.get_profile(room_id, user_id).await?.is_some());
         assert!(self.get_member_event(room_id, user_id).await?.is_some());
         assert_eq!(
-            self.get_user_ids(room_id).await?.len(),
+            self.get_user_ids(room_id, RoomMemberships::empty()).await?.len(),
             2,
             "Expected to find 2 members for room"
         );
         assert_eq!(
-            self.get_invited_user_ids(room_id).await?.len(),
+            self.get_user_ids(room_id, RoomMemberships::INVITE).await?.len(),
             1,
             "Expected to find 1 invited user ids"
         );
         assert_eq!(
-            self.get_joined_user_ids(room_id).await?.len(),
+            self.get_user_ids(room_id, RoomMemberships::JOIN).await?.len(),
             1,
             "Expected to find 1 joined user ids"
         );
@@ -389,15 +384,17 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
         let mut changes = StateChanges::default();
         changes
-            .members
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.to_owned(), membership_event());
+            .entry(StateEventType::RoomMember)
+            .or_default()
+            .insert(user_id.into(), membership_event().cast());
 
         self.save_changes(&changes).await.unwrap();
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
 
-        let members = self.get_user_ids(room_id).await.unwrap();
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert!(!members.is_empty(), "We expected to find members for the room")
     }
 
@@ -459,15 +456,17 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
         let mut changes = StateChanges::default();
         changes
-            .stripped_members
+            .stripped_state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.to_owned(), stripped_membership_event());
+            .entry(StateEventType::RoomMember)
+            .or_default()
+            .insert(user_id.into(), stripped_membership_event().cast());
 
         self.save_changes(&changes).await.unwrap();
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
 
-        let members = self.get_user_ids(room_id).await.unwrap();
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert!(!members.is_empty(), "We expected to find members for the room")
     }
 
@@ -760,10 +759,12 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut changes = StateChanges::default();
         changes
-            .members
+            .state
             .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.to_owned(), membership_event());
+            .entry(StateEventType::RoomMember)
+            .or_default()
+            .insert(user_id.into(), membership_event().cast());
         changes.add_room(RoomInfo::new(room_id, RoomState::Left));
         self.save_changes(&changes).await.unwrap();
 
@@ -773,7 +774,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
         assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 0);
 
-        let members = self.get_user_ids(room_id).await.unwrap();
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
 
         let mut changes = StateChanges::default();
@@ -787,7 +788,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(self.get_room_infos().await.unwrap().len(), 0);
         assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 1);
 
-        let members = self.get_user_ids(room_id).await.unwrap();
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
 
         Ok(())
@@ -812,12 +813,18 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         assert!(self.get_profile(room_id, user_id).await?.is_none());
         assert!(self.get_member_event(room_id, user_id).await?.is_none());
-        assert!(self.get_user_ids(room_id).await?.is_empty(), "still user ids found");
         assert!(
-            self.get_invited_user_ids(room_id).await?.is_empty(),
+            self.get_user_ids(room_id, RoomMemberships::empty()).await?.is_empty(),
+            "still user ids found"
+        );
+        assert!(
+            self.get_user_ids(room_id, RoomMemberships::INVITE).await?.is_empty(),
             "still invited user ids found"
         );
-        assert!(self.get_joined_user_ids(room_id).await?.is_empty(), "still joined users found");
+        assert!(
+            self.get_user_ids(room_id, RoomMemberships::JOIN).await?.is_empty(),
+            "still joined users found"
+        );
         assert!(
             self.get_users_with_display_name(room_id, "example").await?.is_empty(),
             "still display names found"

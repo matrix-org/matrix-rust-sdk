@@ -39,19 +39,21 @@ jobs:
       matrix:
         include:
           # ----------------------------------- Linux
+          # Use Ubuntu LTS-1 for broader glibc compatibility.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-20.04
           - target: i686-unknown-linux-gnu
             apt_install: gcc-i686-linux-gnu g++-i686-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-20.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-20.04
             apt_install: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           - target: arm-unknown-linux-gnueabihf
-            os: ubuntu-latest
+            os: ubuntu-20.04
             apt_install: gcc-arm-linux-gnueabihf
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-20.04
+            apt_install: musl-tools
           # ----------------------------------- macOS
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -81,8 +83,6 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install Node.js
         uses: actions/setup-node@v3
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
       - if: ${{ matrix.apt_install }}
         run: |
           sudo apt-get update

@@ -25,7 +25,7 @@ use matrix_sdk_base::{
     deserialized_responses::RawMemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo, StateStoreDataKey, StateStoreDataValue,
+    MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -33,14 +33,16 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{MembershipState, RoomMemberEventContent},
+        room::member::{
+            MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
@@ -92,11 +94,9 @@ mod keys {
 
     pub const ACCOUNT_DATA: &str = "account_data";
 
-    pub const MEMBERS: &str = "members";
     pub const PROFILES: &str = "profiles";
     pub const DISPLAY_NAMES: &str = "display_names";
-    pub const JOINED_USER_IDS: &str = "joined_user_ids";
-    pub const INVITED_USER_IDS: &str = "invited_user_ids";
+    pub const USER_IDS: &str = "user_ids";
 
     pub const ROOM_STATE: &str = "room_state";
     pub const ROOM_INFOS: &str = "room_infos";
@@ -104,10 +104,8 @@ mod keys {
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
 
     pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
-    pub const STRIPPED_MEMBERS: &str = "stripped_members";
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
-    pub const STRIPPED_JOINED_USER_IDS: &str = "stripped_joined_user_ids";
-    pub const STRIPPED_INVITED_USER_IDS: &str = "stripped_invited_user_ids";
+    pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
 
     pub const ROOM_USER_RECEIPTS: &str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
@@ -120,20 +118,16 @@ mod keys {
     /// All names of the current state stores for convenience.
     pub const ALL_STORES: &[&str] = &[
         ACCOUNT_DATA,
-        MEMBERS,
         PROFILES,
         DISPLAY_NAMES,
-        JOINED_USER_IDS,
-        INVITED_USER_IDS,
+        USER_IDS,
         ROOM_STATE,
         ROOM_INFOS,
         PRESENCE,
         ROOM_ACCOUNT_DATA,
         STRIPPED_ROOM_INFOS,
-        STRIPPED_MEMBERS,
         STRIPPED_ROOM_STATE,
-        STRIPPED_JOINED_USER_IDS,
-        STRIPPED_INVITED_USER_IDS,
+        STRIPPED_USER_IDS,
         ROOM_USER_RECEIPTS,
         ROOM_EVENT_RECEIPTS,
         MEDIA,
@@ -157,7 +151,7 @@ fn serialize_event(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -
 
 fn deserialize_event<T: DeserializeOwned>(
     store_cipher: Option<&StoreCipher>,
-    event: JsValue,
+    event: &JsValue,
 ) -> Result<T> {
     match store_cipher {
         Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
@@ -300,7 +294,7 @@ impl IndexeddbStateStore {
         serialize_event(self.store_cipher.as_deref(), event)
     }
 
-    fn deserialize_event<T: DeserializeOwned>(&self, event: JsValue) -> Result<T> {
+    fn deserialize_event<T: DeserializeOwned>(&self, event: &JsValue) -> Result<T> {
         deserialize_event(self.store_cipher.as_deref(), event)
     }
 
@@ -318,85 +312,52 @@ impl IndexeddbStateStore {
         encode_to_range(self.store_cipher.as_deref(), table_name, key)
     }
 
-    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok([
-            self.get_invited_user_ids_inner(room_id).await?,
-            self.get_joined_user_ids_inner(room_id).await?,
-        ]
-        .concat())
-    }
-
-    pub async fn get_invited_user_ids_inner(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(keys::INVITED_USER_IDS, room_id)?;
-        let entries = self
-            .inner
-            .transaction_on_one_with_mode(keys::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
-            .object_store(keys::INVITED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>();
-
-        Ok(entries)
-    }
-
-    pub async fn get_joined_user_ids_inner(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(keys::JOINED_USER_IDS, room_id)?;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(keys::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
-            .object_store(keys::JOINED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>())
-    }
-
-    pub async fn get_stripped_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok([
-            self.get_stripped_invited_user_ids(room_id).await?,
-            self.get_stripped_joined_user_ids(room_id).await?,
-        ]
-        .concat())
-    }
-
-    pub async fn get_stripped_invited_user_ids(
+    /// Get user IDs for the given room with the given memberships and stripped
+    /// state.
+    pub async fn get_user_ids_inner(
         &self,
         room_id: &RoomId,
+        memberships: RoomMemberships,
+        stripped: bool,
     ) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(keys::STRIPPED_INVITED_USER_IDS, room_id)?;
-        let entries = self
-            .inner
-            .transaction_on_one_with_mode(
-                keys::STRIPPED_INVITED_USER_IDS,
-                IdbTransactionMode::Readonly,
-            )?
-            .object_store(keys::STRIPPED_INVITED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>();
+        let store_name = if stripped { keys::STRIPPED_USER_IDS } else { keys::USER_IDS };
 
-        Ok(entries)
-    }
+        let tx =
+            self.inner.transaction_on_one_with_mode(store_name, IdbTransactionMode::Readonly)?;
+        let store = tx.object_store(store_name)?;
+        let range = self.encode_to_range(store_name, room_id)?;
 
-    pub async fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let range = self.encode_to_range(keys::STRIPPED_JOINED_USER_IDS, room_id)?;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(
-                keys::STRIPPED_JOINED_USER_IDS,
-                IdbTransactionMode::Readonly,
-            )?
-            .object_store(keys::STRIPPED_JOINED_USER_IDS)?
-            .get_all_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
-            .collect::<Vec<_>>())
+        let user_ids = if memberships.is_empty() {
+            // It should be faster to just get all user IDs in this case.
+            store
+                .get_all_with_key(&range)?
+                .await?
+                .iter()
+                .filter_map(|f| self.deserialize_event::<RoomMember>(&f).ok().map(|m| m.user_id))
+                .collect::<Vec<_>>()
+        } else {
+            let mut user_ids = Vec::new();
+            let cursor = store.open_cursor_with_range(&range)?.await?;
+
+            if let Some(cursor) = cursor {
+                loop {
+                    let value = cursor.value();
+                    let member = self.deserialize_event::<RoomMember>(&value)?;
+
+                    if memberships.matches(&member.membership) {
+                        user_ids.push(member.user_id);
+                    }
+
+                    if !cursor.continue_cursor()?.await? {
+                        break;
+                    }
+                }
+            }
+
+            user_ids
+        };
+
+        Ok(user_ids)
     }
 
     async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
@@ -405,7 +366,7 @@ impl IndexeddbStateStore {
             .object_store(keys::CUSTOM)?
             .get(jskey)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -469,7 +430,7 @@ impl_state_store! {
             .object_store(keys::KV)?
             .get(&encoded_key)?
             .await?
-            .map(|f| self.deserialize_event::<String>(f))
+            .map(|f| self.deserialize_event::<String>(&f))
             .transpose()?;
 
         let value = match key {
@@ -537,14 +498,19 @@ impl_state_store! {
             (!changes.profiles.is_empty(), keys::PROFILES),
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
-            (!changes.stripped_state.is_empty(), keys::STRIPPED_ROOM_STATE),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
         .collect();
 
         if !changes.state.is_empty() {
-            stores.extend([keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE]);
+            stores.extend([
+                keys::ROOM_STATE,
+                keys::USER_IDS,
+                keys::STRIPPED_USER_IDS,
+                keys::STRIPPED_ROOM_STATE,
+                keys::PROFILES,
+            ]);
         }
 
         if !changes.redactions.is_empty() {
@@ -555,24 +521,11 @@ impl_state_store! {
             stores.extend([keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS]);
         }
 
-        if !changes.members.is_empty() {
+        if !changes.stripped_state.is_empty() {
             stores.extend([
-                keys::PROFILES,
-                keys::MEMBERS,
-                keys::INVITED_USER_IDS,
-                keys::JOINED_USER_IDS,
-                keys::STRIPPED_MEMBERS,
-                keys::STRIPPED_INVITED_USER_IDS,
-                keys::STRIPPED_JOINED_USER_IDS,
-            ])
-        }
-
-        if !changes.stripped_members.is_empty() {
-            stores.extend([
-                keys::STRIPPED_MEMBERS,
-                keys::STRIPPED_INVITED_USER_IDS,
-                keys::STRIPPED_JOINED_USER_IDS,
-            ])
+                keys::STRIPPED_ROOM_STATE,
+                keys::STRIPPED_USER_IDS,
+            ]);
         }
 
         if !changes.receipts.is_empty() {
@@ -628,13 +581,48 @@ impl_state_store! {
 
         if !changes.state.is_empty() {
             let state = tx.object_store(keys::ROOM_STATE)?;
+            let profiles = tx.object_store(keys::PROFILES)?;
+            let user_ids = tx.object_store(keys::USER_IDS)?;
             let stripped_state = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+            let stripped_user_ids = tx.object_store(keys::STRIPPED_USER_IDS)?;
+
             for (room, event_types) in &changes.state {
+                let profile_changes = changes.profiles.get(room);
+
                 for (event_type, events) in event_types {
-                    for (state_key, event) in events {
+                    for (state_key, raw_event) in events {
                         let key = self.encode_key(keys::ROOM_STATE, (room, event_type, state_key));
-                        state.put_key_val(&key, &self.serialize_event(&event)?)?;
+                        state.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
                         stripped_state.delete(&key)?;
+
+                        if *event_type == StateEventType::RoomMember {
+                            let event = match raw_event.deserialize_as::<SyncRoomMemberEvent>() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(event_id, "Failed to deserialize member event: {e}");
+                                    continue;
+                                }
+                            };
+
+                            let key = (room, state_key);
+
+                            stripped_user_ids
+                                .delete(&self.encode_key(keys::STRIPPED_USER_IDS, key))?;
+
+                            user_ids.put_key_val_owned(
+                                        &self.encode_key(keys::USER_IDS, key),
+                                        &self.serialize_event(&RoomMember::from(&event))?,
+                                    )?;
+
+                            if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
+                                profiles.put_key_val_owned(
+                                    &self.encode_key(keys::PROFILES, key),
+                                    &self.serialize_event(&profile)?,
+                                )?;
+                            }
+                        }
                     }
                 }
             }
@@ -674,129 +662,35 @@ impl_state_store! {
             }
         }
 
-        if !changes.stripped_members.is_empty() {
-            let store = tx.object_store(keys::STRIPPED_MEMBERS)?;
-            let joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
-            let invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
-            for (room, raw_events) in &changes.stripped_members {
-                for raw_event in raw_events.values() {
-                    let event = match raw_event.deserialize() {
-                        Ok(ev) => ev,
-                        Err(e) => {
-                            let event_id: Option<String> =
-                                raw_event.get_field("event_id").ok().flatten();
-                            debug!(event_id, "Failed to deserialize stripped member event: {e}");
-                            continue;
-                        }
-                    };
-
-                    let key = (room, &event.state_key);
-
-                    match event.content.membership {
-                        MembershipState::Join => {
-                            joined.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
-                            )?;
-                            invited
-                                .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-                        }
-                        MembershipState::Invite => {
-                            invited.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
-                            )?;
-                            joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                        }
-                        _ => {
-                            joined.delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                            invited
-                                .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-                        }
-                    }
-                    store.put_key_val(
-                        &self.encode_key(keys::STRIPPED_MEMBERS, key),
-                        &self.serialize_event(&raw_event)?,
-                    )?;
-                }
-            }
-        }
-
         if !changes.stripped_state.is_empty() {
             let store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+            let user_ids = tx.object_store(keys::STRIPPED_USER_IDS)?;
+
             for (room, event_types) in &changes.stripped_state {
                 for (event_type, events) in event_types {
-                    for (state_key, event) in events {
+                    for (state_key, raw_event) in events {
                         let key = self
                             .encode_key(keys::STRIPPED_ROOM_STATE, (room, event_type, state_key));
-                        store.put_key_val(&key, &self.serialize_event(&event)?)?;
-                    }
-                }
-            }
-        }
+                        store.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
 
-        if !changes.members.is_empty() {
-            let profiles = tx.object_store(keys::PROFILES)?;
-            let joined = tx.object_store(keys::JOINED_USER_IDS)?;
-            let invited = tx.object_store(keys::INVITED_USER_IDS)?;
-            let members = tx.object_store(keys::MEMBERS)?;
-            let stripped_members = tx.object_store(keys::STRIPPED_MEMBERS)?;
-            let stripped_joined = tx.object_store(keys::STRIPPED_JOINED_USER_IDS)?;
-            let stripped_invited = tx.object_store(keys::STRIPPED_INVITED_USER_IDS)?;
+                        if *event_type == StateEventType::RoomMember {
+                            let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(event_id, "Failed to deserialize stripped member event: {e}");
+                                    continue;
+                                }
+                            };
 
-            for (room, raw_events) in &changes.members {
-                let profile_changes = changes.profiles.get(room);
+                            let key = (room, state_key);
 
-                for raw_event in raw_events.values() {
-                    let event = match raw_event.deserialize() {
-                        Ok(ev) => ev,
-                        Err(e) => {
-                            let event_id: Option<String> =
-                                raw_event.get_field("event_id").ok().flatten();
-                            debug!(event_id, "Failed to deserialize member event: {e}");
-                            continue;
-                        }
-                    };
-
-                    let key = (room, event.state_key());
-
-                    stripped_joined
-                        .delete(&self.encode_key(keys::STRIPPED_JOINED_USER_IDS, key))?;
-                    stripped_invited
-                        .delete(&self.encode_key(keys::STRIPPED_INVITED_USER_IDS, key))?;
-
-                    match event.membership() {
-                        MembershipState::Join => {
-                            joined.put_key_val_owned(
-                                &self.encode_key(keys::JOINED_USER_IDS, key),
-                                &self.serialize_event(event.state_key())?,
+                            user_ids.put_key_val_owned(
+                                &self.encode_key(keys::STRIPPED_USER_IDS, key),
+                                &self.serialize_event(&RoomMember::from(&event))?,
                             )?;
-                            invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
                         }
-                        MembershipState::Invite => {
-                            invited.put_key_val_owned(
-                                &self.encode_key(keys::INVITED_USER_IDS, key),
-                                &self.serialize_event(event.state_key())?,
-                            )?;
-                            joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
-                        }
-                        _ => {
-                            joined.delete(&self.encode_key(keys::JOINED_USER_IDS, key))?;
-                            invited.delete(&self.encode_key(keys::INVITED_USER_IDS, key))?;
-                        }
-                    }
-
-                    members.put_key_val_owned(
-                        &self.encode_key(keys::MEMBERS, key),
-                        &self.serialize_event(&raw_event)?,
-                    )?;
-                    stripped_members.delete(&self.encode_key(keys::STRIPPED_MEMBERS, key))?;
-
-                    if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
-                        profiles.put_key_val_owned(
-                            &self.encode_key(keys::PROFILES, key),
-                            &self.serialize_event(&profile)?,
-                        )?;
                     }
                 }
             }
@@ -823,7 +717,7 @@ impl_state_store! {
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
-                                    self.deserialize_event::<(OwnedEventId, Receipt)>(f).ok()
+                                    self.deserialize_event::<(OwnedEventId, Receipt)>(&f).ok()
                                 })
                             {
                                 let key = match receipt.thread.as_str() {
@@ -873,7 +767,7 @@ impl_state_store! {
 
                 while let Some(key) = cursor.key() {
                     let raw_evt =
-                        self.deserialize_event::<Raw<AnySyncStateEvent>>(cursor.value())?;
+                        self.deserialize_event::<Raw<AnySyncStateEvent>>(&cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
                         if let Some(redaction) = redactions.get(&event_id) {
                             let version = {
@@ -881,7 +775,7 @@ impl_state_store! {
                                     room_version.replace(room_info
                                         .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
                                         .await?
-                                        .and_then(|f| self.deserialize_event::<RoomInfo>(f).ok())
+                                        .and_then(|f| self.deserialize_event::<RoomInfo>(&f).ok())
                                         .and_then(|info| info.room_version().cloned())
                                         .unwrap_or_else(|| {
                                             warn!(?room_id, "Unable to find the room version, assume version 9");
@@ -917,7 +811,7 @@ impl_state_store! {
             .object_store(keys::PRESENCE)?
             .get(&self.encode_key(keys::PRESENCE, user_id))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -932,7 +826,7 @@ impl_state_store! {
             .object_store(keys::ROOM_STATE)?
             .get(&self.encode_key(keys::ROOM_STATE, (room_id, event_type, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -949,7 +843,7 @@ impl_state_store! {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -963,7 +857,7 @@ impl_state_store! {
             .object_store(keys::PROFILES)?
             .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -974,21 +868,21 @@ impl_state_store! {
     ) -> Result<Option<RawMemberEvent>> {
         if let Some(e) = self
             .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_MEMBERS)?
-            .get(&self.encode_key(keys::STRIPPED_MEMBERS, (room_id, state_key)))?
+            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::STRIPPED_ROOM_STATE)?
+            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()?
         {
             Ok(Some(RawMemberEvent::Stripped(e)))
         } else if let Some(e) = self
             .inner
-            .transaction_on_one_with_mode(keys::MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(keys::MEMBERS)?
-            .get(&self.encode_key(keys::MEMBERS, (room_id, state_key)))?
+            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::ROOM_STATE)?
+            .get(&self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()?
         {
             Ok(Some(RawMemberEvent::Sync(e)))
@@ -1005,7 +899,7 @@ impl_state_store! {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<RoomInfo>(f).ok())
+            .filter_map(|f| self.deserialize_event::<RoomInfo>(&f).ok())
             .collect();
 
         Ok(entries)
@@ -1019,7 +913,7 @@ impl_state_store! {
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>();
 
         Ok(entries)
@@ -1035,7 +929,7 @@ impl_state_store! {
             .object_store(keys::DISPLAY_NAMES)?
             .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
-            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(f))
+            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
@@ -1048,7 +942,7 @@ impl_state_store! {
             .object_store(keys::ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ACCOUNT_DATA, event_type))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -1062,7 +956,7 @@ impl_state_store! {
             .object_store(keys::ROOM_ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -1083,7 +977,7 @@ impl_state_store! {
             .object_store(keys::ROOM_USER_RECEIPTS)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -1113,7 +1007,7 @@ impl_state_store! {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -1136,7 +1030,7 @@ impl_state_store! {
             .object_store(keys::MEDIA)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(f))
+            .map(|f| self.deserialize_event(&f))
             .transpose()
     }
 
@@ -1201,17 +1095,15 @@ impl_state_store! {
         let direct_stores = [keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS];
 
         let prefixed_stores = [
-            keys::MEMBERS,
             keys::PROFILES,
             keys::DISPLAY_NAMES,
-            keys::INVITED_USER_IDS,
-            keys::JOINED_USER_IDS,
+            keys::USER_IDS,
             keys::ROOM_STATE,
             keys::ROOM_ACCOUNT_DATA,
             keys::ROOM_EVENT_RECEIPTS,
             keys::ROOM_USER_RECEIPTS,
             keys::STRIPPED_ROOM_STATE,
-            keys::STRIPPED_MEMBERS,
+            keys::STRIPPED_USER_IDS,
         ];
 
         let all_stores = {
@@ -1239,28 +1131,39 @@ impl_state_store! {
         tx.await.into_result().map_err(|e| e.into())
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_stripped_user_ids_stream(room_id).await?;
+    async fn get_user_ids(&self, room_id: &RoomId, memberships: RoomMemberships) -> Result<Vec<OwnedUserId>> {
+        let ids = self.get_user_ids_inner(room_id, memberships, true).await?;
         if !ids.is_empty() {
             return Ok(ids);
         }
-        self.get_user_ids_stream(room_id).await
+        self.get_user_ids_inner(room_id, memberships, false).await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_stripped_invited_user_ids(room_id).await?;
-        if !ids.is_empty() {
-            return Ok(ids);
-        }
-        self.get_invited_user_ids_inner(room_id).await
+        self.get_user_ids(room_id, RoomMemberships::INVITE).await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        let ids: Vec<OwnedUserId> = self.get_stripped_joined_user_ids(room_id).await?;
-        if !ids.is_empty() {
-            return Ok(ids);
-        }
-        self.get_joined_user_ids_inner(room_id).await
+        self.get_user_ids(room_id, RoomMemberships::JOIN).await
+    }
+}
+
+/// A room member.
+#[derive(Debug, Serialize, Deserialize)]
+struct RoomMember {
+    user_id: OwnedUserId,
+    membership: MembershipState,
+}
+
+impl From<&SyncStateEvent<RoomMemberEventContent>> for RoomMember {
+    fn from(event: &SyncStateEvent<RoomMemberEventContent>) -> Self {
+        Self { user_id: event.state_key().clone(), membership: event.membership().clone() }
+    }
+}
+
+impl From<&StrippedRoomMemberEvent> for RoomMember {
+    fn from(event: &StrippedRoomMemberEvent) -> Self {
+        Self { user_id: event.state_key.clone(), membership: event.content.membership.clone() }
     }
 }
 

@@ -6,7 +6,7 @@ use matrix_sdk_crypto::requests::{
     KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
     RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
 };
-use napi::bindgen_prelude::{Either7, ToNapiValue};
+use napi::bindgen_prelude::{Either7, FromNapiValue, ToNapiValue};
 use napi_derive::*;
 use ruma::{
     api::client::keys::{

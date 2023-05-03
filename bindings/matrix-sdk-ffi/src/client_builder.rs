@@ -13,9 +13,9 @@ use sanitize_filename_reader_friendly::sanitize;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
-use crate::helpers::unwrap_or_clone_arc;
+use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
@@ -30,6 +30,11 @@ pub struct ClientBuilder {
 
 #[uniffi::export]
 impl ClientBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.base_path = Some(path);
@@ -77,24 +82,14 @@ impl ClientBuilder {
         builder.sliding_sync_proxy = sliding_sync_proxy;
         Arc::new(builder)
     }
+
+    pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
+        Ok(self.build_inner()?)
+    }
 }
 
 impl ClientBuilder {
-    pub fn new() -> Self {
-        Self {
-            base_path: None,
-            username: None,
-            server_name: None,
-            homeserver_url: None,
-            server_versions: None,
-            passphrase: Zeroizing::new(None),
-            user_agent: None,
-            sliding_sync_proxy: None,
-            inner: MatrixClient::builder(),
-        }
-    }
-
-    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
+    pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
 
@@ -162,6 +157,16 @@ impl ClientBuilder {
 
 impl Default for ClientBuilder {
     fn default() -> Self {
-        Self::new()
+        Self {
+            base_path: None,
+            username: None,
+            server_name: None,
+            homeserver_url: None,
+            server_versions: None,
+            passphrase: Zeroizing::new(None),
+            user_agent: None,
+            sliding_sync_proxy: None,
+            inner: MatrixClient::builder(),
+        }
     }
 }

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt,
     path::{Path, PathBuf},
@@ -27,6 +28,7 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session,
     },
     store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
@@ -111,26 +113,43 @@ impl SqliteCryptoStore {
         })
     }
 
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = rmp_serde::to_vec_named(value)?;
-
+    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
         if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(serialized)?;
+            let encrypted = key.encrypt_value_data(value)?;
             Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
-            Ok(serialized)
+            Ok(value)
         }
     }
 
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
         if let Some(key) = &self.store_cipher {
             let encrypted = rmp_serde::from_slice(value)?;
             let decrypted = key.decrypt_value_data(encrypted)?;
-
-            Ok(rmp_serde::from_slice(&decrypted)?)
+            Ok(Cow::Owned(decrypted))
         } else {
-            Ok(rmp_serde::from_slice(value)?)
+            Ok(Cow::Borrowed(value))
         }
+    }
+
+    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = serde_json::to_vec(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(data)?;
+        Ok(serde_json::from_slice(&decoded)?)
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = rmp_serde::to_vec_named(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(value)?;
+        Ok(rmp_serde::from_slice(&decoded)?)
     }
 
     fn deserialize_pickled_inbound_group_session(
@@ -171,7 +190,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 6;
 
 async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
     let kv_exists = conn
@@ -209,20 +228,47 @@ async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| txn.execute_batch(include_str!("../migrations/001_init.sql")))
-            .await?;
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))
+        })
+        .await?;
     }
 
     if version < 2 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/002_reset_olm_hash.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))
         })
         .await?;
     }
 
     if version < 3 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/003_room_settings.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))
+        })
+        .await?;
+    }
+
+    if version < 4 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
+            ))
+        })
+        .await?;
+    }
+
+    if version < 5 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))
+        })
+        .await?;
+    }
+
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
+            ))
         })
         .await?;
     }
@@ -261,6 +307,13 @@ trait SqliteConnectionExt {
         &self,
         request_id: &[u8],
         sent_out: bool,
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
         data: &[u8],
     ) -> rusqlite::Result<()>;
 
@@ -353,6 +406,21 @@ impl SqliteConnectionExt for rusqlite::Connection {
             VALUES (?1, ?2, ?3)
             ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
             (request_id, sent_out, data),
+        )?;
+        Ok(())
+    }
+
+    fn set_direct_withheld(
+        &self,
+        session_id: &[u8],
+        room_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO direct_withheld_info (session_id, room_id, data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (session_id) DO UPDATE SET room_id = ?2, data = ?3",
+            (session_id, room_id, data),
         )?;
         Ok(())
     }
@@ -534,6 +602,21 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
         Ok(())
     }
 
+    async fn get_direct_withheld_info(
+        &self,
+        session_id: Key,
+        room_id: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
+                (session_id, room_id),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
+    }
+
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
@@ -702,7 +785,7 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for (room_id, pickle) in &outbound_session_changes {
-                    let serialized_session = this.serialize_value(&pickle)?;
+                    let serialized_session = this.serialize_json(&pickle)?;
                     txn.set_outbound_group_session(room_id, &serialized_session)?;
                 }
 
@@ -715,6 +798,15 @@ impl CryptoStore for SqliteCryptoStore {
                     let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
                     let serialized_request = this.serialize_value(&request)?;
                     txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                }
+
+                for (room_id, data) in changes.withheld_session_info {
+                    for (session_id, event) in data {
+                        let session_id = this.encode_key("direct_withheld_info", session_id);
+                        let room_id = this.encode_key("direct_withheld_info", &room_id);
+                        let serialized_info = this.serialize_json(&event)?;
+                        txn.set_direct_withheld(&session_id, &room_id, &serialized_info)?;
+                    }
                 }
 
                 for (room_id, settings) in changes.room_settings {
@@ -847,7 +939,7 @@ impl CryptoStore for SqliteCryptoStore {
 
         let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
 
-        let pickle = self.deserialize_value(&value)?;
+        let pickle = self.deserialize_json(&value)?;
         let session = OutboundGroupSession::from_pickle(
             account_info.device_id,
             account_info.identity_keys,
@@ -978,6 +1070,25 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let request_id = self.encode_key("key_requests", request_id.as_bytes());
         Ok(self.acquire().await?.delete_key_request(request_id).await?)
+    }
+
+    async fn get_withheld_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<Option<RoomKeyWithheldEvent>> {
+        let room_id = self.encode_key("direct_withheld_info", room_id);
+        let session_id = self.encode_key("direct_withheld_info", session_id);
+
+        self.acquire()
+            .await?
+            .get_direct_withheld_info(session_id, room_id)
+            .await?
+            .map(|value| {
+                let info = self.deserialize_json::<RoomKeyWithheldEvent>(&value)?;
+                Ok(info)
+            })
+            .transpose()
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
