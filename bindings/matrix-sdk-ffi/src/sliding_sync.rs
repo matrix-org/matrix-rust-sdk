@@ -754,12 +754,12 @@ impl SlidingSync {
         self.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
     }
 
-    pub fn add_common_extensions(&self) {
-        self.inner.add_common_extensions();
-    }
-
     pub fn reset_lists(&self) -> Result<(), SlidingSyncError> {
         self.inner.reset_lists().map_err(Into::into)
+    }
+
+    pub fn add_common_extensions(&self) {
+        self.inner.add_common_extensions();
     }
 
     pub fn sync(&self) -> Arc<TaskHandle> {
