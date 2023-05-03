@@ -87,7 +87,7 @@ impl From<SigningKeysUploadResponse> for OwnedResponse {
 impl TryFrom<(RequestType, http::Response<Vec<u8>>)> for OwnedResponse {
     type Error = JsError;
 
-    /// Convert an http response object into the underlying ruma model of the
+    /// Convert an HTTP response object into the underlying ruma model of the
     /// response, and wrap as an OwnedResponse.
     ///
     /// (This is used in
@@ -132,10 +132,10 @@ impl TryFrom<(RequestType, http::Response<Vec<u8>>)> for OwnedResponse {
             RequestType::SigningKeysUpload => {
                 // SigningKeysUploadResponse::try_from_http_response returns a
                 // FromHttpResponseError<UiaaResponse> instead of a
-                // ruma_client_api::error::Error, so we have to hande it
+                // ruma_client_api::error::Error, so we have to handle it
                 // separately. In practice, the application is supposed to
                 // have dealt with UIA before we get here, so we just map it straight into a
-                // regular JsError anyway.
+                // regular `JsError` anyway.
                 return SigningKeysUploadResponse::try_from_http_response(response)
                     .map(Into::into)
                     .map_err(JsError::from);

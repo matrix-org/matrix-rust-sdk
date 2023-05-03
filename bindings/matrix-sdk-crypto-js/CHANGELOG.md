@@ -1,7 +1,9 @@
-# v0.1.0-alpha.8
+# v0.1.0-alpha.9
 
 -   Extend `OlmDevice.markRequestAsSent` to accept responses to
     `SigningKeysUploadRequest`s.
+
+# v0.1.0-alpha.8
 -   `importCrossSigningKeys`: change the parameters to be individual keys
     rather than a `CrossSigningKeyExport` object.
 -   Make `unused_fallback_keys` optional in `Machine.receive_sync_changes`
