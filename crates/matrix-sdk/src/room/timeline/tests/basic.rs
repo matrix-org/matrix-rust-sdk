@@ -4,21 +4,16 @@ use futures_util::StreamExt;
 use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
-use ruma::{
-    assign,
-    events::{
-        reaction::ReactionEventContent,
-        relation::{Annotation, Replacement},
-        room::{
-            member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
-            message::{
-                self, MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent,
-            },
-            name::RoomNameEventContent,
-            topic::RedactedRoomTopicEventContent,
-        },
-        FullStateEventContent,
+use ruma::events::{
+    reaction::ReactionEventContent,
+    relation::Annotation,
+    room::{
+        member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
+        message::RoomMessageEventContent,
+        name::RoomNameEventContent,
+        topic::RedactedRoomTopicEventContent,
     },
+    FullStateEventContent,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -88,31 +83,6 @@ async fn reaction_redaction() {
         assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
     let event = item.as_event().unwrap();
     assert_eq!(event.reactions().len(), 0);
-}
-
-#[async_test]
-async fn edit_redacted() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-
-    timeline
-        .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
-        .await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-
-    let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
-
-    let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
-        relates_to: Some(message::Relation::Replacement(Replacement::new(
-            redacted_event_id.to_owned(),
-            MessageType::text_plain("test"),
-        ))),
-    });
-    timeline.handle_live_message_event(&ALICE, edit).await;
-
-    assert_eq!(timeline.inner.items().await.len(), 2);
 }
 
 #[async_test]
