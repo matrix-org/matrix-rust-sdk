@@ -1,5 +1,4 @@
 use matrix_sdk::room::RoomMember as SdkRoomMember;
-use ruma::events::room::power_levels::PowerLevelAction;
 
 use super::RUNTIME;
 use crate::ClientError;
@@ -103,32 +102,32 @@ impl RoomMember {
         })
     }
 
-    pub fn can_ban_users(&self) -> bool {
-        self.inner.can_do(PowerLevelAction::Ban)
+    pub fn can_ban(&self) -> bool {
+        self.inner.can_ban()
     }
 
-    pub fn can_invite_users(&self) -> bool {
-        self.inner.can_do(PowerLevelAction::Invite)
+    pub fn can_invite(&self) -> bool {
+        self.inner.can_invite()
     }
 
-    pub fn can_kick_users(&self) -> bool {
-        self.inner.can_do(PowerLevelAction::Kick)
+    pub fn can_kick(&self) -> bool {
+        self.inner.can_kick()
     }
 
-    pub fn can_redact_events(&self) -> bool {
-        self.inner.can_do(PowerLevelAction::Redact)
+    pub fn can_redact(&self) -> bool {
+        self.inner.can_redact()
     }
 
-    pub fn can_send_state_event(&self, state_event: StateEvent) -> bool {
-        self.inner.can_do(PowerLevelAction::SendState(state_event.into()))
+    pub fn can_send_state(&self, state_event: StateEvent) -> bool {
+        self.inner.can_send_state(state_event.into())
     }
 
-    pub fn can_send_event(&self, event: MessageLikeEvent) -> bool {
-        self.inner.can_do(PowerLevelAction::SendMessage(event.into()))
+    pub fn can_send_message(&self, event: MessageLikeEvent) -> bool {
+        self.inner.can_send_message(event.into())
     }
 
-    pub fn can_trigger_notification(&self, notification: NotificationPowerLevel) -> bool {
-        self.inner.can_do(PowerLevelAction::TriggerNotification(notification.into()))
+    pub fn can_trigger_room_notification(&self) -> bool {
+        self.inner.can_trigger_room_notification()
     }
 }
 
@@ -234,21 +233,6 @@ impl From<MessageLikeEvent> for ruma::events::MessageLikeEventType {
             MessageLikeEvent::RoomMessage => MessageLikeEventType::RoomMessage,
             MessageLikeEvent::RoomRedaction => MessageLikeEventType::RoomRedaction,
             MessageLikeEvent::Sticker => MessageLikeEventType::Sticker,
-        }
-    }
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum NotificationPowerLevel {
-    Room,
-}
-
-impl From<NotificationPowerLevel> for ruma::events::room::power_levels::NotificationPowerLevelType {
-    fn from(val: NotificationPowerLevel) -> Self {
-        use ruma::events::room::power_levels::NotificationPowerLevelType;
-
-        match val {
-            NotificationPowerLevel::Room => NotificationPowerLevelType::Room,
         }
     }
 }
