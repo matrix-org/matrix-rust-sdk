@@ -108,12 +108,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set the name of this list, to easily recognize it.
-    pub fn name(mut self, value: impl Into<String>) -> Self {
-        self.name = value.into();
-        self
-    }
-
     /// Set the ranges to fetch.
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();

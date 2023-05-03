@@ -545,12 +545,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn name(self: Arc<Self>, name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.name(name);
-        Arc::new(builder)
-    }
-
     pub fn add_range(self: Arc<Self>, from: u32, to: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.add_range(from, to);
