@@ -2,13 +2,9 @@
 use std::ops::Deref;
 
 #[cfg(feature = "e2e-encryption")]
-use ruma::UserId;
-use ruma::{
-    api::client::sync::sync_events::{
-        v3::{self, Ephemeral, RoomSummary},
-        v4, DeviceLists,
-    },
-    DeviceKeyAlgorithm, UInt,
+use ruma::api::client::sync::sync_events::{
+    v3::{self, Ephemeral, RoomSummary},
+    v4,
 };
 use tracing::{debug, info, instrument};
 
