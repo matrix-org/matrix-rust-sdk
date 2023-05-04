@@ -25,15 +25,39 @@ use crate::{
     Client,
 };
 
-/// Room details, provided by a [`SlidingSync`][super::SlidingSync] instance.
+/// A Sliding Sync Room.
+///
+/// It contains some information about a specific room, along with a queue of
+/// events for the timeline.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
+    /// The client, used to fetch [`Room`][crate::room::Room].
     client: Client,
+
+    /// The room ID.
     room_id: OwnedRoomId,
+
+    /// The room representation as a `SlidingSync`'s response from the server.
+    ///
+    /// We update this response when an update is needed.
     inner: v4::SlidingSyncRoom,
+
+    /// ???
+    ///
+    /// We can probably remove this field.
     is_loading_more: Arc<StdRwLock<Observable<bool>>>,
+
+    /// Whether the room has been loaded from the cache only.
     is_cold: Arc<AtomicBool>,
+
+    /// The `prev_batch` data.
+    ///
+    /// It's extracted from `Self::inner`. Why this one is extracted and not the
+    /// others? Maybe it can be simplified.
     prev_batch: Arc<StdRwLock<Observable<Option<String>>>>,
+
+    /// A queue of received events, used to build a
+    /// [`Timeline`][crate::Timeline].
     timeline_queue: Arc<StdRwLock<ObservableVector<SyncTimelineEvent>>>,
 }
 
