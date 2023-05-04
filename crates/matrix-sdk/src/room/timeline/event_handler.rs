@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, Vector};
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -289,7 +289,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(NewEventTimelineItem::message(c, relations));
+                    self.add(NewEventTimelineItem::message(c, relations, self.items));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {
@@ -965,8 +965,10 @@ impl NewEventTimelineItem {
     fn message(
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let content = TimelineItemContent::Message(Message::from_event(c, relations));
+        let content =
+            TimelineItemContent::Message(Message::from_event(c, relations, timeline_items));
 
         Self::from_content(content)
     }

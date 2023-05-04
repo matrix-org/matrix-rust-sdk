@@ -662,7 +662,7 @@ async fn in_reply_to_details() {
         assert_matches!(second_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
-    assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+    assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     // Fetch details locally first.
     timeline.fetch_event_details(second_event.event_id().unwrap()).await.unwrap();
