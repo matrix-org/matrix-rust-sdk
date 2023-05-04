@@ -58,9 +58,8 @@ impl RemoteEventTimelineItem {
         Self { reactions, ..self.clone() }
     }
 
-    /// Clone the current event item, change its `content` to
-    /// [`TimelineItemContent::RedactedMessage`], and reset its `reactions`.
-    pub fn to_redacted(&self) -> Self {
+    /// Clone the current event item, and reset its `reactions`.
+    pub fn without_reactions(&self) -> Self {
         Self { reactions: BundledReactions::default(), ..self.clone() }
     }
 }
