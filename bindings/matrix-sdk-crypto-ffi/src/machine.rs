@@ -391,7 +391,7 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// **Note**: This method call should be locked per call.
     pub fn outgoing_requests(&self) -> Result<Vec<Request>, CryptoStoreError> {
@@ -540,10 +540,10 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// This method should be called every time before a call to
-    /// [`share_room_key()`](#method.share_room_key) is made.
+    /// [`share_room_key()`](Self::share_room_key) is made.
     ///
     /// # Arguments
     ///
@@ -566,9 +566,9 @@ impl OlmMachine {
     /// whether to encrypt only for trusted devices.
     ///
     /// These settings can be modified via
-    /// [set_room_algorithm()](#method.set_room_algorithm) and
-    /// [set_room_only_allow_trusted_devices()](#method.
-    /// set_room_only_allow_trusted_devices) methods.
+    /// [set_room_algorithm()](Self::set_room_algorithm) and
+    /// [set_room_only_allow_trusted_devices()](Self::set_room_only_allow_trusted_devices)
+    /// methods.
     pub fn get_room_settings(
         &self,
         room_id: String,
@@ -609,8 +609,8 @@ impl OlmMachine {
     /// devices, or whether they should be excluded from the conversation.
     ///
     /// Note that per-room setting may be overridden by a global
-    /// [set_only_allow_trusted_devices()](#method.
-    /// set_only_allow_trusted_devices) method.
+    /// [set_only_allow_trusted_devices()](Self::set_only_allow_trusted_devices)
+    /// method.
     pub fn set_room_only_allow_trusted_devices(
         &self,
         room_id: String,
@@ -661,10 +661,10 @@ impl OlmMachine {
     ///
     /// After the request was sent out and a successful response was received
     /// the response body should be passed back to the state machine using the
-    /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
+    /// [mark_request_as_sent()](Self::mark_request_as_sent) method.
     ///
     /// This method should be called every time before a call to
-    /// [`encrypt()`](#method.encrypt) with the given `room_id` is made.
+    /// [`encrypt()`](Self::encrypt) with the given `room_id` is made.
     ///
     /// # Arguments
     ///
@@ -706,11 +706,11 @@ impl OlmMachine {
     ///
     /// 1. Get the one-time key claim request to establish 1:1 Olm sessions for
     ///    the room members of the room we wish to participate in. This is done
-    ///    using the [`get_missing_sessions()`](#method.get_missing_sessions)
+    ///    using the [`get_missing_sessions()`](Self::get_missing_sessions)
     ///    method. This method call should be locked per call.
     ///
     /// 2. Share a room key with all the room members using the
-    ///    [`share_room_key()`](#method.share_room_key). This method
+    ///    [`share_room_key()`](Self::share_room_key). This method
     ///    call should be locked per room.
     ///
     /// 3. Encrypt the event using this method.
@@ -1048,7 +1048,7 @@ impl OlmMachine {
     /// * `methods` - The list of verification methods we advertised as
     /// supported in the `m.key.verification.request` event.
     ///
-    /// [verification_request_content()]: #method.verification_request_content
+    /// [verification_request_content()]: Self::verification_request_content
     pub fn request_verification(
         &self,
         user_id: String,
@@ -1184,7 +1184,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The ID of device we would like to verify.
     ///
-    /// [request_verification_with_device()]: #method.request_verification_with_device
+    /// [request_verification_with_device()]: Self::request_verification_with_device
     pub fn start_sas_with_device(
         &self,
         user_id: String,

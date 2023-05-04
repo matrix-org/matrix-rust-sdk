@@ -16,7 +16,7 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 These WebAssembly bindings are written in [Rust]. To build them, you
 need to install the Rust compiler, see [the Install Rust
 Page](https://www.rust-lang.org/tools/install). Then, the workflow is
-pretty classical by using [yarn], see [the Downloading and installing
+pretty classical by using [yarn](https://yarnpkg.com/), see [the Downloading and installing
 Node.js and npm
 Page](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) and [installing yarn](https://classic.yarnpkg.com/lang/en/docs/install).
 
