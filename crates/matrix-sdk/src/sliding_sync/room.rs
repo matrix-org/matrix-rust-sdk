@@ -33,7 +33,7 @@ pub struct SlidingSyncRoom {
     /// We update this response when an update is needed.
     inner: v4::SlidingSyncRoom,
 
-    /// Whether the room has been loaded from the cache only.
+    /// Internal state of `Self`.
     state: SlidingSyncRoomState,
 
     /// A queue of received events, used to build a
