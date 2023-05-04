@@ -32,8 +32,7 @@ impl NotificationItem {
             sender_avatar_url = sender.avatar_url().map(|s| s.to_string());
         }
 
-        let is_noisy =
-            notification.actions.iter().any(|a| a.sound().is_some() && a.should_notify());
+        let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
 
         let item = Self {
             event: Arc::new(TimelineEvent(deserialized_event)),
