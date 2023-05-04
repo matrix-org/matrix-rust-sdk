@@ -72,7 +72,6 @@ mod tests {
                         FrozenSlidingSyncRoom {
                             room_id: room_id!("!foo:bar.org").to_owned(),
                             inner: v4::SlidingSyncRoom::default(),
-                            prev_batch: Some("let it go!".to_owned()),
                             timeline_queue: vector![TimelineEvent::new(
                                 Raw::new(&json!({
                                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
@@ -100,7 +99,6 @@ mod tests {
                     "!foo:bar.org": {
                         "room_id": "!foo:bar.org",
                         "inner": {},
-                        "prev_batch": "let it go!",
                         "timeline": [
                             {
                                 "event": {

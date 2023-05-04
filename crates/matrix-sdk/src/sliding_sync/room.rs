@@ -7,7 +7,6 @@ use std::{
     },
 };
 
-use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use imbl::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -45,12 +44,6 @@ pub struct SlidingSyncRoom {
     /// Whether the room has been loaded from the cache only.
     is_cold: Arc<AtomicBool>,
 
-    /// The `prev_batch` data.
-    ///
-    /// It's extracted from `Self::inner`. Why this one is extracted and not the
-    /// others? Maybe it can be simplified.
-    prev_batch: Arc<StdRwLock<Observable<Option<String>>>>,
-
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
     timeline_queue: Arc<StdRwLock<ObservableVector<SyncTimelineEvent>>>,
@@ -70,7 +63,6 @@ impl SlidingSyncRoom {
             client,
             room_id,
             is_cold: Arc::new(AtomicBool::new(false)),
-            prev_batch: Arc::new(StdRwLock::new(Observable::new(inner.prev_batch.clone()))),
             timeline_queue: Arc::new(StdRwLock::new(timeline_queue)),
             inner,
         }
@@ -81,11 +73,6 @@ impl SlidingSyncRoom {
         &self.room_id
     }
 
-    /// The `prev_batch` key to fetch more timeline events for this room.
-    pub fn prev_batch(&self) -> Option<String> {
-        self.prev_batch.read().unwrap().clone()
-    }
-
     /// `Timeline` of this room
     pub async fn timeline(&self) -> Option<Timeline> {
         Some(self.timeline_builder()?.track_read_marker_and_receipts().build().await)
@@ -93,10 +80,12 @@ impl SlidingSyncRoom {
 
     fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
-            Some(Timeline::builder(&room).events(
-                self.prev_batch.read().unwrap().clone(),
-                self.timeline_queue.read().unwrap().clone(),
-            ))
+            Some(
+                Timeline::builder(&room).events(
+                    self.inner.prev_batch.clone(),
+                    self.timeline_queue.read().unwrap().clone(),
+                ),
+            )
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::builder(&invited_room).events(None, Vector::new()))
         } else {
@@ -192,7 +181,7 @@ impl SlidingSyncRoom {
         }
 
         if prev_batch.is_some() {
-            Observable::set(&mut self.prev_batch.write().unwrap(), prev_batch);
+            self.inner.prev_batch = prev_batch;
         }
 
         // There is timeline updates.
@@ -238,7 +227,7 @@ impl SlidingSyncRoom {
     }
 
     pub(super) fn from_frozen(frozen_room: FrozenSlidingSyncRoom, client: Client) -> Self {
-        let FrozenSlidingSyncRoom { room_id, inner, prev_batch, timeline_queue } = frozen_room;
+        let FrozenSlidingSyncRoom { room_id, inner, timeline_queue } = frozen_room;
 
         let mut timeline_queue_ob = ObservableVector::new();
         timeline_queue_ob.append(timeline_queue);
@@ -248,7 +237,6 @@ impl SlidingSyncRoom {
             room_id,
             inner,
             is_cold: Arc::new(AtomicBool::new(true)),
-            prev_batch: Arc::new(StdRwLock::new(Observable::new(prev_batch))),
             timeline_queue: Arc::new(StdRwLock::new(timeline_queue_ob)),
         }
     }
@@ -260,7 +248,6 @@ impl SlidingSyncRoom {
 pub(super) struct FrozenSlidingSyncRoom {
     pub(super) room_id: OwnedRoomId,
     pub(super) inner: v4::SlidingSyncRoom,
-    pub(super) prev_batch: Option<String>,
     #[serde(rename = "timeline")]
     pub(super) timeline_queue: Vector<SyncTimelineEvent>,
 }
@@ -270,23 +257,21 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
         let timeline = value.timeline_queue.read().unwrap();
         let timeline_length = timeline.len();
 
+        let mut inner = value.inner.clone();
+
         // To not overflow the database, we only freeze the newest 10 items. On doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
         // create a gap between what we have loaded and where the
         // prev_batch-key will start loading when paginating backwards.
-        let (prev_batch, timeline) = if timeline_length > 10 {
+        let timeline = if timeline_length > 10 {
             let pos = timeline_length - 10;
-            (None, timeline.iter().skip(pos).cloned().collect())
+            inner.prev_batch = None;
+            timeline.iter().skip(pos).cloned().collect()
         } else {
-            (value.prev_batch.read().unwrap().clone(), timeline.clone())
+            timeline.clone()
         };
 
-        Self {
-            prev_batch,
-            timeline_queue: timeline,
-            room_id: value.room_id.clone(),
-            inner: value.inner.clone(),
-        }
+        Self { timeline_queue: timeline, room_id: value.room_id.clone(), inner }
     }
 }
 
@@ -304,7 +289,6 @@ mod tests {
         let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             inner: v4::SlidingSyncRoom::default(),
-            prev_batch: Some("let it go!".to_owned()),
             timeline_queue: vector![TimelineEvent::new(
                 Raw::new(&json! ({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
@@ -322,7 +306,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_string(&frozen_sliding_sync_room).unwrap(),
-            r#"{"room_id":"!29fhd83h92h0:example.com","inner":{},"prev_batch":"let it go!","timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}"#,
+            r#"{"room_id":"!29fhd83h92h0:example.com","inner":{},"timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}"#,
         );
     }
 }
