@@ -10,7 +10,7 @@ wasm = new Proxy(
 );
 
 let inited = false;
-__initSync = function () {
+const __initSync = function () {
     if (inited) {
         return;
     }
