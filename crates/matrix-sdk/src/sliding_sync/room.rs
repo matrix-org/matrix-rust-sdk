@@ -234,26 +234,34 @@ pub(super) struct FrozenSlidingSyncRoom {
     pub(super) timeline_queue: Vector<SyncTimelineEvent>,
 }
 
+/// Number of timeline events to keep when [`SlidingSyncRoom`] is saved in the
+/// cache.
+const NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE: usize = 10;
+
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
-        let timeline = &value.timeline_queue;
-        let timeline_length = timeline.len();
+        let timeline_queue = &value.timeline_queue;
+        let timeline_length = timeline_queue.len();
 
         let mut inner = value.inner.clone();
 
-        // To not overflow the database, we only freeze the newest 10 items. On doing
+        // To not overflow the cache, we only freeze the newest N items. On doing
         // so, we must drop the `prev_batch` key however, as we'd otherwise
         // create a gap between what we have loaded and where the
         // prev_batch-key will start loading when paginating backwards.
-        let timeline = if timeline_length > 10 {
-            let pos = timeline_length - 10;
+        let timeline_queue = if timeline_length > NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE {
             inner.prev_batch = None;
-            timeline.iter().skip(pos).cloned().collect()
+
+            timeline_queue
+                .iter()
+                .skip(timeline_length - NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE)
+                .cloned()
+                .collect()
         } else {
-            timeline.clone()
+            timeline_queue.clone()
         };
 
-        Self { room_id: value.room_id.clone(), inner, timeline_queue: timeline }
+        Self { room_id: value.room_id.clone(), inner, timeline_queue }
     }
 }
 
