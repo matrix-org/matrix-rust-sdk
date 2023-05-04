@@ -325,23 +325,24 @@ impl SlidingSync {
                     room_data.timeline.drain(..).map(Into::into).collect()
                 };
 
-                if let Some(mut room) = rooms_map.remove(&room_id) {
+                match rooms_map.get_mut(&room_id) {
                     // The room existed before, let's update it.
+                    Some(room) => {
+                        room.update(room_data, timeline);
+                    }
 
-                    room.update(room_data, timeline);
-                    rooms_map.insert(room_id.clone(), room);
-                } else {
                     // First time we need this room, let's create it.
-
-                    rooms_map.insert(
-                        room_id.clone(),
-                        SlidingSyncRoom::new(
-                            self.inner.client.clone(),
+                    None => {
+                        rooms_map.insert(
                             room_id.clone(),
-                            room_data,
-                            timeline,
-                        ),
-                    );
+                            SlidingSyncRoom::new(
+                                self.inner.client.clone(),
+                                room_id.clone(),
+                                room_data,
+                                timeline,
+                            ),
+                        );
+                    }
                 }
 
                 updated_rooms.push(room_id);
