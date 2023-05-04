@@ -19,6 +19,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -41,7 +46,7 @@ jobs:
           CARGO_TARGET_APPLIES_TO_HOST: "true"
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         run:
-          cargo doc --no-deps --features docsrs
+          cargo doc --no-deps --workspace --features docsrs
 
       - name: Build `matrix-sdk-crypto-nodejs` doc
         run: |
