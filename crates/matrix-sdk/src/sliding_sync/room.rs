@@ -1,10 +1,7 @@
 use std::{
     fmt::Debug,
     ops::Not,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, RwLock as StdRwLock,
-    },
+    sync::{Arc, RwLock as StdRwLock},
 };
 
 use eyeball_im::ObservableVector;
@@ -42,11 +39,26 @@ pub struct SlidingSyncRoom {
     inner: v4::SlidingSyncRoom,
 
     /// Whether the room has been loaded from the cache only.
-    is_cold: Arc<AtomicBool>,
+    state: SlidingSyncRoomState,
 
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
     timeline_queue: Arc<StdRwLock<ObservableVector<SyncTimelineEvent>>>,
+}
+
+/// The state of a [`SlidingSyncRoom`].
+#[derive(Debug, Default, Clone)]
+pub enum SlidingSyncRoomState {
+    /// The room is not loaded, i.e. not updates have been received yet.
+    #[default]
+    NotLoaded,
+
+    /// The room has been preloaded, i.e. its values come from the cache, but no
+    /// updates have been received yet.
+    Preloaded,
+
+    /// The room has received updates.
+    Loaded,
 }
 
 impl SlidingSyncRoom {
@@ -62,9 +74,9 @@ impl SlidingSyncRoom {
         Self {
             client,
             room_id,
-            is_cold: Arc::new(AtomicBool::new(false)),
-            timeline_queue: Arc::new(StdRwLock::new(timeline_queue)),
             inner,
+            state: SlidingSyncRoomState::NotLoaded,
+            timeline_queue: Arc::new(StdRwLock::new(timeline_queue)),
         }
     }
 
@@ -186,9 +198,9 @@ impl SlidingSyncRoom {
 
         // There is timeline updates.
         if !timeline_updates.is_empty() {
-            if self.is_cold.load(Ordering::SeqCst) {
-                // If we come from a cold storage, we overwrite the timeline queue with the
-                // timeline updates.
+            if let SlidingSyncRoomState::Preloaded = self.state {
+                // If the room has been read from the cache, we overwrite the timeline queue
+                // with the timeline updates.
 
                 let mut timeline_queue = self.timeline_queue.write().unwrap();
                 timeline_queue.clear();
@@ -196,8 +208,6 @@ impl SlidingSyncRoom {
                 for event in timeline_updates {
                     timeline_queue.push_back(event);
                 }
-
-                self.is_cold.store(false, Ordering::SeqCst);
             } else if limited {
                 // The server alerted us that we missed items in between.
 
@@ -224,6 +234,8 @@ impl SlidingSyncRoom {
 
             self.timeline_queue.write().unwrap().clear();
         }
+
+        self.state = SlidingSyncRoomState::Loaded;
     }
 
     pub(super) fn from_frozen(frozen_room: FrozenSlidingSyncRoom, client: Client) -> Self {
@@ -236,7 +248,7 @@ impl SlidingSyncRoom {
             client,
             room_id,
             inner,
-            is_cold: Arc::new(AtomicBool::new(true)),
+            state: SlidingSyncRoomState::Preloaded,
             timeline_queue: Arc::new(StdRwLock::new(timeline_queue_ob)),
         }
     }
