@@ -54,6 +54,7 @@ mod edit;
 mod encryption;
 mod invalid;
 mod read_receipts;
+mod redaction;
 mod virt;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
