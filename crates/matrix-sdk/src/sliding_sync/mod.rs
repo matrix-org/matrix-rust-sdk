@@ -205,7 +205,7 @@ impl SlidingSync {
     /// Note: Remember that this change will only be applicable for any new
     /// stream created after this. The old stream will still continue to use the
     /// previous set of lists.
-    pub fn pop_list(&self, list_name: &String) -> Option<SlidingSyncList> {
+    pub fn remove_list(&self, list_name: &String) -> Option<SlidingSyncList> {
         self.inner.lists.write().unwrap().remove(list_name)
     }
 

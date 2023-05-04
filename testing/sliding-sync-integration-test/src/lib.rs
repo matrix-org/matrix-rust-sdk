@@ -443,7 +443,7 @@ async fn live_lists() -> anyhow::Result<()> {
     // we only heard about the ones we had asked for
     assert_eq!(summary.lists, [list_name_1, list_name_2, list_name_3]);
 
-    let Some(list_2) = sync_proxy.pop_list(&list_name_2.to_owned()) else {
+    let Some(list_2) = sync_proxy.remove_list(&list_name_2.to_owned()) else {
             bail!("Room exists");
         };
 
