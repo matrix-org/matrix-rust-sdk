@@ -57,6 +57,7 @@ pub enum SlidingSyncRoomState {
 }
 
 impl SlidingSyncRoom {
+    /// Create a new `SlidingSyncRoom`.
     pub(super) fn new(
         client: Client,
         room_id: OwnedRoomId,
@@ -72,41 +73,9 @@ impl SlidingSyncRoom {
         }
     }
 
-    /// RoomId of this SlidingSyncRoom
+    /// Get the room ID of this `SlidingSyncRoom`.
     pub fn room_id(&self) -> &OwnedRoomId {
         &self.room_id
-    }
-
-    /// `Timeline` of this room
-    pub async fn timeline(&self) -> Option<Timeline> {
-        Some(self.timeline_builder()?.track_read_marker_and_receipts().build().await)
-    }
-
-    fn timeline_builder(&self) -> Option<TimelineBuilder> {
-        if let Some(room) = self.client.get_room(&self.room_id) {
-            Some(
-                Timeline::builder(&room)
-                    .events(self.inner.prev_batch.clone(), self.timeline_queue.clone()),
-            )
-        } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
-            Some(Timeline::builder(&invited_room).events(None, Vector::new()))
-        } else {
-            error!(
-                room_id = ?self.room_id,
-                "Room not found in client. Can't provide a timeline for it"
-            );
-
-            None
-        }
-    }
-
-    /// The latest timeline item of this room.
-    ///
-    /// Use `Timeline::latest_event` instead if you already have a timeline for
-    /// this `SlidingSyncRoom`.
-    #[instrument(skip_all)]
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.timeline_builder()?.build().await.latest_event().await
     }
 
     /// This rooms name as calculated by the server, if any
@@ -137,6 +106,38 @@ impl SlidingSyncRoom {
     /// Get the required state.
     pub fn required_state(&self) -> &Vec<Raw<AnySyncStateEvent>> {
         &self.inner.required_state
+    }
+
+    /// `Timeline` of this room
+    pub async fn timeline(&self) -> Option<Timeline> {
+        Some(self.timeline_builder()?.track_read_marker_and_receipts().build().await)
+    }
+
+    /// The latest timeline item of this room.
+    ///
+    /// Use `Timeline::latest_event` instead if you already have a timeline for
+    /// this `SlidingSyncRoom`.
+    #[instrument(skip_all)]
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.timeline_builder()?.build().await.latest_event().await
+    }
+
+    fn timeline_builder(&self) -> Option<TimelineBuilder> {
+        if let Some(room) = self.client.get_room(&self.room_id) {
+            Some(
+                Timeline::builder(&room)
+                    .events(self.inner.prev_batch.clone(), self.timeline_queue.clone()),
+            )
+        } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
+            Some(Timeline::builder(&invited_room).events(None, Vector::new()))
+        } else {
+            error!(
+                room_id = ?self.room_id,
+                "Room not found in client. Can't provide a timeline for it"
+            );
+
+            None
+        }
     }
 
     pub(super) fn update(
