@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use anyhow::{anyhow, Context};
 use eyeball::shared::Observable as SharedObservable;
 use matrix_sdk::{
-    config::SyncSettings,
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     room::Room as SdkRoom,
     ruma::{
