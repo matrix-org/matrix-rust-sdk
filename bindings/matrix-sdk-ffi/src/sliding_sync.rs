@@ -474,8 +474,8 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
 #[uniffi::export]
 impl SlidingSyncListBuilder {
     #[uniffi::constructor]
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder() })
+    pub fn new(name: String) -> Arc<Self> {
+        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
     }
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
@@ -486,7 +486,7 @@ impl SlidingSyncListBuilder {
 
     pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSyncList>, ClientError> {
         let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(builder.inner.build()?.into()))
+        Ok(Arc::new(builder.inner.build().into()))
     }
 
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
