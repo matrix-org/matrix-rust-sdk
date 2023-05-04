@@ -537,11 +537,15 @@ impl<'a> TimelineEventHandler<'a> {
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
             let Some(remote_event_item) = event_item.as_remote() else {
-                error!("inconsistent state: reaction received on a non-remote event item");
+                error!("inconsistent state: redaction received on a non-remote event item");
                 return None;
             };
 
-            Some(event_item.with_kind(remote_event_item.to_redacted()))
+            let mut event_item = event_item.to_owned();
+            event_item.content = TimelineItemContent::RedactedMessage;
+            event_item.kind = remote_event_item.without_reactions().into();
+
+            Some(event_item)
         });
 
         if self.result.items_updated == 0 {
