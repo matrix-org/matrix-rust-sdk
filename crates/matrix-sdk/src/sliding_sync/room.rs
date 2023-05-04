@@ -269,10 +269,68 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, room_id};
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, RoomId};
     use serde_json::json;
+    use wiremock::MockServer;
 
     use super::*;
+    use crate::{error::Result, test_utils::logged_in_client};
+
+    macro_rules! room_response {
+        ( $( $json:tt )+ ) => {
+            serde_json::from_value::<v4::SlidingSyncRoom>(
+                json!( $( $json )+ )
+            ).unwrap()
+        };
+    }
+
+    async fn new_sliding_sync_room(
+        room_id: &RoomId,
+        inner: v4::SlidingSyncRoom,
+    ) -> SlidingSyncRoom {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        SlidingSyncRoom::new(client, room_id.to_owned(), inner, vec![])
+    }
+
+    #[tokio::test]
+    async fn test_room_name() -> Result<()> {
+        // No name when initializing.
+        {
+            let room = new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+            assert_eq!(room.name(), None);
+        }
+
+        // Some name when initializing.
+        {
+            let room =
+                new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({"name": "gordon"}))
+                    .await;
+
+            assert_eq!(room.name(), Some("gordon"));
+        }
+
+        // No name when initializing, but received one during an update.
+        {
+            let mut room =
+                new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+            assert_eq!(room.name(), None);
+
+            room.update(
+                room_response!({
+                    "name": "gordon",
+                }),
+                vec![],
+            );
+
+            assert_eq!(room.name(), Some("gordon"));
+        }
+
+        Ok(())
+    }
 
     #[test]
     fn test_frozen_sliding_sync_room_serialization() {
