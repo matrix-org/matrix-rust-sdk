@@ -41,23 +41,6 @@ impl SlidingSyncList {
         SlidingSyncListBuilder::new()
     }
 
-    /// Return a builder with the same settings as before
-    pub fn new_builder(&self) -> SlidingSyncListBuilder {
-        let mut builder = Self::builder()
-            .name(&self.inner.name)
-            .sync_mode(self.inner.sync_mode.clone())
-            .sort(self.inner.sort.clone())
-            .required_state(self.inner.required_state.clone())
-            .filters(self.inner.filters.clone())
-            .ranges(self.inner.ranges.read().unwrap().clone());
-
-        if let Some(timeline_limit) = Observable::get(&self.inner.timeline_limit.read().unwrap()) {
-            builder = builder.timeline_limit(*timeline_limit);
-        }
-
-        builder
-    }
-
     pub(crate) fn set_from_cold(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
@@ -888,11 +871,9 @@ impl SlidingSyncMode {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
-
     use futures::StreamExt;
     use imbl::vector;
-    use ruma::{api::client::sync::sync_events::v4::SlidingOp, assign, room_id, uint};
+    use ruma::{api::client::sync::sync_events::v4::SlidingOp, room_id, uint};
     use serde_json::json;
     use tokio::{spawn, sync::mpsc::unbounded_channel};
 
@@ -908,43 +889,6 @@ mod tests {
         };
     }
 
-    macro_rules! assert_fields_eq {
-        ($left:ident == $right:ident on fields { $( $field:ident $( with $accessor:expr )? ),+ $(,)* } ) => {
-            $(
-                let left = {
-                    let $field = & $left . $field;
-
-                    $( let $field = $accessor ; )?
-
-                    $field
-                };
-                let right = {
-                    let $field = & $right . $field;
-
-                    $( let $field = $accessor ; )?
-
-                    $field
-                };
-
-                assert_eq!(
-                    left,
-                    right,
-                    concat!(
-                        "`",
-                        stringify!($left),
-                        ".",
-                        stringify!($field),
-                        "` doesn't match with `",
-                        stringify!($right),
-                        ".",
-                        stringify!($field),
-                        "`."
-                    )
-                );
-            )*
-        }
-    }
-
     macro_rules! ranges {
         ( $( ( $start:literal, $end:literal ) ),* $(,)* ) => {
             &[$(
@@ -954,50 +898,6 @@ mod tests {
                 )
             ),+]
         }
-    }
-
-    #[test]
-    fn test_sliding_sync_list_new_builder() {
-        let list = SlidingSyncList {
-            inner: Arc::new(SlidingSyncListInner {
-                sync_mode: SlidingSyncMode::Growing,
-                sort: vec!["foo".to_owned(), "bar".to_owned()],
-                required_state: vec![(StateEventType::RoomName, "baz".to_owned())],
-                filters: Some(assign!(v4::SyncRequestListFilters::default(), {
-                    is_dm: Some(true),
-                })),
-                timeline_limit: StdRwLock::new(Observable::new(Some(uint!(7)))),
-                name: "qux".to_owned(),
-                state: StdRwLock::new(Observable::new(SlidingSyncState::FullyLoaded)),
-                maximum_number_of_rooms: StdRwLock::new(Observable::new(Some(11))),
-                room_list: StdRwLock::new(ObservableVector::from(vector![RoomListEntry::Empty])),
-                ranges: StdRwLock::new(Observable::new(vec![(uint!(0), uint!(9))])),
-                request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new_growing(
-                    42,
-                    Some(153),
-                )),
-            }),
-        };
-
-        let new_list = list.new_builder().build().unwrap();
-        let list = list.inner;
-        let new_list = new_list.inner;
-
-        assert_fields_eq!(
-            list == new_list on fields {
-                sync_mode,
-                sort,
-                required_state,
-                filters with filters.as_ref().unwrap().is_dm,
-                timeline_limit with **timeline_limit.read().unwrap(),
-                name,
-                ranges with ranges.read().unwrap().clone(),
-            }
-        );
-
-        assert_eq!(*Observable::get(&new_list.state.read().unwrap()), SlidingSyncState::NotLoaded);
-        assert!(new_list.maximum_number_of_rooms.read().unwrap().deref().is_none());
-        assert!(new_list.room_list.read().unwrap().deref().is_empty());
     }
 
     #[test]
