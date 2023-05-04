@@ -484,9 +484,9 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSyncList>, ClientError> {
+    pub fn build(self: Arc<Self>) -> Arc<SlidingSyncList> {
         let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(builder.inner.build().into()))
+        Arc::new(builder.inner.build().into())
     }
 
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
