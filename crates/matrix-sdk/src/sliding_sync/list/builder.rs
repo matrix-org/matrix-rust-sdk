@@ -1,17 +1,23 @@
 //! Builder for [`SlidingSyncList`].
 
 use std::{
+    collections::BTreeMap,
     fmt::Debug,
     sync::{Arc, RwLock as StdRwLock},
 };
 
 use eyeball::unique::Observable;
-use eyeball_im::ObservableVector;
-use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
+use eyeball_im::{ObservableVector, Vector};
+use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId, UInt};
+
+use crate::{
+    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    Client, RoomListEntry,
+};
 
 use super::{
-    SlidingSyncList, SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode,
-    SlidingSyncState,
+    SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
+    SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 
 /// The default name for the full sync list.
@@ -29,6 +35,21 @@ pub struct SlidingSyncListBuilder {
     timeline_limit: Option<UInt>,
     name: String,
     ranges: Vec<(UInt, UInt)>,
+
+    /// Should this list be cached and reloaded from the cache?
+    cache_policy: SlidingSyncListCachePolicy,
+
+    /// Total number of rooms that is possible to interact with the given list.
+    /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
+    /// May be reloaded from the cache.
+    maximum_number_of_rooms: Option<u32>,
+
+    /// List of room entries.
+    /// May be reloaded from the cache.
+    room_list: Vector<RoomListEntry>,
+
+    /// State of this list, indicating whether it was preloaded from the cache or not.
+    state: SlidingSyncState,
 }
 
 impl SlidingSyncListBuilder {
@@ -46,6 +67,10 @@ impl SlidingSyncListBuilder {
             timeline_limit: None,
             name: name.into(),
             ranges: Vec::new(),
+            cache_policy: SlidingSyncListCachePolicy::Disabled,
+            maximum_number_of_rooms: None,
+            room_list: Vector::new(),
+            state: SlidingSyncState::default(),
         }
     }
 
@@ -132,6 +157,26 @@ impl SlidingSyncListBuilder {
         self
     }
 
+    /// Marks this list as sync'd from the cache, and attempts to reload it from storage.
+    pub(in super::super) async fn set_cached_and_reload(
+        &mut self,
+        client: &Client,
+        storage_key: &str,
+    ) -> crate::Result<BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>> {
+        self.cache_policy = SlidingSyncListCachePolicy::Enabled;
+        if let Some(frozen_list) =
+            restore_sliding_sync_list(client.store(), storage_key, &self.name).await?
+        {
+            self.maximum_number_of_rooms = frozen_list.maximum_number_of_rooms;
+            assert!(self.room_list.is_empty(), "can't call `set_cached_and_reload` twice");
+            self.room_list = frozen_list.room_list;
+            self.state = SlidingSyncState::Preloaded;
+            Ok(frozen_list.rooms)
+        } else {
+            Ok(Default::default())
+        }
+    }
+
     /// Build the list.
     pub fn build(self) -> SlidingSyncList {
         let request_generator = match &self.sync_mode {
@@ -158,14 +203,18 @@ impl SlidingSyncListBuilder {
                 timeline_limit: StdRwLock::new(Observable::new(self.timeline_limit)),
                 name: self.name,
                 ranges: StdRwLock::new(Observable::new(self.ranges)),
+                cache_policy: self.cache_policy,
 
                 // Computed from the builder.
                 request_generator: StdRwLock::new(request_generator),
 
-                // Default values for the type we are building.
-                state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
-                maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
-                room_list: StdRwLock::new(ObservableVector::new()),
+                // Values read from deserialization, or that are still equal to the default values
+                // otherwise.
+                state: StdRwLock::new(Observable::new(self.state)),
+                maximum_number_of_rooms: StdRwLock::new(Observable::new(
+                    self.maximum_number_of_rooms,
+                )),
+                room_list: StdRwLock::new(ObservableVector::from(self.room_list)),
             }),
         }
     }

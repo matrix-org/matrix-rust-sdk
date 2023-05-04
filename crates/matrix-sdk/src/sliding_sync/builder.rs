@@ -19,7 +19,7 @@ use super::{
     cache::restore_sliding_sync_state, SlidingSync, SlidingSyncInner, SlidingSyncList,
     SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
-use crate::{Client, Result};
+use crate::{Client, Result, SlidingSyncListBuilder};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -34,6 +34,7 @@ pub struct SlidingSyncBuilder {
     bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
 impl SlidingSyncBuilder {
@@ -46,6 +47,7 @@ impl SlidingSyncBuilder {
             bump_event_types: Vec::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
+            rooms: BTreeMap::new(),
         }
     }
 
@@ -63,11 +65,30 @@ impl SlidingSyncBuilder {
 
     /// Add the given list to the lists.
     ///
-    /// Replace any list with the name.
+    /// Replace any list with the same name.
     pub fn add_list(mut self, list: SlidingSyncList) -> Self {
         self.lists.insert(list.name().to_owned(), list);
-
         self
+    }
+
+    /// Enroll the list in caching, reloads it from the cache if possible, and adds it to the list
+    /// of lists.
+    ///
+    /// This will raise an error if a [`storage_key()`] was not set, or if there was a I/O error
+    /// reading from the cache.
+    ///
+    /// Replace any list with the same name.
+    pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
+        let Some(ref storage_key) = self.storage_key else {
+            return Err(super::error::Error::MissingStorageKeyForCaching.into());
+        };
+        let reloaded_rooms = list.set_cached_and_reload(&self.client, storage_key).await?;
+        for (key, frozen) in reloaded_rooms {
+            self.rooms
+                .entry(key)
+                .or_insert_with(|| SlidingSyncRoom::from_frozen(frozen, self.client.clone()));
+        }
+        Ok(self.add_list(list.build()))
     }
 
     /// Activate e2ee, to-device-message and account data extensions if not yet
@@ -204,7 +225,6 @@ impl SlidingSyncBuilder {
         let client = self.client;
 
         let mut delta_token = None;
-        let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         // Load an existing state from the cache.
         if let Some(storage_key) = &self.storage_key {
@@ -213,13 +233,12 @@ impl SlidingSyncBuilder {
                 storage_key,
                 &mut self.lists,
                 &mut delta_token,
-                &mut rooms_found,
                 &mut self.extensions,
             )
             .await?;
         }
 
-        let rooms = StdRwLock::new(rooms_found);
+        let rooms = StdRwLock::new(self.rooms);
         let lists = StdRwLock::new(self.lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
