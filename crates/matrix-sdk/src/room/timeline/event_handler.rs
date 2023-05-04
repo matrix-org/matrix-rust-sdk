@@ -541,6 +541,11 @@ impl<'a> TimelineEventHandler<'a> {
                 return None;
             };
 
+            if let TimelineItemContent::RedactedMessage = &event_item.content {
+                debug!("event item is already redacted");
+                return None;
+            }
+
             let mut event_item = event_item.to_owned();
             event_item.content = TimelineItemContent::RedactedMessage;
             event_item.kind = remote_event_item.without_reactions().into();
