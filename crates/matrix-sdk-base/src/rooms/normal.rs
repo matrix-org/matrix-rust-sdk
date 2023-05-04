@@ -352,6 +352,12 @@ impl Room {
         self.members(RoomMemberships::ACTIVE).await
     }
 
+    /// Returns the number of members who have joined or been invited to the
+    /// room.
+    pub fn active_members_count(&self) -> u64 {
+        self.inner.read().unwrap().active_members_count()
+    }
+
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();

@@ -2,7 +2,7 @@
 use std::ops::Deref;
 
 use ruma::api::client::sync::sync_events::{
-    v3::{self, Ephemeral},
+    v3::{self, Ephemeral, RoomSummary},
     v4,
 };
 use tracing::{debug, info, instrument};
@@ -112,8 +112,15 @@ impl BaseClient {
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
 
-                // FIXME not yet supported by sliding sync.
-                // room_info.update_summary(&room_data.summary);
+                // Sliding sync doesn't have a room summary, nevertheless it contains the joined
+                // and invited member counts. It likely will never have a heroes concept since
+                // it calculates the room display name for us.
+                //
+                // Let's at least fetch the member counts, since they might be useful.
+                let mut room_summary = RoomSummary::new();
+                room_summary.invited_member_count = room_data.invited_count;
+                room_summary.joined_member_count = room_data.joined_count;
+                room_info.update_summary(&room_summary);
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 

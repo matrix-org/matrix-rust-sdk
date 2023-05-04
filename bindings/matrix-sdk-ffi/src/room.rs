@@ -452,6 +452,10 @@ impl Room {
         })
     }
 
+    pub fn active_members_count(&self) -> u64 {
+        self.room.active_members_count()
+    }
+
     /// Reports an event from the room.
     ///
     /// # Arguments
