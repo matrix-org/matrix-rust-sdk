@@ -42,11 +42,6 @@ pub struct SlidingSyncRoom {
     /// We update this response when an update is needed.
     inner: v4::SlidingSyncRoom,
 
-    /// ???
-    ///
-    /// We can probably remove this field.
-    is_loading_more: Arc<StdRwLock<Observable<bool>>>,
-
     /// Whether the room has been loaded from the cache only.
     is_cold: Arc<AtomicBool>,
 
@@ -74,7 +69,6 @@ impl SlidingSyncRoom {
         Self {
             client,
             room_id,
-            is_loading_more: Arc::new(StdRwLock::new(Observable::new(false))),
             is_cold: Arc::new(AtomicBool::new(false)),
             prev_batch: Arc::new(StdRwLock::new(Observable::new(inner.prev_batch.clone()))),
             timeline_queue: Arc::new(StdRwLock::new(timeline_queue)),
@@ -85,11 +79,6 @@ impl SlidingSyncRoom {
     /// RoomId of this SlidingSyncRoom
     pub fn room_id(&self) -> &OwnedRoomId {
         &self.room_id
-    }
-
-    /// Are we currently fetching more timeline events in this room?
-    pub fn is_loading_more(&self) -> bool {
-        **self.is_loading_more.read().unwrap()
     }
 
     /// The `prev_batch` key to fetch more timeline events for this room.
@@ -258,7 +247,6 @@ impl SlidingSyncRoom {
             client,
             room_id,
             inner,
-            is_loading_more: Arc::new(StdRwLock::new(Observable::new(false))),
             is_cold: Arc::new(AtomicBool::new(true)),
             prev_batch: Arc::new(StdRwLock::new(Observable::new(prev_batch))),
             timeline_queue: Arc::new(StdRwLock::new(timeline_queue_ob)),

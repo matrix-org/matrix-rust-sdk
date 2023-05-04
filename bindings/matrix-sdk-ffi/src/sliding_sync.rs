@@ -174,10 +174,6 @@ impl SlidingSyncRoom {
         self.inner.is_initial_response()
     }
 
-    pub fn is_loading_more(&self) -> bool {
-        self.inner.is_loading_more()
-    }
-
     pub fn has_unread_notifications(&self) -> bool {
         self.inner.has_unread_notifications()
     }
