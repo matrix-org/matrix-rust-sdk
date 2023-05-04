@@ -322,6 +322,15 @@ pub struct SigningKeysUploadRequest {
     pub body: JsString,
 }
 
+#[wasm_bindgen]
+impl SigningKeysUploadRequest {
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::SigningKeysUpload
+    }
+}
+
 macro_rules! request {
     (
         $destination_request:ident from $source_request:ident
@@ -482,4 +491,7 @@ pub enum RequestType {
 
     /// Represents a `KeysBackupRequest`.
     KeysBackup,
+
+    /// Represents a `SigningKeysUploadRequest`
+    SigningKeysUpload,
 }
