@@ -309,69 +309,76 @@ impl SlidingSync {
         }
 
         let update_summary = {
-            let mut rooms_map = self.inner.rooms.write().unwrap();
-
             // Update the rooms.
-            let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
+            let updated_rooms = {
+                let mut rooms_map = self.inner.rooms.write().unwrap();
 
-            for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
-                // `sync_response` contains the rooms with decrypted events if any, so look at
-                // the timeline events here first if the room exists.
-                // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
-                let timeline = if let Some(joined_room) = sync_response.rooms.join.remove(&room_id)
-                {
-                    joined_room.timeline.events
-                } else {
-                    room_data.timeline.drain(..).map(Into::into).collect()
-                };
+                let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
 
-                match rooms_map.get_mut(&room_id) {
-                    // The room existed before, let's update it.
-                    Some(room) => {
-                        room.update(room_data, timeline);
-                    }
+                for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
+                    // `sync_response` contains the rooms with decrypted events if any, so look at
+                    // the timeline events here first if the room exists.
+                    // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
+                    let timeline =
+                        if let Some(joined_room) = sync_response.rooms.join.remove(&room_id) {
+                            joined_room.timeline.events
+                        } else {
+                            room_data.timeline.drain(..).map(Into::into).collect()
+                        };
 
-                    // First time we need this room, let's create it.
-                    None => {
-                        rooms_map.insert(
-                            room_id.clone(),
-                            SlidingSyncRoom::new(
-                                self.inner.client.clone(),
+                    match rooms_map.get_mut(&room_id) {
+                        // The room existed before, let's update it.
+                        Some(room) => {
+                            room.update(room_data, timeline);
+                        }
+
+                        // First time we need this room, let's create it.
+                        None => {
+                            rooms_map.insert(
                                 room_id.clone(),
-                                room_data,
-                                timeline,
-                            ),
-                        );
+                                SlidingSyncRoom::new(
+                                    self.inner.client.clone(),
+                                    room_id.clone(),
+                                    room_data,
+                                    timeline,
+                                ),
+                            );
+                        }
                     }
+
+                    updated_rooms.push(room_id);
                 }
 
-                updated_rooms.push(room_id);
-            }
+                updated_rooms
+            };
 
             // Update the lists.
-            let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
+            let updated_lists = {
+                let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
+                let mut lists = self.inner.lists.write().unwrap();
 
-            let mut lists = self.inner.lists.write().unwrap();
+                for (name, updates) in sliding_sync_response.lists {
+                    let Some(list) = lists.get_mut(&name) else {
+                        error!("Response for list `{name}` - unknown to us; skipping");
 
-            for (name, updates) in sliding_sync_response.lists {
-                let Some(list) = lists.get_mut(&name) else {
-                    error!("Response for list `{name}` - unknown to us; skipping");
+                        continue;
+                    };
 
-                    continue;
-                };
+                    let maximum_number_of_rooms: u32 =
+                        updates.count.try_into().expect("failed to convert `count` to `u32`");
 
-                let maximum_number_of_rooms: u32 =
-                    updates.count.try_into().expect("failed to convert `count` to `u32`");
-
-                if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
-                    updated_lists.push(name.clone());
+                    if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
+                        updated_lists.push(name.clone());
+                    }
                 }
-            }
 
-            // Update the `to-device` next-batch if any.
-            if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                self.update_to_device_since(to_device.next_batch);
-            }
+                // Update the `to-device` next-batch if any.
+                if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                    self.update_to_device_since(to_device.next_batch);
+                }
+
+                updated_lists
+            };
 
             UpdateSummary { lists: updated_lists, rooms: updated_rooms }
         };
