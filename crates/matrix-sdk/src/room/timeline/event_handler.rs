@@ -544,9 +544,9 @@ impl<'a> TimelineEventHandler<'a> {
             Some(event_item.with_kind(remote_event_item.to_redacted()))
         });
 
-        if self.result.items_updated > 0 {
+        if self.result.items_updated == 0 {
             // We will want to know this when debugging redaction issues.
-            debug!(redaction_key = ?redacts, "redaction affected no event");
+            debug!("redaction affected no event");
         }
     }
 
