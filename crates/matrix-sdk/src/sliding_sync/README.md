@@ -121,16 +121,16 @@ background though. For that, the client implementation offers to run lists
 in two additional full-sync-modes, which require additional configuration:
 
 - [`SlidingSyncMode::Paging`]: Pages through the entire list of
-  rooms one request at a time asking for the next `batch_size` number of
-  rooms up to the end or `limit` if configured
-- [`SlidingSyncMode::Growing`]: Grows the window by `batch_size` on
-  every request till all rooms or until `limit` of rooms are in list.
+  rooms one request at a time asking for the next `full_sync_batch_size` number of
+  rooms up to the end or `full_sync_maximum_number_of_rooms_to_fetch` if configured
+- [`SlidingSyncMode::Growing`]: Grows the window by `full_sync_batch_size` on
+  every request till all rooms or until `full_sync_maximum_number_of_rooms_to_fetch` of rooms are in list.
 
 For both, one should configure
-[`batch_size`](SlidingSyncListBuilder::batch_size) and optionally
-[`limit`](SlidingSyncListBuilder::limit) on the [`SlidingSyncListBuilder`].
-Both full-sync lists will notice if the number of rooms increased at runtime
-and will attempt to catch up to that (barring the `limit`).
+[`full_sync_batch_size`](SlidingSyncListBuilder::full_sync_batch_size) and optionally
+[`full_sync_maximum_number_of_rooms_to_fetch`](SlidingSyncListBuilder::full_sync_maximum_number_of_rooms_to_fetch)
+on the [`SlidingSyncListBuilder`]. Both full-sync lists will notice if the number of rooms
+increased at runtime and will attempt to catch up to that (barring the `limit`).
 
 ## Rooms
 
@@ -140,7 +140,7 @@ of the room at the given position. The details (`required_state`s and
 timeline items) requested by all lists are bundled, together with the common
 details (e.g. whether it is a `dm` or its calculated name) and made
 available on the Sliding Sync session struct as a [reactive](#reactive-api)
-through [`.rooms`](SlidingSync::rooms), [`get_room`](SlidingSync::get_room)
+through [`.get_all_rooms`](SlidingSync::get_all_rooms), [`get_room`](SlidingSync::get_room)
 and [`get_rooms`](SlidingSync::get_rooms) APIs.
 
 Notably, this map only knows about the rooms that have come down [Sliding

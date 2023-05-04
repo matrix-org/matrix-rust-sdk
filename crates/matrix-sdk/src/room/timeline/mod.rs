@@ -332,9 +332,9 @@ impl Timeline {
 
     /// Fetch unavailable details about the event with the given ID.
     ///
-    /// This method only works for IDs of [`RemoteEventTimelineItem`]s, to
-    /// prevent losing details when a local echo is replaced by its remote
-    /// echo.
+    /// This method only works for IDs of remote [`EventTimelineItem`]s,
+    /// to prevent losing details when a local echo is replaced by its
+    /// remote echo.
     ///
     /// This method tries to make all the requests it can. If an error is
     /// encountered for a given request, it is forwarded with the
