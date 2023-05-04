@@ -110,11 +110,6 @@ pub enum SlidingSyncError {
     BadResponse {
         msg: String,
     },
-    /// Called `.build()` on a builder type, but the given required field was
-    /// missing.
-    BuildMissingField {
-        msg: String,
-    },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
@@ -144,7 +139,6 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
 
         match value {
             E::BadResponse(msg) => Self::BadResponse { msg },
-            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
             E::RequestGeneratorHasNotBeenInitialized(msg) => {
                 Self::RequestGeneratorHasNotBeenInitialized { msg }
             }

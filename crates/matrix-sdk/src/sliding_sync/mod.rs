@@ -125,8 +125,8 @@ impl SlidingSync {
     }
 
     /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder() -> SlidingSyncBuilder {
-        SlidingSyncBuilder::new()
+    pub fn builder(client: Client) -> SlidingSyncBuilder {
+        SlidingSyncBuilder::new(client)
     }
 
     /// Subscribe to a given room.
