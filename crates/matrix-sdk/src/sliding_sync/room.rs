@@ -74,7 +74,7 @@ impl SlidingSyncRoom {
     }
 
     /// Get the room ID of this `SlidingSyncRoom`.
-    pub fn room_id(&self) -> &OwnedRoomId {
+    pub fn room_id(&self) -> &ruma::RoomId {
         &self.room_id
     }
 
@@ -88,7 +88,7 @@ impl SlidingSyncRoom {
         self.inner.is_dm
     }
 
-    /// Was this an initial response.
+    /// Was this an initial response?
     pub fn is_initial_response(&self) -> Option<bool> {
         self.inner.initial
     }
@@ -284,10 +284,7 @@ mod tests {
         };
     }
 
-    async fn new_sliding_sync_room(
-        room_id: &RoomId,
-        inner: v4::SlidingSyncRoom,
-    ) -> SlidingSyncRoom {
+    async fn new_room(room_id: &RoomId, inner: v4::SlidingSyncRoom) -> SlidingSyncRoom {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -295,41 +292,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_room_name() -> Result<()> {
-        // No name when initializing.
-        {
-            let room = new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({})).await;
+    async fn test_room_room_id() -> Result<()> {
+        let room_id = room_id!("!foo:bar.org");
+        let room = new_room(room_id, room_response!({})).await;
 
-            assert_eq!(room.name(), None);
-        }
-
-        // Some name when initializing.
-        {
-            let room =
-                new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({"name": "gordon"}))
-                    .await;
-
-            assert_eq!(room.name(), Some("gordon"));
-        }
-
-        // No name when initializing, but received one during an update.
-        {
-            let mut room =
-                new_sliding_sync_room(room_id!("!foo:bar.org"), room_response!({})).await;
-
-            assert_eq!(room.name(), None);
-
-            room.update(
-                room_response!({
-                    "name": "gordon",
-                }),
-                vec![],
-            );
-
-            assert_eq!(room.name(), Some("gordon"));
-        }
+        assert_eq!(room.room_id(), room_id);
 
         Ok(())
+    }
+
+    macro_rules! test_getters {
+        (
+            $(
+                $test_name:ident {
+                    $getter:ident () =
+                        $first_value:expr;
+                        $room_response:expr;
+                        $second_value:expr;
+                }
+            )+
+        ) => {
+            $(
+                #[tokio::test]
+                async fn $test_name () -> Result<()> {
+                    // Default value.
+                    {
+                        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+                        assert_eq!(room.$getter(), None);
+                    }
+
+                    // Some value when initializing.
+                    {
+                        let room = new_room(room_id!("!foo:bar.org"), $room_response).await;
+
+                        assert_eq!(room.$getter(), $second_value);
+                    }
+
+                    // Some value when updating.
+                    {
+
+                        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+                        assert_eq!(room.$getter(), $first_value);
+
+                        room.update($room_response, vec![]);
+
+                        assert_eq!(room.$getter(), $second_value);
+                    }
+
+                    Ok(())
+                }
+            )+
+        };
+    }
+
+    test_getters! {
+        test_room_name {
+            name() = None; room_response!({"name": "gordon"}); Some("gordon");
+        }
+
+        test_room_is_dm {
+            is_dm() = None; room_response!({"is_dm": true}); Some(true);
+        }
+
+        test_room_is_initial_response {
+            is_initial_response() = None; room_response!({"initial": true}); Some(true);
+        }
     }
 
     #[test]
