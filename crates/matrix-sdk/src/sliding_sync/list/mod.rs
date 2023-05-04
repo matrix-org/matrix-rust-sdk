@@ -36,9 +36,9 @@ pub struct SlidingSyncList {
 }
 
 impl SlidingSyncList {
-    /// Create a new [`SlidingSyncListBuilder`].
-    pub fn builder() -> SlidingSyncListBuilder {
-        SlidingSyncListBuilder::new()
+    /// Create a new [`SlidingSyncListBuilder`] with the given name.
+    pub fn builder(name: impl Into<String>) -> SlidingSyncListBuilder {
+        SlidingSyncListBuilder::new(name)
     }
 
     pub(crate) fn set_from_cold(
@@ -902,12 +902,10 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_set_ranges() {
-        let list = SlidingSyncList::builder()
-            .name("foo")
+        let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
             .ranges(ranges![(0, 1), (2, 3)].to_vec())
-            .build()
-            .unwrap();
+            .build();
 
         {
             let lock = list.inner.ranges.read().unwrap();
@@ -930,12 +928,10 @@ mod tests {
     fn test_sliding_sync_list_set_range() {
         // Set range on `Selective`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
+            let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
                 .ranges(ranges![(0, 1), (2, 3)].to_vec())
-                .build()
-                .unwrap();
+                .build();
 
             {
                 let lock = list.inner.ranges.read().unwrap();
@@ -956,22 +952,14 @@ mod tests {
 
         // Set range on `Growing`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Growing)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Growing).build();
 
             assert!(list.set_range(4u32, 5).is_err());
         }
 
         // Set range on `Paging`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Paging)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build();
 
             assert!(list.set_range(4u32, 5).is_err());
         }
@@ -981,12 +969,10 @@ mod tests {
     fn test_sliding_sync_list_add_range() {
         // Add range on `Selective`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
+            let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
                 .ranges(ranges![(0, 1)].to_vec())
-                .build()
-                .unwrap();
+                .build();
 
             {
                 let lock = list.inner.ranges.read().unwrap();
@@ -1007,22 +993,14 @@ mod tests {
 
         // Add range on `Growing`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Growing)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Growing).build();
 
             assert!(list.add_range((2u32, 3)).is_err());
         }
 
         // Add range on `Paging`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Paging)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build();
 
             assert!(list.add_range((2u32, 3)).is_err());
         }
@@ -1032,12 +1010,10 @@ mod tests {
     fn test_sliding_sync_list_reset_ranges() {
         // Reset ranges on `Selective`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
+            let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
                 .ranges(ranges![(0, 1)].to_vec())
-                .build()
-                .unwrap();
+                .build();
 
             {
                 let lock = list.inner.ranges.read().unwrap();
@@ -1058,22 +1034,14 @@ mod tests {
 
         // Reset range on `Growing`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Growing)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Growing).build();
 
             assert!(list.reset_ranges().is_err());
         }
 
         // Reset range on `Paging`.
         {
-            let list = SlidingSyncList::builder()
-                .name("foo")
-                .sync_mode(SlidingSyncMode::Paging)
-                .build()
-                .unwrap();
+            let list = SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build();
 
             assert!(list.reset_ranges().is_err());
         }
@@ -1081,13 +1049,11 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_timeline_limit() {
-        let list = SlidingSyncList::builder()
-            .name("foo")
+        let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
             .ranges(ranges![(0, 1)].to_vec())
             .timeline_limit(7u32)
-            .build()
-            .unwrap();
+            .build();
 
         {
             let lock = list.inner.timeline_limit.read().unwrap();
@@ -1117,12 +1083,10 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_get_room_id() {
-        let mut list = SlidingSyncList::builder()
-            .name("foo")
+        let mut list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
             .add_range(0u32, 1)
-            .build()
-            .unwrap();
+            .build();
 
         let room0 = room_id!("!room0:bar.org");
         let room1 = room_id!("!room1:bar.org");
@@ -1194,12 +1158,10 @@ mod tests {
 
     #[test]
     fn test_generator_paging_full_sync() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Paging)
-            .name("testing")
             .full_sync_batch_size(10)
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1237,13 +1199,11 @@ mod tests {
 
     #[test]
     fn test_generator_paging_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Paging)
-            .name("testing")
             .full_sync_batch_size(10)
             .full_sync_maximum_number_of_rooms_to_fetch(22)
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1281,12 +1241,10 @@ mod tests {
 
     #[test]
     fn test_generator_growing_full_sync() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Growing)
-            .name("testing")
             .full_sync_batch_size(10)
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1324,13 +1282,11 @@ mod tests {
 
     #[test]
     fn test_generator_growing_full_sync_with_a_maximum_number_of_rooms_to_fetch() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Growing)
-            .name("testing")
             .full_sync_batch_size(10)
             .full_sync_maximum_number_of_rooms_to_fetch(22)
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1368,12 +1324,10 @@ mod tests {
 
     #[test]
     fn test_generator_selective() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Selective)
-            .name("testing")
             .ranges(ranges![(0, 10), (42, 153)].to_vec())
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1401,12 +1355,10 @@ mod tests {
 
     #[test]
     fn test_generator_selective_with_modifying_ranges_on_the_fly() {
-        let mut list = SlidingSyncList::builder()
+        let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Selective)
-            .name("testing")
             .ranges(ranges![(0, 10), (42, 153)].to_vec())
-            .build()
-            .unwrap();
+            .build();
 
         assert_ranges! {
             list = list,
@@ -1487,12 +1439,10 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
-        let mut list = SlidingSyncList::builder()
-            .name("foo")
+        let mut list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
             .add_range(0u32, 3)
-            .build()
-            .unwrap();
+            .build();
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
         assert_eq!(list.inner.room_list.read().unwrap().len(), 0);

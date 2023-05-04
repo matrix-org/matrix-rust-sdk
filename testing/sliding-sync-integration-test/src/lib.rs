@@ -88,12 +88,11 @@ async fn it_works_smoke_test() -> anyhow::Result<()> {
     let (_client, sync_builder) = setup("odo".to_owned(), false).await?;
     let sync_proxy = sync_builder
         .add_list(
-            SlidingSyncList::builder()
+            SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
                 .add_range(0u32, 10)
                 .timeline_limit(0u32)
-                .name("foo")
-                .build()?,
+                .build(),
         )
         .build()
         .await?;
@@ -115,12 +114,11 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         let sync = sync_builder
             .clone()
             .add_list(
-                SlidingSyncList::builder()
+                SlidingSyncList::builder("init_list")
                     .sync_mode(SlidingSyncMode::Selective)
                     .add_range(0u32, 1)
                     .timeline_limit(0u32)
-                    .name("init_list")
-                    .build()?,
+                    .build(),
             )
             .build()
             .await?;
@@ -173,12 +171,11 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
     let sync = sync_builder
         .clone()
         .add_list(
-            SlidingSyncList::builder()
+            SlidingSyncList::builder("visible_room_list")
                 .sync_mode(SlidingSyncMode::Selective)
-                .name("visible_room_list")
                 .add_range(0u32, 1)
                 .timeline_limit(1u32)
-                .build()?,
+                .build(),
         )
         .build()
         .await?;
@@ -329,16 +326,15 @@ async fn adding_list_later() -> anyhow::Result<()> {
 
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let build_list = |name| {
-        SlidingSyncList::builder()
+        SlidingSyncList::builder(name)
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-            .name(name)
             .build()
     };
     let sync_proxy = sync_proxy_builder
-        .add_list(build_list(list_name_1)?)
-        .add_list(build_list(list_name_2)?)
+        .add_list(build_list(list_name_1))
+        .add_list(build_list(list_name_2))
         .build()
         .await?;
     let list1 = sync_proxy.list(list_name_1).context("but we just added that list!")?;
@@ -354,7 +350,7 @@ async fn adding_list_later() -> anyhow::Result<()> {
     // we only heard about the ones we had asked for
     assert_eq!(summary.lists, [list_name_1, list_name_2]);
 
-    assert!(sync_proxy.add_list(build_list(list_name_3)?).is_none());
+    assert!(sync_proxy.add_list(build_list(list_name_3)).is_none());
 
     // we need to restart the stream after every list listing update
     let stream = sync_proxy.stream();
@@ -415,17 +411,16 @@ async fn live_lists() -> anyhow::Result<()> {
 
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let build_list = |name| {
-        SlidingSyncList::builder()
+        SlidingSyncList::builder(name)
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(0u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-            .name(name)
             .build()
     };
     let sync_proxy = sync_proxy_builder
-        .add_list(build_list(list_name_1)?)
-        .add_list(build_list(list_name_2)?)
-        .add_list(build_list(list_name_3)?)
+        .add_list(build_list(list_name_1))
+        .add_list(build_list(list_name_2))
+        .add_list(build_list(list_name_3))
         .build()
         .await?;
     let Some(list1 )= sync_proxy.list(list_name_1) else {
@@ -526,19 +521,17 @@ async fn live_lists() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn list_goes_live() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(21).await?;
-    let sliding_window_list = SlidingSyncList::builder()
+    let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
         .set_range(0u32, 10u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("sliding")
-        .build()?;
+        .build();
 
-    let full = SlidingSyncList::builder()
+    let full = SlidingSyncList::builder("full")
         .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(10u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("full")
-        .build()?;
+        .build();
     let sync_proxy =
         sync_proxy_builder.add_list(sliding_window_list).add_list(full).build().await?;
 
@@ -591,12 +584,11 @@ async fn list_goes_live() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn resizing_sliding_window() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    let sliding_window_list = SlidingSyncList::builder()
+    let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
         .set_range(0u32, 10u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("sliding")
-        .build()?;
+        .build();
     let sync_proxy = sync_proxy_builder.add_list(sliding_window_list).build().await?;
     let list = sync_proxy.list("sliding").context("but we just added that list!")?;
     let stream = sync_proxy.stream();
@@ -695,12 +687,11 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    let sliding_window_list = SlidingSyncList::builder()
+    let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
         .set_range(1u32, 10u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("sliding")
-        .build()?;
+        .build();
     let sync_proxy = sync_proxy_builder.add_list(sliding_window_list).build().await?;
     let list = sync_proxy.list("sliding").context("but we just added that list!")?;
     let stream = sync_proxy.stream();
@@ -840,18 +831,16 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(500).await?;
     print!("setup took its time");
     let build_lists = || {
-        let sliding_window_list = SlidingSyncList::builder()
+        let sliding_window_list = SlidingSyncList::builder("sliding")
             .sync_mode(SlidingSyncMode::Selective)
             .set_range(1u32, 10u32)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-            .name("sliding")
-            .build()?;
-        let growing_sync = SlidingSyncList::builder()
+            .build();
+        let growing_sync = SlidingSyncList::builder("growing")
             .sync_mode(SlidingSyncMode::Growing)
             .full_sync_maximum_number_of_rooms_to_fetch(100)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-            .name("growing")
-            .build()?;
+            .build();
         anyhow::Ok((sliding_window_list, growing_sync))
     };
 
@@ -903,12 +892,11 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn growing_sync_keeps_going() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
-    let growing_sync = SlidingSyncList::builder()
+    let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(5u32)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("growing")
-        .build()?;
+        .build();
 
     let sync_proxy = sync_proxy_builder.clone().add_list(growing_sync).build().await?;
     let list = sync_proxy.list("growing").context("but we just added that list!")?;
@@ -948,13 +936,12 @@ async fn growing_sync_keeps_going() -> anyhow::Result<()> {
 async fn continue_on_reset() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(10).await?;
     print!("setup took its time");
-    let growing_sync = SlidingSyncList::builder()
+    let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(5u32)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("growing")
-        .build()?;
+        .build();
 
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
@@ -1033,13 +1020,12 @@ async fn continue_on_reset() -> anyhow::Result<()> {
 async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     print!("setup took its time");
-    let growing_sync = SlidingSyncList::builder()
+    let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
         .full_sync_batch_size(10u32)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .name("growing")
-        .build()?;
+        .build();
 
     println!("starting the sliding sync setup");
     let sync_proxy = sync_proxy_builder
@@ -1111,12 +1097,11 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
 
     let sync_proxy = sync_proxy_builder
         .add_list(
-            SlidingSyncList::builder()
+            SlidingSyncList::builder("sliding_list")
                 .sync_mode(SlidingSyncMode::Selective)
                 .set_range(0u32, 2u32)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-                .name("sliding_list")
-                .build()?,
+                .build(),
         )
         .build()
         .await?;
@@ -1270,12 +1255,11 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn receipts_extension_works() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(1).await?;
-    let list = SlidingSyncList::builder()
+    let list = SlidingSyncList::builder("a")
         .sync_mode(SlidingSyncMode::Selective)
         .ranges(vec![(0u32, 1u32)])
         .sort(vec!["by_recency".to_owned()])
-        .name("a")
-        .build()?;
+        .build();
 
     let mut config = ReceiptsConfig::default();
     config.enabled = Some(true);

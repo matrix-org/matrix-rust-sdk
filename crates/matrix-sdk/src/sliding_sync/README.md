@@ -73,8 +73,7 @@ are **inclusive**) like so:
 # use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
 use ruma::{assign, api::client::sync::sync_events::v4};
 
-let list_builder = SlidingSyncList::builder()
-    .name("main_list")
+let list_builder = SlidingSyncList::builder("main_list")
     .sync_mode(SlidingSyncMode::Selective)
     .filters(Some(assign!(
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
@@ -428,19 +427,17 @@ let sliding_sync_builder = client
     .with_common_extensions() // we want the e2ee and to-device enabled, please
     .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
 
-let full_sync_list = SlidingSyncList::builder()
+let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing)  // sync up by growing the window
-    .name(&full_sync_list_name)    // needed to lookup again.
     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
         (StateEventType::RoomEncryption, "".to_owned())
      ]) // only want to know if the room is encrypted
     .full_sync_batch_size(50)   // grow the window by 50 items at a time
     .full_sync_maximum_number_of_rooms_to_fetch(500)      // only sync up the top 500 rooms
-    .build()?;
+    .build();
 
-let active_list = SlidingSyncList::builder()
-    .name(&active_list_name)   // the active window
+let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
     .set_range(0u32, 9u32) // only the top 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
@@ -450,7 +447,7 @@ let active_list = SlidingSyncList::builder()
         (StateEventType::RoomTopic, "".to_owned()),      // any topic if known
         (StateEventType::RoomAvatar, "".to_owned()),     // avatar if set
      ])
-    .build()?;
+    .build();
 
 let sliding_sync = sliding_sync_builder
     .add_list(active_list)

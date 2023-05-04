@@ -110,11 +110,6 @@ pub enum SlidingSyncError {
     BadResponse {
         msg: String,
     },
-    /// Called `.build()` on a builder type, but the given required field was
-    /// missing.
-    BuildMissingField {
-        msg: String,
-    },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
@@ -144,7 +139,6 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
 
         match value {
             E::BadResponse(msg) => Self::BadResponse { msg },
-            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
             E::RequestGeneratorHasNotBeenInitialized(msg) => {
                 Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
@@ -474,8 +468,8 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
 #[uniffi::export]
 impl SlidingSyncListBuilder {
     #[uniffi::constructor]
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder() })
+    pub fn new(name: String) -> Arc<Self> {
+        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
     }
 
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
@@ -484,9 +478,9 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSyncList>, ClientError> {
+    pub fn build(self: Arc<Self>) -> Arc<SlidingSyncList> {
         let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(builder.inner.build()?.into()))
+        Arc::new(builder.inner.build().into())
     }
 
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
@@ -542,12 +536,6 @@ impl SlidingSyncListBuilder {
     pub fn no_timeline_limit(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.no_timeline_limit();
-        Arc::new(builder)
-    }
-
-    pub fn name(self: Arc<Self>, name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.name(name);
         Arc::new(builder)
     }
 

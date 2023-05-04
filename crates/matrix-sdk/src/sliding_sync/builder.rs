@@ -16,7 +16,7 @@ use ruma::{
 use url::Url;
 
 use super::{
-    cache::restore_sliding_sync_state, Error, SlidingSync, SlidingSyncInner, SlidingSyncList,
+    cache::restore_sliding_sync_state, SlidingSync, SlidingSyncInner, SlidingSyncList,
     SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
@@ -29,7 +29,7 @@ use crate::{Client, Result};
 pub struct SlidingSyncBuilder {
     storage_key: Option<String>,
     homeserver: Option<Url>,
-    client: Option<Client>,
+    client: Client,
     lists: BTreeMap<String, SlidingSyncList>,
     bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
@@ -37,11 +37,11 @@ pub struct SlidingSyncBuilder {
 }
 
 impl SlidingSyncBuilder {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(client: Client) -> Self {
         Self {
             storage_key: None,
             homeserver: None,
-            client: None,
+            client,
             lists: BTreeMap::new(),
             bump_event_types: Vec::new(),
             extensions: None,
@@ -58,12 +58,6 @@ impl SlidingSyncBuilder {
     /// Set the homeserver for sliding sync only.
     pub fn homeserver(mut self, value: Url) -> Self {
         self.homeserver = Some(value);
-        self
-    }
-
-    /// Set the client this sliding sync will be using.
-    pub fn client(mut self, value: Client) -> Self {
-        self.client = Some(value);
         self
     }
 
@@ -207,7 +201,7 @@ impl SlidingSyncBuilder {
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
     /// storage.
     pub async fn build(mut self) -> Result<SlidingSync> {
-        let client = self.client.ok_or(Error::BuildMissingField("client"))?;
+        let client = self.client;
 
         let mut delta_token = None;
         let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
