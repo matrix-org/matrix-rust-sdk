@@ -596,8 +596,8 @@ impl Client {
         event_id: String,
     ) -> Result<NotificationItem, ClientError> {
         RUNTIME.block_on(async move {
-            let settings = SyncSettings::new();
-            self.client.sync_once(settings).await?;
+            // We may also need to do a sync here since this may fail if the keys are not
+            // valid anymore
             let room_id = RoomId::parse(room_id)?;
             let room = self.client.get_room(&room_id).context("Room not found")?;
             let notification = NotificationItem::new_from_event_id(&event_id, room).await?;
