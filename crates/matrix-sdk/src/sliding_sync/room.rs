@@ -1,11 +1,6 @@
-use std::{
-    fmt::Debug,
-    ops::Not,
-    sync::{Arc, RwLock as StdRwLock},
-};
+use std::{fmt::Debug, ops::Not};
 
-use eyeball_im::ObservableVector;
-use imbl::Vector;
+use eyeball_im::Vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::{v4, UnreadNotificationsCount},
@@ -43,7 +38,7 @@ pub struct SlidingSyncRoom {
 
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
-    timeline_queue: Arc<StdRwLock<ObservableVector<SyncTimelineEvent>>>,
+    timeline_queue: Vector<SyncTimelineEvent>,
 }
 
 /// The state of a [`SlidingSyncRoom`].
@@ -68,15 +63,12 @@ impl SlidingSyncRoom {
         inner: v4::SlidingSyncRoom,
         timeline: Vec<SyncTimelineEvent>,
     ) -> Self {
-        let mut timeline_queue = ObservableVector::new();
-        timeline_queue.append(timeline.into_iter().collect());
-
         Self {
             client,
             room_id,
             inner,
             state: SlidingSyncRoomState::NotLoaded,
-            timeline_queue: Arc::new(StdRwLock::new(timeline_queue)),
+            timeline_queue: timeline.into(),
         }
     }
 
@@ -93,10 +85,8 @@ impl SlidingSyncRoom {
     fn timeline_builder(&self) -> Option<TimelineBuilder> {
         if let Some(room) = self.client.get_room(&self.room_id) {
             Some(
-                Timeline::builder(&room).events(
-                    self.inner.prev_batch.clone(),
-                    self.timeline_queue.read().unwrap().clone(),
-                ),
+                Timeline::builder(&room)
+                    .events(self.inner.prev_batch.clone(), self.timeline_queue.clone()),
             )
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::builder(&invited_room).events(None, Vector::new()))
@@ -202,37 +192,25 @@ impl SlidingSyncRoom {
                 // If the room has been read from the cache, we overwrite the timeline queue
                 // with the timeline updates.
 
-                let mut timeline_queue = self.timeline_queue.write().unwrap();
-                timeline_queue.clear();
-
-                for event in timeline_updates {
-                    timeline_queue.push_back(event);
-                }
+                self.timeline_queue.clear();
+                self.timeline_queue.extend(timeline_updates);
             } else if limited {
                 // The server alerted us that we missed items in between.
 
-                let mut timeline_queue = self.timeline_queue.write().unwrap();
-                timeline_queue.clear();
-
-                for event in timeline_updates {
-                    timeline_queue.push_back(event);
-                }
+                self.timeline_queue.clear();
+                self.timeline_queue.extend(timeline_updates);
             } else {
                 // It's the hot path. We have new updates that must be added to the existing
                 // timeline queue.
 
-                let mut timeline_queue = self.timeline_queue.write().unwrap();
-
-                for event in timeline_updates {
-                    timeline_queue.push_back(event);
-                }
+                self.timeline_queue.extend(timeline_updates);
             }
         } else if limited {
             // The timeline updates are empty. But `limited` is set to true. It's a way to
             // alert that we are stale. In this case, we should just clear the
             // existing timeline.
 
-            self.timeline_queue.write().unwrap().clear();
+            self.timeline_queue.clear();
         }
 
         self.state = SlidingSyncRoomState::Loaded;
@@ -241,16 +219,7 @@ impl SlidingSyncRoom {
     pub(super) fn from_frozen(frozen_room: FrozenSlidingSyncRoom, client: Client) -> Self {
         let FrozenSlidingSyncRoom { room_id, inner, timeline_queue } = frozen_room;
 
-        let mut timeline_queue_ob = ObservableVector::new();
-        timeline_queue_ob.append(timeline_queue);
-
-        Self {
-            client,
-            room_id,
-            inner,
-            state: SlidingSyncRoomState::Preloaded,
-            timeline_queue: Arc::new(StdRwLock::new(timeline_queue_ob)),
-        }
+        Self { client, room_id, inner, state: SlidingSyncRoomState::Preloaded, timeline_queue }
     }
 }
 
@@ -266,7 +235,7 @@ pub(super) struct FrozenSlidingSyncRoom {
 
 impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
     fn from(value: &SlidingSyncRoom) -> Self {
-        let timeline = value.timeline_queue.read().unwrap();
+        let timeline = &value.timeline_queue;
         let timeline_length = timeline.len();
 
         let mut inner = value.inner.clone();
@@ -283,7 +252,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
             timeline.clone()
         };
 
-        Self { timeline_queue: timeline, room_id: value.room_id.clone(), inner }
+        Self { room_id: value.room_id.clone(), inner, timeline_queue: timeline }
     }
 }
 
@@ -311,7 +280,7 @@ mod tests {
                     "sender": "@bob:example.com",
                 }))
                 .unwrap()
-                .cast()
+                .cast(),
             )
             .into()],
         };
