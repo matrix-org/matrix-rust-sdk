@@ -4,7 +4,10 @@ use imbl::Vector;
 use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
 
-use super::{FrozenSlidingSyncRoom, RoomListEntry, SlidingSyncList, SlidingSyncRoom};
+use super::{
+    super::{FrozenSlidingSyncRoom, SlidingSyncRoom},
+    RoomListEntry, SlidingSyncList,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FrozenSlidingSyncList {
