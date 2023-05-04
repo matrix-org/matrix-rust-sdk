@@ -111,6 +111,10 @@ impl TimelineItemContent {
             _ => None,
         }
     }
+
+    pub(crate) fn is_redacted(&self) -> bool {
+        matches!(self, Self::RedactedMessage)
+    }
 }
 
 /// An `m.room.message` event or extensible event, including edits.
