@@ -14,7 +14,7 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
+use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -40,9 +40,9 @@ use crate::{
 #[derive(Clone)]
 pub struct Session {
     /// The `UserId` associated with this session
-    pub user_id: Arc<UserId>,
+    pub user_id: OwnedUserId,
     /// The specific `DeviceId` associated with this session
-    pub device_id: Arc<DeviceId>,
+    pub device_id: OwnedDeviceId,
     /// The `IdentityKeys` associated with this session
     pub our_identity_keys: Arc<IdentityKeys>,
     /// The OlmSession
@@ -143,8 +143,8 @@ impl Session {
             recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
         let payload = json!({
-            "sender": self.user_id.as_str(),
-            "sender_device": self.device_id.as_ref(),
+            "sender": &self.user_id,
+            "sender_device": &self.device_id,
             "keys": {
                 "ed25519": self.our_identity_keys.ed25519.to_base64(),
             },
@@ -221,8 +221,8 @@ impl Session {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        user_id: Arc<UserId>,
-        device_id: Arc<DeviceId>,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
         our_identity_keys: Arc<IdentityKeys>,
         pickle: PickledSession,
     ) -> Self {

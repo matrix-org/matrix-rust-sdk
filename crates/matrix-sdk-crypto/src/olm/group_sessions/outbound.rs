@@ -27,8 +27,8 @@ use dashmap::DashMap;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, SecondsSinceUnixEpoch,
-    TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -131,10 +131,10 @@ impl EncryptionSettings {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<RwLock<GroupSession>>,
-    device_id: Arc<DeviceId>,
+    device_id: OwnedDeviceId,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
-    room_id: Arc<RoomId>,
+    room_id: OwnedRoomId,
     pub(crate) creation_time: SecondsSinceUnixEpoch,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
@@ -207,7 +207,7 @@ impl OutboundGroupSession {
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
     pub fn new(
-        device_id: Arc<DeviceId>,
+        device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -623,7 +623,7 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        device_id: Arc<DeviceId>,
+        device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
     ) -> Result<Self, PickleError> {
@@ -723,7 +723,7 @@ pub struct PickledOutboundGroupSession {
     /// The settings this session adheres to.
     pub settings: Arc<EncryptionSettings>,
     /// The room id this session is used for.
-    pub room_id: Arc<RoomId>,
+    pub room_id: OwnedRoomId,
     /// The timestamp when this session was created.
     pub creation_time: SecondsSinceUnixEpoch,
     /// The number of messages this session has already encrypted.

@@ -478,9 +478,9 @@ impl Account {
 #[derive(Clone)]
 pub struct ReadOnlyAccount {
     /// The user_id this account belongs to
-    pub user_id: Arc<UserId>,
+    pub user_id: OwnedUserId,
     /// The device_id of this entry
-    pub device_id: Arc<DeviceId>,
+    pub device_id: OwnedDeviceId,
     inner: Arc<Mutex<InnerAccount>>,
     /// The associated identity keys
     pub identity_keys: Arc<IdentityKeys>,

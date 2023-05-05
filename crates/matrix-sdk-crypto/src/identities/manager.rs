@@ -22,9 +22,8 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
-    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
-    UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, OwnedDeviceId,
+    OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn};
@@ -58,8 +57,8 @@ struct IdentityChange {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
@@ -83,7 +82,7 @@ struct KeysQueryRequestDetails {
 impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
-    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
+    pub fn new(user_id: OwnedUserId, device_id: OwnedDeviceId, store: Store) -> Self {
         let keys_query_request_details = Mutex::new(None);
 
         IdentityManager {
@@ -277,8 +276,8 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
-        own_user_id: Arc<UserId>,
-        own_device_id: Arc<DeviceId>,
+        own_user_id: OwnedUserId,
+        own_device_id: OwnedDeviceId,
         user_id: OwnedUserId,
         device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
@@ -751,7 +750,7 @@ pub(crate) mod testing {
     pub(crate) async fn manager() -> IdentityManager {
         let identity = PrivateCrossSigningIdentity::new(user_id().into()).await;
         let identity = Arc::new(Mutex::new(identity));
-        let user_id = Arc::from(user_id());
+        let user_id = user_id().to_owned();
         let account = ReadOnlyAccount::new(&user_id, device_id());
         let store: Arc<DynCryptoStore> = MemoryStore::new().into_crypto_store();
         let verification = VerificationMachine::new(account, identity.clone(), store);

@@ -58,8 +58,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct GossipMachine {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     store: Store,
     #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
@@ -72,8 +72,8 @@ pub(crate) struct GossipMachine {
 
 impl GossipMachine {
     pub fn new(
-        user_id: Arc<UserId>,
-        device_id: Arc<DeviceId>,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
         store: Store,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
@@ -1118,7 +1118,7 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     fn test_gossip_machine(user_id: &UserId) -> GossipMachine {
-        let user_id = Arc::from(user_id);
+        let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
         let account = ReadOnlyAccount::new(&user_id, &device_id);
@@ -1128,17 +1128,11 @@ mod tests {
         let store = Store::new(user_id.to_owned(), identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(
-            user_id,
-            device_id.into(),
-            store,
-            session_cache,
-            Arc::new(DashMap::new()),
-        )
+        GossipMachine::new(user_id, device_id, store, session_cache, Arc::new(DashMap::new()))
     }
 
     async fn get_machine() -> GossipMachine {
-        let user_id: Arc<UserId> = alice_id().into();
+        let user_id = alice_id().to_owned();
         let account = ReadOnlyAccount::new(&user_id, alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
         let another_device =
