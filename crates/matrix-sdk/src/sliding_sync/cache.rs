@@ -204,6 +204,27 @@ mod tests {
     use super::*;
     use crate::{Client, Result};
 
+    #[test]
+    fn test_cant_cache_without_a_storage_key() -> Result<()> {
+        block_on(async {
+            let homeserver = Url::parse("https://foo.bar")?;
+            let client = Client::new(homeserver).await?;
+            let err = client
+                .sliding_sync()
+                .await
+                .add_cached_list(SlidingSyncList::builder("list_foo"))
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                err,
+                crate::Error::SlidingSync(
+                    crate::sliding_sync::error::Error::MissingStorageKeyForCaching
+                )
+            ));
+            Ok(())
+        })
+    }
+
     #[allow(clippy::await_holding_lock)]
     #[test]
     fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
