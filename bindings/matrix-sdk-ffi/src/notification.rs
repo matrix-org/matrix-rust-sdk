@@ -3,7 +3,7 @@ use std::sync::Arc;
 use matrix_sdk::room::Room;
 use ruma::{
     api::client::push::get_notifications::v3::Notification, events::AnySyncTimelineEvent,
-    push::Action, EventId,
+    push::Action,
 };
 
 use crate::event::TimelineEvent;
@@ -32,15 +32,7 @@ impl NotificationItem {
         Self::new(deserialized_event, room, notification.actions).await
     }
 
-    pub(crate) async fn new_from_event_id(event_id: &str, room: Room) -> anyhow::Result<Self> {
-        let event_id = EventId::parse(event_id)?;
-        let ruma_event = room.event(&event_id).await?;
-
-        let event: AnySyncTimelineEvent = ruma_event.event.deserialize()?.into();
-        Self::new(event, room, ruma_event.push_actions).await
-    }
-
-    async fn new(
+    pub(crate) async fn new(
         event: AnySyncTimelineEvent,
         room: Room,
         actions: Vec<Action>,
