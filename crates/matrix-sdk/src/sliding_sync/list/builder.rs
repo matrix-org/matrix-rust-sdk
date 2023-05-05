@@ -3,6 +3,7 @@
 use std::{
     convert::identity,
     fmt,
+    ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -30,7 +31,7 @@ pub struct SlidingSyncListBuilder {
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<UInt>,
     name: String,
-    ranges: Vec<(UInt, UInt)>,
+    ranges: Vec<RangeInclusive<u32>>,
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
 
@@ -143,20 +144,23 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the ranges to fetch.
-    pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
-        self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+    pub fn ranges<U: Into<u32> + Copy>(mut self, range: Vec<RangeInclusive<U>>) -> Self {
+        self.ranges = range
+            .into_iter()
+            .map(|r| RangeInclusive::new((*r.start()).into(), (*r.end()).into()))
+            .collect();
         self
     }
 
     /// Set a single range fetch.
-    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges = vec![(from.into(), to.into())];
+    pub fn set_range<U: Into<u32> + Copy>(mut self, range: RangeInclusive<U>) -> Self {
+        self.ranges = vec![RangeInclusive::new((*range.start()).into(), (*range.end()).into())];
         self
     }
 
     /// Set the ranges to fetch.
-    pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges.push((from.into(), to.into()));
+    pub fn add_range<U: Into<u32> + Copy>(mut self, range: RangeInclusive<U>) -> Self {
+        self.ranges.push(RangeInclusive::new((*range.start()).into(), (*range.end()).into()));
         self
     }
 

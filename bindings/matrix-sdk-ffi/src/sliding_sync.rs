@@ -533,9 +533,9 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_range(self: Arc<Self>, from: u32, to: u32) -> Arc<Self> {
+    pub fn add_range(self: Arc<Self>, from: u32, to_included: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_range(from, to);
+        builder.inner = builder.inner.add_range(from..=to_included);
         Arc::new(builder)
     }
 
@@ -631,7 +631,7 @@ impl SlidingSyncList {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.set_range(start, end).map_err(Into::into)
+        self.inner.set_range(start..=end).map_err(Into::into)
     }
 
     /// Set the ranges to fetch
@@ -639,7 +639,7 @@ impl SlidingSyncList {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.add_range((start, end)).map_err(Into::into)
+        self.inner.add_range(start..=end).map_err(Into::into)
     }
 
     /// Reset the ranges
