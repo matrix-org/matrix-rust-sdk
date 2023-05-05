@@ -95,9 +95,9 @@ use crate::{
 #[derive(Clone)]
 pub struct OlmMachine {
     /// The unique user id that owns this account.
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
-    device_id: Arc<DeviceId>,
+    device_id: OwnedDeviceId,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
     /// The private part of our cross signing identity.
@@ -161,14 +161,14 @@ impl OlmMachine {
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
-        let user_id: Arc<UserId> = user_id.into();
+        let user_id: OwnedUserId = user_id.into();
         let user_identity = Arc::new(Mutex::new(user_identity));
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store =
             Store::new(user_id.clone(), user_identity.clone(), store, verification_machine.clone());
-        let device_id: Arc<DeviceId> = device_id.into();
+        let device_id: OwnedDeviceId = device_id.into();
         let users_for_key_claim = Arc::new(DashMap::new());
 
         let account = Account { inner: account, store: store.clone() };

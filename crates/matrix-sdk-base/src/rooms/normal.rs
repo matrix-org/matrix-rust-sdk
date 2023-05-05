@@ -33,8 +33,8 @@ use ruma::{
         RoomAccountDataEventType,
     },
     room::RoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
-    RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
+    RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
@@ -51,8 +51,8 @@ use crate::{
 /// invited rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
-    room_id: Arc<RoomId>,
-    own_user_id: Arc<UserId>,
+    room_id: OwnedRoomId,
+    own_user_id: OwnedUserId,
     inner: Arc<SyncRwLock<RoomInfo>>,
     store: Arc<DynStateStore>,
 }
@@ -540,7 +540,7 @@ impl Room {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
     /// The unique room id of the room.
-    pub(crate) room_id: Arc<RoomId>,
+    pub(crate) room_id: OwnedRoomId,
     /// The state of the room.
     #[serde(rename = "room_type")] // for backwards compatibility
     room_state: RoomState,

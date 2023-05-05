@@ -103,7 +103,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
 pub struct Store {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<DynCryptoStore>,
     verification_machine: VerificationMachine,
@@ -366,7 +366,7 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
-        user_id: Arc<UserId>,
+        user_id: OwnedUserId,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,

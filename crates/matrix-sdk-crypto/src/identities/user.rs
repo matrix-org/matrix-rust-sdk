@@ -25,7 +25,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    EventId, OwnedDeviceId, RoomId, UserId,
+    EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -363,7 +363,7 @@ impl PartialEq for ReadOnlyUserIdentities {
 /// signatures can be checked with this identity.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReadOnlyUserIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     pub(crate) master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
 }
@@ -464,7 +464,7 @@ impl ReadOnlyUserIdentity {
 /// the identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadOnlyOwnUserIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     user_signing_key: UserSigningPubkey,

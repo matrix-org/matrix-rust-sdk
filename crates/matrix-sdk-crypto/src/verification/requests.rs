@@ -135,7 +135,7 @@ pub struct VerificationRequest {
     verification_cache: VerificationCache,
     account: ReadOnlyAccount,
     flow_id: Arc<FlowId>,
-    other_user_id: Arc<UserId>,
+    other_user_id: OwnedUserId,
     inner: SharedObservable<InnerRequest>,
     creation_time: Arc<Instant>,
     we_started: bool,
