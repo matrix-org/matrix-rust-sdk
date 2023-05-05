@@ -191,7 +191,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
 
     // Sync to receive messages with a `timeline_limit` set to 20.
     {
-        list.set_timeline_limit(Some(uint!(20)));
+        list.set_timeline_limit(Some(20u32));
 
         let mut update_summary;
 

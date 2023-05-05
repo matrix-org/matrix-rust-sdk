@@ -8,7 +8,7 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId, RoomId, UInt,
+    assign, IdParseError, OwnedRoomId, RoomId,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
@@ -664,7 +664,7 @@ impl SlidingSyncList {
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        self.inner.set_timeline_limit::<UInt>(None)
+        self.inner.set_timeline_limit::<u32>(None)
     }
 }
 

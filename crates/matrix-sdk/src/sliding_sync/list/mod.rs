@@ -20,7 +20,7 @@ use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, UInt};
+use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tracing::{instrument, warn};
@@ -119,7 +119,7 @@ impl SlidingSyncList {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
-        self.inner.set_ranges::<UInt>(&[]);
+        self.inner.set_ranges::<u32>(&[]);
         self.reset()?;
 
         Ok(())
@@ -136,14 +136,14 @@ impl SlidingSyncList {
     }
 
     /// Get the timeline limit.
-    pub fn timeline_limit(&self) -> Option<UInt> {
+    pub fn timeline_limit(&self) -> Option<u32> {
         **self.inner.timeline_limit.read().unwrap()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit<U>(&self, timeline: Option<U>)
     where
-        U: Into<UInt>,
+        U: Into<u32>,
     {
         let timeline = timeline.map(Into::into);
 
@@ -264,7 +264,7 @@ pub(super) struct SlidingSyncListInner {
     filters: Option<v4::SyncRequestListFilters>,
 
     /// The maximum number of timeline events to query for.
-    timeline_limit: StdRwLock<Observable<Option<UInt>>>,
+    timeline_limit: StdRwLock<Observable<Option<u32>>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -395,6 +395,7 @@ impl SlidingSyncListInner {
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name, ranges = ?&self.ranges))]
     fn request(&self) -> v4::SyncRequestList {
+        use ruma::UInt;
         let ranges = self
             .request_generator
             .read()
@@ -405,7 +406,8 @@ impl SlidingSyncListInner {
             .collect();
         let sort = self.sort.clone();
         let required_state = self.required_state.clone();
-        let timeline_limit = **self.timeline_limit.read().unwrap();
+        let timeline_limit =
+            self.timeline_limit.read().unwrap().map(|v| UInt::new(v as u64).unwrap());
         let filters = self.filters.clone();
 
         assign!(v4::SyncRequestList::default(), {
@@ -1108,7 +1110,7 @@ mod tests {
             let lock = list.inner.timeline_limit.read().unwrap();
             let timeline_limit = Observable::get(&lock);
 
-            assert_eq!(timeline_limit, &Some(uint!(7)));
+            assert_eq!(timeline_limit, &Some(7));
         }
 
         list.set_timeline_limit(Some(42u32));
@@ -1117,10 +1119,10 @@ mod tests {
             let lock = list.inner.timeline_limit.read().unwrap();
             let timeline_limit = Observable::get(&lock);
 
-            assert_eq!(timeline_limit, &Some(uint!(42)));
+            assert_eq!(timeline_limit, &Some(42));
         }
 
-        list.set_timeline_limit::<UInt>(None);
+        list.set_timeline_limit::<u32>(None);
 
         {
             let lock = list.inner.timeline_limit.read().unwrap();

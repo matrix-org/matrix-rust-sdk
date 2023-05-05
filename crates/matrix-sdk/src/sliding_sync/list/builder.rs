@@ -9,7 +9,7 @@ use std::{
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
-use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
+use ruma::{api::client::sync::sync_events::v4, events::StateEventType};
 use tokio::sync::mpsc::Sender;
 
 use super::{
@@ -29,7 +29,7 @@ pub struct SlidingSyncListBuilder {
     full_sync_batch_size: u32,
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
-    timeline_limit: Option<UInt>,
+    timeline_limit: Option<u32>,
     name: String,
     ranges: Vec<RangeInclusive<u32>>,
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
@@ -131,7 +131,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the limit of regular events to fetch for the timeline.
-    pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
+    pub fn timeline_limit<U: Into<u32>>(mut self, timeline_limit: U) -> Self {
         self.timeline_limit = Some(timeline_limit.into());
         self
     }
