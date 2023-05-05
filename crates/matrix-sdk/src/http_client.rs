@@ -175,8 +175,10 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
+        // There's a bunch of state here, factor out a pinned inner future to
+        // reduce this size of futures that await this function.
         #[cfg(not(target_arch = "wasm32"))]
-        let ret = {
+        let ret = Box::pin(async move {
             use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
             use ruma::api::client::error::{
                 ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
@@ -244,8 +246,9 @@ impl HttpClient {
                 Ok((status_code, response_size, response))
             };
 
-            retry::<_, HttpError, _, _, _>(backoff, send_request).await?
-        };
+            retry::<_, HttpError, _, _, _>(backoff, send_request).await
+        })
+        .await?;
 
         #[cfg(target_arch = "wasm32")]
         let ret = {
@@ -285,61 +288,67 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        let request_id = self.get_request_id();
-
-        let span = tracing::Span::current();
-
         let config = match config {
             Some(config) => config,
             None => self.request_config,
         };
 
-        // At this point in the code, the config isn't behind an Option anymore, that's
-        // why we record it here, instead of in the #[instrument] macro.
-        span.record("config", debug(config)).record("request_id", request_id);
+        // Keep some local variables in a separate scope so the compiler doesn't include
+        // them in the future type. https://github.com/rust-lang/rust/issues/57478
+        let request = {
+            let request_id = self.get_request_id();
+            let span = tracing::Span::current();
 
-        // The user ID is only used if we're an app-service. Only log the user_id if
-        // it's `Some` and if assert_identity is set.
-        if config.assert_identity {
-            span.record("user_id", user_id.map(debug));
-        }
+            // At this point in the code, the config isn't behind an Option anymore, that's
+            // why we record it here, instead of in the #[instrument] macro.
+            span.record("config", debug(config)).record("request_id", request_id);
 
-        let auth_scheme = R::METADATA.authentication;
-        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
-            return Err(HttpError::NotClientRequest);
-        }
+            // The user ID is only used if we're an app-service. Only log the user_id if
+            // it's `Some` and if assert_identity is set.
+            if config.assert_identity {
+                span.record("user_id", user_id.map(debug));
+            }
 
-        let request = self.serialize_request(
-            request,
-            config,
-            homeserver,
-            access_token,
-            user_id,
-            server_versions,
-        )?;
+            let auth_scheme = R::METADATA.authentication;
+            if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+                return Err(HttpError::NotClientRequest);
+            }
 
-        let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
-        span.record("request_size", request_size.to_string_as(true));
+            let request = self.serialize_request(
+                request,
+                config,
+                homeserver,
+                access_token,
+                user_id,
+                server_versions,
+            )?;
 
-        // Since sliding sync is experimental, and the proxy might not do what we expect
-        // it to do given a specific request body, it's useful to log the
-        // request body here. This doesn't contain any personal information.
-        // TODO: Remove this once sliding sync isn't experimental anymore.
-        #[cfg(feature = "experimental-sliding-sync")]
-        if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
-            span.record("request_body", debug(request.body()));
-            span.record("path", request.uri().path_and_query().map(|p| p.as_str()));
-        } else {
+            let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
+            span.record("request_size", request_size.to_string_as(true));
+
+            // Since sliding sync is experimental, and the proxy might not do what we expect
+            // it to do given a specific request body, it's useful to log the
+            // request body here. This doesn't contain any personal information.
+            // TODO: Remove this once sliding sync isn't experimental anymore.
+            #[cfg(feature = "experimental-sliding-sync")]
+            if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
+                span.record("request_body", debug(request.body()));
+                span.record("path", request.uri().path_and_query().map(|p| p.as_str()));
+            } else {
+                span.record("path", request.uri().path());
+            }
+
+            #[cfg(not(feature = "experimental-sliding-sync"))]
             span.record("path", request.uri().path());
-        }
 
-        #[cfg(not(feature = "experimental-sliding-sync"))]
-        span.record("path", request.uri().path());
+            request
+        };
 
         debug!("Sending request");
         match self.send_request::<R>(request, config).await {
             Ok((status_code, response_size, response)) => {
-                span.record("status", status_code.as_u16())
+                tracing::Span::current()
+                    .record("status", status_code.as_u16())
                     .record("response_size", response_size.to_string_as(true));
                 debug!("Got response");
 
