@@ -71,11 +71,11 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Enroll the list in caching, reloads it from the cache if possible, and adds it to the list
-    /// of lists.
+    /// Enroll the list in caching, reloads it from the cache if possible, and
+    /// adds it to the list of lists.
     ///
-    /// This will raise an error if a [`storage_key()`] was not set, or if there was a I/O error
-    /// reading from the cache.
+    /// This will raise an error if a [`storage_key()`] was not set, or if there
+    /// was a I/O error reading from the cache.
     ///
     /// Replace any list with the same name.
     pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {

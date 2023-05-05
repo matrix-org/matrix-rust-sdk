@@ -10,14 +10,13 @@ use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, Vector};
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId, UInt};
 
-use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
-    Client, RoomListEntry,
-};
-
 use super::{
     SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
     SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+};
+use crate::{
+    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    Client, RoomListEntry,
 };
 
 /// The default name for the full sync list.
@@ -48,7 +47,8 @@ pub struct SlidingSyncListBuilder {
     /// May be reloaded from the cache.
     room_list: Vector<RoomListEntry>,
 
-    /// State of this list, indicating whether it was preloaded from the cache or not.
+    /// State of this list, indicating whether it was preloaded from the cache
+    /// or not.
     state: SlidingSyncState,
 }
 
@@ -157,7 +157,8 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Marks this list as sync'd from the cache, and attempts to reload it from storage.
+    /// Marks this list as sync'd from the cache, and attempts to reload it from
+    /// storage.
     pub(in super::super) async fn set_cached_and_reload(
         &mut self,
         client: &Client,

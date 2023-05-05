@@ -33,7 +33,8 @@ pub enum Error {
         end: u32,
     },
 
-    /// Missing storage key when asking to deserialize some sub-state of sliding sync.
+    /// Missing storage key when asking to deserialize some sub-state of sliding
+    /// sync.
     #[error("A caching request was made but a storage key is missing in sliding sync")]
     MissingStorageKeyForCaching,
 }

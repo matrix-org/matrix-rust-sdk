@@ -26,8 +26,8 @@ use tracing::{instrument, warn};
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncRoom};
 use crate::Result;
 
-/// Should this [`SlidingSyncList`] be stored in the cache, and automatically reloaded from the
-/// cache upon creation?
+/// Should this [`SlidingSyncList`] be stored in the cache, and automatically
+/// reloaded from the cache upon creation?
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SlidingSyncListCachePolicy {
     /// Store and load this list from the cache.

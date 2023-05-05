@@ -13,17 +13,20 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
-/// Be careful: as this is used as a storage key; changing it requires migrating data!
+/// Be careful: as this is used as a storage key; changing it requires migrating
+/// data!
 fn format_storage_key_for_sliding_sync(storage_key: &str) -> String {
     format!("sliding_sync_store::{storage_key}")
 }
 
-/// Be careful: as this is used as a storage key; changing it requires migrating data!
+/// Be careful: as this is used as a storage key; changing it requires migrating
+/// data!
 fn format_storage_key_for_sliding_sync_list(storage_key: &str, list_name: &str) -> String {
     format!("sliding_sync_store::{storage_key}::{list_name}")
 }
 
-/// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the cache.
+/// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the
+/// cache.
 async fn invalidate_cached_list(
     storage: &dyn StateStore<Error = StoreError>,
     storage_key: &str,
@@ -33,7 +36,8 @@ async fn invalidate_cached_list(
     let _ = storage.remove_custom_value(storage_key_for_list.as_bytes()).await;
 }
 
-/// Clean the storage for everything related to `SlidingSync` and all known lists.
+/// Clean the storage for everything related to `SlidingSync` and all known
+/// lists.
 async fn clean_storage(
     client: &Client,
     storage_key: &str,
