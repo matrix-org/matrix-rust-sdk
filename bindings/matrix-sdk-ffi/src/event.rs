@@ -1,6 +1,6 @@
 use anyhow::{bail, Context};
 use ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
     MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
@@ -33,6 +33,12 @@ impl TimelineEvent {
             }
         };
         Ok(event_type)
+    }
+}
+
+impl From<AnyTimelineEvent> for TimelineEvent {
+    fn from(event: AnyTimelineEvent) -> Self {
+        Self(event.into())
     }
 }
 
