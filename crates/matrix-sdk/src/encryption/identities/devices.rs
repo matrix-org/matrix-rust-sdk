@@ -386,6 +386,122 @@ impl Device {
         self.inner.is_verified()
     }
 
+    /// Is the device considered to be verified with cross-signing.
+    ///
+    /// A device is considered to be verified if it's signed by the appropriate
+    /// cross-signing key.
+    ///
+    /// ## Cross-signing verification
+    ///
+    /// Cross-signing verification uses signatures over devices and user
+    /// identities to check if a device is considered to be verified. The
+    /// signatures can be uploaded to the homeserver, this allows us to
+    /// share the verification state with other devices. Devices only need to
+    /// verify a user identity, if the user identity has verified and signed
+    /// the device we can consider the device to be verified as well.
+    ///
+    /// Devices are usually cross-signing verified using interactive
+    /// verification, which can be started using the
+    /// [`Device::request_verification()`] method.
+    ///
+    /// A [`Device`] can also be manually signed using the [`Device::verify()`]
+    /// method, this works only for devices belonging to our own user.
+    ///
+    /// Do note that the device that is being manually signed will not trust our
+    /// own user identity like it would if we interactively verify the device.
+    /// Such a device can mark our own user as verified using the
+    /// [`UserIdentity::verify()`] method.
+    ///
+    /// ### Verification of devices belonging to our own user.
+    ///
+    /// If the device belongs to our own user, the device will be considered to
+    /// be verified if:
+    ///
+    /// * The device has been signed by our self-signing key
+    /// * Our own user identity is considered to be [verified]
+    ///
+    /// In other words we need to find a valid signature chain from our user
+    /// identity to the device:
+    ///
+    ///```text
+    ///         ┌─────────────────────────────────────┐    ┌─────────────┐
+    ///         │           Own User Identity         │    │   Device    │
+    ///         ├──────────────────┬──────────────────┤───►├─────────────┤
+    ///         │    Master Key    │ Self-signing Key │    │ Device Keys │
+    ///         └──────────────────┴──────────────────┘    └─────────────┘
+    /// ```
+    ///
+    /// ### Verification of devices belonging to other users.
+    ///
+    /// If the device belongs to some other user it will be considered to be
+    /// verified if:
+    ///
+    /// * The device has been signed by the user's self-signing key
+    /// * The user's master-signing key has been signed by our own user-signing
+    /// key, i.e. our own identity trusts the other users identity.
+    /// * Our own user identity is considered to be [verified]
+    ///
+    /// ```text
+    ///             ┌─────────────────────────────────────┐
+    ///             │           Own User Identity         │
+    ///             ├──────────────────┬──────────────────┤─────┐
+    ///             │    Master Key    │ User-signing Key │     │
+    ///             └──────────────────┴──────────────────┘     │
+    ///     ┌───────────────────────────────────────────────────┘
+    ///     │
+    ///     │       ┌─────────────────────────────────────┐    ┌─────────────┐
+    ///     │       │             User Identity           │    │   Device    │
+    ///     └──────►├──────────────────┬──────────────────┤───►│─────────────│
+    ///             │    Master Key    │ Self-signing Key │    │ Device Keys │
+    ///             └──────────────────┴──────────────────┘    └─────────────┘
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// Let's check if a device is verified:
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #    Client,
+    /// #    ruma::{
+    /// #        device_id, user_id,
+    /// #        events::key::verification::VerificationMethod,
+    /// #    }
+    /// # };
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///
+    /// if let Some(device) = device {
+    ///     if device.is_verified_with_cross_signing() {
+    ///         println!(
+    ///             "Device {} of user {} is verified with cross-signing",
+    ///             device.device_id(),
+    ///             device.user_id()
+    ///         );
+    ///     } else {
+    ///         println!(
+    ///             "Device {} of user {} is not verified with cross-signing",
+    ///             device.device_id(),
+    ///             device.user_id()
+    ///         );
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) });
+    /// ```
+    ///
+    /// [`UserIdentity::verify()`]:
+    /// crate::encryption::identities::UserIdentity::verify
+    /// [verified]: crate::encryption::identities::UserIdentity::is_verified
+    pub fn is_verified_with_cross_signing(&self) -> bool {
+        self.inner.is_cross_signing_trusted()
+    }
+
     /// Set the local trust state of the device to the given state.
     ///
     /// This won't affect any cross signing verification state, this only sets
