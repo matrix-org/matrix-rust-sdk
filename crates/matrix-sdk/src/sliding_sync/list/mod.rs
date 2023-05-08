@@ -2165,6 +2165,6 @@ mod tests {
             .build(sender);
 
         let probe_lock = probe_clone.lock().unwrap();
-        assert_eq!(probe_lock.get(), true);
+        assert!(probe_lock.get());
     }
 }
