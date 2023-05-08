@@ -385,6 +385,65 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_required_state() -> Result<()> {
+        // Default value.
+        {
+            let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+            assert!(room.required_state().is_empty());
+        }
+
+        // Some value when initializing.
+        {
+            let room = new_room(
+                room_id!("!foo:bar.org"),
+                room_response!({
+                    "required_state": [
+                        {
+                            "sender": "@alice:example.com",
+                            "type": "m.room.join_rules",
+                            "state_key": "",
+                            "content": {
+                                "join_rule": "invite"
+                            }
+                        }
+                    ]
+                }),
+            )
+            .await;
+
+            assert!(!room.required_state().is_empty());
+        }
+
+        // Some value when updating.
+        {
+            let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+            assert!(room.required_state().is_empty());
+
+            room.update(
+                room_response!({
+                    "required_state": [
+                        {
+                            "sender": "@alice:example.com",
+                            "type": "m.room.join_rules",
+                            "state_key": "",
+                            "content": {
+                                "join_rule": "invite"
+                            }
+                        }
+                    ]
+                }),
+                vec![],
+            );
+
+            assert!(!room.required_state().is_empty());
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn test_frozen_sliding_sync_room_serialization() {
         let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
