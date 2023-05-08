@@ -108,6 +108,11 @@ impl SlidingSyncRoom {
         &self.inner.required_state
     }
 
+    /// Get the previous batch.
+    fn prev_batch(&self) -> Option<&String> {
+        self.inner.prev_batch.as_ref()
+    }
+
     /// `Timeline` of this room
     pub async fn timeline(&self) -> Option<Timeline> {
         Some(self.timeline_builder()?.track_read_marker_and_receipts().build().await)
@@ -126,7 +131,7 @@ impl SlidingSyncRoom {
         if let Some(room) = self.client.get_room(&self.room_id) {
             Some(
                 Timeline::builder(&room)
-                    .events(self.inner.prev_batch.clone(), self.timeline_queue.clone()),
+                    .events(self.prev_batch().cloned(), self.timeline_queue.clone()),
             )
         } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
             Some(Timeline::builder(&invited_room).events(None, Vector::new()))
@@ -382,6 +387,12 @@ mod tests {
             unread_notifications().highlight_count = None;
             receives room_response!({"highlight_count": 42});
             _ = Some(uint!(42));
+        }
+
+        test_prev_batch {
+            prev_batch() = None;
+            receives room_response!({"prev_batch": "t111_222_333"});
+            _ = Some(&"t111_222_333".to_string());
         }
     }
 
