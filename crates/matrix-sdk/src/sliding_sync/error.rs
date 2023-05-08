@@ -29,4 +29,7 @@ pub enum Error {
         /// End bound.
         end: u32,
     },
+    /// The internal channel of `SlidingSync` seems to be broken.
+    #[error("SlidingSync's internal channel is broken")]
+    InternalChannelIsBroken,
 }

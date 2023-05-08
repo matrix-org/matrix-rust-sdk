@@ -107,20 +107,17 @@ pub enum SlidingSyncError {
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
-    BadResponse {
-        msg: String,
-    },
+    BadResponse { msg: String },
+    /// Called `.build()` on a builder type, but the given required field was
+    /// missing.
+    BuildMissingField { msg: String },
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
-    RequestGeneratorHasNotBeenInitialized {
-        msg: String,
-    },
+    RequestGeneratorHasNotBeenInitialized { msg: String },
     /// Someone has tried to modify a sliding sync list's ranges, but the
     /// selected sync mode doesn't allow that.
-    CannotModifyRanges {
-        msg: String,
-    },
+    CannotModifyRanges { msg: String },
     /// Ranges have a `start` bound greater than `end`.
     InvalidRange {
         /// Start bound.
@@ -128,9 +125,10 @@ pub enum SlidingSyncError {
         /// End bound.
         end: u32,
     },
-    Unknown {
-        error: String,
-    },
+    /// The SlidingSync internal channel is broken.
+    InternalChannelIsBroken,
+    /// Unknown or other error.
+    Unknown { error: String },
 }
 
 impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
@@ -144,6 +142,7 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
             }
             E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
+            E::InternalChannelIsBroken => Self::InternalChannelIsBroken,
             error => Self::Unknown { error: error.to_string() },
         }
     }
@@ -220,10 +219,10 @@ impl SlidingSyncRoom {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
 
-        self.runner.subscribe(room_id.clone(), settings.map(Into::into));
+        self.runner.subscribe(room_id.clone(), settings.map(Into::into))?;
 
         let runner = self.runner.clone();
-        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id)));
+        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id).unwrap()));
 
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
@@ -478,11 +477,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn build(self: Arc<Self>) -> Arc<SlidingSyncList> {
-        let builder = unwrap_or_clone_arc(self);
-        Arc::new(builder.inner.build().into())
-    }
-
     pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sort(sort);
@@ -550,9 +544,26 @@ impl SlidingSyncListBuilder {
         builder.inner = builder.inner.reset_ranges();
         Arc::new(builder)
     }
+
+    pub fn once_built(self: Arc<Self>, callback: Box<dyn SlidingSyncListOnceBuilt>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        builder.inner = builder.inner.once_built(
+            move |list: matrix_sdk::SlidingSyncList| -> matrix_sdk::SlidingSyncList {
+                let list = callback.update_list(Arc::new(list.into()));
+
+                unwrap_or_clone_arc(list).inner
+            },
+        );
+        Arc::new(builder)
+    }
 }
 
-#[derive(Clone, uniffi::Object)]
+pub trait SlidingSyncListOnceBuilt: Sync + Send {
+    fn update_list(&self, list: Arc<SlidingSyncList>) -> Arc<SlidingSyncList>;
+}
+
+#[derive(Clone)]
 pub struct SlidingSyncList {
     inner: matrix_sdk::SlidingSyncList,
 }
@@ -685,12 +696,14 @@ impl SlidingSync {
         room_id: String,
         settings: Option<RoomSubscription>,
     ) -> Result<(), ClientError> {
-        self.inner.subscribe(room_id.try_into()?, settings.map(Into::into));
+        self.inner.subscribe(room_id.try_into()?, settings.map(Into::into))?;
+
         Ok(())
     }
 
     pub fn unsubscribe(&self, room_id: String) -> Result<(), ClientError> {
-        self.inner.unsubscribe(room_id.try_into()?);
+        self.inner.unsubscribe(room_id.try_into()?)?;
+
         Ok(())
     }
 
@@ -732,25 +745,16 @@ impl SlidingSync {
             .collect())
     }
 
-    #[allow(clippy::significant_drop_in_scrutinee)]
-    pub fn get_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) {
+        self.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
     }
 
-    pub fn add_list(&self, list: Arc<SlidingSyncList>) -> Option<Arc<SlidingSyncList>> {
-        self.inner.add_list(list.inner.clone()).map(|inner| Arc::new(SlidingSyncList { inner }))
-    }
-
-    pub fn pop_list(&self, name: String) -> Option<Arc<SlidingSyncList>> {
-        self.inner.pop_list(&name).map(|inner| Arc::new(SlidingSyncList { inner }))
+    pub fn reset_lists(&self) -> Result<(), SlidingSyncError> {
+        self.inner.reset_lists().map_err(Into::into)
     }
 
     pub fn add_common_extensions(&self) {
         self.inner.add_common_extensions();
-    }
-
-    pub fn reset_lists(&self) {
-        self.inner.reset_lists()
     }
 
     pub fn sync(&self) -> Arc<TaskHandle> {
@@ -809,10 +813,9 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_list(self: Arc<Self>, v: Arc<SlidingSyncList>) -> Arc<Self> {
+    pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        let list = unwrap_or_clone_arc(v);
-        builder.inner = builder.inner.add_list(list.inner);
+        builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner);
         Arc::new(builder)
     }
 

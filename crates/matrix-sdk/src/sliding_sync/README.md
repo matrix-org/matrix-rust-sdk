@@ -434,8 +434,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
         (StateEventType::RoomEncryption, "".to_owned())
      ]) // only want to know if the room is encrypted
     .full_sync_batch_size(50)   // grow the window by 50 items at a time
-    .full_sync_maximum_number_of_rooms_to_fetch(500)      // only sync up the top 500 rooms
-    .build();
+    .full_sync_maximum_number_of_rooms_to_fetch(500);      // only sync up the top 500 rooms
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
@@ -446,8 +445,7 @@ let active_list = SlidingSyncList::builder(&active_list_name) // the active wind
         (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
         (StateEventType::RoomTopic, "".to_owned()),      // any topic if known
         (StateEventType::RoomAvatar, "".to_owned()),     // avatar if set
-     ])
-    .build();
+     ]);
 
 let sliding_sync = sliding_sync_builder
     .add_list(active_list)
@@ -457,10 +455,9 @@ let sliding_sync = sliding_sync_builder
 
 // subscribe to the list APIs for updates
 
-let active_list = sliding_sync.list(&active_list_name).unwrap();
-let list_state_stream = active_list.state_stream();
-let list_count_stream = active_list.maximum_number_of_rooms_stream();
-let list_stream = active_list.room_list_stream();
+let (list_state_stream, list_count_stream, list_stream) = sliding_sync.on_list(&active_list_name, |list| {
+    (list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream())
+}).unwrap();
 
 tokio::spawn(async move {
     pin_mut!(list_state_stream);

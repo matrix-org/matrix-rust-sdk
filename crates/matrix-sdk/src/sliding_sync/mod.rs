@@ -23,7 +23,6 @@ mod list;
 mod room;
 
 use std::{
-    borrow::BorrowMut,
     collections::BTreeMap,
     fmt::Debug,
     mem,
@@ -34,6 +33,7 @@ use std::{
     time::Duration,
 };
 
+use async_stream::stream;
 pub use builder::*;
 pub use client::*;
 pub use error::*;
@@ -52,7 +52,13 @@ use ruma::{
     OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{spawn, sync::Mutex as AsyncMutex};
+use tokio::{
+    select, spawn,
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex as AsyncMutex, RwLock as AsyncRwLock,
+    },
+};
 use tracing::{debug, error, info_span, instrument, warn, Instrument, Span};
 use url::Url;
 use uuid::Uuid;
@@ -113,6 +119,9 @@ pub(super) struct SlidingSyncInner {
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Mutex<Option<ExtensionsConfig>>,
+
+    internal_channel:
+        (Sender<SlidingSyncInternalMessage>, AsyncRwLock<Receiver<SlidingSyncInternalMessage>>),
 }
 
 impl SlidingSync {
@@ -130,23 +139,35 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    ///
-    /// Note: this does not cancel any pending request, so make sure to only
-    /// poll the stream after you've altered this. If you do that during, it
-    /// might take one round trip to take effect.
-    pub fn subscribe(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
+    pub fn subscribe(
+        &self,
+        room_id: OwnedRoomId,
+        settings: Option<v4::RoomSubscription>,
+    ) -> Result<()> {
         self.inner.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
+
+        self.inner
+            .internal_channel
+            .0
+            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+            .map_err(|_| Error::InternalChannelIsBroken)?;
+
+        Ok(())
     }
 
     /// Unsubscribe from a given room.
-    ///
-    /// Note: this does not cancel any pending request, so make sure to only
-    /// poll the stream after you've altered this. If you do that during, it
-    /// might take one round trip to take effect.
-    pub fn unsubscribe(&self, room_id: OwnedRoomId) {
+    pub fn unsubscribe(&self, room_id: OwnedRoomId) -> Result<()> {
         if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
             self.inner.unsubscribe.write().unwrap().push(room_id);
+
+            self.inner
+                .internal_channel
+                .0
+                .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+                .map_err(|_| Error::InternalChannelIsBroken)?;
         }
+
+        Ok(())
     }
 
     /// Add the common extensions if not already configured.
@@ -190,23 +211,14 @@ impl SlidingSync {
             .since = Some(since);
     }
 
-    /// Get access to the SlidingSyncList named `list_name`.
-    ///
-    /// Note: Remember that this list might have been changed since you started
-    /// listening to the stream and is therefor not necessarily up to date
-    /// with the lists used for the stream.
-    pub fn list(&self, list_name: &str) -> Option<SlidingSyncList> {
-        self.inner.lists.read().unwrap().get(list_name).cloned()
-    }
+    /// Find a list by its name, and do something on it if it exists.
+    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
+    where
+        F: FnOnce(&SlidingSyncList) -> R,
+    {
+        let lists = self.inner.lists.read().unwrap();
 
-    /// Remove the SlidingSyncList named `list_name` from the lists list if
-    /// found.
-    ///
-    /// Note: Remember that this change will only be applicable for any new
-    /// stream created after this. The old stream will still continue to use the
-    /// previous set of lists.
-    pub fn pop_list(&self, list_name: &String) -> Option<SlidingSyncList> {
-        self.inner.lists.write().unwrap().remove(list_name)
+        lists.get(list_name).map(f)
     }
 
     /// Add the list to the list of lists.
@@ -214,12 +226,13 @@ impl SlidingSync {
     /// As lists need to have a unique `.name`, if a list with the same name
     /// is found the new list will replace the old one and the return it or
     /// `None`.
-    ///
-    /// Note: Remember that this change will only be applicable for any new
-    /// stream created after this. The old stream will still continue to use the
-    /// previous set of lists.
-    pub fn add_list(&self, list: SlidingSyncList) -> Option<SlidingSyncList> {
-        self.inner.lists.write().unwrap().insert(list.name().to_owned(), list)
+    pub fn add_list(
+        &self,
+        list_builder: SlidingSyncListBuilder,
+    ) -> Result<Option<SlidingSyncList>> {
+        let list = list_builder.build(self.inner.internal_channel.0.clone());
+
+        Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
 
     /// Lookup a set of rooms
@@ -277,12 +290,11 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = lists.len()))]
+    #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
     fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
         mut sync_response: SyncResponse,
-        lists: &mut BTreeMap<String, SlidingSyncList>,
     ) -> Result<UpdateSummary, crate::Error> {
         {
             debug!(
@@ -338,6 +350,8 @@ impl SlidingSync {
             // Update the lists.
             let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
 
+            let mut lists = self.inner.lists.write().unwrap();
+
             for (name, updates) in sliding_sync_response.lists {
                 let Some(list) = lists.get_mut(&name) else {
                     error!("Response for list `{name}` - unknown to us; skipping");
@@ -364,58 +378,62 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
-    async fn sync_once(
-        &self,
-        stream_id: &str,
-        lists: Arc<Mutex<BTreeMap<String, SlidingSyncList>>>,
-    ) -> Result<Option<UpdateSummary>> {
-        let mut requests_lists = BTreeMap::new();
+    async fn sync_once(&self, stream_id: &str) -> Result<Option<UpdateSummary>> {
+        let (request, request_config) = {
+            // Collect requests for lists.
+            let mut requests_lists = BTreeMap::new();
 
-        {
-            let mut lists_lock = lists.lock().unwrap();
-            let lists = lists_lock.borrow_mut();
+            {
+                let mut lists = self.inner.lists.write().unwrap();
 
-            if lists.is_empty() {
-                return Ok(None);
+                if lists.is_empty() {
+                    return Ok(None);
+                }
+
+                for (name, list) in lists.iter_mut() {
+                    requests_lists.insert(name.clone(), list.next_request()?);
+                }
             }
 
-            for (name, list) in lists.iter_mut() {
-                requests_lists.insert(name.clone(), list.next_request()?);
-            }
-        }
+            // Collect the `pos` and `delta_token`.
+            let (pos, delta_token) = {
+                let position_lock = self.inner.position.read().unwrap();
 
-        let (pos, delta_token) = {
-            let position_lock = self.inner.position.read().unwrap();
+                (position_lock.pos.clone(), position_lock.delta_token.clone())
+            };
 
-            (position_lock.pos.clone(), position_lock.delta_token.clone())
+            // Collect other data.
+            let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
+            let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
+            let timeout = Duration::from_secs(30);
+            let extensions = self.prepare_extension_config(pos.as_deref());
+
+            (
+                // Build the request itself.
+                assign!(v4::Request::new(), {
+                    pos,
+                    delta_token,
+                    // We want to track whether the incoming response maps to this
+                    // request. We use the (optional) `txn_id` field for that.
+                    txn_id: Some(stream_id.to_owned()),
+                    timeout: Some(timeout),
+                    lists: requests_lists,
+                    bump_event_types: self.inner.bump_event_types.clone(),
+                    room_subscriptions,
+                    unsubscribe_rooms,
+                    extensions,
+                }),
+                // Configure long-polling. We need 30 seconds for the long-poll itself, in
+                // addition to 30 more extra seconds for the network delays.
+                RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            )
         };
-
-        let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
-        let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
-        let timeout = Duration::from_secs(30);
-        let extensions = self.prepare_extension_config(pos.as_deref());
 
         debug!("Sending the sliding sync request");
 
-        // Configure long-polling. We need 30 seconds for the long-poll itself, in
-        // addition to 30 more extra seconds for the network delays.
-        let request_config = RequestConfig::default().timeout(timeout + Duration::from_secs(30));
-
         // Prepare the request.
         let request = self.inner.client.send_with_homeserver(
-            assign!(v4::Request::new(), {
-                pos,
-                delta_token,
-                // We want to track whether the incoming response maps to this
-                // request. We use the (optional) `txn_id` field for that.
-                txn_id: Some(stream_id.to_owned()),
-                timeout: Some(timeout),
-                lists: requests_lists,
-                bump_event_types: self.inner.bump_event_types.clone(),
-                room_subscriptions,
-                unsubscribe_rooms,
-                extensions,
-            }),
+            request,
             Some(request_config),
             self.inner.homeserver.as_ref().map(ToString::to_string),
         );
@@ -498,7 +516,7 @@ impl SlidingSync {
 
             debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
-            let updates = this.handle_response(response, sync_response, lists.lock().unwrap().borrow_mut())?;
+            let updates = this.handle_response(response, sync_response)?;
 
             this.cache_to_storage().await?;
 
@@ -518,9 +536,6 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        // Copy all the lists.
-        let lists = Arc::new(Mutex::new(self.inner.lists.read().unwrap().clone()));
-
         // Define a stream ID.
         let stream_id = Uuid::new_v4().to_string();
 
@@ -528,7 +543,7 @@ impl SlidingSync {
 
         let instrument_span = Span::current();
 
-        async_stream::stream! {
+        stream! {
             loop {
                 let sync_span = info_span!(parent: &instrument_span, "sync_once");
 
@@ -536,49 +551,72 @@ impl SlidingSync {
                     debug!(?self.inner.extensions, "Sync stream loop is running");
                 });
 
-                match self.sync_once(&stream_id, lists.clone()).instrument(sync_span.clone()).await {
-                    Ok(Some(updates)) => {
-                        self.inner.reset_counter.store(0, Ordering::SeqCst);
+                let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
 
-                        yield Ok(updates);
-                    }
+                select! {
+                    biased;
 
-                    Ok(None) => {
-                        break;
-                    }
+                    internal_message = internal_channel_receiver_lock.recv() => {
+                        use SlidingSyncInternalMessage::*;
 
-                    Err(error) => {
-                        if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                            // The session has expired.
-
-                            // Has it expired too many times?
-                            if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst) >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION {
-                                sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
-
-                                // The session has expired too many times, let's raise an error!
-                                yield Err(error);
-
+                        match internal_message {
+                            None | Some(BreakSyncLoop) => {
                                 break;
                             }
 
-                            // Let's reset the Sliding Sync session.
-                            sync_span.in_scope(|| {
-                                warn!("Session expired. Restarting Sliding Sync.");
+                            Some(ContinueSyncLoop) => {
+                                continue;
+                            }
+                        }
+                    }
 
-                                // To “restart” a Sliding Sync session, we set `pos` to its initial value.
-                                {
-                                    let mut position_lock = self.inner.position.write().unwrap();
+                    update_summary = self.sync_once(&stream_id).instrument(sync_span.clone()) => {
+                        match update_summary {
+                            Ok(Some(updates)) => {
+                                self.inner.reset_counter.store(0, Ordering::SeqCst);
 
-                                    Observable::set(&mut position_lock.pos, None);
+                                yield Ok(updates);
+                            }
+
+                            Ok(None) => {
+                                break;
+                            }
+
+                            Err(error) => {
+                                if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
+                                    // The session has expired.
+
+                                    // Has it expired too many times?
+                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst) >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION {
+                                        sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
+
+                                        // The session has expired too many times, let's raise an error!
+                                        yield Err(error);
+
+                                        break;
+                                    }
+
+                                    // Let's reset the Sliding Sync session.
+                                    sync_span.in_scope(|| {
+                                        warn!("Session expired. Restarting Sliding Sync.");
+
+                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value.
+                                        {
+                                            let mut position_lock = self.inner.position.write().unwrap();
+
+                                            Observable::set(&mut position_lock.pos, None);
+                                        }
+
+                                        debug!(?self.inner.extensions, "Sliding Sync has been reset");
+                                    });
                                 }
 
-                                debug!(?self.inner.extensions, "Sliding Sync has been reset");
-                            });
+                                yield Err(error);
+
+                                continue;
+                            }
                         }
 
-                        yield Err(error);
-
-                        continue;
                     }
                 }
             }
@@ -586,13 +624,22 @@ impl SlidingSync {
     }
 
     /// Resets the lists.
-    pub fn reset_lists(&self) {
+    pub fn reset_lists(&self) -> Result<(), Error> {
         let lists = self.inner.lists.read().unwrap();
 
         for (_, list) in lists.iter() {
-            list.reset();
+            list.reset()?;
         }
+
+        Ok(())
     }
+}
+
+#[derive(Debug)]
+enum SlidingSyncInternalMessage {
+    #[allow(unused)] // temporary
+    BreakSyncLoop,
+    ContinueSyncLoop,
 }
 
 #[cfg(any(test, feature = "testing"))]
