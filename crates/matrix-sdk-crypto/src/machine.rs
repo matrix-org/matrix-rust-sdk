@@ -250,17 +250,22 @@ impl OlmMachine {
                         expected: (account.user_id().to_owned(), account.device_id().to_owned()),
                         got: (user_id.to_owned(), device_id.to_owned()),
                     });
-                } else {
-                    Span::current()
-                        .record("ed25519_key", display(account.identity_keys().ed25519))
-                        .record("curve25519_key", display(account.identity_keys().curve25519));
-                    debug!("Restored an Olm account");
-
-                    account
                 }
+
+                Span::current()
+                    .record("ed25519_key", display(account.identity_keys().ed25519))
+                    .record("curve25519_key", display(account.identity_keys().curve25519));
+                debug!("Restored an Olm account");
+
+                account
             }
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
+
+                Span::current()
+                    .record("ed25519_key", display(account.identity_keys().ed25519))
+                    .record("curve25519_key", display(account.identity_keys().curve25519));
+
                 let device = ReadOnlyDevice::from_account(&account).await;
 
                 // We just created this device from our own Olm `Account`. Since we are the
@@ -268,18 +273,14 @@ impl OlmMachine {
                 // the device as verified.
                 device.set_trust_state(LocalTrust::Verified);
 
-                Span::current()
-                    .record("ed25519_key", display(account.identity_keys().ed25519))
-                    .record("curve25519_key", display(account.identity_keys().curve25519));
-
-                debug!("Created a new Olm account");
-
                 let changes = Changes {
                     account: Some(account.clone()),
                     devices: DeviceChanges { new: vec![device], ..Default::default() },
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
+
+                debug!("Created a new Olm account");
 
                 account
             }
