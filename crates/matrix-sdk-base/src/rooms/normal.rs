@@ -358,6 +358,16 @@ impl Room {
         self.inner.read().unwrap().active_members_count()
     }
 
+    /// Returns the number of members who have been invited to the room.
+    pub fn invited_members_count(&self) -> u64 {
+        self.inner.read().unwrap().invited_members_count()
+    }
+
+    /// Returns the number of members who have joined the room.
+    pub fn joined_members_count(&self) -> u64 {
+        self.inner.read().unwrap().joined_members_count()
+    }
+
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();
@@ -748,6 +758,16 @@ impl RoomInfo {
     /// The return value is saturated at `u64::MAX`.
     pub fn active_members_count(&self) -> u64 {
         self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
+    }
+
+    /// The number of invited members in the room
+    pub fn invited_members_count(&self) -> u64 {
+        self.summary.invited_member_count
+    }
+
+    /// The number of joined members in the room
+    pub fn joined_members_count(&self) -> u64 {
+        self.summary.joined_member_count
     }
 
     /// Get the canonical alias of this room.
