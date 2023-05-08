@@ -17,7 +17,7 @@
 //! The storage layer for the [`OlmMachine`] can be customized using a trait.
 //! Implementing your own [`CryptoStore`]
 //!
-//! An in-memory only store is provided as well as a Sled based one, depending
+//! An in-memory only store is provided as well as a SQLite-based one, depending
 //! on your needs and targets a custom store may be implemented, e.g. for
 //! `wasm-unknown-unknown` an indexeddb store would be needed
 //!

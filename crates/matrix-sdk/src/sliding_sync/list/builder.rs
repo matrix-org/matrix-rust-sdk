@@ -1,24 +1,26 @@
 //! Builder for [`SlidingSyncList`].
 
 use std::{
-    fmt::Debug,
+    convert::identity,
+    fmt,
     sync::{Arc, RwLock as StdRwLock},
 };
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
+use tokio::sync::mpsc::Sender;
 
 use super::{
-    SlidingSyncList, SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode,
-    SlidingSyncState,
+    super::SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListInner,
+    SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 
 /// The default name for the full sync list.
 pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Builder for [`SlidingSyncList`].
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
@@ -29,6 +31,28 @@ pub struct SlidingSyncListBuilder {
     timeline_limit: Option<UInt>,
     name: String,
     ranges: Vec<(UInt, UInt)>,
+    once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
+}
+
+// Print debug values for the builder, except `once_built` which is ignored.
+impl fmt::Debug for SlidingSyncListBuilder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SlidingSyncListBuilder")
+            .field("sync_mode", &self.sync_mode)
+            .field("sort", &self.sort)
+            .field("required_state", &self.required_state)
+            .field("full_sync_batch_size", &self.full_sync_batch_size)
+            .field(
+                "full_sync_maximum_number_of_rooms_to_fetch",
+                &self.full_sync_maximum_number_of_rooms_to_fetch,
+            )
+            .field("filters", &self.filters)
+            .field("timeline_limit", &self.timeline_limit)
+            .field("name", &self.name)
+            .field("ranges", &self.ranges)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SlidingSyncListBuilder {
@@ -46,7 +70,17 @@ impl SlidingSyncListBuilder {
             timeline_limit: None,
             name: name.into(),
             ranges: Vec::new(),
+            once_built: Arc::new(Box::new(identity)),
         }
+    }
+
+    /// foo
+    pub fn once_built<C>(mut self, callback: C) -> Self
+    where
+        C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
+    {
+        self.once_built = Arc::new(Box::new(callback));
+        self
     }
 
     /// Create a Builder set up for full sync.
@@ -133,7 +167,10 @@ impl SlidingSyncListBuilder {
     }
 
     /// Build the list.
-    pub fn build(self) -> SlidingSyncList {
+    pub(in super::super) fn build(
+        self,
+        sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
+    ) -> SlidingSyncList {
         let request_generator = match &self.sync_mode {
             SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
                 self.full_sync_batch_size,
@@ -148,7 +185,7 @@ impl SlidingSyncListBuilder {
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_selective(),
         };
 
-        SlidingSyncList {
+        let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
                 sync_mode: self.sync_mode,
@@ -166,7 +203,13 @@ impl SlidingSyncListBuilder {
                 state: StdRwLock::new(Observable::new(SlidingSyncState::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 room_list: StdRwLock::new(ObservableVector::new()),
+
+                sliding_sync_internal_channel_sender,
             }),
-        }
+        };
+
+        let once_built = self.once_built;
+
+        once_built(list)
     }
 }

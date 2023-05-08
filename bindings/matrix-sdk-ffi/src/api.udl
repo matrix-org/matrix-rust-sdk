@@ -91,6 +91,12 @@ callback interface SlidingSyncListRoomItemsObserver {
     void did_receive_update();
 };
 
+interface SlidingSyncList {};
+
+callback interface SlidingSyncListOnceBuilt {
+    SlidingSyncList update_list(SlidingSyncList list);
+};
+
 dictionary CreateRoomParameters {
     string? name;
     string? topic = null;
