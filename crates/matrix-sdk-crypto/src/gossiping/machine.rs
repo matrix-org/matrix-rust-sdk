@@ -733,16 +733,14 @@ impl GossipMachine {
         room_id: &RoomId,
         event: &EncryptedEvent,
     ) -> Result<bool, CryptoStoreError> {
-        Ok(if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
+        if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
             if self.should_request_key(&info).await? {
                 self.request_key_helper(info).await?;
-                true
-            } else {
-                false
+                return Ok(true);
             }
-        } else {
-            false
-        })
+        }
+
+        Ok(false)
     }
 
     /// Save an outgoing key info.
