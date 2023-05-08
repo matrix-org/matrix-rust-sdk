@@ -858,7 +858,7 @@ impl OlmMachine {
     ) -> OlmResult<()> {
         debug!("Received a decrypted to-device event");
 
-        match &decrypted.result.event {
+        match &*decrypted.result.event {
             AnyDecryptedOlmEvent::RoomKey(e) => {
                 let session = self.add_room_key(decrypted.result.sender_key, e).await?;
                 decrypted.inbound_group_session = session;

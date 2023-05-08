@@ -1591,12 +1591,12 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
         alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
@@ -1650,12 +1650,12 @@ mod tests {
             .is_none());
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
 
@@ -1805,12 +1805,12 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
         alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();

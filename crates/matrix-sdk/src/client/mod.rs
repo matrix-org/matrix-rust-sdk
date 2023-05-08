@@ -2167,7 +2167,7 @@ impl Client {
         }
 
         let request = assign!(sync_events::v3::Request::new(), {
-            filter: sync_settings.filter,
+            filter: sync_settings.filter.map(|f| *f),
             since: sync_settings.token,
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
