@@ -1117,7 +1117,7 @@ impl OlmMachine {
         }
 
         for raw_event in to_device_events {
-            let raw_event = self.receive_to_device_event(&mut changes, raw_event).await?;
+            let raw_event = Box::pin(self.receive_to_device_event(&mut changes, raw_event)).await?;
             events.push(raw_event);
         }
 

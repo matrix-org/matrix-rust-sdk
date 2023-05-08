@@ -82,7 +82,7 @@ impl Client {
         &self,
         response: sync_events::v3::Response,
     ) -> Result<BaseSyncResponse> {
-        let response = self.base_client().receive_sync_response(response).await?;
+        let response = Box::pin(self.base_client().receive_sync_response(response)).await?;
         self.handle_sync_response(&response).await?;
         Ok(response)
     }

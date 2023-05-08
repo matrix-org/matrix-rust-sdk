@@ -192,8 +192,8 @@ impl GossipMachine {
 
             if let Some(s) = match event {
                 #[cfg(feature = "automatic-room-key-forwarding")]
-                RequestEvent::KeyShare(e) => self.handle_key_request(e).await?,
-                RequestEvent::Secret(e) => self.handle_secret_request(e).await?,
+                RequestEvent::KeyShare(e) => Box::pin(self.handle_key_request(e)).await?,
+                RequestEvent::Secret(e) => Box::pin(self.handle_secret_request(e)).await?,
                 #[cfg(not(feature = "automatic-room-key-forwarding"))]
                 _ => None,
             } {
@@ -1591,7 +1591,7 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
@@ -1650,7 +1650,7 @@ mod tests {
             .is_none());
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
@@ -1805,7 +1805,7 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 

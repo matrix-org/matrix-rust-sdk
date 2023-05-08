@@ -323,9 +323,12 @@ impl BaseClient {
                         AnySyncTimelineEvent::State(s) => {
                             match s {
                                 AnySyncStateEvent::RoomMember(member) => {
-                                    ambiguity_cache
-                                        .handle_event(changes, room.room_id(), member)
-                                        .await?;
+                                    Box::pin(ambiguity_cache.handle_event(
+                                        changes,
+                                        room.room_id(),
+                                        member,
+                                    ))
+                                    .await?;
 
                                     match member.membership() {
                                         MembershipState::Join | MembershipState::Invite => {
@@ -377,8 +380,10 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Ok(Some(e)) =
-                                    self.decrypt_sync_room_event(&event.event, room.room_id()).await
+                                if let Ok(Some(e)) = Box::pin(
+                                    self.decrypt_sync_room_event(&event.event, room.room_id()),
+                                )
+                                .await
                                 {
                                     event = e;
                                 }
@@ -387,12 +392,13 @@ impl BaseClient {
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
                                 MessageType::VerificationRequest(_) => {
-                                    self.handle_verification_event(e, room.room_id()).await?;
+                                    Box::pin(self.handle_verification_event(e, room.room_id()))
+                                        .await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                self.handle_verification_event(e, room.room_id()).await?;
+                                Box::pin(self.handle_verification_event(e, room.room_id())).await?;
                             }
                             _ => (),
                         },
@@ -1153,7 +1159,7 @@ impl BaseClient {
                 .as_original()
                 .and_then(|ev| ev.content.displayname.clone())
                 .unwrap_or_else(|| user_id.localpart().to_owned())
-        } else if let Some(member) = room.get_member(user_id).await? {
+        } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
             member.name().to_owned()
         } else {
             return Ok(None);

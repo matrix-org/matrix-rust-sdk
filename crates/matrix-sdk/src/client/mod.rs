@@ -1817,7 +1817,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config, None).await;
+        let res = Box::pin(self.send_inner(request.clone(), config, None)).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1836,7 +1836,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return self.send_inner(request, config, None).await;
+                    return Box::pin(self.send_inner(request, config, None)).await;
                 }
             }
         }
@@ -1857,7 +1857,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config, homeserver.clone()).await;
+        let res = Box::pin(self.send_inner(request.clone(), config, homeserver.clone())).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1876,7 +1876,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return self.send_inner(request, config, homeserver).await;
+                    return Box::pin(self.send_inner(request, config, homeserver)).await;
                 }
             }
         }
