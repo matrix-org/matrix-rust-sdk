@@ -25,9 +25,9 @@ use matrix_sdk_base::{
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
-        sync::sync_events::{self, v3::Presence, DeviceLists},
+        sync::sync_events::{self, DeviceLists},
     },
-    events::{AnyGlobalAccountDataEvent, AnyToDeviceEvent},
+    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
     DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
@@ -44,11 +44,11 @@ pub struct SyncResponse {
     /// Updates to rooms.
     pub rooms: Rooms,
     /// Updates to the presence status of other users.
-    pub presence: Presence,
+    pub presence: Vec<Raw<PresenceEvent>>,
     /// The global private data created by this user.
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
-    pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    pub to_device: Vec<Raw<AnyToDeviceEvent>>,
     /// Information on E2E device updates.
     ///
     /// Only present on an incremental sync.
@@ -68,7 +68,7 @@ impl SyncResponse {
             rooms,
             presence,
             account_data,
-            to_device_events,
+            to_device,
             device_lists,
             device_one_time_keys_count,
             ambiguity_changes,
@@ -80,7 +80,7 @@ impl SyncResponse {
             rooms,
             presence,
             account_data,
-            to_device_events,
+            to_device,
             device_lists,
             device_one_time_keys_count,
             ambiguity_changes,
@@ -107,7 +107,7 @@ impl Client {
             rooms,
             presence,
             account_data,
-            to_device_events,
+            to_device,
             device_lists: _,
             device_one_time_keys_count: _,
             ambiguity_changes: _,
@@ -116,8 +116,8 @@ impl Client {
 
         let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
-        self.handle_sync_events(HandlerKind::Presence, &None, &presence.events).await?;
-        self.handle_sync_events(HandlerKind::ToDevice, &None, to_device_events).await?;
+        self.handle_sync_events(HandlerKind::Presence, &None, presence).await?;
+        self.handle_sync_events(HandlerKind::ToDevice, &None, to_device).await?;
 
         for (room_id, room_info) in &rooms.join {
             if room_info.timeline.limited {
@@ -134,12 +134,11 @@ impl Client {
                 room_info;
 
             self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
-            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_state_events(&room, state).await?;
             self.handle_sync_timeline_events(&room, &timeline.events).await?;
             // Handle ephemeral events after timeline, read receipts in here
             // could refer to timeline events from the same response.
-            self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, &ephemeral.events)
-                .await?;
+            self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, ephemeral).await?;
         }
 
         for (room_id, room_info) in &rooms.leave {
@@ -155,9 +154,8 @@ impl Client {
 
             let LeftRoom { timeline, state, account_data } = room_info;
 
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, &account_data.events)
-                .await?;
-            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
+            self.handle_sync_state_events(&room, state).await?;
             self.handle_sync_timeline_events(&room, &timeline.events).await?;
         }
 

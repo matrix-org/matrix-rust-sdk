@@ -684,7 +684,7 @@ impl BaseClient {
         let now = Instant::now();
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = self
+        let to_device = self
             .preprocess_to_device_events(
                 response.to_device.events,
                 &response.device_lists,
@@ -694,7 +694,7 @@ impl BaseClient {
             .await?;
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let to_device_events = response.to_device.events;
+        let to_device = response.to_device.events;
 
         let mut changes = Box::new(StateChanges::new(response.next_batch.clone()));
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
@@ -784,9 +784,9 @@ impl BaseClient {
                 room_id,
                 JoinedRoom::new(
                     timeline,
-                    new_info.state,
+                    new_info.state.events,
                     new_info.account_data.events,
-                    new_info.ephemeral,
+                    new_info.ephemeral.events,
                     notification_count,
                 ),
             );
@@ -827,9 +827,10 @@ impl BaseClient {
                 .await;
 
             changes.add_room(room_info);
-            new_rooms
-                .leave
-                .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
+            new_rooms.leave.insert(
+                room_id,
+                LeftRoom::new(timeline, new_info.state.events, new_info.account_data.events),
+            );
         }
 
         for (room_id, new_info) in response.rooms.invite {
@@ -878,9 +879,9 @@ impl BaseClient {
 
         let response = SyncResponse {
             rooms: new_rooms,
-            presence: response.presence,
+            presence: response.presence.events,
             account_data: response.account_data.events,
-            to_device_events,
+            to_device,
             device_lists: response.device_lists,
             device_one_time_keys_count: response
                 .device_one_time_keys_count
