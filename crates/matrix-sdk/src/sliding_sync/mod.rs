@@ -364,6 +364,7 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
+    /// Sync once just to update the E2E encryption keys.
     pub async fn sync_once_for_keys(&self) -> Result<()> {
         let stream_id = Uuid::new_v4().to_string();
         let keys_list = SlidingSyncList::builder("sync_once_for_keys").build();
