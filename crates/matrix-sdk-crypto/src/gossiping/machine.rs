@@ -879,9 +879,12 @@ impl GossipMachine {
     ) -> Result<Option<SecretName>, CryptoStoreError> {
         debug!(request_id = event.content.request_id.as_str(), "Received a m.secret.send event");
 
-        let request_id = <&TransactionId>::from(event.content.request_id.as_str());
+        let maybe_request = self
+            .store
+            .get_outgoing_secret_requests(event.content.request_id.as_str().into())
+            .await?;
 
-        Ok(if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
+        Ok(if let Some(request) = maybe_request {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
                     warn!(
