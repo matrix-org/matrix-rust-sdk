@@ -147,7 +147,7 @@ pub struct UnknownRoomKey {
     other: BTreeMap<String, Value>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct RoomKeyHelper {
     algorithm: EventEncryptionAlgorithm,
     #[serde(flatten)]
