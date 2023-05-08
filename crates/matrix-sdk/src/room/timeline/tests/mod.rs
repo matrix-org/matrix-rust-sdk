@@ -1,4 +1,4 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2023 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -49,10 +49,12 @@ use super::{inner::RoomDataProvider, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
+mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod invalid;
 mod read_receipts;
+mod redaction;
 mod virt;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));

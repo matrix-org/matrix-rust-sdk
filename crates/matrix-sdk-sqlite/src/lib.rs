@@ -11,7 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#![cfg_attr(not(feature = "crypto-store"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(any(feature = "state-store", feature = "crypto-store")),
+    allow(dead_code, unused_imports)
+)]
 
 use deadpool_sqlite::Object as SqliteConn;
 use matrix_sdk_store_encryption::StoreCipher;
@@ -19,11 +22,15 @@ use matrix_sdk_store_encryption::StoreCipher;
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
+#[cfg(feature = "state-store")]
+mod state_store;
 mod utils;
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
+#[cfg(feature = "state-store")]
+pub use self::state_store::SqliteStateStore;
 use self::utils::SqliteObjectStoreExt;
 
 async fn get_or_create_store_cipher(

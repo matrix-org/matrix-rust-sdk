@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use once_cell::sync::OnceCell;
 use tracing::{callsite::DefaultCallsite, field::FieldSet, Callsite};
@@ -92,8 +95,10 @@ fn span_or_event_enabled(callsite: &'static DefaultCallsite) -> bool {
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct Span(tracing::Span);
 
+#[uniffi::export]
 impl Span {
     /// Create a span originating at the given callsite (file, line and column).
     ///
@@ -119,6 +124,7 @@ impl Span {
     /// case it should also be exited on all of them individually; that is,
     /// unless you *want* the span to be attached to all further events created
     /// on that thread.
+    #[uniffi::constructor]
     pub fn new(
         file: String,
         line: u32,
@@ -126,7 +132,7 @@ impl Span {
         level: LogLevel,
         target: String,
         name: String,
-    ) -> Self {
+    ) -> Arc<Self> {
         static CALLSITES: Mutex<BTreeMap<Location, &'static DefaultCallsite>> =
             Mutex::new(BTreeMap::new());
         let loc = Location::new(file, line, column);
@@ -143,16 +149,14 @@ impl Span {
             tracing::Span::none()
         };
 
-        Span(span)
+        Arc::new(Self(span))
     }
 
-    pub fn current() -> Self {
-        Self(tracing::Span::current())
+    #[uniffi::constructor]
+    pub fn current() -> Arc<Self> {
+        Arc::new(Self(tracing::Span::current()))
     }
-}
 
-#[uniffi::export]
-impl Span {
     fn enter(&self) {
         self.0.with_subscriber(|(id, dispatch)| dispatch.enter(id));
     }
@@ -166,6 +170,7 @@ impl Span {
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum LogLevel {
     Error,
     Warn,

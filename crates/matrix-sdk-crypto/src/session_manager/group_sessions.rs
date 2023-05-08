@@ -926,7 +926,8 @@ mod tests {
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
 
-        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+        let outbound =
+            machine.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         assert!(!outbound.pending_requests().is_empty());
         assert!(!outbound.shared());
@@ -1066,7 +1067,8 @@ mod tests {
             .filter(|r| r.event_type == "m.room.encrypted".into())
             .map(|r| r.message_count())
             .sum();
-        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+        let outbound =
+            machine.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         assert_eq!(event_count, 1);
         assert!(!outbound.pending_requests().is_empty());
@@ -1079,9 +1081,11 @@ mod tests {
         let keys_claim = keys_claim_response();
 
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
-        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+        let outbound =
+            machine.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         let CollectRecipientsResult { should_rotate, .. } = machine
+            .inner
             .group_session_manager
             .collect_session_recipients(users.clone(), &EncryptionSettings::default(), &outbound)
             .await
@@ -1095,6 +1099,7 @@ mod tests {
         };
 
         let CollectRecipientsResult { should_rotate, .. } = machine
+            .inner
             .group_session_manager
             .collect_session_recipients(users.clone(), &settings, &outbound)
             .await
@@ -1108,6 +1113,7 @@ mod tests {
         };
 
         let CollectRecipientsResult { should_rotate, .. } = machine
+            .inner
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1127,6 +1133,7 @@ mod tests {
         let machine = machine_with_user(user_id, device_id).await;
 
         let (outbound, _) = machine
+            .inner
             .group_session_manager
             .get_or_create_outbound_session(room_id, EncryptionSettings::default())
             .await
@@ -1137,6 +1144,7 @@ mod tests {
         let users = [user_id].into_iter();
 
         let CollectRecipientsResult { devices: recipients, .. } = machine
+            .inner
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1154,6 +1162,7 @@ mod tests {
         let users = [user_id].into_iter();
 
         let CollectRecipientsResult { devices: recipients, .. } = machine
+            .inner
             .group_session_manager
             .collect_session_recipients(users, &settings, &outbound)
             .await
@@ -1168,6 +1177,7 @@ mod tests {
 
         let CollectRecipientsResult { devices: recipients, withheld_devices: withheld, .. } =
             machine
+                .inner
                 .group_session_manager
                 .collect_session_recipients(users, &settings, &outbound)
                 .await

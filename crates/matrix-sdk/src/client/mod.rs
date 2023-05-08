@@ -1672,6 +1672,10 @@ impl Client {
     /// use [`create_dm`][Self::create_dm], which is more convenient than
     /// assembling the [`create_room::v3::Request`] yourself.
     ///
+    /// If the `is_direct` field of the request is set to `true` and at least
+    /// one user is invited, the room will be automatically added to the direct
+    /// rooms in the account data.
+    ///
     /// # Examples
     ///
     /// ```no_run

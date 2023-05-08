@@ -1,13 +1,26 @@
 namespace matrix_sdk_ffi {};
 
-[Error]
-interface ClientError {
-    Generic(string msg);
-};
-
 callback interface ClientDelegate {
     void did_receive_auth_error(boolean is_soft_logout);
 };
+
+callback interface NotificationDelegate {
+    void did_receive_notification(NotificationItem notification);
+};
+
+dictionary NotificationItem {
+    TimelineEvent event;
+    string room_id;
+    string? sender_display_name;
+    string? sender_avatar_url;
+    string room_display_name;
+    string? room_avatar_url;
+    boolean is_noisy;
+    boolean is_direct;
+    boolean is_encrypted;
+};
+
+interface TimelineEvent {};
 
 dictionary UpdateSummary {
     sequence<string> lists;
@@ -88,10 +101,6 @@ callback interface SlidingSyncListOnceBuilt {
     SlidingSyncList update_list(SlidingSyncList list);
 };
 
-interface ClientBuilder {
-    constructor();
-};
-
 dictionary CreateRoomParameters {
     string? name;
     string? topic = null;
@@ -152,14 +161,6 @@ interface MediaSource {
     string url();
 };
 
-interface AuthenticationService {
-    constructor(string base_path, string? passphrase, string? custom_sliding_sync_proxy);
-};
-
-interface NotificationService {
-    constructor(string base_path, string user_id);
-};
-
 interface SessionVerificationEmoji {};
 
 callback interface SessionVerificationControllerDelegate {
@@ -169,18 +170,4 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
-};
-
-interface Span {
-    constructor(string file, u32 line, u32 column, LogLevel level, string target, string name);
-    [Name=current]
-    constructor();
-};
-
-enum LogLevel {
-    "Error",
-    "Warn",
-    "Info",
-    "Debug",
-    "Trace",
 };

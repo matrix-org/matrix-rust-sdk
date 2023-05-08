@@ -1,5 +1,6 @@
 use std::{fmt, ops::Deref, sync::Arc};
 
+use imbl::{vector, Vector};
 use indexmap::IndexMap;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{
@@ -19,7 +20,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, Relation},
+            message::{
+                self, sanitize::RemoveReplyFallback, MessageType, Relation,
+                RoomMessageEventContent, SyncRoomMessageEvent,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -30,15 +34,19 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyTimelineEvent,
-        FullStateEventContent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+        StateEventType,
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
+use tracing::{debug, error};
 
-use super::{Profile, TimelineDetails};
+use super::{EventTimelineItem, Profile, TimelineDetails};
 use crate::{
-    room::timeline::{inner::RoomDataProvider, Error as TimelineError},
+    room::timeline::{
+        inner::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
+    },
     Result,
 };
 
@@ -106,6 +114,10 @@ impl TimelineItemContent {
             _ => None,
         }
     }
+
+    pub(crate) fn is_redacted(&self) -> bool {
+        matches!(self, Self::RedactedMessage)
+    }
 }
 
 /// An `m.room.message` event or extensible event, including edits.
@@ -117,6 +129,71 @@ pub struct Message {
 }
 
 impl Message {
+    /// Construct a `Message` from a `m.room.message` event.
+    pub(in crate::room::timeline) fn from_event(
+        c: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> Self {
+        let edited = relations.has_replacement();
+        let edit = relations.replace.and_then(|r| match *r {
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
+                .content
+                .relates_to
+            {
+                Some(Relation::Replacement(re)) => Some(re),
+                _ => {
+                    error!("got m.room.message event with an edit without a valid m.replace relation");
+                    None
+                }
+            },
+            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
+            _ => {
+                error!("got m.room.message event with an edit of a different event type");
+                None
+            }
+        });
+
+        let in_reply_to = c.relates_to.and_then(|relation| match relation {
+            message::Relation::Reply { in_reply_to } => {
+                let event_id = in_reply_to.event_id;
+                let event = timeline_items
+                    .iter()
+                    .filter_map(|it| it.as_event())
+                    .find(|it| it.event_id() == Some(&*event_id))
+                    .and_then(RepliedToEvent::from_timeline_item)
+                    .map(Box::new);
+
+                Some(InReplyToDetails {
+                    event_id,
+                    event: TimelineDetails::from_initial_value(event),
+                })
+            }
+            _ => None,
+        });
+
+        let msgtype = match edit {
+            Some(mut e) => {
+                // Edit's content is never supposed to contain the reply fallback.
+                e.new_content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+                e.new_content
+            }
+            None => {
+                let remove_reply_fallback = if in_reply_to.is_some() {
+                    RemoveReplyFallback::Yes
+                } else {
+                    RemoveReplyFallback::No
+                };
+
+                let mut msgtype = c.msgtype;
+                msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
+                msgtype
+            }
+        };
+
+        Self { msgtype, in_reply_to, edited }
+    }
+
     /// Get the `msgtype`-specific data of this message.
     pub fn msgtype(&self) -> &MessageType {
         &self.msgtype
@@ -175,17 +252,6 @@ pub struct InReplyToDetails {
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
-impl InReplyToDetails {
-    pub(in crate::room::timeline) fn from_relation<C>(relation: Relation<C>) -> Option<Self> {
-        match relation {
-            message::Relation::Reply { in_reply_to } => {
-                Some(Self { event_id: in_reply_to.event_id, event: TimelineDetails::Unavailable })
-            }
-            _ => None,
-        }
-    }
-}
-
 /// An event that is replied to.
 #[derive(Clone, Debug)]
 pub struct RepliedToEvent {
@@ -210,6 +276,23 @@ impl RepliedToEvent {
         &self.sender_profile
     }
 
+    fn from_timeline_item(timeline_item: &EventTimelineItem) -> Option<Self> {
+        let message = match &timeline_item.content {
+            TimelineItemContent::Message(msg) => msg.to_owned(),
+            // FIXME: Handle redacted messages
+            _ => {
+                debug!("Replied-to event is not a message, discarding");
+                return None;
+            }
+        };
+
+        Some(Self {
+            message,
+            sender: timeline_item.sender.clone(),
+            sender_profile: timeline_item.sender_profile.clone(),
+        })
+    }
+
     pub(in crate::room::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
@@ -225,11 +308,7 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent.into());
         };
 
-        let message = Message {
-            msgtype: c.msgtype,
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited: event.relations().replace.is_some(),
-        };
+        let message = Message::from_event(c, event.relations(), &vector![]);
         let sender = event.sender().to_owned();
         let sender_profile =
             TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);

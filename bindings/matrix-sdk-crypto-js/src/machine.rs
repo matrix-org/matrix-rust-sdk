@@ -222,7 +222,7 @@ impl OlmMachine {
         to_device_events: &str,
         changed_devices: &sync_events::DeviceLists,
         one_time_key_counts: &Map,
-        unused_fallback_keys: &Set,
+        unused_fallback_keys: Option<Set>,
     ) -> Result<Promise, JsError> {
         let to_device_events = serde_json::from_str(to_device_events)?;
         let changed_devices = changed_devices.inner.clone();
@@ -239,13 +239,18 @@ impl OlmMachine {
                 Some((key, value))
             })
             .collect();
-        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> = Some(
-            unused_fallback_keys
-                .values()
-                .into_iter()
-                .filter_map(|js_value| Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?)))
-                .collect(),
-        );
+
+        // Convert the unused_fallback_keys JS Set to a `Vec<DeviceKeyAlgorithm>`
+        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
+            unused_fallback_keys.map(|fallback_keys| {
+                fallback_keys
+                    .values()
+                    .into_iter()
+                    .filter_map(|js_value| {
+                        Some(DeviceKeyAlgorithm::from(js_value.ok()?.as_string()?))
+                    })
+                    .collect()
+            });
 
         let me = self.inner.clone();
 
@@ -392,11 +397,11 @@ impl OlmMachine {
 
     /// Export all the private cross signing keys we have.
     ///
-    /// The export will contain the seed for the ed25519 keys as a
-    /// unpadded base64 encoded string.
+    /// The export will contain the seeds for the ed25519 keys as
+    /// unpadded base64 encoded strings.
     ///
-    /// This method returns None if we don’t have any private cross
-    /// signing keys.
+    /// Returns `null` if we don’t have any private cross signing keys;
+    /// otherwise returns a `CrossSigningKeyExport`.
     #[wasm_bindgen(js_name = "exportCrossSigningKeys")]
     pub fn export_cross_signing_keys(&self) -> Promise {
         let me = self.inner.clone();
@@ -408,12 +413,22 @@ impl OlmMachine {
 
     /// Import our private cross signing keys.
     ///
-    /// The export needs to contain the seed for the ed25519 keys as
-    /// an unpadded base64 encoded string.
+    /// The keys should be provided as unpadded-base64-encoded strings.
+    ///
+    /// Returns a `CrossSigningStatus`.
     #[wasm_bindgen(js_name = "importCrossSigningKeys")]
-    pub fn import_cross_signing_keys(&self, export: store::CrossSigningKeyExport) -> Promise {
+    pub fn import_cross_signing_keys(
+        &self,
+        master_key: Option<String>,
+        self_signing_key: Option<String>,
+        user_signing_key: Option<String>,
+    ) -> Promise {
         let me = self.inner.clone();
-        let export = export.inner;
+        let export = matrix_sdk_crypto::store::CrossSigningKeyExport {
+            master_key,
+            self_signing_key,
+            user_signing_key,
+        };
 
         future_to_promise(async move {
             Ok(me.import_cross_signing_keys(export).await.map(olm::CrossSigningStatus::from)?)
@@ -428,6 +443,8 @@ impl OlmMachine {
     /// between all the devices.
     ///
     /// Uploading these keys will require user interactive auth.
+    ///
+    /// Returns an `Array` of `OutgoingRequest`s
     #[wasm_bindgen(js_name = "bootstrapCrossSigning")]
     pub fn bootstrap_cross_signing(&self, reset: bool) -> Promise {
         let me = self.inner.clone();

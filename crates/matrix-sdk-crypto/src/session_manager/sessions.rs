@@ -473,7 +473,7 @@ mod tests {
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 
-        let user_id: Arc<UserId> = user_id.into();
+        let user_id = user_id.to_owned();
         let device_id = device_id.into();
 
         let store = Store::new(user_id.clone(), identity, store, verification);

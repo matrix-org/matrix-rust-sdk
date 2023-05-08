@@ -12,10 +12,6 @@ pub enum Error {
     /// `sync`-restart might be required.
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
-    /// Called `.build()` on a builder type, but the given required field was
-    /// missing.
-    #[error("Required field missing: `{0}`")]
-    BuildMissingField(&'static str),
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.

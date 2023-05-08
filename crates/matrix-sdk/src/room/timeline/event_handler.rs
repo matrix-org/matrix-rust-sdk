@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, Vector};
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -26,7 +26,7 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{self, MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{self, sanitize::RemoveReplyFallback, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -49,11 +49,13 @@ use super::{
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, InReplyToDetails, Message,
-    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
-    VirtualTimelineItem,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, ReactionGroup,
+    TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
-use crate::{events::SyncTimelineEventWithoutContent, room::timeline::MembershipChange};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    room::timeline::{MembershipChange, DEFAULT_SANITIZER_MODE},
+};
 
 pub(super) enum Flow {
     Local {
@@ -287,7 +289,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(NewEventTimelineItem::message(c, relations));
+                    self.add(NewEventTimelineItem::message(c, relations, self.items));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {
@@ -383,8 +385,12 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             };
 
+            let mut msgtype = replacement.new_content;
+            // Edit's content is never supposed to contain the reply fallback.
+            msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+
             let new_content = TimelineItemContent::Message(Message {
-                msgtype: replacement.new_content,
+                msgtype,
                 in_reply_to: msg.in_reply_to.clone(),
                 edited: true,
             });
@@ -531,16 +537,25 @@ impl<'a> TimelineEventHandler<'a> {
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
             let Some(remote_event_item) = event_item.as_remote() else {
-                error!("inconsistent state: reaction received on a non-remote event item");
+                error!("inconsistent state: redaction received on a non-remote event item");
                 return None;
             };
 
-            Some(event_item.with_kind(remote_event_item.to_redacted()))
+            if let TimelineItemContent::RedactedMessage = &event_item.content {
+                debug!("event item is already redacted");
+                return None;
+            }
+
+            let mut event_item = event_item.to_owned();
+            event_item.content = TimelineItemContent::RedactedMessage;
+            event_item.kind = remote_event_item.without_reactions().into();
+
+            Some(event_item)
         });
 
-        if self.result.items_updated > 0 {
+        if self.result.items_updated == 0 {
             // We will want to know this when debugging redaction issues.
-            debug!(redaction_key = ?redacts, "redaction affected no event");
+            debug!("redaction affected no event");
         }
     }
 
@@ -683,11 +698,18 @@ impl<'a> TimelineEventHandler<'a> {
                 });
 
                 if let Some((idx, old_item)) = result {
-                    if let Some(old_item) = old_item.as_remote() {
+                    if old_item.as_remote().is_some() {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
                         // sync proxy, it is actually very common.
                         trace!(?item, ?old_item, "Received duplicate event");
+
+                        if old_item.content.is_redacted() && !item.content.is_redacted() {
+                            warn!(
+                                "Skipping original form of an event that was previously redacted"
+                            );
+                            return;
+                        }
                     };
 
                     if txn_id.is_none() {
@@ -943,22 +965,10 @@ impl NewEventTimelineItem {
     fn message(
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let edited = relations.has_replacement();
-        let edit = relations.replace.and_then(|r| match *r {
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => Some(ev),
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
-            _ => {
-                error!("got m.room.message event with an edit of a different event type");
-                None
-            }
-        });
-
-        let content = TimelineItemContent::Message(Message {
-            msgtype: edit.map_or(c.msgtype, |e| e.content.msgtype),
-            in_reply_to: c.relates_to.and_then(InReplyToDetails::from_relation),
-            edited,
-        });
+        let content =
+            TimelineItemContent::Message(Message::from_event(c, relations, timeline_items));
 
         Self::from_content(content)
     }

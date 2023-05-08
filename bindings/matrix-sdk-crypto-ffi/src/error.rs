@@ -42,7 +42,8 @@ pub enum SignatureError {
     UnknownUserIdentity(String),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum CryptoStoreError {
     #[error("Failed to open the store")]
     OpenStore(#[from] OpenStoreError),

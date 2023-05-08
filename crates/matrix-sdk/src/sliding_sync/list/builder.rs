@@ -12,10 +12,9 @@ use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
 use tokio::sync::mpsc::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, Error, SlidingSyncList, SlidingSyncListInner,
+    super::SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListInner,
     SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
-use crate::Result;
 
 /// The default name for the full sync list.
 pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
@@ -29,7 +28,7 @@ pub struct SlidingSyncListBuilder {
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<UInt>,
-    name: Option<String>,
+    name: String,
     ranges: Vec<(UInt, UInt)>,
     once_built: Box<dyn FnOnce(SlidingSyncList) -> SlidingSyncList + Send + Sync>,
 }
@@ -76,7 +75,7 @@ impl fmt::Debug for SlidingSyncListBuilder {
 }
 
 impl SlidingSyncListBuilder {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(name: impl Into<String>) -> Self {
         Self {
             sync_mode: SlidingSyncMode::default(),
             sort: vec!["by_recency".to_owned(), "by_name".to_owned()],
@@ -88,7 +87,7 @@ impl SlidingSyncListBuilder {
             full_sync_maximum_number_of_rooms_to_fetch: None,
             filters: None,
             timeline_limit: None,
-            name: None,
+            name: name.into(),
             ranges: Vec::new(),
             once_built: Box::new(identity),
         }
@@ -105,7 +104,7 @@ impl SlidingSyncListBuilder {
 
     /// Create a Builder set up for full sync.
     pub fn default_with_fullsync() -> Self {
-        Self::new().name(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::Paging)
+        Self::new(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::Paging)
     }
 
     /// Which SlidingSyncMode to start this list under.
@@ -162,12 +161,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set the name of this list, to easily recognize it.
-    pub fn name(mut self, value: impl Into<String>) -> Self {
-        self.name = Some(value.into());
-        self
-    }
-
     /// Set the ranges to fetch.
     pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
         self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
@@ -196,7 +189,7 @@ impl SlidingSyncListBuilder {
     pub(in super::super) fn build(
         self,
         sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
-    ) -> Result<SlidingSyncList> {
+    ) -> SlidingSyncList {
         let request_generator = match &self.sync_mode {
             SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
                 self.full_sync_batch_size,
@@ -219,7 +212,7 @@ impl SlidingSyncListBuilder {
                 required_state: self.required_state,
                 filters: self.filters,
                 timeline_limit: StdRwLock::new(Observable::new(self.timeline_limit)),
-                name: self.name.ok_or(Error::BuildMissingField("name"))?,
+                name: self.name,
                 ranges: StdRwLock::new(Observable::new(self.ranges)),
 
                 // Computed from the builder.

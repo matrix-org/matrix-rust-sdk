@@ -1440,7 +1440,6 @@ dependencies = [
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
@@ -1459,7 +1458,6 @@ name = "example-custom-events"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dirs",
  "matrix-sdk",
  "serde",
  "tokio",
@@ -1495,7 +1493,6 @@ name = "example-getting-started"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dirs",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2639,7 +2636,7 @@ dependencies = [
  "matrix-sdk-sled",
  "matrix-sdk-test",
  "mime",
- "mime_guess",
+ "mime2ext",
  "once_cell",
  "pin-project-lite",
  "rand 0.8.5",
@@ -2668,7 +2665,6 @@ dependencies = [
  "axum",
  "dashmap",
  "http",
- "http-body",
  "hyper",
  "matrix-sdk",
  "matrix-sdk-test",
@@ -2693,14 +2689,12 @@ version = "0.6.1"
 dependencies = [
  "assert_matches",
  "assign",
- "async-stream",
  "async-trait",
  "bitflags 2.2.1",
  "ctor 0.2.0",
  "dashmap",
  "eyeball",
  "futures",
- "futures-core",
  "futures-util",
  "http",
  "matrix-sdk-common",
@@ -2716,7 +2710,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen-test",
- "zeroize",
 ]
 
 [[package]]
@@ -2753,7 +2746,6 @@ dependencies = [
  "ctor 0.2.0",
  "ctr",
  "dashmap",
- "event-listener",
  "eyeball",
  "futures",
  "futures-core",
@@ -2806,7 +2798,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "uniffi",
  "vodozemac",
@@ -2898,7 +2889,6 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "base64 0.21.0",
- "dashmap",
  "getrandom 0.2.9",
  "gloo-utils",
  "indexed_db_futures",
@@ -2939,7 +2929,6 @@ dependencies = [
 name = "matrix-sdk-qrcode"
 version = "0.4.0"
 dependencies = [
- "base64 0.21.0",
  "byteorder",
  "image 0.23.14",
  "qrcode",
@@ -2953,15 +2942,12 @@ name = "matrix-sdk-sled"
 version = "0.2.0"
 dependencies = [
  "assert_matches",
- "async-stream",
  "async-trait",
- "dashmap",
  "fs_extra",
  "futures-core",
  "futures-util",
  "glob",
  "matrix-sdk-base",
- "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
@@ -2981,17 +2967,11 @@ name = "matrix-sdk-sqlite"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
- "async-stream",
  "async-trait",
  "ctor 0.2.0",
- "dashmap",
  "deadpool-sqlite",
- "fs_extra",
- "futures-core",
- "futures-util",
  "glob",
  "matrix-sdk-base",
- "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
@@ -3047,7 +3027,6 @@ dependencies = [
 name = "matrix-sdk-test-macros"
 version = "0.3.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "syn 1.0.109",
 ]
@@ -3081,6 +3060,12 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "mime2ext"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1a85a5069ebd40e64b1985773cc81addbe9d90d7ecf60e7b5475a57ad584c70"
 
 [[package]]
 name = "mime_guess"
@@ -4336,7 +4321,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.8.2"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "assign",
  "js_int",
@@ -4351,7 +4336,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4362,7 +4347,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.16.2"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "assign",
  "bytes",
@@ -4379,7 +4364,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "base64 0.21.0",
  "bytes",
@@ -4412,7 +4397,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4423,7 +4408,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4432,7 +4417,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.11.3"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4440,14 +4425,14 @@ dependencies = [
  "quote",
  "ruma-identifiers-validation",
  "serde",
- "syn 1.0.109",
+ "syn 2.0.15",
  "toml 0.7.3",
 ]
 
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.7.1"
-source = "git+https://github.com/ruma/ruma?rev=0143bd9b9f5dcfcaa835afb76f342c12f014f945#0143bd9b9f5dcfcaa835afb76f342c12f014f945"
+source = "git+https://github.com/ruma/ruma?rev=54a4223caa1c1052464ecdba0f1e08f126e07bcd#54a4223caa1c1052464ecdba0f1e08f126e07bcd"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -5529,7 +5514,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "uniffi"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "camino",
@@ -5550,7 +5535,7 @@ dependencies = [
 [[package]]
 name = "uniffi_bindgen"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "askama",
@@ -5572,7 +5557,7 @@ dependencies = [
 [[package]]
 name = "uniffi_build"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "camino",
@@ -5582,7 +5567,7 @@ dependencies = [
 [[package]]
 name = "uniffi_checksum_derive"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -5591,7 +5576,7 @@ dependencies = [
 [[package]]
 name = "uniffi_core"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5606,7 +5591,7 @@ dependencies = [
 [[package]]
 name = "uniffi_macros"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "bincode",
  "camino",
@@ -5624,7 +5609,7 @@ dependencies = [
 [[package]]
 name = "uniffi_meta"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5637,7 +5622,7 @@ dependencies = [
 [[package]]
 name = "uniffi_testing"
 version = "0.23.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "anyhow",
  "camino",
@@ -5936,7 +5921,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/mozilla/uniffi-rs?rev=aa91307b6ac27aae6d5c7ad971b762df952d2745#aa91307b6ac27aae6d5c7ad971b762df952d2745"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=75b9df455d1b67d25291c09634ff22160e4abcbf#75b9df455d1b67d25291c09634ff22160e4abcbf"
 dependencies = [
  "nom",
 ]
@@ -6227,7 +6212,6 @@ dependencies = [
  "fs_extra",
  "serde",
  "serde_json",
- "uniffi",
  "uniffi_bindgen",
  "xshell",
 ]

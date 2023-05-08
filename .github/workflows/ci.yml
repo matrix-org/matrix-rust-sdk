@@ -89,6 +89,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -119,6 +121,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -172,6 +176,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -294,6 +300,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -361,6 +369,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Get xtask
         uses: actions/cache/restore@v3
@@ -388,6 +398,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -436,7 +448,7 @@ jobs:
       # run sliding sync and point it at the postgres container and synapse container.
       # the postgres container needs to be above this to make sure it has started prior to this service.
       slidingsync:
-        image: "ghcr.io/matrix-org/sliding-sync:v0.99.0"
+        image: "ghcr.io/matrix-org/sliding-sync:v0.99.2"
         env:
           SYNCV3_SERVER: "http://synapse:8008"
           SYNCV3_SECRET: "SUPER_CI_SECRET"
@@ -464,6 +476,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/head/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest

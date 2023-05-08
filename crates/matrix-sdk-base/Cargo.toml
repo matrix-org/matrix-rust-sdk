@@ -28,12 +28,10 @@ testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches"]
 
 [dependencies]
 assert_matches = { workspace = true, optional = true }
-async-stream = { workspace = true }
 async-trait = { workspace = true }
 bitflags = "2.1.0"
 dashmap = { workspace = true }
 eyeball = { workspace = true }
-futures-core = "0.3.21"
 futures-util = { workspace = true }
 http = { workspace = true, optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
@@ -47,7 +45,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

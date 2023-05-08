@@ -308,7 +308,7 @@ impl Deref for Store {
 }
 
 /// Store state changes and pass them to the StateStore.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
@@ -371,12 +371,12 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_room(&mut self, room: RoomInfo) {
-        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
+        self.room_infos.insert(room.room_id.clone(), room);
     }
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.stripped_room_infos.insert(room.room_id.as_ref().to_owned(), room);
+        self.stripped_room_infos.insert(room.room_id.clone(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.

@@ -8,25 +8,19 @@ license = "Apache-2.0"
 rust-version = { workspace = true }
 
 [features]
-default = []
+default = ["state-store"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = [
-    "dep:matrix-sdk-base",
     "dep:matrix-sdk-crypto",
-    "matrix-sdk-base?/e2e-encryption",
+    "matrix-sdk-base/e2e-encryption",
 ]
+state-store = []
 
 [dependencies]
-async-stream = { workspace = true }
 async-trait = { workspace = true }
-dashmap = { workspace = true }
 deadpool-sqlite = "0.5.0"
-fs_extra = "1.2.0"
-futures-core = "0.3.21"
-futures-util = { workspace = true }
-matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", optional = true }
-matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
+matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 rmp-serde = "1.1.1"

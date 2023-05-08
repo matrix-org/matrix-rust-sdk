@@ -137,7 +137,6 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
 
         match value {
             E::BadResponse(msg) => Self::BadResponse { msg },
-            E::BuildMissingField(msg) => Self::BuildMissingField { msg: msg.to_owned() },
             E::RequestGeneratorHasNotBeenInitialized(msg) => {
                 Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
@@ -424,7 +423,7 @@ pub trait SlidingSyncListStateObserver: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncListBuilder {
     inner: matrix_sdk::SlidingSyncListBuilder,
 }
@@ -465,14 +464,13 @@ impl From<SlidingSyncRequestListFilters> for SyncRequestListFilters {
     }
 }
 
-impl SlidingSyncListBuilder {
-    pub fn new() -> Self {
-        Self { inner: matrix_sdk::SlidingSyncList::builder() }
-    }
-}
-
 #[uniffi::export]
 impl SlidingSyncListBuilder {
+    #[uniffi::constructor]
+    pub fn new(name: String) -> Arc<Self> {
+        Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
+    }
+
     pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.sync_mode(mode);
@@ -532,12 +530,6 @@ impl SlidingSyncListBuilder {
     pub fn no_timeline_limit(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.no_timeline_limit();
-        Arc::new(builder)
-    }
-
-    pub fn name(self: Arc<Self>, name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.name(name);
         Arc::new(builder)
     }
 

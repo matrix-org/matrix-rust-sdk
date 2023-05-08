@@ -1,11 +1,16 @@
 use std::{
     convert::TryFrom,
+    fs,
     sync::{Arc, RwLock},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::StreamExt;
 use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
     room::{timeline::Timeline, Receipts, Room as SdkRoom},
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
@@ -25,7 +30,11 @@ use mime::Mime;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{error::ClientError, RoomMember, TimelineDiff, TimelineItem, TimelineListener};
+use crate::{
+    error::{ClientError, RoomError},
+    AudioInfo, FileInfo, ImageInfo, RoomMember, ThumbnailInfo, TimelineDiff, TimelineItem,
+    TimelineListener, VideoInfo,
+};
 
 #[derive(uniffi::Enum)]
 pub enum Membership {
@@ -443,6 +452,10 @@ impl Room {
         })
     }
 
+    pub fn active_members_count(&self) -> u64 {
+        self.room.active_members_count()
+    }
+
     /// Reports an event from the room.
     ///
     /// # Arguments
@@ -634,6 +647,129 @@ impl Room {
         RUNTIME.block_on(async move {
             let event_id = <&EventId>::try_from(event_id.as_str())?;
             timeline.fetch_event_details(event_id).await.context("Fetching event details")?;
+            Ok(())
+        })
+    }
+
+    pub fn send_image(
+        &self,
+        url: String,
+        thumbnail_url: String,
+        image_info: ImageInfo,
+    ) -> Result<(), RoomError> {
+        let mime_str = image_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_image_info =
+            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Image(base_image_info);
+
+        let attachment_config = match image_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_video(
+        &self,
+        url: String,
+        thumbnail_url: String,
+        video_info: VideoInfo,
+    ) -> Result<(), RoomError> {
+        let mime_str = video_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_video_info: BaseVideoInfo =
+            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Video(base_video_info);
+
+        let attachment_config = match video_info.thumbnail_info {
+            Some(thumbnail_image_info) => {
+                let thumbnail = self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
+                AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
+            }
+            None => AttachmentConfig::new().info(attachment_info),
+        };
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_audio(&self, url: String, audio_info: AudioInfo) -> Result<(), RoomError> {
+        let mime_str = audio_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_audio_info: BaseAudioInfo =
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::Audio(base_audio_info);
+        let attachment_config = AttachmentConfig::new().info(attachment_info);
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+
+    pub fn send_file(&self, url: String, file_info: FileInfo) -> Result<(), RoomError> {
+        let mime_str = file_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let base_file_info: BaseFileInfo =
+            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let attachment_info = AttachmentInfo::File(base_file_info);
+        let attachment_config = AttachmentConfig::new().info(attachment_info);
+
+        self.send_attachment(url, mime_type, attachment_config)
+    }
+}
+
+impl Room {
+    fn build_thumbnail_info(
+        &self,
+        thumbnail_url: String,
+        thumbnail_info: ThumbnailInfo,
+    ) -> Result<Thumbnail, RoomError> {
+        let thumbnail_data =
+            fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+
+        let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let mime_str =
+            thumbnail_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        Ok(Thumbnail {
+            data: thumbnail_data,
+            content_type: mime_type,
+            info: Some(base_thumbnail_info),
+        })
+    }
+
+    fn send_attachment(
+        &self,
+        url: String,
+        mime_type: Mime,
+        attachment_config: AttachmentConfig,
+    ) -> Result<(), RoomError> {
+        let timeline_guard = self.timeline.read().unwrap();
+        let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
+
+        RUNTIME.block_on(async move {
+            timeline
+                .send_attachment(url, mime_type, attachment_config)
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)?;
             Ok(())
         })
     }

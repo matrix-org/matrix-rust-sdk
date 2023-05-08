@@ -351,7 +351,7 @@ async fn v3_fix_store(
 
     if let Some(cursor) = cursor {
         loop {
-            let raw_json: Box<RawJsonValue> = deserialize_event(store_cipher, cursor.value())?;
+            let raw_json: Box<RawJsonValue> = deserialize_event(store_cipher, &cursor.value())?;
 
             if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
                 cursor.update(&serialize_event(store_cipher, &fixed_json)?)?.await?;
@@ -451,7 +451,7 @@ async fn migrate_to_v5(
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in room_infos {
@@ -459,7 +459,7 @@ async fn migrate_to_v5(
         let range = encode_to_range(store_cipher, old_keys::MEMBERS, room_id)?;
         for value in members_store.get_all_with_key(&range)?.await?.iter() {
             let raw_member_event =
-                deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, value.clone())?;
+                deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
             let key = encode_key(
                 store_cipher,
@@ -478,7 +478,7 @@ async fn migrate_to_v5(
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in stripped_room_infos {
@@ -486,7 +486,7 @@ async fn migrate_to_v5(
         let range = encode_to_range(store_cipher, old_keys::STRIPPED_MEMBERS, room_id)?;
         for value in stripped_members_store.get_all_with_key(&range)?.await?.iter() {
             let raw_member_event =
-                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, value.clone())?;
+                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
             let key = encode_key(
                 store_cipher,
@@ -525,7 +525,7 @@ async fn migrate_to_v6(
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut values = Vec::new();
 
@@ -534,9 +534,8 @@ async fn migrate_to_v6(
         let range =
             encode_to_range(store_cipher, keys::ROOM_STATE, (room_id, StateEventType::RoomMember))?;
         for value in state_store.get_all_with_key(&range)?.await?.iter() {
-            let member_event =
-                deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, value.clone())?
-                    .deserialize()?;
+            let member_event = deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
+                .deserialize()?;
             let key = encode_key(store_cipher, keys::USER_IDS, (room_id, member_event.state_key()));
             let value = serialize_event(store_cipher, &RoomMember::from(&member_event))?;
 
@@ -550,7 +549,7 @@ async fn migrate_to_v6(
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut stripped_values = Vec::new();
 
@@ -563,7 +562,7 @@ async fn migrate_to_v6(
         )?;
         for value in stripped_state_store.get_all_with_key(&range)?.await?.iter() {
             let stripped_member_event =
-                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, value.clone())?
+                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?
                     .deserialize()?;
             let key = encode_key(
                 store_cipher,

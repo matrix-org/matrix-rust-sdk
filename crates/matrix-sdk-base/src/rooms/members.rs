@@ -19,8 +19,9 @@ use ruma::{
         presence::PresenceEvent,
         room::{
             member::MembershipState,
-            power_levels::{PowerLevelAction, SyncRoomPowerLevelsEvent},
+            power_levels::{PowerLevelAction, RoomPowerLevels, SyncRoomPowerLevelsEvent},
         },
+        MessageLikeEventType, StateEventType,
     },
     MxcUri, UserId,
 };
@@ -105,13 +106,68 @@ impl RoomMember {
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
     }
 
-    /// Whether the given user can do the given action based on the power
+    /// Whether this user can ban other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Ban)`.
+    pub fn can_ban(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_ban(self.user_id()))
+    }
+
+    /// Whether this user can invite other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Invite)`.
+    pub fn can_invite(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_invite(self.user_id()))
+    }
+
+    /// Whether this user can kick other users based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Kick)`.
+    pub fn can_kick(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_kick(self.user_id()))
+    }
+
+    /// Whether this user can redact events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::Redact)`.
+    pub fn can_redact(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_redact(self.user_id()))
+    }
+
+    /// Whether this user can send message events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::SendMessage(msg_type))`.
+    pub fn can_send_message(&self, msg_type: MessageLikeEventType) -> bool {
+        self.can_do_impl(|pls| pls.user_can_send_message(self.user_id(), msg_type))
+    }
+
+    /// Whether this user can send state events based on the power levels.
+    ///
+    /// Same as `member.can_do(PowerLevelAction::SendState(state_type))`.
+    pub fn can_send_state(&self, state_type: StateEventType) -> bool {
+        self.can_do_impl(|pls| pls.user_can_send_state(self.user_id(), state_type))
+    }
+
+    /// Whether this user can notify everybody in the room by writing `@room` in
+    /// a message.
+    ///
+    /// Same as `member.
+    /// can_do(PowerLevelAction::TriggerNotification(NotificationPowerLevelType::Room))`.
+    pub fn can_trigger_room_notification(&self) -> bool {
+        self.can_do_impl(|pls| pls.user_can_trigger_room_notification(self.user_id()))
+    }
+
+    /// Whether this user can do the given action based on the power
     /// levels.
     pub fn can_do(&self, action: PowerLevelAction) -> bool {
-        (*self.power_levels)
-            .as_ref()
-            .map(|e| e.power_levels().user_can_do(self.user_id(), action))
-            .unwrap_or_else(|| self.is_room_creator)
+        self.can_do_impl(|pls| pls.user_can_do(self.user_id(), action))
+    }
+
+    fn can_do_impl(&self, f: impl FnOnce(RoomPowerLevels) -> bool) -> bool {
+        match &*self.power_levels {
+            Some(event) => f(event.power_levels()),
+            None => self.is_room_creator,
+        }
     }
 
     /// Is the name that the member uses ambiguous in the room.

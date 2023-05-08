@@ -1,3 +1,17 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
@@ -7,13 +21,10 @@ use matrix_sdk_test::async_test;
 use ruma::{
     assign,
     events::{
-        reaction::ReactionEventContent,
-        relation::{Annotation, Replacement},
+        relation::InReplyTo,
         room::{
             member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
-            message::{
-                self, MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent,
-            },
+            message::{MessageType, Relation, RoomMessageEventContent},
             name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
         },
@@ -24,8 +35,8 @@ use serde_json::{json, Value as JsonValue};
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::room::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineItem, TimelineItemContent,
-    VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails, TimelineItem,
+    TimelineItemContent, VirtualTimelineItem,
 };
 
 fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
@@ -56,63 +67,6 @@ async fn initial_events() {
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     assert_eq!(item.as_event().unwrap().sender(), *BOB);
-}
-
-#[async_test]
-async fn reaction_redaction() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-
-    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event = item.as_event().unwrap();
-    assert_eq!(event.reactions().len(), 0);
-
-    let msg_event_id = event.event_id().unwrap();
-
-    let rel = Annotation::new(msg_event_id.to_owned(), "+1".to_owned());
-    timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
-    let item =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
-    let event = item.as_event().unwrap();
-    assert_eq!(event.reactions().len(), 1);
-
-    // TODO: After adding raw timeline items, check for one here
-
-    let reaction_event_id = event.event_id().unwrap();
-
-    timeline.handle_live_redaction(&BOB, reaction_event_id).await;
-    let item =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
-    let event = item.as_event().unwrap();
-    assert_eq!(event.reactions().len(), 0);
-}
-
-#[async_test]
-async fn edit_redacted() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-
-    timeline
-        .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
-        .await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-
-    let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
-
-    let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
-        relates_to: Some(message::Relation::Replacement(Replacement::new(
-            redacted_event_id.to_owned(),
-            MessageType::text_plain("test"),
-        ))),
-    });
-    timeline.handle_live_message_event(&ALICE, edit).await;
-
-    assert_eq!(timeline.inner.items().await.len(), 2);
 }
 
 #[async_test]
@@ -280,4 +234,102 @@ async fn dedup_initial() {
     assert_eq!(timeline_items.len(), 3);
     assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
     assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
+}
+
+#[async_test]
+async fn sanitized() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    timeline
+        .handle_live_message_event(
+            &ALICE,
+            RoomMessageEventContent::text_html(
+                "\
+                    @@Unknown text@@
+                    Some text\n\n\
+                    !!code```
+                        Some code
+                    ```
+                ",
+                "\
+                    <unknown>Unknown text</unknown>\
+                    <p>Some text</p>\
+                    <code unknown=\"code\">Some code</code>\
+                ",
+            ),
+        )
+        .await;
+
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let event = item.as_event().unwrap();
+    let message = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg);
+    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_eq!(
+        text.formatted.as_ref().unwrap().body,
+        "\
+            Unknown text\
+            <p>Some text</p>\
+            <code>Some code</code>\
+        "
+    );
+}
+
+#[async_test]
+async fn reply() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    timeline
+        .handle_live_message_event(
+            &ALICE,
+            RoomMessageEventContent::text_plain("I want you to reply"),
+        )
+        .await;
+
+    let _day_divider =
+        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let first_event = item.as_event().unwrap();
+    let first_event_id = first_event.event_id().unwrap();
+    let first_event_sender = *ALICE;
+
+    let reply_formatted_body = format!("\
+        <mx-reply>\
+            <blockquote>\
+                <a href=\"https://matrix.to/#/!my_room:server.name/{first_event_id}\">In reply to</a> \
+                <a href=\"https://matrix.to/#/{first_event_sender}\">{first_event_sender}</a>\
+                <br>\
+                I want you to reply\
+            </blockquote>\
+        </mx-reply>\
+        <p>I'm replying!</p>\
+    ");
+    let reply_plain = format!(
+        "> <{first_event_sender}> I want you to reply\n\
+         I'm replying!"
+    );
+    let reply = assign!(RoomMessageEventContent::text_html(reply_plain, reply_formatted_body), {
+        relates_to: Some(Relation::Reply{
+            in_reply_to: InReplyTo::new(first_event_id.to_owned()),
+        }),
+    });
+
+    timeline.handle_live_message_event(&BOB, reply).await;
+
+    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
+
+    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_eq!(text.body, "I'm replying!");
+    assert_eq!(text.formatted.as_ref().unwrap().body, "<p>I'm replying!</p>");
+
+    let in_reply_to = message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, first_event_id);
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(msg) => msg);
+    assert_eq!(replied_to_event.sender(), *ALICE);
 }

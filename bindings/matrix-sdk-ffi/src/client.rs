@@ -26,13 +26,16 @@ use matrix_sdk::{
     },
     Client as MatrixClient, Error, LoopCtrl,
 };
-use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
+use ruma::{
+    push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    RoomId,
+};
 use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{client, ClientError};
+use crate::{client, ClientError, NotificationItem};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -105,10 +108,15 @@ pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
+pub trait NotificationDelegate: Sync + Send {
+    fn did_receive_notification(&self, notification: NotificationItem);
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct Client {
     pub(crate) client: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
+    notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
     /// The sliding sync proxy that the client is configured to use by default.
@@ -139,6 +147,7 @@ impl Client {
         let client = Client {
             client,
             delegate: Arc::new(RwLock::new(None)),
+            notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx: Default::default(),
@@ -189,6 +198,7 @@ impl Client {
     pub fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
+        body: Option<String>,
         mime_type: String,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.client.clone();
@@ -200,6 +210,7 @@ impl Client {
                 .media()
                 .get_media_file(
                     &MediaRequest { source, format: MediaFormat::File },
+                    body,
                     &mime_type,
                     true,
                 )
@@ -545,6 +556,51 @@ impl Client {
             };
 
             Ok(user_profile)
+        })
+    }
+
+    /// Sets a notification delegate and a handler.
+    ///
+    /// The sliding sync requires to have registered m.room.member with value
+    /// $ME and m.room.power_levels to be able to intercept the events.
+    /// This function blocks execution and should be dispatched concurrently.
+    pub fn set_notification_delegate(
+        &self,
+        notification_delegate: Option<Box<dyn NotificationDelegate>>,
+    ) {
+        *self.notification_delegate.write().unwrap() = notification_delegate;
+        let notification_delegate = Arc::clone(&self.notification_delegate);
+        let handler = move |notification, room: SdkRoom, _| {
+            let notification_delegate = Arc::clone(&notification_delegate);
+            async move {
+                if let Ok(notification_item) =
+                    NotificationItem::new_from_notification(notification, room).await
+                {
+                    if let Some(notification_delegate) =
+                        notification_delegate.read().unwrap().as_ref()
+                    {
+                        notification_delegate.did_receive_notification(notification_item);
+                    }
+                }
+            }
+        };
+        RUNTIME.block_on(async move {
+            self.client.register_notification_handler(handler).await;
+        })
+    }
+
+    pub fn get_notification_item(
+        &self,
+        room_id: String,
+        event_id: String,
+    ) -> Result<NotificationItem, ClientError> {
+        RUNTIME.block_on(async move {
+            // We may also need to do a sync here since this may fail if the keys are not
+            // valid anymore
+            let room_id = RoomId::parse(room_id)?;
+            let room = self.client.get_room(&room_id).context("Room not found")?;
+            let notification = NotificationItem::new_from_event_id(&event_id, room).await?;
+            Ok(notification)
         })
     }
 }
