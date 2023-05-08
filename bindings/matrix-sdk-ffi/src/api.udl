@@ -93,10 +93,6 @@ callback interface SlidingSyncListRoomItemsObserver {
 
 interface SlidingSyncList {};
 
-interface SlidingSyncListBuilder {
-    constructor();
-};
-
 callback interface SlidingSyncListOnceBuilt {
     SlidingSyncList update_list(SlidingSyncList list);
 };
