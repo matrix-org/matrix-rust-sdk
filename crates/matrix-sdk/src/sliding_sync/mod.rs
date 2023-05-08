@@ -364,6 +364,15 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
+    pub async fn sync_once_for_keys(&self) -> Result<()> {
+        let stream_id = Uuid::new_v4().to_string();
+        let keys_list = SlidingSyncList::builder("sync_once_for_keys").build();
+        self.add_list(keys_list);
+        let lists = Arc::new(Mutex::new(self.inner.lists.read().unwrap().clone()));
+        self.sync_once(&stream_id, lists).await?;
+        Ok(())
+    }
+
     async fn sync_once(
         &self,
         stream_id: &str,

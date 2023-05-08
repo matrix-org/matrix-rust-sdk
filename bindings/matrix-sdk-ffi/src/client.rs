@@ -607,8 +607,7 @@ impl Client {
                     SyncMessageLikeEvent::Original(_)
                 ))
             ) {
-                // We may also need to do a sync here since this may fail if the keys are not
-                // valid anymore
+                self.client.sliding_sync().await.build().await?.sync_once_for_keys().await?;
                 timeline_event = room.decrypt_event(timeline_event.event.cast_ref()).await?;
                 event = timeline_event.event.deserialize()?.into();
             }
