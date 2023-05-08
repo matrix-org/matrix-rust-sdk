@@ -20,6 +20,7 @@ use super::{
 pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Builder for [`SlidingSyncList`].
+#[derive(Clone)]
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
@@ -30,26 +31,7 @@ pub struct SlidingSyncListBuilder {
     timeline_limit: Option<UInt>,
     name: String,
     ranges: Vec<(UInt, UInt)>,
-    once_built: Box<dyn FnOnce(SlidingSyncList) -> SlidingSyncList + Send + Sync>,
-}
-
-// Clone the builder, except `once_built` which is reset to its default value.
-impl Clone for SlidingSyncListBuilder {
-    fn clone(&self) -> Self {
-        Self {
-            sync_mode: self.sync_mode.clone(),
-            sort: self.sort.clone(),
-            required_state: self.required_state.clone(),
-            full_sync_batch_size: self.full_sync_batch_size,
-            full_sync_maximum_number_of_rooms_to_fetch: self
-                .full_sync_maximum_number_of_rooms_to_fetch,
-            filters: self.filters.clone(),
-            timeline_limit: self.timeline_limit,
-            name: self.name.clone(),
-            ranges: self.ranges.clone(),
-            once_built: Box::new(identity),
-        }
-    }
+    once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
 
 // Print debug values for the builder, except `once_built` which is ignored.
@@ -88,16 +70,16 @@ impl SlidingSyncListBuilder {
             timeline_limit: None,
             name: name.into(),
             ranges: Vec::new(),
-            once_built: Box::new(identity),
+            once_built: Arc::new(Box::new(identity)),
         }
     }
 
     /// foo
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
-        C: FnOnce(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
+        C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
     {
-        self.once_built = Box::new(callback);
+        self.once_built = Arc::new(Box::new(callback));
         self
     }
 
