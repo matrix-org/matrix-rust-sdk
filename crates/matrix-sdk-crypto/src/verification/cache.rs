@@ -214,8 +214,12 @@ impl VerificationCache {
 
         match content {
             OutgoingContent::ToDevice(c) => {
-                let request =
-                    ToDeviceRequest::with_id(recipient, recipient_device.to_owned(), c, request_id);
+                let request = ToDeviceRequest::with_id(
+                    recipient,
+                    recipient_device.to_owned(),
+                    &c,
+                    request_id,
+                );
                 let request_id = request.txn_id.clone();
 
                 let request = OutgoingRequest {

@@ -135,7 +135,7 @@ impl VerificationMachine {
                 let request = ToDeviceRequest::with_id(
                     device.user_id(),
                     device.device_id().to_owned(),
-                    c,
+                    &c,
                     TransactionId::new(),
                 );
 
@@ -285,7 +285,7 @@ impl VerificationMachine {
 
     async fn mark_sas_as_done(
         &self,
-        sas: Sas,
+        sas: &Sas,
         out_content: Option<OutgoingContent>,
     ) -> Result<(), CryptoStoreError> {
         match sas.mark_as_done().await? {
@@ -472,7 +472,7 @@ impl VerificationMachine {
                 let content = s.receive_any_event(event.sender(), &content);
 
                 if s.is_done() {
-                    self.mark_sas_as_done(s, content.map(|(c, _)| c)).await?;
+                    self.mark_sas_as_done(&s, content.map(|(c, _)| c)).await?;
                 } else {
                     // Even if we are not done (yet), there might be content to
                     // send out, e.g. in the case where we are done with our
@@ -499,7 +499,7 @@ impl VerificationMachine {
                         let content = sas.receive_any_event(event.sender(), &content);
 
                         if sas.is_done() {
-                            self.mark_sas_as_done(sas, content.map(|(c, _)| c)).await?;
+                            self.mark_sas_as_done(&sas, content.map(|(c, _)| c)).await?;
                         }
                     }
                     #[cfg(feature = "qrcode")]

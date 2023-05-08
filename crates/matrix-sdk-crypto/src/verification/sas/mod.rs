@@ -457,7 +457,7 @@ impl Sas {
                 Some(match content {
                     OwnedAcceptContent::ToDevice(c) => {
                         let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                        self.content_to_request(content).into()
+                        self.content_to_request(&content).into()
                     }
                     OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                         room_id,
@@ -507,7 +507,7 @@ impl Sas {
         let mac_requests = contents
             .into_iter()
             .map(|c| match c {
-                OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+                OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
                 OutgoingContent::Room(r, c) => {
                     RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }
                         .into()
@@ -581,7 +581,7 @@ impl Sas {
                 OutgoingContent::Room(room_id, content) => {
                     RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
                 }
-                OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+                OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
             })
         };
 
@@ -812,7 +812,7 @@ impl Sas {
         self.inner.read().verified_identities()
     }
 
-    pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
+    pub(crate) fn content_to_request(&self, content: &AnyToDeviceEventContent) -> ToDeviceRequest {
         ToDeviceRequest::with_id(
             self.other_user_id(),
             self.other_device_id().to_owned(),

@@ -164,7 +164,7 @@ impl GossipRequest {
                 ToDeviceRequest::with_id(
                     &self.request_recipient,
                     DeviceIdOrAllDevices::AllDevices,
-                    content,
+                    &content,
                     self.request_id.clone(),
                 )
             }
@@ -195,7 +195,7 @@ impl GossipRequest {
         let request = ToDeviceRequest::with_id(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
-            content,
+            &content,
             TransactionId::new(),
         );
 
