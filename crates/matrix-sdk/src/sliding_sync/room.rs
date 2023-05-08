@@ -269,7 +269,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, room_id, RoomId};
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, uint, RoomId};
     use serde_json::json;
     use wiremock::MockServer;
 
@@ -305,10 +305,9 @@ mod tests {
         (
             $(
                 $test_name:ident {
-                    $getter:ident () =
-                        $first_value:expr;
-                        $room_response:expr;
-                        $second_value:expr;
+                    $getter:ident () $( . $getter_field:ident )? = $first_value:expr;
+                    receives $room_response:expr;
+                    _ = $second_value:expr;
                 }
             )+
         ) => {
@@ -319,14 +318,14 @@ mod tests {
                     {
                         let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-                        assert_eq!(room.$getter(), None);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $first_value);
                     }
 
                     // Some value when initializing.
                     {
                         let room = new_room(room_id!("!foo:bar.org"), $room_response).await;
 
-                        assert_eq!(room.$getter(), $second_value);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $second_value);
                     }
 
                     // Some value when updating.
@@ -334,11 +333,11 @@ mod tests {
 
                         let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-                        assert_eq!(room.$getter(), $first_value);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $first_value);
 
                         room.update($room_response, vec![]);
 
-                        assert_eq!(room.$getter(), $second_value);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $second_value);
                     }
 
                     Ok(())
@@ -349,15 +348,45 @@ mod tests {
 
     test_getters! {
         test_room_name {
-            name() = None; room_response!({"name": "gordon"}); Some("gordon");
+            name() = None;
+            receives room_response!({"name": "gordon"});
+            _ = Some("gordon");
         }
 
         test_room_is_dm {
-            is_dm() = None; room_response!({"is_dm": true}); Some(true);
+            is_dm() = None;
+            receives room_response!({"is_dm": true});
+            _ = Some(true);
         }
 
         test_room_is_initial_response {
-            is_initial_response() = None; room_response!({"initial": true}); Some(true);
+            is_initial_response() = None;
+            receives room_response!({"initial": true});
+            _ = Some(true);
+        }
+
+        test_has_unread_notifications_with_notification_count {
+            has_unread_notifications() = false;
+            receives room_response!({"notification_count": 42});
+            _ = true;
+        }
+
+        test_has_unread_notifications_with_highlight_count {
+            has_unread_notifications() = false;
+            receives room_response!({"highlight_count": 42});
+            _ = true;
+        }
+
+        test_unread_notifications_with_notification_count {
+            unread_notifications().notification_count = None;
+            receives room_response!({"notification_count": 42});
+            _ = Some(uint!(42));
+        }
+
+        test_unread_notifications_with_highlight_count {
+            unread_notifications().highlight_count = None;
+            receives room_response!({"highlight_count": 42});
+            _ = Some(uint!(42));
         }
     }
 
