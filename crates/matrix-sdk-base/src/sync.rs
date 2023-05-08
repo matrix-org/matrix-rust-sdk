@@ -72,7 +72,7 @@ impl fmt::Debug for SyncResponse {
             .field("device_lists", &self.device_lists)
             .field("device_one_time_keys_count", &self.device_one_time_keys_count)
             .field("ambiguity_changes", &self.ambiguity_changes)
-            .field("notifications", &self.notifications)
+            .field("notifications", &DebugNotificationMap(&self.notifications))
             .finish_non_exhaustive()
     }
 }
