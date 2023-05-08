@@ -18,7 +18,7 @@ use crate::helpers::get_client_for_user;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_repeated_join_leave() -> Result<()> {
     let peter = get_client_for_user("peter".to_owned(), true).await?;
-    // FIXME: Run once with memory, once with sled
+    // FIXME: Run once with memory, once with SQLite
     let karl = get_client_for_user("karl".to_owned(), false).await?;
     let karl_id = karl.user_id().expect("karl has a userid!").to_owned();
 

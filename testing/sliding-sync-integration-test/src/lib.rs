@@ -5,10 +5,13 @@ use futures::{pin_mut, stream::StreamExt};
 use matrix_sdk::{Client, RoomListEntry, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
-async fn setup(name: String, use_sled_store: bool) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
+async fn setup(
+    name: String,
+    use_sqlite_store: bool,
+) -> anyhow::Result<(Client, SlidingSyncBuilder)> {
     let sliding_sync_proxy_url =
         option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
-    let client = get_client_for_user(name, use_sled_store).await?;
+    let client = get_client_for_user(name, use_sqlite_store).await?;
     let sliding_sync_builder = client
         .sliding_sync()
         .await
