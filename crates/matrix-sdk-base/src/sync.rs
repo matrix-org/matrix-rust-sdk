@@ -67,14 +67,13 @@ impl fmt::Debug for SyncResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyncResponse")
             .field("rooms", &self.rooms)
-            .field("presence", &self.presence)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("to_device_events", &DebugListOfRawEventsNoId(&self.to_device_events))
             .field("device_lists", &self.device_lists)
             .field("device_one_time_keys_count", &self.device_one_time_keys_count)
             .field("ambiguity_changes", &self.ambiguity_changes)
             .field("notifications", &self.notifications)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
