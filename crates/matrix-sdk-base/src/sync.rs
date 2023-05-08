@@ -79,7 +79,7 @@ impl fmt::Debug for SyncResponse {
 }
 
 /// Updates to rooms in a [`SyncResponse`].
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.
     pub leave: BTreeMap<OwnedRoomId, LeftRoom>,
@@ -90,7 +90,7 @@ pub struct Rooms {
 }
 
 /// Updates to joined rooms.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct JoinedRoom {
     /// Counts of unread notifications for this room.
     pub unread_notifications: UnreadNotificationsCount,
@@ -140,7 +140,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 }
 
 /// Updates to left rooms.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct LeftRoom {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.
@@ -161,7 +161,7 @@ impl LeftRoom {
 }
 
 /// Events in the room.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct Timeline {
     /// True if the number of events returned was limited by the `limit` on the
     /// filter.
