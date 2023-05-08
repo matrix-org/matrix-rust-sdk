@@ -228,8 +228,7 @@ impl SlidingSyncListBuilder {
         };
 
         let once_built = self.once_built;
-        let list = once_built(list);
 
-        Ok(list)
+        once_built(list)
     }
 }

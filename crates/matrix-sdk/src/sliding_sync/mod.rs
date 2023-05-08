@@ -218,7 +218,7 @@ impl SlidingSync {
         &self,
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
-        let list = list_builder.build(self.inner.internal_channel.0.clone())?;
+        let list = list_builder.build(self.inner.internal_channel.0.clone());
 
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }

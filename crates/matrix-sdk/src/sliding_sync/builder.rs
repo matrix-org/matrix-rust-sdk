@@ -211,7 +211,7 @@ impl SlidingSyncBuilder {
         let mut lists = BTreeMap::new();
 
         for list_builder in self.lists {
-            let list = list_builder.build(internal_channel_sender.clone())?;
+            let list = list_builder.build(internal_channel_sender.clone());
 
             lists.insert(list.name().to_owned(), list);
         }
