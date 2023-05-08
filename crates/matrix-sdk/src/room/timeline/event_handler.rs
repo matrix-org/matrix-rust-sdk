@@ -487,7 +487,7 @@ impl<'a> TimelineEventHandler<'a> {
         if let Some((_, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let Some(remote_event_item) = event_item.as_remote() else {
-                    error!("inconsistent state: reaction received on a non-remote event item");
+                    error!("inconsistent state: redaction received on a non-remote event item");
                     return None;
                 };
 
