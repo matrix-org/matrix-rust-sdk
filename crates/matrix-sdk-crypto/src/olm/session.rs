@@ -139,24 +139,27 @@ impl Session {
         event_type: &str,
         content: Value,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
-        let recipient_signing_key =
-            recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+        let plaintext = {
+            let recipient_signing_key =
+                recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
-        let payload = json!({
-            "sender": &self.user_id,
-            "sender_device": &self.device_id,
-            "keys": {
-                "ed25519": self.our_identity_keys.ed25519.to_base64(),
-            },
-            "recipient": recipient_device.user_id(),
-            "recipient_keys": {
-                "ed25519": recipient_signing_key.to_base64(),
-            },
-            "type": event_type,
-            "content": content,
-        });
+            let payload = json!({
+                "sender": &self.user_id,
+                "sender_device": &self.device_id,
+                "keys": {
+                    "ed25519": self.our_identity_keys.ed25519.to_base64(),
+                },
+                "recipient": recipient_device.user_id(),
+                "recipient_keys": {
+                    "ed25519": recipient_signing_key.to_base64(),
+                },
+                "type": event_type,
+                "content": content,
+            });
 
-        let plaintext = serde_json::to_string(&payload)?;
+            serde_json::to_string(&payload)?
+        };
+
         let ciphertext = self.encrypt_helper(&plaintext).await;
 
         let content = match self.algorithm().await {

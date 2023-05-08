@@ -353,13 +353,15 @@ impl Account {
             }
         };
 
-        let session_id = match &session {
-            SessionType::New(s) => s.session_id(),
-            SessionType::Existing(s) => s.session_id(),
-        };
+        {
+            let session_id = match &session {
+                SessionType::New(s) => s.session_id(),
+                SessionType::Existing(s) => s.session_id(),
+            };
 
-        Span::current().record("session_id", session_id);
-        trace!("Successfully decrypted an Olm message");
+            Span::current().record("session_id", session_id);
+            trace!("Successfully decrypted an Olm message");
+        }
 
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),

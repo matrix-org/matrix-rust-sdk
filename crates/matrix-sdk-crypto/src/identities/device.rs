@@ -471,16 +471,16 @@ impl Device {
         session: InboundGroupSession,
         message_index: Option<u32>,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        let export = if let Some(index) = message_index {
-            session.export_at_index(index).await
-        } else {
-            session.export().await
+        let (event_type, content) = {
+            let export = if let Some(index) = message_index {
+                session.export_at_index(index).await
+            } else {
+                session.export().await
+            };
+            let content: ForwardedRoomKeyContent = export.try_into()?;
+
+            (content.event_type(), serde_json::to_value(content)?)
         };
-
-        let content: ForwardedRoomKeyContent = export.try_into()?;
-
-        let event_type = content.event_type();
-        let content = serde_json::to_value(content)?;
 
         self.encrypt(event_type, content).await
     }

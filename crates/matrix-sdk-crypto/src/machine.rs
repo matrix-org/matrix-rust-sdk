@@ -1325,10 +1325,10 @@ impl OlmMachine {
     ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
-        let span = tracing::Span::current();
-        span.record("sender", debug(&event.sender));
-        span.record("event_id", debug(&event.event_id));
-        span.record("algorithm", debug(event.content.algorithm()));
+        tracing::Span::current()
+            .record("sender", debug(&event.sender))
+            .record("event_id", debug(&event.event_id))
+            .record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
@@ -1340,7 +1340,7 @@ impl OlmMachine {
             }
         };
 
-        span.record("session_id", content.session_id());
+        tracing::Span::current().record("session_id", content.session_id());
         let result = self.decrypt_megolm_events(room_id, &event, &content).await;
 
         if let Err(e) = &result {
