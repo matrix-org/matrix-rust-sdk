@@ -336,7 +336,7 @@ impl QrVerification {
             OutgoingContent::ToDevice(c) => ToDeviceRequest::with_id(
                 self.identities.other_user_id(),
                 self.identities.other_device_id().to_owned(),
-                c,
+                &c,
                 TransactionId::new(),
             )
             .into(),

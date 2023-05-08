@@ -93,11 +93,11 @@ impl ToDeviceRequest {
     pub(crate) fn for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<OwnedDeviceId>,
-        content: AnyToDeviceEventContent,
+        content: &AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {
         let event_type = content.event_type();
-        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
+        let raw_content = Raw::new(content).expect("Failed to serialize to-device event");
 
         if recipient_devices.is_empty() {
             Self::new(
@@ -134,11 +134,11 @@ impl ToDeviceRequest {
     pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
-        content: AnyToDeviceEventContent,
+        content: &AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {
         let event_type = content.event_type();
-        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
+        let raw_content = Raw::new(content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
         let messages = iter::once((recipient.to_owned(), user_messages)).collect();

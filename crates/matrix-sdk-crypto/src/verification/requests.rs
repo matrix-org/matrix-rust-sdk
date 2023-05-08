@@ -223,7 +223,7 @@ impl VerificationRequest {
         ToDeviceRequest::for_recipients(
             self.other_user(),
             self.recipient_devices.to_vec(),
-            AnyToDeviceEventContent::KeyVerificationRequest(content),
+            &AnyToDeviceEventContent::KeyVerificationRequest(content),
             TransactionId::new(),
         )
     }
@@ -470,7 +470,7 @@ impl VerificationRequest {
             OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
                 self.other_user(),
                 guard.other_device_id(),
-                content,
+                &content,
                 TransactionId::new(),
             )
             .into(),
@@ -525,7 +525,7 @@ impl VerificationRequest {
                     ToDeviceRequest::for_recipients(
                         self.other_user(),
                         self.recipient_devices.to_vec(),
-                        content,
+                        &content,
                         TransactionId::new(),
                     )
                     .into()
@@ -533,7 +533,7 @@ impl VerificationRequest {
                     ToDeviceRequest::with_id(
                         self.other_user(),
                         other_device,
-                        content,
+                        &content,
                         TransactionId::new(),
                     )
                     .into()
@@ -625,7 +625,7 @@ impl VerificationRequest {
         }
 
         let recipient = self.other_user();
-        Some(ToDeviceRequest::for_recipients(recipient, recip_devices, c, TransactionId::new()))
+        Some(ToDeviceRequest::for_recipients(recipient, recip_devices, &c, TransactionId::new()))
     }
 
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
@@ -748,7 +748,7 @@ impl VerificationRequest {
                         OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
                             self.other_user(),
                             inner.other_device_id(),
-                            content,
+                            &content,
                             TransactionId::new(),
                         )
                         .into(),
