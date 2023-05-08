@@ -705,10 +705,12 @@ impl<'a> TimelineEventHandler<'a> {
                         trace!(?item, ?old_item, "Received duplicate event");
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
-                            warn!(
-                                "Skipping original form of an event that was previously redacted"
-                            );
-                            return;
+                            warn!("Got original form of an event that was previously redacted");
+                            item.content = TimelineItemContent::RedactedMessage;
+                            item.as_remote_mut()
+                                .expect("Can't have a local item when flow == Remote")
+                                .reactions
+                                .clear();
                         }
                     };
 
