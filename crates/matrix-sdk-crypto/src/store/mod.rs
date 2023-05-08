@@ -413,7 +413,7 @@ impl Store {
         self.inner.identity.lock().await.reset().await;
     }
 
-    ///  PrivateCrossSigningIdentity associated with this store
+    /// PrivateCrossSigningIdentity associated with this store
     pub(crate) fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
         self.inner.identity.clone()
     }
