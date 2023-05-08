@@ -2142,4 +2142,24 @@ mod tests {
             room_list = [F("!r0:x.y"), F("!r1:x.y"), F("!r2:x.y")],
         };
     }
+
+    #[test]
+    fn test_once_built() {
+        let (sender, _receiver) = channel(1);
+
+        let probe = std::sync::Arc::new(std::sync::Mutex::new(std::cell::Cell::new(false)));
+        let probe_clone = probe.clone();
+
+        let _list = SlidingSyncList::builder("testing")
+            .once_built(move |list| {
+                let mut probe_lock = probe.lock().unwrap();
+                *probe_lock.get_mut() = true;
+
+                list
+            })
+            .build(sender);
+
+        let probe_lock = probe_clone.lock().unwrap();
+        assert_eq!(probe_lock.get(), true);
+    }
 }
