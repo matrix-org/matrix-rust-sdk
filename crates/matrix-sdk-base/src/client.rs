@@ -387,9 +387,7 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomMessage(
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
-                                ruma::events::room::message::MessageType::VerificationRequest(
-                                    _,
-                                ) => {
+                                MessageType::VerificationRequest(_) => {
                                     self.handle_verification_event(e, room_id).await?;
                                 }
                                 _ => (),
