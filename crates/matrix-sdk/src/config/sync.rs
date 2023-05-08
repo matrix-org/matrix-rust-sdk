@@ -21,7 +21,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// Settings for a sync call.
 #[derive(Clone)]
 pub struct SyncSettings {
-    pub(crate) filter: Option<sync_events::v3::Filter>,
+    // Filter is pretty big at 1000 bytes, box it to reduce stack size
+    pub(crate) filter: Option<Box<sync_events::v3::Filter>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -99,7 +100,7 @@ impl SyncSettings {
     ///   call.
     #[must_use]
     pub fn filter(mut self, filter: sync_events::v3::Filter) -> Self {
-        self.filter = Some(filter);
+        self.filter = Some(Box::new(filter));
         self
     }
 
