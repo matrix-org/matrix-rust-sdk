@@ -318,8 +318,10 @@ impl Common {
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
-            let response =
-                self.client.base_client().receive_members(self.inner.room_id(), &response).await?;
+            let response = Box::pin(
+                self.client.base_client().receive_members(self.inner.room_id(), &response),
+            )
+            .await?;
 
             self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
 
