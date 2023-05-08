@@ -150,7 +150,6 @@ impl SlidingSyncRoom {
             initial,
             limited,
             is_dm,
-            invite_state,
             unread_notifications,
             required_state,
             prev_batch,
@@ -173,10 +172,6 @@ impl SlidingSyncRoom {
 
         if is_dm.is_some() {
             self.inner.is_dm = is_dm;
-        }
-
-        if invite_state.is_some() {
-            self.inner.invite_state = invite_state;
         }
 
         if !required_state.is_empty() {
