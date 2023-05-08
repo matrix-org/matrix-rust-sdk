@@ -199,7 +199,7 @@ impl std::fmt::Debug for ForwardedMegolmV2AesSha2Content {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct RoomKeyHelper {
     algorithm: EventEncryptionAlgorithm,
     #[serde(flatten)]
