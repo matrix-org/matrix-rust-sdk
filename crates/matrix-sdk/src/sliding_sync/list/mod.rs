@@ -882,6 +882,11 @@ impl SlidingSyncMode {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        cell::Cell,
+        sync::{Arc, Mutex},
+    };
+
     use futures::StreamExt;
     use imbl::vector;
     use ruma::{api::client::sync::sync_events::v4::SlidingOp, room_id, uint};
@@ -2147,7 +2152,7 @@ mod tests {
     fn test_once_built() {
         let (sender, _receiver) = channel(1);
 
-        let probe = std::sync::Arc::new(std::sync::Mutex::new(std::cell::Cell::new(false)));
+        let probe = Arc::new(Mutex::new(Cell::new(false)));
         let probe_clone = probe.clone();
 
         let _list = SlidingSyncList::builder("testing")
