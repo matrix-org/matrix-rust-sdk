@@ -42,7 +42,7 @@ pub struct SlidingSyncRoom {
 }
 
 /// The state of a [`SlidingSyncRoom`].
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum SlidingSyncRoomState {
     /// The room is not loaded, i.e. not updates have been received yet.
     #[default]
@@ -274,7 +274,7 @@ mod tests {
     use wiremock::MockServer;
 
     use super::*;
-    use crate::{error::Result, test_utils::logged_in_client};
+    use crate::test_utils::logged_in_client;
 
     macro_rules! room_response {
         ( $( $json:tt )+ ) => {
@@ -292,13 +292,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_room_room_id() -> Result<()> {
+    async fn test_state() {
+        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+    }
+
+    #[tokio::test]
+    async fn test_room_room_id() {
         let room_id = room_id!("!foo:bar.org");
         let room = new_room(room_id, room_response!({})).await;
 
         assert_eq!(room.room_id(), room_id);
-
-        Ok(())
     }
 
     macro_rules! test_getters {
@@ -313,7 +318,7 @@ mod tests {
         ) => {
             $(
                 #[tokio::test]
-                async fn $test_name () -> Result<()> {
+                async fn $test_name () {
                     // Default value.
                     {
                         let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
@@ -339,8 +344,6 @@ mod tests {
 
                         assert_eq!(room.$getter() $( . $getter_field )?, $second_value);
                     }
-
-                    Ok(())
                 }
             )+
         };
@@ -397,7 +400,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_required_state() -> Result<()> {
+    async fn test_required_state() {
         // Default value.
         {
             let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
@@ -451,8 +454,6 @@ mod tests {
 
             assert!(!room.required_state().is_empty());
         }
-
-        Ok(())
     }
 
     #[test]
