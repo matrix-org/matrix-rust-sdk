@@ -40,12 +40,11 @@ impl Clone for SlidingSyncListBuilder {
             sync_mode: self.sync_mode.clone(),
             sort: self.sort.clone(),
             required_state: self.required_state.clone(),
-            full_sync_batch_size: self.full_sync_batch_size.clone(),
+            full_sync_batch_size: self.full_sync_batch_size,
             full_sync_maximum_number_of_rooms_to_fetch: self
-                .full_sync_maximum_number_of_rooms_to_fetch
-                .clone(),
+                .full_sync_maximum_number_of_rooms_to_fetch,
             filters: self.filters.clone(),
-            timeline_limit: self.timeline_limit.clone(),
+            timeline_limit: self.timeline_limit,
             name: self.name.clone(),
             ranges: self.ranges.clone(),
             once_built: Box::new(identity),
