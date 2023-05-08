@@ -41,6 +41,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
+    future::Future,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
@@ -425,7 +426,13 @@ impl Store {
         self.save_changes(changes).await
     }
 
-    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
+    // This could be an async fn, but somehow that increases the stack size of
+    // the returned future by *two times* the stack size of the two parameter
+    // types, which adds up to 928 bytes at the time of writing.
+    //
+    // Practically, it shouldn't matter whether the first if block is run at
+    // function call time or when first polling the returned future.
+    pub(crate) fn save_changes(&self, changes: Changes) -> impl Future<Output = Result<()>> + '_ {
         // if we have any listeners on the room_keys_received stream, broadcast any
         // updates to them
         if self.inner.room_keys_received_sender.receiver_count() > 0
@@ -437,7 +444,7 @@ impl Store {
             let _ = self.inner.room_keys_received_sender.send(updates);
         }
 
-        self.inner.store.save_changes(changes).await
+        self.inner.store.save_changes(changes)
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
