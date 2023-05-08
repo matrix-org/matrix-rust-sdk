@@ -219,10 +219,10 @@ impl SlidingSyncRoom {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().clone();
 
-        self.runner.subscribe(room_id.clone(), settings.map(Into::into));
+        self.runner.subscribe(room_id.clone(), settings.map(Into::into))?;
 
         let runner = self.runner.clone();
-        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id)));
+        stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id).unwrap()));
 
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
@@ -547,6 +547,7 @@ impl SlidingSyncListBuilder {
 
     pub fn once_built(self: Arc<Self>, callback: Box<dyn SlidingSyncListOnceBuilt>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
+
         builder.inner = builder.inner.once_built(
             move |list: matrix_sdk::SlidingSyncList| -> matrix_sdk::SlidingSyncList {
                 let list = callback.update_list(Arc::new(list.into()));
@@ -695,12 +696,14 @@ impl SlidingSync {
         room_id: String,
         settings: Option<RoomSubscription>,
     ) -> Result<(), ClientError> {
-        self.inner.subscribe(room_id.try_into()?, settings.map(Into::into));
+        self.inner.subscribe(room_id.try_into()?, settings.map(Into::into))?;
+
         Ok(())
     }
 
     pub fn unsubscribe(&self, room_id: String) -> Result<(), ClientError> {
-        self.inner.unsubscribe(room_id.try_into()?);
+        self.inner.unsubscribe(room_id.try_into()?)?;
+
         Ok(())
     }
 

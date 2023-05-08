@@ -139,23 +139,35 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    ///
-    /// Note: this does not cancel any pending request, so make sure to only
-    /// poll the stream after you've altered this. If you do that during, it
-    /// might take one round trip to take effect.
-    pub fn subscribe(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
+    pub fn subscribe(
+        &self,
+        room_id: OwnedRoomId,
+        settings: Option<v4::RoomSubscription>,
+    ) -> Result<()> {
         self.inner.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
+
+        self.inner
+            .internal_channel
+            .0
+            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+            .map_err(|_| Error::InternalChannelIsBroken)?;
+
+        Ok(())
     }
 
     /// Unsubscribe from a given room.
-    ///
-    /// Note: this does not cancel any pending request, so make sure to only
-    /// poll the stream after you've altered this. If you do that during, it
-    /// might take one round trip to take effect.
-    pub fn unsubscribe(&self, room_id: OwnedRoomId) {
+    pub fn unsubscribe(&self, room_id: OwnedRoomId) -> Result<()> {
         if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
             self.inner.unsubscribe.write().unwrap().push(room_id);
+
+            self.inner
+                .internal_channel
+                .0
+                .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+                .map_err(|_| Error::InternalChannelIsBroken)?;
         }
+
+        Ok(())
     }
 
     /// Add the common extensions if not already configured.
