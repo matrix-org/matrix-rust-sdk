@@ -78,8 +78,9 @@ jobs:
       - uses: actions/checkout@v3
         if: "${{ !inputs.tag }}"
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2023-05-06
           targets: ${{ matrix.target }}
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -114,7 +115,9 @@ jobs:
       - uses: actions/checkout@v3
         if: "${{ !inputs.tag }}"
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2023-05-06
       - name: Install Node.js
         uses: actions/setup-node@v3
       - name: Build lib

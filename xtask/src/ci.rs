@@ -5,14 +5,15 @@ use xshell::{cmd, pushd};
 
 use crate::{build_docs, workspace, DenyWarnings, Result};
 
+const NIGHTLY: &str = "nightly-2023-05-06";
+const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
+const WASM_TIMEOUT_VALUE: &str = "120";
+
 #[derive(Args)]
 pub struct CiArgs {
     #[clap(subcommand)]
     cmd: Option<CiCommand>,
 }
-
-const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
-const WASM_TIMEOUT_VALUE: &str = "120";
 
 #[derive(Subcommand)]
 enum CiCommand {
@@ -156,7 +157,7 @@ fn check_examples() -> Result<()> {
 }
 
 fn check_style() -> Result<()> {
-    cmd!("rustup run nightly cargo fmt -- --check").run()?;
+    cmd!("rustup run {NIGHTLY} cargo fmt -- --check").run()?;
     Ok(())
 }
 
@@ -168,9 +169,9 @@ fn check_typos() -> Result<()> {
 }
 
 fn check_clippy() -> Result<()> {
-    cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
+    cmd!("rustup run {NIGHTLY} cargo clippy --all-targets -- -D warnings").run()?;
     cmd!(
-        "rustup run nightly cargo clippy --workspace --all-targets
+        "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
             --features native-tls,experimental-sliding-sync,sso-login,experimental-timeline
@@ -178,7 +179,7 @@ fn check_clippy() -> Result<()> {
     )
     .run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+        "rustup run {NIGHTLY} cargo clippy --all-targets -p matrix-sdk-crypto
             --no-default-features -- -D warnings"
     )
     .run()?;
