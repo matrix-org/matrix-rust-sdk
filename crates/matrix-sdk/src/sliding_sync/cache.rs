@@ -150,7 +150,7 @@ pub(super) async fn restore_sliding_sync_list(
 pub(super) async fn restore_sliding_sync_state(
     client: &Client,
     storage_key: &str,
-    lists: &mut BTreeMap<String, SlidingSyncList>,
+    lists: &BTreeMap<String, SlidingSyncList>,
     delta_token: &mut Option<String>,
     extensions: &mut Option<ExtensionsConfig>,
 ) -> Result<()> {

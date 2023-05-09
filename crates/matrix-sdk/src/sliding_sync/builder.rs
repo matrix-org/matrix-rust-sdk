@@ -245,7 +245,7 @@ impl SlidingSyncBuilder {
             restore_sliding_sync_state(
                 &client,
                 storage_key,
-                &mut lists,
+                &lists,
                 &mut delta_token,
                 &mut self.extensions,
             )
