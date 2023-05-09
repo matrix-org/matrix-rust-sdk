@@ -268,8 +268,11 @@ impl EventTimelineItem {
         Self { kind: kind.into(), ..self.clone() }
     }
 
-    /// Clone the current event item, and apply an edit to it.
-    pub(super) fn apply_edit(
+    /// Clone the current event item, and update its content.
+    ///
+    /// Optionally update `latest_edit_json` if the update is an edit received
+    /// from the server.
+    pub(super) fn with_content(
         &self,
         new_content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,

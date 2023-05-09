@@ -664,13 +664,6 @@ async fn in_reply_to_details() {
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
-    // Fetch details locally first.
-    timeline.fetch_event_details(second_event.event_id().unwrap()).await.unwrap();
-
-    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
-    let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
-
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
             "content": {
