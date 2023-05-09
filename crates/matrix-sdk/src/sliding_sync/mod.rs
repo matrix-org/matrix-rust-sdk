@@ -657,7 +657,7 @@ impl SlidingSync {
     pub fn reset_lists(&self) -> Result<(), Error> {
         let lists = self.inner.lists.read().unwrap();
 
-        for (_, list) in lists.iter() {
+        for list in lists.values() {
             list.reset()?;
         }
 
