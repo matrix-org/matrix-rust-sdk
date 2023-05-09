@@ -28,6 +28,10 @@ use tracing::{instrument, warn};
 use super::{Error, FrozenSlidingSyncRoom, SlidingSyncInternalMessage, SlidingSyncRoom};
 use crate::Result;
 
+/// The type used to express natural bounds (including but not limited to:
+/// ranges, timeline limit) in the sliding sync SDK.
+pub type Bound = u32;
+
 /// Holding a specific filtered list within the concept of sliding sync.
 ///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
@@ -64,7 +68,7 @@ impl SlidingSyncList {
     }
 
     /// Set the ranges to fetch.
-    pub fn set_ranges(&self, ranges: &[RangeInclusive<u32>]) -> Result<(), Error> {
+    pub fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -76,7 +80,7 @@ impl SlidingSyncList {
     }
 
     /// Reset the ranges to a particular set.
-    pub fn set_range(&self, range: RangeInclusive<u32>) -> Result<(), Error> {
+    pub fn set_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -88,7 +92,7 @@ impl SlidingSyncList {
     }
 
     /// Set the ranges to fetch.
-    pub fn add_range(&self, range: RangeInclusive<u32>) -> Result<(), Error> {
+    pub fn add_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -127,12 +131,12 @@ impl SlidingSyncList {
     }
 
     /// Get the timeline limit.
-    pub fn timeline_limit(&self) -> Option<u32> {
+    pub fn timeline_limit(&self) -> Option<Bound> {
         **self.inner.timeline_limit.read().unwrap()
     }
 
     /// Set timeline limit.
-    pub fn set_timeline_limit(&self, timeline: Option<u32>) {
+    pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
         Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
     }
 
@@ -250,7 +254,7 @@ pub(super) struct SlidingSyncListInner {
     filters: Option<v4::SyncRequestListFilters>,
 
     /// The maximum number of timeline events to query for.
-    timeline_limit: StdRwLock<Observable<Option<u32>>>,
+    timeline_limit: StdRwLock<Observable<Option<Bound>>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -265,7 +269,7 @@ pub(super) struct SlidingSyncListInner {
     room_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
     /// The ranges windows of the list.
-    ranges: StdRwLock<Observable<Vec<RangeInclusive<u32>>>>,
+    ranges: StdRwLock<Observable<Vec<RangeInclusive<Bound>>>>,
 
     /// The request generator, i.e. a type that yields the appropriate list
     /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
@@ -276,12 +280,12 @@ pub(super) struct SlidingSyncListInner {
 
 impl SlidingSyncListInner {
     /// Reset and add new ranges.
-    fn set_ranges(&self, ranges: &[RangeInclusive<u32>]) {
+    fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) {
         Observable::set(&mut self.ranges.write().unwrap(), ranges.to_vec());
     }
 
     /// Add a new range.
-    fn add_range(&self, range: RangeInclusive<u32>) {
+    fn add_range(&self, range: RangeInclusive<Bound>) {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
             ranges.push(RangeInclusive::new(*range.start(), *range.end()));
         });
@@ -914,7 +918,7 @@ mod tests {
 
         let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .ranges(vec![0u32..=1, 2..=3])
+            .ranges(vec![0..=1, 2..=3])
             .build(sender);
 
         {
@@ -924,7 +928,7 @@ mod tests {
             assert_eq!(ranges, &[0..=1, 2..=3]);
         }
 
-        list.set_ranges(&[4u32..=5, 6..=7]).unwrap();
+        list.set_ranges(&[4..=5, 6..=7]).unwrap();
 
         {
             let lock = list.inner.ranges.read().unwrap();
@@ -942,7 +946,7 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
-                .ranges(vec![0u32..=1, 2..=3])
+                .ranges(vec![0..=1, 2..=3])
                 .build(sender.clone());
 
             {
@@ -952,7 +956,7 @@ mod tests {
                 assert_eq!(ranges, &[0..=1, 2..=3]);
             }
 
-            list.set_range(4u32..=5).unwrap();
+            list.set_range(4..=5).unwrap();
 
             {
                 let lock = list.inner.ranges.read().unwrap();
@@ -968,7 +972,7 @@ mod tests {
                 .sync_mode(SlidingSyncMode::Growing)
                 .build(sender.clone());
 
-            assert!(list.set_range(4u32..=5).is_err());
+            assert!(list.set_range(4..=5).is_err());
         }
 
         // Set range on `Paging`.
@@ -976,7 +980,7 @@ mod tests {
             let list =
                 SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build(sender);
 
-            assert!(list.set_range(4u32..=5).is_err());
+            assert!(list.set_range(4..=5).is_err());
         }
     }
 
@@ -988,7 +992,7 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
-                .ranges(vec![0u32..=1])
+                .ranges(vec![0..=1])
                 .build(sender.clone());
 
             {
@@ -998,7 +1002,7 @@ mod tests {
                 assert_eq!(ranges, &[0..=1]);
             }
 
-            list.add_range(2u32..=3).unwrap();
+            list.add_range(2..=3).unwrap();
 
             {
                 let lock = list.inner.ranges.read().unwrap();
@@ -1014,7 +1018,7 @@ mod tests {
                 .sync_mode(SlidingSyncMode::Growing)
                 .build(sender.clone());
 
-            assert!(list.add_range(2u32..=3).is_err());
+            assert!(list.add_range(2..=3).is_err());
         }
 
         // Add range on `Paging`.
@@ -1022,7 +1026,7 @@ mod tests {
             let list =
                 SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build(sender);
 
-            assert!(list.add_range(2u32..=3).is_err());
+            assert!(list.add_range(2..=3).is_err());
         }
     }
 
@@ -1034,7 +1038,7 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
-                .ranges(vec![0u32..=1])
+                .ranges(vec![0..=1])
                 .build(sender.clone());
 
             {
@@ -1078,8 +1082,8 @@ mod tests {
 
         let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .ranges(vec![0u32..=1])
-            .timeline_limit(7u32)
+            .ranges(vec![0..=1])
+            .timeline_limit(7)
             .build(sender);
 
         {
@@ -1089,7 +1093,7 @@ mod tests {
             assert_eq!(timeline_limit, &Some(7));
         }
 
-        list.set_timeline_limit(Some(42u32));
+        list.set_timeline_limit(Some(42));
 
         {
             let lock = list.inner.timeline_limit.read().unwrap();
@@ -1114,7 +1118,7 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .add_range(0u32..=1)
+            .add_range(0..=1)
             .build(sender);
 
         let room0 = room_id!("!room0:bar.org");
@@ -1365,7 +1369,7 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Selective)
-            .ranges(vec![0u32..=10, 42..=153])
+            .ranges(vec![0..=10, 42..=153])
             .build(sender);
 
         assert_ranges! {
@@ -1398,7 +1402,7 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("testing")
             .sync_mode(crate::SlidingSyncMode::Selective)
-            .ranges(vec![0u32..=10, 42..=153].to_vec())
+            .ranges(vec![0..=10, 42..=153].to_vec())
             .build(sender);
 
         assert_ranges! {
@@ -1424,7 +1428,7 @@ mod tests {
             }
         };
 
-        list.set_ranges(&[3u32..=7]).unwrap();
+        list.set_ranges(&[3..=7]).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1437,7 +1441,7 @@ mod tests {
             },
         };
 
-        list.add_range(10u32..=23).unwrap();
+        list.add_range(10..=23).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1450,7 +1454,7 @@ mod tests {
             },
         };
 
-        list.set_range(42u32..=77).unwrap();
+        list.set_range(42..=77).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1484,7 +1488,7 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::Selective)
-            .add_range(0u32..=3)
+            .add_range(0..=3)
             .build(sender);
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);

@@ -13,7 +13,7 @@ use ruma::{api::client::sync::sync_events::v4, events::StateEventType};
 use tokio::sync::mpsc::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListInner,
+    super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListInner,
     SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 
@@ -29,9 +29,9 @@ pub struct SlidingSyncListBuilder {
     full_sync_batch_size: u32,
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
-    timeline_limit: Option<u32>,
+    timeline_limit: Option<Bound>,
     name: String,
-    ranges: Vec<RangeInclusive<u32>>,
+    ranges: Vec<RangeInclusive<Bound>>,
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
 
@@ -131,7 +131,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the limit of regular events to fetch for the timeline.
-    pub fn timeline_limit(mut self, timeline_limit: u32) -> Self {
+    pub fn timeline_limit(mut self, timeline_limit: Bound) -> Self {
         self.timeline_limit = Some(timeline_limit);
         self
     }
@@ -144,24 +144,24 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the ranges to fetch.
-    pub fn ranges(mut self, ranges: Vec<RangeInclusive<u32>>) -> Self {
+    pub fn ranges(mut self, ranges: Vec<RangeInclusive<Bound>>) -> Self {
         self.ranges = ranges;
         self
     }
 
-    /// Set a single range fetch.
-    pub fn set_range(mut self, range: RangeInclusive<u32>) -> Self {
+    /// Set a single range to fetch.
+    pub fn set_range(mut self, range: RangeInclusive<Bound>) -> Self {
         self.ranges = vec![range];
         self
     }
 
     /// Set the ranges to fetch.
-    pub fn add_range(mut self, range: RangeInclusive<u32>) -> Self {
+    pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
         self.ranges.push(range);
         self
     }
 
-    /// Set the ranges to fetch.
+    /// Reset the ranges to fetch.
     pub fn reset_ranges(mut self) -> Self {
         self.ranges.clear();
         self
