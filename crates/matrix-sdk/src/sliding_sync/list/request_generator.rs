@@ -183,7 +183,7 @@ pub(super) fn create_range(
         return Err(Error::InvalidRange { start, end });
     }
 
-    Ok(RangeInclusive::new(start.into(), end.into()))
+    Ok(RangeInclusive::new(start, end))
 }
 
 #[cfg(test)]

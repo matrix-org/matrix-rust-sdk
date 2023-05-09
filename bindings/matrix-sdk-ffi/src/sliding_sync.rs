@@ -654,7 +654,7 @@ impl SlidingSyncList {
 
     /// The current timeline limit
     pub fn get_timeline_limit(&self) -> Option<u32> {
-        self.inner.timeline_limit().map(|limit| u32::try_from(limit).unwrap_or_default())
+        self.inner.timeline_limit()
     }
 
     /// The current timeline limit

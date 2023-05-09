@@ -534,9 +534,9 @@ impl SlidingSyncListInner {
         let mut request_generator = self.request_generator.write().unwrap();
 
         let range_end: u32 =
-            request_generator.ranges.first().map(|r| u32::try_from(*r.end()).unwrap()).ok_or_else(
-                || Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned()),
-            )?;
+            request_generator.ranges.first().map(|r| *r.end()).ok_or_else(|| {
+                Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned())
+            })?;
 
         match &mut request_generator.kind {
             SlidingSyncListRequestGeneratorKind::Paging {
@@ -945,16 +945,16 @@ mod tests {
             let lock = list.inner.ranges.read().unwrap();
             let ranges = Observable::get(&lock);
 
-            assert_eq!(ranges, &vec![0..=1, 2..=3]);
+            assert_eq!(ranges, &[0..=1, 2..=3]);
         }
 
-        list.set_ranges(&vec![4u32..=5, 6..=7]).unwrap();
+        list.set_ranges(&[4u32..=5, 6..=7]).unwrap();
 
         {
             let lock = list.inner.ranges.read().unwrap();
             let ranges = Observable::get(&lock);
 
-            assert_eq!(ranges, &vec![4..=5, 6..=7]);
+            assert_eq!(ranges, &[4..=5, 6..=7]);
         }
     }
 
@@ -973,7 +973,7 @@ mod tests {
                 let lock = list.inner.ranges.read().unwrap();
                 let ranges = Observable::get(&lock);
 
-                assert_eq!(ranges, &vec![0..=1, 2..=3]);
+                assert_eq!(ranges, &[0..=1, 2..=3]);
             }
 
             list.set_range(4u32..=5).unwrap();
@@ -982,7 +982,7 @@ mod tests {
                 let lock = list.inner.ranges.read().unwrap();
                 let ranges = Observable::get(&lock);
 
-                assert_eq!(ranges, &vec![4..=5]);
+                assert_eq!(ranges, &[4..=5]);
             }
         }
 
@@ -1019,7 +1019,7 @@ mod tests {
                 let lock = list.inner.ranges.read().unwrap();
                 let ranges = Observable::get(&lock);
 
-                assert_eq!(ranges, &vec![0..=1]);
+                assert_eq!(ranges, &[0..=1]);
             }
 
             list.add_range(2u32..=3).unwrap();
@@ -1028,7 +1028,7 @@ mod tests {
                 let lock = list.inner.ranges.read().unwrap();
                 let ranges = Observable::get(&lock);
 
-                assert_eq!(ranges, &vec![0..=1, 2..=3]);
+                assert_eq!(ranges, &[0..=1, 2..=3]);
             }
         }
 
@@ -1065,7 +1065,7 @@ mod tests {
                 let lock = list.inner.ranges.read().unwrap();
                 let ranges = Observable::get(&lock);
 
-                assert_eq!(ranges, &vec![0..=1]);
+                assert_eq!(ranges, &[0..=1]);
             }
 
             list.reset_ranges().unwrap();
