@@ -15,7 +15,7 @@ version = "0.6.0"
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["automatic-room-key-forwarding"]
+default = []
 automatic-room-key-forwarding = []
 js = ["ruma/js", "vodozemac/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]

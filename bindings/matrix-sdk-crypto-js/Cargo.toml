@@ -41,7 +41,7 @@ futures-util = "0.3.27"
 http = { workspace = true }
 js-sys = "0.3.49"
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
-matrix-sdk-crypto = { version = "0.6.0", path = "../../crates/matrix-sdk-crypto", features = ["js"] }
+matrix-sdk-crypto = { version = "0.6.0", path = "../../crates/matrix-sdk-crypto", features = ["js", "automatic-room-key-forwarding"] }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-indexeddb" }
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
 ruma = { workspace = true, features = ["js", "rand", "unstable-msc2677"] }

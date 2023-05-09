@@ -1,5 +1,7 @@
 # v0.7.0
 
+- Disable the automatic-key-forwarding feature by default.
+
 - Add a new variant to the `VerificationRequestState` enum called
   `Transitioned`. This enum variant is used when a `VerificationRequest`
   transitions into a concrete `Verification` object. The concrete `Verification`
