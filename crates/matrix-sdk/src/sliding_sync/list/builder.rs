@@ -131,8 +131,8 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the limit of regular events to fetch for the timeline.
-    pub fn timeline_limit<U: Into<u32>>(mut self, timeline_limit: U) -> Self {
-        self.timeline_limit = Some(timeline_limit.into());
+    pub fn timeline_limit(mut self, timeline_limit: u32) -> Self {
+        self.timeline_limit = Some(timeline_limit);
         self
     }
 
@@ -144,23 +144,20 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the ranges to fetch.
-    pub fn ranges<U: Into<u32> + Copy>(mut self, range: Vec<RangeInclusive<U>>) -> Self {
-        self.ranges = range
-            .into_iter()
-            .map(|r| RangeInclusive::new((*r.start()).into(), (*r.end()).into()))
-            .collect();
+    pub fn ranges(mut self, ranges: Vec<RangeInclusive<u32>>) -> Self {
+        self.ranges = ranges;
         self
     }
 
     /// Set a single range fetch.
-    pub fn set_range<U: Into<u32> + Copy>(mut self, range: RangeInclusive<U>) -> Self {
-        self.ranges = vec![RangeInclusive::new((*range.start()).into(), (*range.end()).into())];
+    pub fn set_range(mut self, range: RangeInclusive<u32>) -> Self {
+        self.ranges = vec![range];
         self
     }
 
     /// Set the ranges to fetch.
-    pub fn add_range<U: Into<u32> + Copy>(mut self, range: RangeInclusive<U>) -> Self {
-        self.ranges.push(RangeInclusive::new((*range.start()).into(), (*range.end()).into()));
+    pub fn add_range(mut self, range: RangeInclusive<u32>) -> Self {
+        self.ranges.push(range);
         self
     }
 

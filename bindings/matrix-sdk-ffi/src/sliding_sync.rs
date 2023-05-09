@@ -664,7 +664,7 @@ impl SlidingSyncList {
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        self.inner.set_timeline_limit::<u32>(None)
+        self.inner.set_timeline_limit(None)
     }
 }
 

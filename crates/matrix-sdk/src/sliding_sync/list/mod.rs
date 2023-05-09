@@ -64,10 +64,7 @@ impl SlidingSyncList {
     }
 
     /// Set the ranges to fetch.
-    pub fn set_ranges<U>(&self, ranges: &[RangeInclusive<U>]) -> Result<(), Error>
-    where
-        U: Into<u32> + Copy,
-    {
+    pub fn set_ranges(&self, ranges: &[RangeInclusive<u32>]) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -79,10 +76,7 @@ impl SlidingSyncList {
     }
 
     /// Reset the ranges to a particular set.
-    pub fn set_range<U>(&self, range: RangeInclusive<U>) -> Result<(), Error>
-    where
-        U: Into<u32> + Copy,
-    {
+    pub fn set_range(&self, range: RangeInclusive<u32>) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -94,10 +88,7 @@ impl SlidingSyncList {
     }
 
     /// Set the ranges to fetch.
-    pub fn add_range<U>(&self, range: RangeInclusive<U>) -> Result<(), Error>
-    where
-        U: Into<u32> + Copy,
-    {
+    pub fn add_range(&self, range: RangeInclusive<u32>) -> Result<(), Error> {
         if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
@@ -119,7 +110,7 @@ impl SlidingSyncList {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
-        self.inner.set_ranges::<u32>(&[]);
+        self.inner.set_ranges(&[]);
         self.reset()?;
 
         Ok(())
@@ -141,12 +132,7 @@ impl SlidingSyncList {
     }
 
     /// Set timeline limit.
-    pub fn set_timeline_limit<U>(&self, timeline: Option<U>)
-    where
-        U: Into<u32>,
-    {
-        let timeline = timeline.map(Into::into);
-
+    pub fn set_timeline_limit(&self, timeline: Option<u32>) {
         Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
     }
 
@@ -290,24 +276,14 @@ pub(super) struct SlidingSyncListInner {
 
 impl SlidingSyncListInner {
     /// Reset and add new ranges.
-    fn set_ranges<U>(&self, ranges: &[RangeInclusive<U>])
-    where
-        U: Into<u32> + Copy,
-    {
-        let ranges = ranges
-            .iter()
-            .map(|r| RangeInclusive::new((*r.start()).into(), (*r.end()).into()))
-            .collect();
-        Observable::set(&mut self.ranges.write().unwrap(), ranges);
+    fn set_ranges(&self, ranges: &[RangeInclusive<u32>]) {
+        Observable::set(&mut self.ranges.write().unwrap(), ranges.to_vec());
     }
 
     /// Add a new range.
-    fn add_range<U>(&self, range: RangeInclusive<U>)
-    where
-        U: Into<u32> + Copy,
-    {
+    fn add_range(&self, range: RangeInclusive<u32>) {
         Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
-            ranges.push(RangeInclusive::new((*range.start()).into(), (*range.end()).into()));
+            ranges.push(RangeInclusive::new(*range.start(), *range.end()));
         });
     }
 
@@ -1122,7 +1098,7 @@ mod tests {
             assert_eq!(timeline_limit, &Some(42));
         }
 
-        list.set_timeline_limit::<u32>(None);
+        list.set_timeline_limit(None);
 
         {
             let lock = list.inner.timeline_limit.read().unwrap();
