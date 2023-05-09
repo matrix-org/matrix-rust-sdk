@@ -616,7 +616,7 @@ async fn in_reply_to_details() {
 
     // The event doesn't exist.
     assert_matches!(
-        timeline.fetch_event_details(event_id!("$fakeevent")).await,
+        timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
         Err(Error::Timeline(TimelineError::RemoteEventNotInTimeline))
     );
 
@@ -712,7 +712,7 @@ async fn in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_event_details(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
     server.reset().await;
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
@@ -741,7 +741,7 @@ async fn in_reply_to_details() {
         .mount(&server)
         .await;
 
-    timeline.fetch_event_details(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);

@@ -350,7 +350,7 @@ impl Timeline {
     /// echo in the timeline, or if the event is removed from the timeline
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
-    pub async fn fetch_event_details(&self, event_id: &EventId) -> Result<()> {
+    pub async fn fetch_details_for_event(&self, event_id: &EventId) -> Result<()> {
         self.inner.fetch_in_reply_to_details(event_id).await
     }
 
