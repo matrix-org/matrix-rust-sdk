@@ -83,12 +83,15 @@ impl SlidingSyncBuilder {
         let Some(ref storage_key) = self.storage_key else {
             return Err(super::error::Error::MissingStorageKeyForCaching.into());
         };
+
         let reloaded_rooms = list.set_cached_and_reload(&self.client, storage_key).await?;
+
         for (key, frozen) in reloaded_rooms {
             self.rooms
                 .entry(key)
                 .or_insert_with(|| SlidingSyncRoom::from_frozen(frozen, self.client.clone()));
         }
+
         Ok(self.add_list(list))
     }
 

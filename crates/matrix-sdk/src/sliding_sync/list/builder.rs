@@ -26,6 +26,19 @@ use super::{
 /// The default name for the full sync list.
 pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
+/// Data that might have been read from the cache.
+#[derive(Clone)]
+struct SlidingSyncCachedData {
+    /// Total number of rooms that is possible to interact with the given list.
+    /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
+    /// May be reloaded from the cache.
+    maximum_number_of_rooms: Option<u32>,
+
+    /// List of room entries.
+    /// May be reloaded from the cache.
+    room_list: Vector<RoomListEntry>,
+}
+
 /// Builder for [`SlidingSyncList`].
 #[derive(Clone)]
 pub struct SlidingSyncListBuilder {
@@ -42,18 +55,9 @@ pub struct SlidingSyncListBuilder {
     /// Should this list be cached and reloaded from the cache?
     cache_policy: SlidingSyncListCachePolicy,
 
-    /// Total number of rooms that is possible to interact with the given list.
-    /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
-    /// May be reloaded from the cache.
-    maximum_number_of_rooms: Option<u32>,
-
-    /// List of room entries.
-    /// May be reloaded from the cache.
-    room_list: Vector<RoomListEntry>,
-
-    /// State of this list, indicating whether it was preloaded from the cache
-    /// or not.
-    state: SlidingSyncState,
+    /// If set, temporary data that's been read from the cache, reloaded from a
+    /// `FrozenSlidingSyncList`.
+    reloaded_cached_data: Option<SlidingSyncCachedData>,
 
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
@@ -94,10 +98,8 @@ impl SlidingSyncListBuilder {
             timeline_limit: None,
             name: name.into(),
             ranges: Vec::new(),
+            reloaded_cached_data: None,
             cache_policy: SlidingSyncListCachePolicy::Disabled,
-            maximum_number_of_rooms: None,
-            room_list: Vector::new(),
-            state: SlidingSyncState::default(),
             once_built: Arc::new(Box::new(identity)),
         }
     }
@@ -196,6 +198,9 @@ impl SlidingSyncListBuilder {
 
     /// Marks this list as sync'd from the cache, and attempts to reload it from
     /// storage.
+    ///
+    /// Returns a mapping of the room's data read from the cache, to be incorporated into the
+    /// `SlidingSync` bookkeepping.
     pub(in super::super) async fn set_cached_and_reload(
         &mut self,
         client: &Client,
@@ -205,10 +210,14 @@ impl SlidingSyncListBuilder {
         if let Some(frozen_list) =
             restore_sliding_sync_list(client.store(), storage_key, &self.name).await?
         {
-            self.maximum_number_of_rooms = frozen_list.maximum_number_of_rooms;
-            assert!(self.room_list.is_empty(), "can't call `set_cached_and_reload` twice");
-            self.room_list = frozen_list.room_list;
-            self.state = SlidingSyncState::Preloaded;
+            assert!(
+                self.reloaded_cached_data.is_none(),
+                "can't call `set_cached_and_reload` twice"
+            );
+            self.reloaded_cached_data = Some(SlidingSyncCachedData {
+                maximum_number_of_rooms: frozen_list.maximum_number_of_rooms,
+                room_list: frozen_list.room_list,
+            });
             Ok(frozen_list.rooms)
         } else {
             Ok(Default::default())
@@ -234,6 +243,18 @@ impl SlidingSyncListBuilder {
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_selective(),
         };
 
+        // Acknowledge data that's been reloaded from the cache, or use default values.
+        let (state, maximum_number_of_rooms, room_list) =
+            if let Some(cached_data) = self.reloaded_cached_data {
+                (
+                    SlidingSyncState::Preloaded,
+                    cached_data.maximum_number_of_rooms,
+                    cached_data.room_list,
+                )
+            } else {
+                (SlidingSyncState::default(), Default::default(), Default::default())
+            };
+
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
@@ -251,11 +272,9 @@ impl SlidingSyncListBuilder {
 
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.
-                state: StdRwLock::new(Observable::new(self.state)),
-                maximum_number_of_rooms: StdRwLock::new(Observable::new(
-                    self.maximum_number_of_rooms,
-                )),
-                room_list: StdRwLock::new(ObservableVector::from(self.room_list)),
+                state: StdRwLock::new(Observable::new(state)),
+                maximum_number_of_rooms: StdRwLock::new(Observable::new(maximum_number_of_rooms)),
+                room_list: StdRwLock::new(ObservableVector::from(room_list)),
 
                 sliding_sync_internal_channel_sender,
             }),
