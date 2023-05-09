@@ -39,9 +39,9 @@ use ruma::{
     TransactionId, UserId,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, field::debug, instrument, trace, warn};
+use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
-use tracing::{field, info, info_span, Instrument as _};
+use tracing::{field, info_span, Instrument as _};
 
 use super::{
     compare_events_positions,
@@ -542,6 +542,7 @@ impl TimelineInner {
         }
     }
 
+    #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
@@ -549,11 +550,17 @@ impl TimelineInner {
         let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
 
         let TimelineItemContent::Message(message) = item.content().clone() else {
+            info!("Event is not a message");
             return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
+            info!("Event is not a reply");
             return Ok(());
         };
+        if let TimelineDetails::Ready(_) = &in_reply_to.event {
+            info!("Replied-to event has already been fetched");
+            return Ok(());
+        }
 
         let item = item.clone();
         let event = fetch_replied_to_event(
@@ -575,12 +582,15 @@ impl TimelineInner {
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
         let TimelineItemContent::Message(message) = item.content().clone() else {
+            info!("Event is no longer a message (redacted?)");
             return Ok(());
         };
         let Some(in_reply_to) = message.in_reply_to() else {
+            warn!("Event no longer has a reply (bug?)");
             return Ok(());
         };
 
+        trace!("Updating in-reply-to details");
         let mut item = item.clone();
         item.set_content(TimelineItemContent::Message(
             message.with_in_reply_to(InReplyToDetails {
@@ -688,19 +698,22 @@ async fn fetch_replied_to_event(
             _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
         };
 
+        debug!("Found replied-to event locally");
         return details;
     };
 
+    trace!("Setting in-reply-to details to pending");
     let reply = message.with_in_reply_to(InReplyToDetails {
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
-    let event_item = item.apply_edit(TimelineItemContent::Message(reply), None);
+    let event_item = item.with_content(TimelineItemContent::Message(reply), None);
     state.items.set(index, Arc::new(event_item.into()));
 
     // Don't hold the state lock while the network request is made
     drop(state);
 
+    trace!("Fetching replied-to event");
     match room.event(in_reply_to).await {
         Ok(timeline_event) => {
             match RepliedToEvent::try_from_timeline_event(timeline_event, room).await {
