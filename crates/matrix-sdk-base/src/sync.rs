@@ -17,7 +17,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use matrix_sdk_common::{
-    deserialized_responses::SyncTimelineEvent, DebugRawEvent, DebugRawEventNoId,
+    debug::{DebugRawEvent, DebugRawEventNoId},
+    deserialized_responses::SyncTimelineEvent,
 };
 use ruma::{
     api::client::{

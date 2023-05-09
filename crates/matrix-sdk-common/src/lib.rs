@@ -17,12 +17,10 @@
 
 pub use instant;
 
-mod debug;
+pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
 pub mod timeout;
-
-pub use self::debug::{DebugRawEvent, DebugRawEventNoId};
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.

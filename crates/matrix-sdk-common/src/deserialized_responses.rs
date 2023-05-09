@@ -22,7 +22,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::DebugRawEvent;
+use crate::debug::DebugRawEvent;
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
