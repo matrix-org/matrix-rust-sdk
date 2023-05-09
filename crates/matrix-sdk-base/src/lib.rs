@@ -25,6 +25,7 @@ pub use crate::{
 };
 
 mod client;
+pub mod debug;
 pub mod deserialized_responses;
 mod error;
 pub mod media;

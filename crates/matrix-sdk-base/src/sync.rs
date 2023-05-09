@@ -16,10 +16,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::{
-    debug::{DebugRawEvent, DebugRawEventNoId},
-    deserialized_responses::SyncTimelineEvent,
-};
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
@@ -36,7 +33,10 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::deserialized_responses::AmbiguityChanges;
+use crate::{
+    debug::{DebugListOfRawEventsNoId, DebugNotificationMap},
+    deserialized_responses::AmbiguityChanges,
+};
 
 /// Internal representation of a `/sync` response.
 ///
@@ -184,53 +184,5 @@ pub struct Timeline {
 impl Timeline {
     pub(crate) fn new(limited: bool, prev_batch: Option<String>) -> Self {
         Self { limited, prev_batch, ..Default::default() }
-    }
-}
-
-struct DebugListOfRawEventsNoId<'a, T>(&'a [Raw<T>]);
-
-impl<'a, T> fmt::Debug for DebugListOfRawEventsNoId<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut list = f.debug_list();
-        list.entries(self.0.iter().map(DebugRawEventNoId));
-        list.finish()
-    }
-}
-
-struct DebugNotificationMap<'a>(&'a BTreeMap<OwnedRoomId, Vec<Notification>>);
-
-#[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugNotificationMap<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut map = f.debug_map();
-        map.entries(self.0.iter().map(|(room_id, raw)| (room_id, DebugNotificationList(raw))));
-        map.finish()
-    }
-}
-
-struct DebugNotificationList<'a>(&'a [Notification]);
-
-#[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugNotificationList<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut list = f.debug_list();
-        list.entries(self.0.iter().map(DebugNotification));
-        list.finish()
-    }
-}
-
-struct DebugNotification<'a>(&'a Notification);
-
-#[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugNotification<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DebugNotification")
-            .field("actions", &self.0.actions)
-            .field("event", &DebugRawEvent(&self.0.event))
-            .field("profile_tag", &self.0.profile_tag)
-            .field("read", &self.0.read)
-            .field("room_id", &self.0.room_id)
-            .field("ts", &self.0.ts)
-            .finish()
     }
 }
