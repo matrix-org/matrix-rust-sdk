@@ -46,7 +46,7 @@ version = "0.6.0"
 [dependencies.matrix-sdk-crypto]
 path = "../../crates/matrix-sdk-crypto"
 version = "0.6.0"
-features = ["qrcode", "backups_v1"]
+features = ["qrcode", "backups_v1", "automatic-room-key-forwarding"]
 
 [dependencies.matrix-sdk-sqlite]
 path = "../../crates/matrix-sdk-sqlite"

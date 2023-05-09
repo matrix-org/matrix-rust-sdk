@@ -26,7 +26,6 @@ testing = []
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
-    "matrix-sdk-base/automatic-room-key-forwarding",
     "matrix-sdk-sqlite?/crypto-store",        # activate crypto-store on sqlite if given
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
