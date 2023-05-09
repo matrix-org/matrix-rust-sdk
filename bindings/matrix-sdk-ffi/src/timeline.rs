@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use extension_trait::extension_trait;
@@ -305,6 +305,21 @@ impl EventTimelineItem {
 
     pub fn local_send_state(&self) -> Option<EventSendState> {
         self.0.send_state().map(Into::into)
+    }
+
+    pub fn read_receipts(&self) -> HashMap<String, Receipt> {
+        self.0.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect()
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct Receipt {
+    pub timestamp: Option<u64>,
+}
+
+impl From<ruma::events::receipt::Receipt> for Receipt {
+    fn from(value: ruma::events::receipt::Receipt) -> Self {
+        Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
     }
 }
 

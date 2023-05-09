@@ -15,6 +15,7 @@ dictionary NotificationItem {
     string? sender_avatar_url;
     string room_display_name;
     string? room_avatar_url;
+    string? room_canonical_alias;
     boolean is_noisy;
     boolean is_direct;
     boolean is_encrypted;
