@@ -59,7 +59,7 @@ use tokio::{
         Mutex as AsyncMutex, RwLock as AsyncRwLock,
     },
 };
-use tracing::{debug, error, info_span, instrument, warn, Instrument, Span};
+use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 use uuid::Uuid;
 
@@ -378,6 +378,7 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
+    #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self, stream_id: &str) -> Result<Option<UpdateSummary>> {
         let (request, request_config) = {
             // Collect requests for lists.
@@ -401,6 +402,8 @@ impl SlidingSync {
 
                 (position_lock.pos.clone(), position_lock.delta_token.clone())
             };
+
+            Span::current().record("pos", &pos);
 
             // Collect other data.
             let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
@@ -541,13 +544,11 @@ impl SlidingSync {
 
         debug!(?self.inner.extensions, stream_id, "About to run the sync stream");
 
-        let instrument_span = Span::current();
+        let sync_stream_span = Span::current();
 
         stream! {
             loop {
-                let sync_span = info_span!(parent: &instrument_span, "sync_once");
-
-                sync_span.in_scope(|| {
+                sync_stream_span.in_scope(|| {
                     debug!(?self.inner.extensions, "Sync stream loop is running");
                 });
 
@@ -570,7 +571,7 @@ impl SlidingSync {
                         }
                     }
 
-                    update_summary = self.sync_once(&stream_id).instrument(sync_span.clone()) => {
+                    update_summary = self.sync_once(&stream_id).instrument(sync_stream_span.clone()) => {
                         match update_summary {
                             Ok(Some(updates)) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
@@ -587,8 +588,12 @@ impl SlidingSync {
                                     // The session has expired.
 
                                     // Has it expired too many times?
-                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst) >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION {
-                                        sync_span.in_scope(|| error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row"));
+                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
+                                        >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
+                                    {
+                                        sync_stream_span.in_scope(|| {
+                                            error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
+                                        });
 
                                         // The session has expired too many times, let's raise an error!
                                         yield Err(error);
@@ -597,7 +602,7 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_span.in_scope(|| {
+                                    sync_stream_span.in_scope(|| {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value.
@@ -616,7 +621,6 @@ impl SlidingSync {
                                 continue;
                             }
                         }
-
                     }
                 }
             }
