@@ -13,14 +13,13 @@ use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId, UInt};
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
-    Client, RoomListEntry,
-};
-
 use super::{
     super::SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListCachePolicy,
     SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+};
+use crate::{
+    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    Client, RoomListEntry,
 };
 
 /// The default name for the full sync list.
@@ -199,8 +198,8 @@ impl SlidingSyncListBuilder {
     /// Marks this list as sync'd from the cache, and attempts to reload it from
     /// storage.
     ///
-    /// Returns a mapping of the room's data read from the cache, to be incorporated into the
-    /// `SlidingSync` bookkeepping.
+    /// Returns a mapping of the room's data read from the cache, to be
+    /// incorporated into the `SlidingSync` bookkeepping.
     pub(in super::super) async fn set_cached_and_reload(
         &mut self,
         client: &Client,
