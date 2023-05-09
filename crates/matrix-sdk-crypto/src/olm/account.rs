@@ -680,12 +680,12 @@ impl ReadOnlyAccount {
         let mut account = self.inner.lock().await;
 
         if account.fallback_key().is_empty() {
-            debug!(
-                "No unused fallback keys were found on the server, generating \
-                a new fallback key.",
-            );
+            let removed_fallback_key = account.generate_fallback_key();
 
-            account.generate_fallback_key();
+            debug!(
+                ?removed_fallback_key,
+                "No unused fallback keys were found on the server, generated a new fallback key.",
+            );
         }
     }
 
