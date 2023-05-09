@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Helpers for creating `std::fmt::Debug` implementations.
+
 use std::fmt;
 
 use ruma::{serde::Raw, OwnedEventId};

@@ -14,12 +14,14 @@
 
 //! The SDK's representation of the result of a `/sync` request.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, fmt, time::Duration};
 
 use eyeball::unique::Observable;
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChanges, instant::Instant,
+    debug::{DebugListOfRawEventsNoId, DebugNotificationMap},
+    deserialized_responses::AmbiguityChanges,
+    instant::Instant,
     sync::SyncResponse as BaseSyncResponse,
 };
 use ruma::{
@@ -36,7 +38,7 @@ use tracing::{debug, error, warn};
 use crate::{event_handler::HandlerKind, Client, Result};
 
 /// The processed response of a `/sync` request.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync`
     /// request.
@@ -86,6 +88,21 @@ impl SyncResponse {
             ambiguity_changes,
             notifications,
         }
+    }
+}
+
+impl fmt::Debug for SyncResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyncResponse")
+            .field("next_batch", &self.next_batch)
+            .field("rooms", &self.rooms)
+            .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
+            .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
+            .field("device_lists", &self.device_lists)
+            .field("device_one_time_keys_count", &self.device_one_time_keys_count)
+            .field("ambiguity_changes", &self.ambiguity_changes)
+            .field("notifications", &DebugNotificationMap(&self.notifications))
+            .finish_non_exhaustive()
     }
 }
 
