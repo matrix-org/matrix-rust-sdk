@@ -228,12 +228,12 @@ async fn dedup_initial() {
         timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
 
-    timeline.inner.add_initial_events(vector![event_a.clone(), event_b, event_a]).await;
+    timeline.inner.add_initial_events(vector![event_a, event_b]).await;
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 3);
-    assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
-    assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
+    assert_eq!(timeline_items[1].as_event().unwrap().sender(), *ALICE);
+    assert_eq!(timeline_items[2].as_event().unwrap().sender(), *BOB);
 }
 
 #[async_test]

@@ -698,11 +698,27 @@ impl<'a> TimelineEventHandler<'a> {
                 });
 
                 if let Some((idx, old_item)) = result {
-                    if old_item.as_remote().is_some() {
-                        // Item was previously received from the server. This
-                        // should be very rare normally, but with the sliding-
-                        // sync proxy, it is actually very common.
-                        trace!(?item, ?old_item, "Received duplicate event");
+                    if let Some(old_remote_item) = old_item.as_remote() {
+                        if matches!(
+                            old_remote_item.origin,
+                            RemoteEventOrigin::Cache | RemoteEventOrigin::Sync
+                        ) {
+                            // Item was previously received from syncing. This
+                            // should be very rare normally, but with the
+                            // sliding-sync proxy, it is actually very common.
+                            //
+                            // To avoid items being reordered only to eventually
+                            // end up in the same position after processing the
+                            // whole chunk, do nothing for this event.
+                            trace!(?item, ?old_item, "Received duplicate event, skipping");
+                            return;
+                        } else {
+                            // Item was previously received from pagination.
+                            // Pagination and syncing have different timeline
+                            // ordering (topological vs. stream order), we treat
+                            // stream order as canonical so reorder here.
+                            trace!(?item, ?old_item, "Received duplicate event, reordering");
+                        }
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
                             warn!("Got original form of an event that was previously redacted");
@@ -712,7 +728,7 @@ impl<'a> TimelineEventHandler<'a> {
                                 .reactions
                                 .clear();
                         }
-                    };
+                    }
 
                     if txn_id.is_none() {
                         // The event was created by this client, but the server
