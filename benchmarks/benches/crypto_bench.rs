@@ -2,6 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use criterion::*;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
+use matrix_sdk_sled::SledCryptoStore;
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use matrix_sdk_test::response_from_file;
 use ruma::{
@@ -65,10 +66,14 @@ pub fn keys_query(c: &mut Criterion) {
 
     let name = format!("{count} device and cross signing keys");
 
+    // Benchmark memory store.
+
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.to_async(&runtime)
             .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
     });
+
+    // Benchmark sqlite store.
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
@@ -84,6 +89,18 @@ pub fn keys_query(c: &mut Criterion) {
         let _guard = runtime.enter();
         drop(machine);
     }
+
+    // Benchmark (deprecated) sled store.
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(runtime.block_on(SledCryptoStore::open(dir.path(), None)).unwrap());
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
+
+    group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
+        b.to_async(&runtime)
+            .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
+    });
 
     group.finish()
 }
@@ -147,6 +164,28 @@ pub fn keys_claiming(c: &mut Criterion) {
         )
     });
 
+    group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
+        b.iter_batched(
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                let store =
+                    Arc::new(runtime.block_on(SledCryptoStore::open(dir.path(), None)).unwrap());
+
+                let machine = runtime
+                    .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store))
+                    .unwrap();
+                runtime
+                    .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
+                    .unwrap();
+                (machine, &runtime, &txn_id)
+            },
+            move |(machine, runtime, txn_id)| {
+                runtime.block_on(machine.mark_request_as_sent(txn_id, response)).unwrap()
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
     group.finish()
 }
 
@@ -171,6 +210,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.throughput(Throughput::Elements(count as u64));
     let name = format!("{count} devices");
 
+    // Benchmark memory store.
+
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
@@ -191,6 +232,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
             machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
+
+    // Benchmark sqlite store.
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
@@ -226,6 +269,37 @@ pub fn room_key_sharing(c: &mut Criterion) {
         drop(machine);
     }
 
+    // Benchmark (deprecated) sled store.
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(runtime.block_on(SledCryptoStore::open(dir.path(), None)).unwrap());
+
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
+
+    group.bench_function(BenchmarkId::new("sled store", &name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            let requests = machine
+                .share_room_key(
+                    room_id,
+                    users.iter().map(Deref::deref),
+                    EncryptionSettings::default(),
+                )
+                .await
+                .unwrap();
+
+            assert!(!requests.is_empty());
+
+            for request in requests {
+                machine.mark_request_as_sent(&request.txn_id, &to_device_response).await.unwrap();
+            }
+
+            machine.invalidate_group_session(room_id).await.unwrap();
+        })
+    });
+
     group.finish()
 }
 
@@ -246,11 +320,15 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
+    // Benchmark memory store.
+
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter_with_large_drop(|| async {
             machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
         })
     });
+
+    // Benchmark sqlite store.
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
@@ -270,6 +348,22 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
         let _guard = runtime.enter();
         drop(machine);
     }
+
+    // Benchmark (deprecated) sled store.
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(runtime.block_on(SledCryptoStore::open(dir.path(), None)).unwrap());
+
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
+
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
+
+    group.bench_function(BenchmarkId::new("sled store", &name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
+        })
+    });
 
     group.finish()
 }
