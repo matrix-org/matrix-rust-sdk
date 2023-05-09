@@ -245,10 +245,10 @@ pub struct InReplyToDetails {
 
     /// The details of the event.
     ///
-    /// Use [`Timeline::fetch_event_details`] to fetch the data if it is
+    /// Use [`Timeline::fetch_details_for_event`] to fetch the data if it is
     /// unavailable.
     ///
-    /// [`Timeline::fetch_event_details`]: crate::room::timeline::Timeline::fetch_event_details
+    /// [`Timeline::fetch_details_for_event`]: crate::room::timeline::Timeline::fetch_details_for_event
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
