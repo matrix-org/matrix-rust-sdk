@@ -80,6 +80,11 @@ pub fn keys_query(c: &mut Criterion) {
             .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
     });
 
+    {
+        let _guard = runtime.enter();
+        drop(machine);
+    }
+
     group.finish()
 }
 
@@ -108,7 +113,10 @@ pub fn keys_claiming(c: &mut Criterion) {
                 (machine, &runtime, &txn_id)
             },
             move |(machine, runtime, txn_id)| {
-                runtime.block_on(machine.mark_request_as_sent(txn_id, response)).unwrap()
+                runtime.block_on(async {
+                    machine.mark_request_as_sent(txn_id, response).await.unwrap();
+                    drop(machine);
+                })
             },
             BatchSize::SmallInput,
         )
@@ -130,7 +138,10 @@ pub fn keys_claiming(c: &mut Criterion) {
                 (machine, &runtime, &txn_id)
             },
             move |(machine, runtime, txn_id)| {
-                runtime.block_on(machine.mark_request_as_sent(txn_id, response)).unwrap()
+                runtime.block_on(async {
+                    machine.mark_request_as_sent(txn_id, response).await.unwrap();
+                    drop(machine)
+                })
             },
             BatchSize::SmallInput,
         )
@@ -180,6 +191,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
             machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
+
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
 
@@ -208,6 +220,11 @@ pub fn room_key_sharing(c: &mut Criterion) {
             machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
+
+    {
+        let _guard = runtime.enter();
+        drop(machine);
+    }
 
     group.finish()
 }
@@ -248,6 +265,11 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
             machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
         })
     });
+
+    {
+        let _guard = runtime.enter();
+        drop(machine);
+    }
 
     group.finish()
 }
