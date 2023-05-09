@@ -438,7 +438,7 @@ impl Client {
         Ok(())
     }
 
-    #[instrument(level = "debug", skip_all, fields(?event_kind, ?event_type, room_id))]
+    #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
         room: &Option<room::Room>,
