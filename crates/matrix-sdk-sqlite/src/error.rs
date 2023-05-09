@@ -20,7 +20,7 @@ use matrix_sdk_crypto::CryptoStoreError;
 use thiserror::Error;
 use tokio::io;
 
-/// All the errors that can occur when opening a sled store.
+/// All the errors that can occur when opening a SQLite store.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum OpenStoreError {

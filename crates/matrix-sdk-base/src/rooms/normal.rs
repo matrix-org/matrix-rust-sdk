@@ -33,8 +33,8 @@ use ruma::{
         RoomAccountDataEventType,
     },
     room::RoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
-    RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
+    RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
@@ -51,8 +51,8 @@ use crate::{
 /// invited rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
-    room_id: Arc<RoomId>,
-    own_user_id: Arc<UserId>,
+    room_id: OwnedRoomId,
+    own_user_id: OwnedUserId,
     inner: Arc<SyncRwLock<RoomInfo>>,
     store: Arc<DynStateStore>,
 }
@@ -358,6 +358,16 @@ impl Room {
         self.inner.read().unwrap().active_members_count()
     }
 
+    /// Returns the number of members who have been invited to the room.
+    pub fn invited_members_count(&self) -> u64 {
+        self.inner.read().unwrap().invited_members_count()
+    }
+
+    /// Returns the number of members who have joined the room.
+    pub fn joined_members_count(&self) -> u64 {
+        self.inner.read().unwrap().joined_members_count()
+    }
+
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();
@@ -540,7 +550,7 @@ impl Room {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
     /// The unique room id of the room.
-    pub(crate) room_id: Arc<RoomId>,
+    pub(crate) room_id: OwnedRoomId,
     /// The state of the room.
     #[serde(rename = "room_type")] // for backwards compatibility
     room_state: RoomState,
@@ -748,6 +758,16 @@ impl RoomInfo {
     /// The return value is saturated at `u64::MAX`.
     pub fn active_members_count(&self) -> u64 {
         self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
+    }
+
+    /// The number of invited members in the room
+    pub fn invited_members_count(&self) -> u64 {
+        self.summary.invited_member_count
+    }
+
+    /// The number of joined members in the room
+    pub fn joined_members_count(&self) -> u64 {
+        self.summary.joined_member_count
     }
 
     /// Get the canonical alias of this room.

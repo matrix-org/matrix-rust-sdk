@@ -121,16 +121,16 @@ background though. For that, the client implementation offers to run lists
 in two additional full-sync-modes, which require additional configuration:
 
 - [`SlidingSyncMode::Paging`]: Pages through the entire list of
-  rooms one request at a time asking for the next `batch_size` number of
-  rooms up to the end or `limit` if configured
-- [`SlidingSyncMode::Growing`]: Grows the window by `batch_size` on
-  every request till all rooms or until `limit` of rooms are in list.
+  rooms one request at a time asking for the next `full_sync_batch_size` number of
+  rooms up to the end or `full_sync_maximum_number_of_rooms_to_fetch` if configured
+- [`SlidingSyncMode::Growing`]: Grows the window by `full_sync_batch_size` on
+  every request till all rooms or until `full_sync_maximum_number_of_rooms_to_fetch` of rooms are in list.
 
 For both, one should configure
-[`batch_size`](SlidingSyncListBuilder::batch_size) and optionally
-[`limit`](SlidingSyncListBuilder::limit) on the [`SlidingSyncListBuilder`].
-Both full-sync lists will notice if the number of rooms increased at runtime
-and will attempt to catch up to that (barring the `limit`).
+[`full_sync_batch_size`](SlidingSyncListBuilder::full_sync_batch_size) and optionally
+[`full_sync_maximum_number_of_rooms_to_fetch`](SlidingSyncListBuilder::full_sync_maximum_number_of_rooms_to_fetch)
+on the [`SlidingSyncListBuilder`]. Both full-sync lists will notice if the number of rooms
+increased at runtime and will attempt to catch up to that (barring the `limit`).
 
 ## Rooms
 
@@ -140,7 +140,7 @@ of the room at the given position. The details (`required_state`s and
 timeline items) requested by all lists are bundled, together with the common
 details (e.g. whether it is a `dm` or its calculated name) and made
 available on the Sliding Sync session struct as a [reactive](#reactive-api)
-through [`.rooms`](SlidingSync::rooms), [`get_room`](SlidingSync::get_room)
+through [`.get_all_rooms`](SlidingSync::get_all_rooms), [`get_room`](SlidingSync::get_room)
 and [`get_rooms`](SlidingSync::get_rooms) APIs.
 
 Notably, this map only knows about the rooms that have come down [Sliding
@@ -434,8 +434,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
         (StateEventType::RoomEncryption, "".to_owned())
      ]) // only want to know if the room is encrypted
     .full_sync_batch_size(50)   // grow the window by 50 items at a time
-    .full_sync_maximum_number_of_rooms_to_fetch(500)      // only sync up the top 500 rooms
-    .build();
+    .full_sync_maximum_number_of_rooms_to_fetch(500);      // only sync up the top 500 rooms
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
@@ -446,8 +445,7 @@ let active_list = SlidingSyncList::builder(&active_list_name) // the active wind
         (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
         (StateEventType::RoomTopic, "".to_owned()),      // any topic if known
         (StateEventType::RoomAvatar, "".to_owned()),     // avatar if set
-     ])
-    .build();
+     ]);
 
 let sliding_sync = sliding_sync_builder
     .add_list(active_list)
@@ -457,10 +455,9 @@ let sliding_sync = sliding_sync_builder
 
 // subscribe to the list APIs for updates
 
-let active_list = sliding_sync.list(&active_list_name).unwrap();
-let list_state_stream = active_list.state_stream();
-let list_count_stream = active_list.maximum_number_of_rooms_stream();
-let list_stream = active_list.room_list_stream();
+let (list_state_stream, list_count_stream, list_stream) = sliding_sync.on_list(&active_list_name, |list| {
+    (list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream())
+}).unwrap();
 
 tokio::spawn(async move {
     pin_mut!(list_state_stream);

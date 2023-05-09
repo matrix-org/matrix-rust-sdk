@@ -318,8 +318,10 @@ impl Common {
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
-            let response =
-                self.client.base_client().receive_members(self.inner.room_id(), &response).await?;
+            let response = Box::pin(
+                self.client.base_client().receive_members(self.inner.room_id(), &response),
+            )
+            .await?;
 
             self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
 
@@ -435,12 +437,6 @@ impl Common {
     pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
         self.members_no_sync(RoomMemberships::ACTIVE).await
-    }
-
-    /// Returns the number of members who have joined or been invited to the
-    /// room.
-    pub fn active_members_count(&self) -> u64 {
-        self.inner.active_members_count()
     }
 
     /// Get active members for this room, includes invited, joined members.

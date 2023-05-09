@@ -266,7 +266,7 @@ mod tests {
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
-                    .add_list(SlidingSyncList::builder("list_bar").build())
+                    .add_list(SlidingSyncList::builder("list_bar"))
                     .build()
                     .await?;
 
@@ -313,7 +313,7 @@ mod tests {
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
-                    .add_list(SlidingSyncList::builder("list_bar").build())
+                    .add_list(SlidingSyncList::builder("list_bar"))
                     .build()
                     .await?;
 

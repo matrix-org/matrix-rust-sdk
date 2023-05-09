@@ -58,8 +58,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct GossipMachine {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     store: Store,
     #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
@@ -72,8 +72,8 @@ pub(crate) struct GossipMachine {
 
 impl GossipMachine {
     pub fn new(
-        user_id: Arc<UserId>,
-        device_id: Arc<DeviceId>,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
         store: Store,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
@@ -192,8 +192,8 @@ impl GossipMachine {
 
             if let Some(s) = match event {
                 #[cfg(feature = "automatic-room-key-forwarding")]
-                RequestEvent::KeyShare(e) => self.handle_key_request(e).await?,
-                RequestEvent::Secret(e) => self.handle_secret_request(e).await?,
+                RequestEvent::KeyShare(e) => Box::pin(self.handle_key_request(e)).await?,
+                RequestEvent::Secret(e) => Box::pin(self.handle_secret_request(e)).await?,
                 #[cfg(not(feature = "automatic-room-key-forwarding"))]
                 _ => None,
             } {
@@ -340,7 +340,7 @@ impl GossipMachine {
         &self,
         event: &RoomKeyRequestEvent,
         device: Device,
-        session: InboundGroupSession,
+        session: &InboundGroupSession,
         message_index: Option<u32>,
     ) -> OlmResult<Option<Session>> {
         info!(
@@ -352,7 +352,7 @@ impl GossipMachine {
             "Serving a room key request",
         );
 
-        match self.forward_room_key(&session, &device, message_index).await {
+        match self.forward_room_key(session, &device, message_index).await {
             Ok(s) => Ok(Some(s)),
             Err(OlmError::MissingSession) => {
                 info!(
@@ -386,7 +386,7 @@ impl GossipMachine {
     async fn answer_room_key_request(
         &self,
         event: &RoomKeyRequestEvent,
-        session: InboundGroupSession,
+        session: &InboundGroupSession,
     ) -> OlmResult<Option<Session>> {
         use super::KeyForwardDecision;
 
@@ -404,7 +404,7 @@ impl GossipMachine {
             return Ok(None);
         };
 
-        match self.should_share_key(&device, &session).await {
+        match self.should_share_key(&device, session).await {
             Ok(message_index) => {
                 self.try_to_forward_room_key(event, device, session, message_index).await
             }
@@ -440,7 +440,7 @@ impl GossipMachine {
         let session = self.store.get_inbound_group_session(room_id, session_id).await?;
 
         if let Some(s) = session {
-            self.answer_room_key_request(event, s).await
+            self.answer_room_key_request(event, &s).await
         } else {
             debug!(
                 user_id = ?event.sender,
@@ -733,16 +733,14 @@ impl GossipMachine {
         room_id: &RoomId,
         event: &EncryptedEvent,
     ) -> Result<bool, CryptoStoreError> {
-        Ok(if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
+        if let Some(info) = event.room_key_info(room_id).map(|i| i.into()) {
             if self.should_request_key(&info).await? {
                 self.request_key_helper(info).await?;
-                true
-            } else {
-                false
+                return Ok(true);
             }
-        } else {
-            false
-        })
+        }
+
+        Ok(false)
     }
 
     /// Save an outgoing key info.
@@ -881,9 +879,12 @@ impl GossipMachine {
     ) -> Result<Option<SecretName>, CryptoStoreError> {
         debug!(request_id = event.content.request_id.as_str(), "Received a m.secret.send event");
 
-        let request_id = <&TransactionId>::from(event.content.request_id.as_str());
+        let maybe_request = self
+            .store
+            .get_outgoing_secret_requests(event.content.request_id.as_str().into())
+            .await?;
 
-        Ok(if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
+        Ok(if let Some(request) = maybe_request {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
                     warn!(
@@ -1118,7 +1119,7 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     fn test_gossip_machine(user_id: &UserId) -> GossipMachine {
-        let user_id = Arc::from(user_id);
+        let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
         let account = ReadOnlyAccount::new(&user_id, &device_id);
@@ -1128,17 +1129,11 @@ mod tests {
         let store = Store::new(user_id.to_owned(), identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(
-            user_id,
-            device_id.into(),
-            store,
-            session_cache,
-            Arc::new(DashMap::new()),
-        )
+        GossipMachine::new(user_id, device_id, store, session_cache, Arc::new(DashMap::new()))
     }
 
     async fn get_machine() -> GossipMachine {
-        let user_id: Arc<UserId> = alice_id().into();
+        let user_id = alice_id().to_owned();
         let account = ReadOnlyAccount::new(&user_id, alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
         let another_device =
@@ -1596,12 +1591,12 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
         alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
@@ -1655,12 +1650,12 @@ mod tests {
             .is_none());
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
 
@@ -1810,12 +1805,12 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = decrypted.result.event else {
+        let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
 
         let session = alice_machine
-            .receive_forwarded_room_key(decrypted.result.sender_key, &ev)
+            .receive_forwarded_room_key(decrypted.result.sender_key, ev)
             .await
             .unwrap();
         alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();

@@ -23,11 +23,13 @@ use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
         sync::sync_events::{
-            v3::{Ephemeral, InvitedRoom, Presence, RoomAccountData, State},
-            DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+            v3::InvitedRoom, DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
-    events::{AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyToDeviceEvent},
+    events::{
+        presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
+    },
     serde::Raw,
     DeviceKeyAlgorithm, OwnedRoomId,
 };
@@ -44,11 +46,11 @@ pub struct SyncResponse {
     /// Updates to rooms.
     pub rooms: Rooms,
     /// Updates to the presence status of other users.
-    pub presence: Presence,
+    pub presence: Vec<Raw<PresenceEvent>>,
     /// The global private data created by this user.
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
-    pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    pub to_device: Vec<Raw<AnyToDeviceEvent>>,
     /// Information on E2E device updates.
     ///
     /// Only present on an incremental sync.
@@ -67,19 +69,18 @@ impl fmt::Debug for SyncResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyncResponse")
             .field("rooms", &self.rooms)
-            .field("presence", &self.presence)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
-            .field("to_device_events", &DebugListOfRawEventsNoId(&self.to_device_events))
+            .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
             .field("device_lists", &self.device_lists)
             .field("device_one_time_keys_count", &self.device_one_time_keys_count)
             .field("ambiguity_changes", &self.ambiguity_changes)
-            .field("notifications", &self.notifications)
-            .finish()
+            .field("notifications", &DebugNotificationMap(&self.notifications))
+            .finish_non_exhaustive()
     }
 }
 
 /// Updates to rooms in a [`SyncResponse`].
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.
     pub leave: BTreeMap<OwnedRoomId, LeftRoom>,
@@ -90,7 +91,7 @@ pub struct Rooms {
 }
 
 /// Updates to joined rooms.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct JoinedRoom {
     /// Counts of unread notifications for this room.
     pub unread_notifications: UnreadNotificationsCount,
@@ -100,20 +101,20 @@ pub struct JoinedRoom {
     /// parameter, and the start of the `timeline` (or all state up to the
     /// start of the `timeline`, if `since` is not given, or `full_state` is
     /// true).
-    pub state: State,
+    pub state: Vec<Raw<AnySyncStateEvent>>,
     /// The private data that this user has attached to this room.
     pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
     /// The ephemeral events in the room that aren't recorded in the timeline or
     /// state of the room. e.g. typing.
-    pub ephemeral: Ephemeral,
+    pub ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
 }
 
 impl JoinedRoom {
     pub(crate) fn new(
         timeline: Timeline,
-        state: State,
+        state: Vec<Raw<AnySyncStateEvent>>,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
-        ephemeral: Ephemeral,
+        ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         unread_notifications: UnreadNotificationsCount,
     ) -> Self {
         Self { unread_notifications, timeline, state, account_data, ephemeral }
@@ -140,7 +141,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 }
 
 /// Updates to left rooms.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct LeftRoom {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.
@@ -149,19 +150,23 @@ pub struct LeftRoom {
     /// parameter, and the start of the `timeline` (or all state up to the
     /// start of the `timeline`, if `since` is not given, or `full_state` is
     /// true).
-    pub state: State,
+    pub state: Vec<Raw<AnySyncStateEvent>>,
     /// The private data that this user has attached to this room.
-    pub account_data: RoomAccountData,
+    pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
 }
 
 impl LeftRoom {
-    pub(crate) fn new(timeline: Timeline, state: State, account_data: RoomAccountData) -> Self {
+    pub(crate) fn new(
+        timeline: Timeline,
+        state: Vec<Raw<AnySyncStateEvent>>,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+    ) -> Self {
         Self { timeline, state, account_data }
     }
 }
 
 /// Events in the room.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default)]
 pub struct Timeline {
     /// True if the number of events returned was limited by the `limit` on the
     /// filter.

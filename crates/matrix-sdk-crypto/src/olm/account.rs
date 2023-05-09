@@ -113,7 +113,8 @@ pub(crate) struct OlmDecryptionInfo {
 
 #[derive(Debug)]
 pub(crate) struct DecryptionResult {
-    pub event: AnyDecryptedOlmEvent,
+    // AnyDecryptedOlmEvent is pretty big at 512 bytes, box it to reduce stack size
+    pub event: Box<AnyDecryptedOlmEvent>,
     pub raw_event: Raw<AnyToDeviceEvent>,
     pub sender_key: Curve25519PublicKey,
 }
@@ -203,7 +204,7 @@ impl Account {
 
             Err(EventError::MissingCiphertext.into())
         } else {
-            self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
+            Box::pin(self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext)).await
         }
     }
 
@@ -353,13 +354,15 @@ impl Account {
             }
         };
 
-        let session_id = match &session {
-            SessionType::New(s) => s.session_id(),
-            SessionType::Existing(s) => s.session_id(),
-        };
+        {
+            let session_id = match &session {
+                SessionType::New(s) => s.session_id(),
+                SessionType::Existing(s) => s.session_id(),
+            };
 
-        Span::current().record("session_id", session_id);
-        trace!("Successfully decrypted an Olm message");
+            Span::current().record("session_id", session_id);
+            trace!("Successfully decrypted an Olm message");
+        }
 
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
@@ -418,7 +421,7 @@ impl Account {
         sender_key: Curve25519PublicKey,
         plaintext: String,
     ) -> OlmResult<DecryptionResult> {
-        let event: AnyDecryptedOlmEvent = serde_json::from_str(&plaintext)?;
+        let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
         let identity_keys = self.inner.identity_keys();
 
         if event.recipient() != self.user_id() {
@@ -443,7 +446,7 @@ impl Account {
             // Ed25519 key of the sender until we decrypt room events. This
             // ensures that we receive the room key even if we don't have access
             // to the device.
-            if !matches!(event, AnyDecryptedOlmEvent::RoomKey(_)) {
+            if !matches!(*event, AnyDecryptedOlmEvent::RoomKey(_)) {
                 let Some(device) =
                     self.store.get_device_from_curve_key(event.sender(), sender_key).await? else {
                         return Err(EventError::MissingSigningKey.into());
@@ -478,9 +481,9 @@ impl Account {
 #[derive(Clone)]
 pub struct ReadOnlyAccount {
     /// The user_id this account belongs to
-    pub user_id: Arc<UserId>,
+    pub user_id: OwnedUserId,
     /// The device_id of this entry
-    pub device_id: Arc<DeviceId>,
+    pub device_id: OwnedDeviceId,
     inner: Arc<Mutex<InnerAccount>>,
     /// The associated identity keys
     pub identity_keys: Arc<IdentityKeys>,

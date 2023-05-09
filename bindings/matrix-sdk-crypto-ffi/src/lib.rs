@@ -15,7 +15,7 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Context;
 pub use backup_recovery_key::{
@@ -42,7 +42,7 @@ pub use responses::{
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
 use ruma::{
-    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility, DeviceId,
+    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -232,21 +232,15 @@ async fn migrate_data(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let user_id: Arc<UserId> = {
-        let user_id: OwnedUserId = parse_user_id(&data.account.user_id)?;
-        let user_id: &UserId = user_id.borrow();
-
-        user_id.into()
-    };
-    let device_id: Box<DeviceId> = data.account.device_id.into();
-    let device_id: Arc<DeviceId> = device_id.into();
+    let user_id = parse_user_id(&data.account.user_id)?;
+    let device_id: OwnedDeviceId = data.account.device_id.into();
 
     let account = Account::from_libolm_pickle(&data.account.pickle, &data.pickle_key)?;
     let pickle = account.pickle();
     let identity_keys = Arc::new(account.identity_keys());
     let pickled_account = matrix_sdk_crypto::olm::PickledAccount {
         user_id: parse_user_id(&data.account.user_id)?,
-        device_id: device_id.as_ref().to_owned(),
+        device_id: device_id.clone(),
         pickle,
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
@@ -379,7 +373,7 @@ async fn migrate_session_data(
     let total_steps = 1 + data.sessions.len() + data.inbound_group_sessions.len();
     let processed_steps = 0;
 
-    let user_id = UserId::parse(data.user_id)?.into();
+    let user_id = UserId::parse(data.user_id)?;
     let device_id: OwnedDeviceId = data.device_id.into();
 
     let identity_keys = IdentityKeys {
@@ -394,7 +388,7 @@ async fn migrate_session_data(
         &listener,
         &data.pickle_key,
         user_id,
-        device_id.into(),
+        device_id,
         identity_keys,
         data.sessions,
         data.inbound_group_sessions,
@@ -410,8 +404,8 @@ fn collect_sessions(
     total_steps: usize,
     listener: &dyn Fn(usize, usize),
     pickle_key: &[u8],
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     identity_keys: Arc<IdentityKeys>,
     session_pickles: Vec<PickledSession>,
     group_session_pickles: Vec<PickledInboundGroupSession>,

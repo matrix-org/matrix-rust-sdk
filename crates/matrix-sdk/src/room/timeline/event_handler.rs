@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, Vector};
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -289,7 +289,7 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(NewEventTimelineItem::message(c, relations));
+                    self.add(NewEventTimelineItem::message(c, relations, self.items));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(c) => {
@@ -487,7 +487,7 @@ impl<'a> TimelineEventHandler<'a> {
         if let Some((_, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let Some(remote_event_item) = event_item.as_remote() else {
-                    error!("inconsistent state: reaction received on a non-remote event item");
+                    error!("inconsistent state: redaction received on a non-remote event item");
                     return None;
                 };
 
@@ -540,6 +540,11 @@ impl<'a> TimelineEventHandler<'a> {
                 error!("inconsistent state: redaction received on a non-remote event item");
                 return None;
             };
+
+            if let TimelineItemContent::RedactedMessage = &event_item.content {
+                debug!("event item is already redacted");
+                return None;
+            }
 
             let mut event_item = event_item.to_owned();
             event_item.content = TimelineItemContent::RedactedMessage;
@@ -700,10 +705,12 @@ impl<'a> TimelineEventHandler<'a> {
                         trace!(?item, ?old_item, "Received duplicate event");
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
-                            warn!(
-                                "Skipping original form of an event that was previously redacted"
-                            );
-                            return;
+                            warn!("Got original form of an event that was previously redacted");
+                            item.content = TimelineItemContent::RedactedMessage;
+                            item.as_remote_mut()
+                                .expect("Can't have a local item when flow == Remote")
+                                .reactions
+                                .clear();
                         }
                     };
 
@@ -960,8 +967,10 @@ impl NewEventTimelineItem {
     fn message(
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let content = TimelineItemContent::Message(Message::from_event(c, relations));
+        let content =
+            TimelineItemContent::Message(Message::from_event(c, relations, timeline_items));
 
         Self::from_content(content)
     }

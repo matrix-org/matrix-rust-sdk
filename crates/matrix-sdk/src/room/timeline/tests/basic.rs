@@ -330,5 +330,6 @@ async fn reply() {
 
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
-    assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(msg) => msg);
+    assert_eq!(replied_to_event.sender(), *ALICE);
 }

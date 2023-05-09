@@ -124,7 +124,7 @@ pub struct InboundGroupSession {
     pub(crate) creator_info: SessionCreatorInfo,
 
     /// The Room this GroupSession belongs to
-    pub room_id: Arc<RoomId>,
+    pub room_id: OwnedRoomId,
 
     /// A flag recording whether the `InboundGroupSession` was received directly
     /// as a `m.room_key` event or indirectly via a forward or file import.
@@ -531,7 +531,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: key.room_id.to_owned().into(),
+            room_id: key.room_id.to_owned(),
             imported: true,
             algorithm: key.algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
@@ -558,7 +558,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: value.room_id.to_owned().into(),
+            room_id: value.room_id.to_owned(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
@@ -581,7 +581,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             },
             history_visibility: None.into(),
             first_known_index,
-            room_id: value.room_id.to_owned().into(),
+            room_id: value.room_id.to_owned(),
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),

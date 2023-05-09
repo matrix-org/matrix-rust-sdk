@@ -1,8 +1,22 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
 use ruma::api::client::sync::sync_events::{
-    v3::{self, Ephemeral, RoomSummary},
+    v3::{self, RoomSummary},
     v4,
 };
 use tracing::{debug, info, instrument};
@@ -50,10 +64,10 @@ impl BaseClient {
 
         let v4::Extensions { to_device, e2ee, account_data, receipts, .. } = extensions;
 
-        let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
+        let to_device = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
         info!(
-            to_device_events = to_device_events.len(),
+            to_device_events = to_device.len(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
             device_unused_fallback_key_types =
                 e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len())
@@ -66,9 +80,9 @@ impl BaseClient {
         // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
         // counts.
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = self
+        let to_device = self
             .preprocess_to_device_events(
-                to_device_events,
+                to_device,
                 &e2ee.device_lists,
                 &e2ee.device_one_time_keys_count,
                 e2ee.device_unused_fallback_key_types.as_deref(),
@@ -185,9 +199,9 @@ impl BaseClient {
                     room_id.clone(),
                     JoinedRoom::new(
                         timeline,
-                        v3::State::with_events(room_data.required_state.clone()),
+                        room_data.required_state.clone(),
                         room_account_data.unwrap_or_default(),
-                        Ephemeral::default(),
+                        Vec::new(),
                         notification_count,
                     ),
                 );
@@ -249,7 +263,7 @@ impl BaseClient {
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: account_data.global.clone(),
-            to_device_events,
+            to_device,
             device_lists: e2ee.device_lists.clone(),
             device_one_time_keys_count,
         })

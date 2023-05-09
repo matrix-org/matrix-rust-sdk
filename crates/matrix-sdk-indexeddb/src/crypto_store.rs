@@ -34,7 +34,7 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
 use wasm_bindgen::JsValue;
@@ -134,8 +134,8 @@ type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
     identity_keys: Arc<IdentityKeys>,
 }
 

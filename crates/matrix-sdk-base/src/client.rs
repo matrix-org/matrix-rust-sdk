@@ -274,8 +274,8 @@ impl BaseClient {
     ) -> Result<Option<SyncTimelineEvent>> {
         let Some(olm) = self.olm_machine() else { return Ok(None) };
 
-        let event = olm.decrypt_room_event(event.cast_ref(), room_id).await?;
-        let event: SyncTimelineEvent = event.into();
+        let event: SyncTimelineEvent =
+            olm.decrypt_room_event(event.cast_ref(), room_id).await?.into();
 
         if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
             match &e {
@@ -310,13 +310,10 @@ impl BaseClient {
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<Timeline> {
-        let room_id = room.room_id();
-        let user_id = room.own_user_id();
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
         for event in events {
-            #[allow(unused_mut)]
             let mut event: SyncTimelineEvent = event.into();
 
             match event.event.deserialize() {
@@ -326,7 +323,12 @@ impl BaseClient {
                         AnySyncTimelineEvent::State(s) => {
                             match s {
                                 AnySyncStateEvent::RoomMember(member) => {
-                                    ambiguity_cache.handle_event(changes, room_id, member).await?;
+                                    Box::pin(ambiguity_cache.handle_event(
+                                        changes,
+                                        room.room_id(),
+                                        member,
+                                    ))
+                                    .await?;
 
                                     match member.membership() {
                                         MembershipState::Join | MembershipState::Invite => {
@@ -344,7 +346,7 @@ impl BaseClient {
                                     if member.state_key() == member.sender() {
                                         changes
                                             .profiles
-                                            .entry(room_id.to_owned())
+                                            .entry(room.room_id().to_owned())
                                             .or_default()
                                             .insert(member.sender().to_owned(), member.into());
                                     }
@@ -355,7 +357,7 @@ impl BaseClient {
                             }
 
                             let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
-                            changes.add_state_event(room_id, s.clone(), raw_event);
+                            changes.add_state_event(room.room_id(), s.clone(), raw_event);
                         }
 
                         #[cfg(feature = "e2e-encryption")]
@@ -370,7 +372,7 @@ impl BaseClient {
                         ) => {
                             room_info.handle_redaction(r);
                             let raw_event = event.event.clone().cast();
-                            changes.add_redaction(room_id, &r.redacts, raw_event);
+                            changes.add_redaction(room.room_id(), &r.redacts, raw_event);
                         }
 
                         #[cfg(feature = "e2e-encryption")]
@@ -378,8 +380,10 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Ok(Some(e)) =
-                                    self.decrypt_sync_room_event(&event.event, room_id).await
+                                if let Ok(Some(e)) = Box::pin(
+                                    self.decrypt_sync_room_event(&event.event, room.room_id()),
+                                )
+                                .await
                                 {
                                     event = e;
                                 }
@@ -387,15 +391,14 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomMessage(
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
-                                ruma::events::room::message::MessageType::VerificationRequest(
-                                    _,
-                                ) => {
-                                    self.handle_verification_event(e, room_id).await?;
+                                MessageType::VerificationRequest(_) => {
+                                    Box::pin(self.handle_verification_event(e, room.room_id()))
+                                        .await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                self.handle_verification_event(e, room_id).await?;
+                                Box::pin(self.handle_verification_event(e, room.room_id())).await?;
                             }
                             _ => (),
                         },
@@ -405,7 +408,13 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &mut push_context {
-                        self.update_push_room_context(context, user_id, room_info, changes).await;
+                        self.update_push_room_context(
+                            context,
+                            room.own_user_id(),
+                            room_info,
+                            changes,
+                        )
+                        .await;
                     } else {
                         push_context = self.get_push_room_context(room, room_info, changes).await?;
                     }
@@ -415,12 +424,12 @@ impl BaseClient {
 
                         if actions.iter().any(Action::should_notify) {
                             changes.add_notification(
-                                room_id,
+                                room.room_id(),
                                 Notification::new(
                                     actions.to_owned(),
                                     event.event.clone(),
                                     false,
-                                    room_id.to_owned(),
+                                    room.room_id().to_owned(),
                                     MilliSecondsSinceUnixEpoch::now(),
                                 ),
                             );
@@ -429,7 +438,7 @@ impl BaseClient {
                     }
                 }
                 Err(e) => {
-                    warn!("Error deserializing event {:?}", e);
+                    warn!("Error deserializing event {e:?}");
                 }
             }
 
@@ -665,49 +674,38 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::v3::Response,
     ) -> Result<SyncResponse> {
-        #[allow(unused_variables)]
-        let api::sync::sync_events::v3::Response {
-            next_batch,
-            rooms,
-            presence,
-            account_data,
-            to_device,
-            device_lists,
-            device_one_time_keys_count,
-            device_unused_fallback_key_types,
-            ..
-        } = response;
-
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
-        if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
+        if self.store.sync_token.read().await.as_ref() == Some(&response.next_batch) {
             return Ok(SyncResponse::default());
         }
 
         let now = Instant::now();
-        let to_device_events = to_device.events;
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = self
+        let to_device = self
             .preprocess_to_device_events(
-                to_device_events,
-                &device_lists,
-                &device_one_time_keys_count,
-                device_unused_fallback_key_types.as_deref(),
+                response.to_device.events,
+                &response.device_lists,
+                &response.device_one_time_keys_count,
+                response.device_unused_fallback_key_types.as_deref(),
             )
             .await?;
 
-        let mut changes = StateChanges::new(next_batch.clone());
+        #[cfg(not(feature = "e2e-encryption"))]
+        let to_device = response.to_device.events;
+
+        let mut changes = Box::new(StateChanges::new(response.next_batch.clone()));
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
-        self.handle_account_data(&account_data.events, &mut changes).await;
+        self.handle_account_data(&response.account_data.events, &mut changes).await;
 
         let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
-        for (room_id, new_info) in rooms.join {
+        for (room_id, new_info) in response.rooms.join {
             let room = self.store.get_or_create_room(&room_id, RoomState::Joined).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_joined();
@@ -786,9 +784,9 @@ impl BaseClient {
                 room_id,
                 JoinedRoom::new(
                     timeline,
-                    new_info.state,
+                    new_info.state.events,
                     new_info.account_data.events,
-                    new_info.ephemeral,
+                    new_info.ephemeral.events,
                     notification_count,
                 ),
             );
@@ -796,7 +794,7 @@ impl BaseClient {
             changes.add_room(room_info);
         }
 
-        for (room_id, new_info) in rooms.leave {
+        for (room_id, new_info) in response.rooms.leave {
             let room = self.store.get_or_create_room(&room_id, RoomState::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
@@ -829,12 +827,13 @@ impl BaseClient {
                 .await;
 
             changes.add_room(room_info);
-            new_rooms
-                .leave
-                .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
+            new_rooms.leave.insert(
+                room_id,
+                LeftRoom::new(timeline, new_info.state.events, new_info.account_data.events),
+            );
         }
 
-        for (room_id, new_info) in rooms.invite {
+        for (room_id, new_info) in response.rooms.invite {
             let room = self.store.get_or_create_stripped_room(&room_id).await;
             let mut room_info = room.clone_info();
 
@@ -856,9 +855,10 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        self.handle_account_data(&account_data.events, &mut changes).await;
+        self.handle_account_data(&response.account_data.events, &mut changes).await;
 
-        changes.presence = presence
+        changes.presence = response
+            .presence
             .events
             .iter()
             .filter_map(|e| {
@@ -871,7 +871,7 @@ impl BaseClient {
 
         let sync_lock = self.sync_lock().write().await;
         self.store.save_changes(&changes).await?;
-        *self.store.sync_token.write().await = Some(next_batch.clone());
+        *self.store.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
         drop(sync_lock);
 
@@ -879,11 +879,12 @@ impl BaseClient {
 
         let response = SyncResponse {
             rooms: new_rooms,
-            presence,
-            account_data: account_data.events,
-            to_device_events,
-            device_lists,
-            device_one_time_keys_count: device_one_time_keys_count
+            presence: response.presence.events,
+            account_data: response.account_data.events,
+            to_device,
+            device_lists: response.device_lists,
+            device_one_time_keys_count: response
+                .device_one_time_keys_count
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
@@ -1159,7 +1160,7 @@ impl BaseClient {
                 .as_original()
                 .and_then(|ev| ev.content.displayname.clone())
                 .unwrap_or_else(|| user_id.localpart().to_owned())
-        } else if let Some(member) = room.get_member(user_id).await? {
+        } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
             member.name().to_owned()
         } else {
             return Ok(None);

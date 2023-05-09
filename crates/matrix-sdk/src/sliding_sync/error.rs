@@ -37,4 +37,8 @@ pub enum Error {
     /// sync.
     #[error("A caching request was made but a storage key is missing in sliding sync")]
     MissingStorageKeyForCaching,
+
+    /// The internal channel of `SlidingSync` seems to be broken.
+    #[error("SlidingSync's internal channel is broken")]
+    InternalChannelIsBroken,
 }

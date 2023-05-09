@@ -50,7 +50,7 @@ use crate::{
 /// It can be used to sign devices or other identities.
 #[derive(Clone, Debug)]
 pub struct PrivateCrossSigningIdentity {
-    user_id: Arc<UserId>,
+    user_id: OwnedUserId,
     shared: Arc<AtomicBool>,
     pub(crate) master_key: Arc<Mutex<Option<MasterSigning>>>,
     pub(crate) user_signing_key: Arc<Mutex<Option<UserSigning>>>,
@@ -617,11 +617,7 @@ impl PrivateCrossSigningIdentity {
 
         let keys = PickledSignings { master_key, user_signing_key, self_signing_key };
 
-        PickledCrossSigningIdentity {
-            user_id: self.user_id.as_ref().to_owned(),
-            shared: self.shared(),
-            keys,
-        }
+        PickledCrossSigningIdentity { user_id: self.user_id.clone(), shared: self.shared(), keys }
     }
 
     /// Restore the private cross signing identity from a pickle.

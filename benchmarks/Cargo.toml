@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 criterion = { version = "0.4.0", features = ["async", "async_tokio", "html_reports"] }
 matrix-sdk-crypto = { path = "../crates/matrix-sdk-crypto", version = "0.6.0"}
-matrix-sdk-sled = { path = "../crates/matrix-sdk-sled", version = "0.2.0", default-features = false, features = ["crypto-store"] }
+matrix-sdk-sqlite = { path = "../crates/matrix-sdk-sqlite", version = "0.1.0", default-features = false, features = ["crypto-store"] }
 matrix-sdk-test = { path = "../testing/matrix-sdk-test", version = "0.6.0"}
 ruma = { workspace = true }
 serde_json = { workspace = true }

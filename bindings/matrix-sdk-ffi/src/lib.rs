@@ -28,7 +28,7 @@ pub mod client_builder;
 mod error;
 pub mod event;
 mod helpers;
-pub mod notification_service;
+pub mod notification;
 pub mod room;
 pub mod room_member;
 pub mod session_verification;
@@ -52,8 +52,8 @@ pub use matrix_sdk::{
 pub use platform::*;
 
 pub use self::{
-    authentication_service::*, client::*, event::*, notification_service::*, room::*,
-    room_member::*, session_verification::*, sliding_sync::*, timeline::*, tracing::*,
+    authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
+    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
 
 uniffi::include_scaffolding!("api");

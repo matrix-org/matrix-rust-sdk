@@ -1672,6 +1672,10 @@ impl Client {
     /// use [`create_dm`][Self::create_dm], which is more convenient than
     /// assembling the [`create_room::v3::Request`] yourself.
     ///
+    /// If the `is_direct` field of the request is set to `true` and at least
+    /// one user is invited, the room will be automatically added to the direct
+    /// rooms in the account data.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -1813,7 +1817,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config, None).await;
+        let res = Box::pin(self.send_inner(request.clone(), config, None)).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1832,7 +1836,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return self.send_inner(request, config, None).await;
+                    return Box::pin(self.send_inner(request, config, None)).await;
                 }
             }
         }
@@ -1853,7 +1857,7 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = self.send_inner(request.clone(), config, homeserver.clone()).await;
+        let res = Box::pin(self.send_inner(request.clone(), config, homeserver.clone())).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1872,7 +1876,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return self.send_inner(request, config, homeserver).await;
+                    return Box::pin(self.send_inner(request, config, homeserver)).await;
                 }
             }
         }
@@ -2163,7 +2167,7 @@ impl Client {
         }
 
         let request = assign!(sync_events::v3::Request::new(), {
-            filter: sync_settings.filter,
+            filter: sync_settings.filter.map(|f| *f),
             since: sync_settings.token,
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
