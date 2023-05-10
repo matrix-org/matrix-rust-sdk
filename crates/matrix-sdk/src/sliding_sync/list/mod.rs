@@ -311,7 +311,19 @@ impl SlidingSyncListInner {
     /// Call this method when it's necessary to reset `Self`.
     fn reset(&self) {
         self.request_generator.write().unwrap().reset();
-        Observable::set(&mut self.state.write().unwrap(), SlidingSyncState::NotLoaded);
+        {
+            let mut state = self.state.write().unwrap();
+
+            let next_state = match **state {
+                SlidingSyncState::NotLoaded => SlidingSyncState::NotLoaded,
+                SlidingSyncState::Preloaded => SlidingSyncState::Preloaded,
+                SlidingSyncState::PartiallyLoaded | SlidingSyncState::FullyLoaded => {
+                    SlidingSyncState::PartiallyLoaded
+                }
+            };
+
+            Observable::set(&mut state, next_state);
+        }
     }
 
     // Update the state to the next request, and return it.
@@ -1439,7 +1451,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = NotLoaded,
+            list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [3; 7],
@@ -1452,7 +1464,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = NotLoaded,
+            list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [3; 7], [10; 23],
@@ -1465,7 +1477,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = NotLoaded,
+            list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = [42; 77],
@@ -1478,12 +1490,12 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = NotLoaded,
+            list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
                 ranges = ,
                 is_fully_loaded = true,
-                list_state = NotLoaded, // Is this correct?
+                list_state = PartiallyLoaded,
             },
         };
     }
