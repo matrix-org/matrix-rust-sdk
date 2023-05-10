@@ -285,17 +285,42 @@ mod tests {
     }
 
     async fn new_room(room_id: &RoomId, inner: v4::SlidingSyncRoom) -> SlidingSyncRoom {
+        new_room_with_timeline(room_id, inner, vec![]).await
+    }
+
+    async fn new_room_with_timeline(
+        room_id: &RoomId,
+        inner: v4::SlidingSyncRoom,
+        timeline: Vec<SyncTimelineEvent>,
+    ) -> SlidingSyncRoom {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        SlidingSyncRoom::new(client, room_id.to_owned(), inner, vec![])
+        SlidingSyncRoom::new(client, room_id.to_owned(), inner, timeline)
     }
 
     #[tokio::test]
-    async fn test_state() {
-        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+    async fn test_state_from_not_loaded() {
+        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
         assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+
+        // Update with an empty response, but it doesn't matter.
+        room.update(room_response!({}), vec![]);
+
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+    }
+
+    #[tokio::test]
+    async fn test_state_from_preloaded() {
+        let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+        room.state = SlidingSyncRoomState::Preloaded;
+
+        // Update with an empty response, but it doesn't matter.
+        room.update(room_response!({}), vec![]);
+
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
     }
 
     #[tokio::test]
@@ -456,13 +481,269 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_timeline_initially_empty() {
+        let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
+
+        assert!(room.timeline_queue.is_empty());
+    }
+
+    macro_rules! timeline_event {
+        (from $sender:literal with id $event_id:literal at $ts:literal: $message:literal) => {
+            TimelineEvent::new(
+                Raw::new(&json!({
+                    "content": RoomMessageEventContent::text_plain($message),
+                    "type": "m.room.message",
+                    "event_id": $event_id,
+                    "room_id": "!foo:bar.org",
+                    "origin_server_ts": $ts,
+                    "sender": $sender,
+                }))
+                .unwrap()
+                .cast()
+            ).into()
+        };
+    }
+
+    macro_rules! assert_timeline_queue_event_ids {
+        (
+            with $( $timeline_queue:ident ).* {
+                $(
+                    $nth:literal => $event_id:literal
+                ),*
+                $(,)*
+            }
+        ) => {
+            let timeline = & $( $timeline_queue ).*;
+
+            $(
+                assert_eq!(timeline[ $nth ].event.deserialize().unwrap().event_id(), $event_id);
+            )*
+        };
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_initially_not_empty() {
+        let room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_update_with_empty_timeline() {
+        let mut room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+
+        room.update(room_response!({}), vec![]);
+
+        // The queue is unmodified.
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_update_with_empty_timeline_and_with_limited() {
+        let mut room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+
+        room.update(
+            room_response!({
+                "limited": true
+            }),
+            vec![],
+        );
+
+        // The queue has been emptied.
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+        assert_eq!(room.timeline_queue.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_update_from_preloaded() {
+        let mut room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        room.state = SlidingSyncRoomState::Preloaded;
+
+        assert_eq!(room.state, SlidingSyncRoomState::Preloaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+
+        room.update(
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x2:baz.org" at 2: "message 2"),
+                timeline_event!(from "@alice:baz.org" with id "$x3:baz.org" at 3: "message 3"),
+            ],
+        );
+
+        // The queue is emptied, and new events are appended.
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x2:baz.org",
+                1 => "$x3:baz.org",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_update_from_not_loaded() {
+        let mut room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+
+        room.update(
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x2:baz.org" at 2: "message 2"),
+                timeline_event!(from "@alice:baz.org" with id "$x3:baz.org" at 3: "message 3"),
+            ],
+        );
+
+        // New events are appended to the queue.
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+        assert_eq!(room.timeline_queue.len(), 4);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+                2 => "$x2:baz.org",
+                3 => "$x3:baz.org",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeline_queue_update_from_not_loaded_with_limited() {
+        let mut room = new_room_with_timeline(
+            room_id!("!foo:bar.org"),
+            room_response!({}),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x0:baz.org" at 0: "message 0"),
+                timeline_event!(from "@alice:baz.org" with id "$x1:baz.org" at 1: "message 1"),
+            ],
+        )
+        .await;
+
+        assert_eq!(room.state, SlidingSyncRoomState::NotLoaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x0:baz.org",
+                1 => "$x1:baz.org",
+            }
+        );
+
+        room.update(
+            room_response!({
+                "limited": true,
+            }),
+            vec![
+                timeline_event!(from "@alice:baz.org" with id "$x2:baz.org" at 2: "message 2"),
+                timeline_event!(from "@alice:baz.org" with id "$x3:baz.org" at 3: "message 3"),
+            ],
+        );
+
+        // The queue is emptied, and new events are appended.
+        assert_eq!(room.state, SlidingSyncRoomState::Loaded);
+        assert_eq!(room.timeline_queue.len(), 2);
+        assert_timeline_queue_event_ids!(
+            with room.timeline_queue {
+                0 => "$x2:baz.org",
+                1 => "$x3:baz.org",
+            }
+        );
+    }
+
     #[test]
     fn test_frozen_sliding_sync_room_serialization() {
         let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             inner: v4::SlidingSyncRoom::default(),
             timeline_queue: vector![TimelineEvent::new(
-                Raw::new(&json! ({
+                Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
                     "type": "m.room.message",
                     "event_id": "$xxxxx:example.org",
