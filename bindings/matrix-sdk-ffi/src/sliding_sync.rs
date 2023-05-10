@@ -213,9 +213,9 @@ impl SlidingSyncRoom {
         settings: Option<RoomSubscription>,
     ) -> Result<SlidingSyncSubscribeResult, ClientError> {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
-        let room_id = self.inner.room_id().clone();
+        let room_id = self.inner.room_id().to_owned();
 
-        self.runner.subscribe(room_id.clone(), settings.map(Into::into))?;
+        self.runner.subscribe(room_id.to_owned().clone(), settings.map(Into::into))?;
 
         let runner = self.runner.clone();
         stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id).unwrap()));
