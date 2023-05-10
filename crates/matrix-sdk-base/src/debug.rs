@@ -61,7 +61,7 @@ struct DebugNotification<'a>(&'a Notification);
 #[cfg(not(tarpaulin_include))]
 impl<'a> fmt::Debug for DebugNotification<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DebugNotification")
+        f.debug_struct("Notification")
             .field("actions", &self.0.actions)
             .field("event", &DebugRawEvent(&self.0.event))
             .field("profile_tag", &self.0.profile_tag)
