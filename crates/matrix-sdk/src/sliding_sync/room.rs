@@ -758,8 +758,27 @@ mod tests {
         };
 
         assert_eq!(
-            serde_json::to_string(&frozen_sliding_sync_room).unwrap(),
-            r#"{"room_id":"!29fhd83h92h0:example.com","inner":{},"timeline":[{"event":{"content":{"body":"let it gooo!","msgtype":"m.text"},"event_id":"$xxxxx:example.org","origin_server_ts":2189,"room_id":"!someroom:example.com","sender":"@bob:example.com","type":"m.room.message"},"encryption_info":null}]}"#,
+            serde_json::to_value(&frozen_sliding_sync_room).unwrap(),
+            json!({
+                "room_id": "!29fhd83h92h0:example.com",
+                "inner": {},
+                "timeline": [
+                    {
+                        "event": {
+                            "content": {
+                                "body": "let it gooo!",
+                                "msgtype": "m.text"
+                            },
+                            "event_id": "$xxxxx:example.org",
+                            "origin_server_ts": 2189,
+                            "room_id": "!someroom:example.com",
+                            "sender": "@bob:example.com",
+                            "type": "m.room.message"
+                        },
+                        "encryption_info": null
+                    }
+                ]
+            })
         );
     }
 }
