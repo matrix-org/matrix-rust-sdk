@@ -739,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_frozen_sliding_sync_room_serialization() {
-        let frozen_sliding_sync_room = FrozenSlidingSyncRoom {
+        let frozen_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             inner: v4::SlidingSyncRoom::default(),
             timeline_queue: vector![TimelineEvent::new(
@@ -758,7 +758,7 @@ mod tests {
         };
 
         assert_eq!(
-            serde_json::to_value(&frozen_sliding_sync_room).unwrap(),
+            serde_json::to_value(&frozen_room).unwrap(),
             json!({
                 "room_id": "!29fhd83h92h0:example.com",
                 "inner": {},
@@ -780,5 +780,87 @@ mod tests {
                 ]
             })
         );
+    }
+
+    #[tokio::test]
+    async fn test_frozen_sliding_sync_room_has_a_capped_version_of_the_timeline() {
+        // Just below the limit.
+        {
+            let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE - 1;
+            let timeline_events = (0..=max)
+                .map(|nth| {
+                    TimelineEvent::new(
+                    Raw::new(&json!({
+                        "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
+                        "type": "m.room.message",
+                        "event_id": format!("$x{nth}:baz.org"),
+                        "room_id": "!foo:bar.org",
+                        "origin_server_ts": nth,
+                        "sender": "@alice:baz.org",
+                    }))
+                    .unwrap()
+                    .cast(),
+                )
+                .into()
+                })
+                .collect::<Vec<_>>();
+
+            let room = new_room_with_timeline(
+                room_id!("!foo:bar.org"),
+                room_response!({}),
+                timeline_events,
+            )
+            .await;
+
+            let frozen_room = FrozenSlidingSyncRoom::from(&room);
+            assert_eq!(frozen_room.timeline_queue.len(), max + 1);
+            // Check that the last event is the last event of the timeline, i.e. we only
+            // keep the _latest_ events, not the _first_ events.
+            assert_eq!(
+                frozen_room.timeline_queue.last().unwrap().event.deserialize().unwrap().event_id(),
+                &format!("$x{max}:baz.org")
+            );
+        }
+
+        // Above the limit.
+        {
+            let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE + 2;
+            let timeline_events = (0..=max)
+                .map(|nth| {
+                    TimelineEvent::new(
+                    Raw::new(&json!({
+                        "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
+                        "type": "m.room.message",
+                        "event_id": format!("$x{nth}:baz.org"),
+                        "room_id": "!foo:bar.org",
+                        "origin_server_ts": nth,
+                        "sender": "@alice:baz.org",
+                    }))
+                    .unwrap()
+                    .cast(),
+                )
+                .into()
+                })
+                .collect::<Vec<_>>();
+
+            let room = new_room_with_timeline(
+                room_id!("!foo:bar.org"),
+                room_response!({}),
+                timeline_events,
+            )
+            .await;
+
+            let frozen_room = FrozenSlidingSyncRoom::from(&room);
+            assert_eq!(
+                frozen_room.timeline_queue.len(),
+                NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE
+            );
+            // Check that the last event is the last event of the timeline, i.e. we only
+            // keep the _latest_ events, not the _first_ events.
+            assert_eq!(
+                frozen_room.timeline_queue.last().unwrap().event.deserialize().unwrap().event_id(),
+                &format!("$x{max}:baz.org")
+            );
+        }
     }
 }
