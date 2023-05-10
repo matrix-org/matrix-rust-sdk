@@ -28,7 +28,7 @@ use tracing::{instrument, warn};
 use super::{Error, SlidingSyncInternalMessage};
 use crate::Result;
 
-/// Holding a specific filtered list within the concept of sliding sync.
+/// Holding a specific filtered list within the concept of Sliding Sync.
 ///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
 #[derive(Clone, Debug)]
