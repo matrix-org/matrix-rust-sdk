@@ -159,7 +159,7 @@ pub struct SlidingSyncRoom {
 #[uniffi::export]
 impl SlidingSyncRoom {
     pub fn name(&self) -> Option<String> {
-        self.inner.name().map(ToOwned::to_owned)
+        self.inner.name()
     }
 
     pub fn room_id(&self) -> String {
