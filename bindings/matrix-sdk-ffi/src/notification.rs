@@ -21,7 +21,7 @@ pub struct NotificationItem {
 
     pub is_noisy: bool,
     pub is_direct: bool,
-    pub is_encrypted: bool,
+    pub is_encrypted: Option<bool>,
 }
 
 impl NotificationItem {
@@ -46,7 +46,10 @@ impl NotificationItem {
         room: Room,
         actions: Vec<Action>,
     ) -> anyhow::Result<Self> {
-        let sender = room.get_member(event.sender()).await?;
+        let sender = match &room {
+            Room::Invited(invited) => invited.invite_details().await?.inviter,
+            _ => room.get_member(event.sender()).await?,
+        };
         let mut sender_display_name = None;
         let mut sender_avatar_url = None;
         if let Some(sender) = sender {
@@ -65,7 +68,7 @@ impl NotificationItem {
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
             is_noisy,
             is_direct: room.is_direct().await?,
-            is_encrypted: room.is_encrypted().await?,
+            is_encrypted: room.is_encrypted().await.ok(),
         };
         Ok(item)
     }
