@@ -14,6 +14,7 @@
 
 use std::{fmt, time::Duration};
 
+use matrix_sdk_common::debug::DebugStructExt;
 use ruma::{api::client::sync::sync_events, presence::PresenceState};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,20 +39,13 @@ impl Default for SyncSettings {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("SyncSettings");
-
-        macro_rules! opt_field {
-            ($field:ident) => {
-                if let Some(value) = &self.$field {
-                    s.field(stringify!($field), value);
-                }
-            };
-        }
-
-        opt_field!(filter);
-        opt_field!(timeout);
-
-        s.field("full_state", &self.full_state).finish()
+        let Self { filter, timeout, token: _, full_state, set_presence } = self;
+        f.debug_struct("SyncSettings")
+            .maybe_field("filter", filter)
+            .maybe_field("timeout", timeout)
+            .field("full_state", full_state)
+            .field("set_presence", set_presence)
+            .finish()
     }
 }
 
