@@ -22,7 +22,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::debug::DebugRawEvent;
+use crate::debug::{DebugRawEvent, DebugStructExt};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
@@ -257,11 +257,13 @@ impl SyncTimelineEvent {
 impl fmt::Debug for SyncTimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let SyncTimelineEvent { event, encryption_info, push_actions } = self;
-        f.debug_struct("SyncTimelineEvent")
-            .field("event", &DebugRawEvent(event))
-            .field("encryption_info", encryption_info)
-            .field("push_actions", push_actions)
-            .finish()
+        let mut s = f.debug_struct("SyncTimelineEvent");
+        s.field("event", &DebugRawEvent(event));
+        s.maybe_field("encryption_info", encryption_info);
+        if !push_actions.is_empty() {
+            s.field("push_actions", push_actions);
+        }
+        s.finish()
     }
 }
 
@@ -310,11 +312,13 @@ impl TimelineEvent {
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let TimelineEvent { event, encryption_info, push_actions } = self;
-        f.debug_struct("TimelineEvent")
-            .field("event", &DebugRawEvent(event))
-            .field("encryption_info", encryption_info)
-            .field("push_actions", push_actions)
-            .finish()
+        let mut s = f.debug_struct("TimelineEvent");
+        s.field("event", &DebugRawEvent(event));
+        s.maybe_field("encryption_info", encryption_info);
+        if !push_actions.is_empty() {
+            s.field("push_actions", push_actions);
+        }
+        s.finish()
     }
 }
 
