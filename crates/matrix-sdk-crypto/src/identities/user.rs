@@ -627,8 +627,9 @@ impl ReadOnlyOwnUserIdentity {
     ) -> Vec<OwnedDeviceId> {
         devices
             .into_iter()
-            .filter_map(|(d_id, d)| {
-                (d_id != own_device_id && self.is_device_signed(&d).is_ok()).then_some(d_id)
+            .filter_map(|(device_id, device)| {
+                (device_id != own_device_id && self.is_device_signed(&device).is_ok())
+                    .then_some(device_id)
             })
             .collect()
     }
