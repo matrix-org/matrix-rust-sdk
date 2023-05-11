@@ -18,6 +18,28 @@ use std::fmt;
 
 use ruma::serde::Raw;
 
+pub trait DebugStructExt<'a, 'b> {
+    fn maybe_field<T: fmt::Debug>(
+        &mut self,
+        name: &str,
+        value: &Option<T>,
+    ) -> &mut fmt::DebugStruct<'a, 'b>;
+}
+
+impl<'a, 'b> DebugStructExt<'a, 'b> for fmt::DebugStruct<'a, 'b> {
+    fn maybe_field<T: fmt::Debug>(
+        &mut self,
+        name: &str,
+        value: &Option<T>,
+    ) -> &mut fmt::DebugStruct<'a, 'b> {
+        if let Some(value) = value {
+            self.field(name, value);
+        }
+
+        self
+    }
+}
+
 /// A wrapper around `Raw` that implements `Debug` in a way that only prints the
 /// event ID and event type.
 pub struct DebugRawEvent<'a, T>(pub &'a Raw<T>);
