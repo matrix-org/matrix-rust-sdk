@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
@@ -81,7 +81,7 @@ impl fmt::Debug for SyncResponse {
 }
 
 /// Updates to rooms in a [`SyncResponse`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.
     pub leave: BTreeMap<OwnedRoomId, LeftRoom>,
@@ -91,8 +91,19 @@ pub struct Rooms {
     pub invite: BTreeMap<OwnedRoomId, InvitedRoom>,
 }
 
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for Rooms {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Rooms")
+            .field("leave", &self.leave)
+            .field("join", &self.join)
+            .field("invite", &DebugInvitedRooms(&self.invite))
+            .finish()
+    }
+}
+
 /// Updates to joined rooms.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct JoinedRoom {
     /// Counts of unread notifications for this room.
     pub unread_notifications: UnreadNotificationsCount,
@@ -108,6 +119,18 @@ pub struct JoinedRoom {
     /// The ephemeral events in the room that aren't recorded in the timeline or
     /// state of the room. e.g. typing.
     pub ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+}
+
+impl fmt::Debug for JoinedRoom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinedRoom")
+            .field("unread_notifications", &self.unread_notifications)
+            .field("timeline", &self.timeline)
+            .field("state", &DebugListOfRawEvents(&self.state))
+            .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
+            .field("ephemeral", &self.ephemeral)
+            .finish()
+    }
 }
 
 impl JoinedRoom {
@@ -142,7 +165,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 }
 
 /// Updates to left rooms.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LeftRoom {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.
@@ -166,6 +189,16 @@ impl LeftRoom {
     }
 }
 
+impl fmt::Debug for LeftRoom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinedRoom")
+            .field("timeline", &self.timeline)
+            .field("state", &DebugListOfRawEvents(&self.state))
+            .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
+            .finish()
+    }
+}
+
 /// Events in the room.
 #[derive(Clone, Debug, Default)]
 pub struct Timeline {
@@ -184,5 +217,36 @@ pub struct Timeline {
 impl Timeline {
     pub(crate) fn new(limited: bool, prev_batch: Option<String>) -> Self {
         Self { limited, prev_batch, ..Default::default() }
+    }
+}
+
+struct DebugInvitedRooms<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoom>);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugInvitedRooms<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugInvitedRoom(v)))).finish()
+    }
+}
+
+struct DebugInvitedRoom<'a>(&'a InvitedRoom);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InvitedRoom")
+            .field("invite_state", &DebugListOfRawEvents(&self.0.invite_state.events))
+            .finish()
+    }
+}
+
+struct DebugListOfRawEvents<'a, T>(&'a [Raw<T>]);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a, T> fmt::Debug for DebugListOfRawEvents<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        list.entries(self.0.iter().map(DebugRawEvent));
+        list.finish()
     }
 }
