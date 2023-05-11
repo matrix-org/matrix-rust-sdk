@@ -1,4 +1,6 @@
-use std::env;
+use std::{env, error::Error};
+
+use vergen::EmitBuilder;
 
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
@@ -27,7 +29,9 @@ fn setup_x86_64_android_workaround() {
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     setup_x86_64_android_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
+    EmitBuilder::builder().git_sha(true).emit()?;
+    Ok(())
 }
