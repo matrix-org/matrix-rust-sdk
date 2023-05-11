@@ -31,6 +31,7 @@
 
 use std::{cmp::min, ops::RangeInclusive};
 
+use super::Bound;
 use crate::sliding_sync::Error;
 
 /// The kind of request generator.
@@ -152,7 +153,7 @@ pub(super) fn create_range(
     desired_size: u32,
     maximum_number_of_rooms_to_fetch: Option<u32>,
     maximum_number_of_rooms: Option<u32>,
-) -> Result<RangeInclusive<u32>, Error> {
+) -> Result<RangeInclusive<Bound>, Error> {
     // Calculate the range.
     // The `start` bound is given. Let's calculate the `end` bound.
 

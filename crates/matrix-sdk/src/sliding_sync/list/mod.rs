@@ -386,8 +386,7 @@ impl SlidingSyncListInner {
             .collect();
         let sort = self.sort.clone();
         let required_state = self.required_state.clone();
-        let timeline_limit =
-            self.timeline_limit.read().unwrap().map(|v| UInt::new(v as u64).unwrap());
+        let timeline_limit = self.timeline_limit.read().unwrap().map(UInt::from);
         let filters = self.filters.clone();
 
         assign!(v4::SyncRequestList::default(), {
