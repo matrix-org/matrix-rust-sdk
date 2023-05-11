@@ -40,7 +40,8 @@ pub enum SlidingSyncRoomState {
 /// It contains some information about a specific room, along with a queue of
 /// events for the timeline.
 ///
-/// It is OK to clone this type as much as you need: cloning it is cheap.
+/// It is OK to clone this type as much as you need: cloning it is cheap, and
+/// shallow. All clones of the same value are sharing the same state.
 #[derive(Debug, Clone)]
 pub struct SlidingSyncRoom {
     inner: Arc<SlidingSyncRoomInner>,
@@ -398,9 +399,11 @@ mod tests {
         (
             $(
                 $test_name:ident {
-                    $getter:ident () $( . $getter_field:ident )? = $first_value:expr;
+                    $getter:ident () $( . $getter_field:ident )? = $default_value:expr;
                     receives $room_response:expr;
-                    _ = $second_value:expr;
+                    _ = $init_or_updated_value:expr;
+                    receives nothing;
+                    _ = $no_update_value:expr;
                 }
             )+
         ) => {
@@ -411,14 +414,14 @@ mod tests {
                     {
                         let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-                        assert_eq!(room.$getter() $( . $getter_field )?, $first_value);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value");
                     }
 
                     // Some value when initializing.
                     {
                         let room = new_room(room_id!("!foo:bar.org"), $room_response).await;
 
-                        assert_eq!(room.$getter() $( . $getter_field )?, $second_value);
+                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "init value");
                     }
 
                     // Some value when updating.
@@ -426,12 +429,20 @@ mod tests {
 
                         let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-                        assert_eq!(room.$getter() $( . $getter_field )?, $first_value);
+                        // Value is set to the default value.
+                        assert_eq!(room.$getter() $( . $getter_field )?, $default_value, "default value (bis)");
 
                         room.update($room_response, vec![]);
 
-                        assert_eq!(room.$getter() $( . $getter_field )?, $second_value);
+                        // Value has been updated.
+                        assert_eq!(room.$getter() $( . $getter_field )?, $init_or_updated_value, "updated value");
+
+                        room.update(room_response!({}), vec![]);
+
+                        // Value is kept.
+                        assert_eq!(room.$getter() $( . $getter_field )?, $no_update_value, "not updated value");
                     }
+
                 }
             )+
         };
@@ -442,11 +453,15 @@ mod tests {
             name() = None;
             receives room_response!({"name": "gordon"});
             _ = Some("gordon".to_string());
+            receives nothing;
+            _ = Some("gordon".to_string());
         }
 
         test_room_is_dm {
             is_dm() = None;
             receives room_response!({"is_dm": true});
+            _ = Some(true);
+            receives nothing;
             _ = Some(true);
         }
 
@@ -454,30 +469,40 @@ mod tests {
             is_initial_response() = None;
             receives room_response!({"initial": true});
             _ = Some(true);
+            receives nothing;
+            _ = Some(true);
         }
 
         test_has_unread_notifications_with_notification_count {
             has_unread_notifications() = false;
             receives room_response!({"notification_count": 42});
             _ = true;
+            receives nothing;
+            _ = false;
         }
 
         test_has_unread_notifications_with_highlight_count {
             has_unread_notifications() = false;
             receives room_response!({"highlight_count": 42});
             _ = true;
+            receives nothing;
+            _ = false;
         }
 
         test_unread_notifications_with_notification_count {
             unread_notifications().notification_count = None;
             receives room_response!({"notification_count": 42});
             _ = Some(uint!(42));
+            receives nothing;
+            _ = None;
         }
 
         test_unread_notifications_with_highlight_count {
             unread_notifications().highlight_count = None;
             receives room_response!({"highlight_count": 42});
             _ = Some(uint!(42));
+            receives nothing;
+            _ = None;
         }
     }
 
@@ -506,7 +531,9 @@ mod tests {
             assert_eq!(room.inner.prev_batch(), None);
 
             room.update(room_response!({"prev_batch": "t111_222_333"}), vec![]);
+            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_string()));
 
+            room.update(room_response!({}), vec![]);
             assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_string()));
         }
     }
@@ -563,7 +590,9 @@ mod tests {
                 }),
                 vec![],
             );
+            assert!(!room.required_state().is_empty());
 
+            room.update(room_response!({}), vec![]);
             assert!(!room.required_state().is_empty());
         }
     }
