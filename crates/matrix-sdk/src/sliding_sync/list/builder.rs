@@ -3,16 +3,17 @@
 use std::{
     convert::identity,
     fmt,
+    ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
 
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
-use ruma::{api::client::sync::sync_events::v4, events::StateEventType, UInt};
+use ruma::{api::client::sync::sync_events::v4, events::StateEventType};
 use tokio::sync::mpsc::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, SlidingSyncList, SlidingSyncListInner,
+    super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListInner,
     SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 
@@ -28,9 +29,9 @@ pub struct SlidingSyncListBuilder {
     full_sync_batch_size: u32,
     full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
-    timeline_limit: Option<UInt>,
+    timeline_limit: Option<Bound>,
     name: String,
-    ranges: Vec<(UInt, UInt)>,
+    ranges: Vec<RangeInclusive<Bound>>,
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
 
@@ -130,8 +131,8 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the limit of regular events to fetch for the timeline.
-    pub fn timeline_limit<U: Into<UInt>>(mut self, timeline_limit: U) -> Self {
-        self.timeline_limit = Some(timeline_limit.into());
+    pub fn timeline_limit(mut self, timeline_limit: Bound) -> Self {
+        self.timeline_limit = Some(timeline_limit);
         self
     }
 
@@ -143,24 +144,24 @@ impl SlidingSyncListBuilder {
     }
 
     /// Set the ranges to fetch.
-    pub fn ranges<U: Into<UInt>>(mut self, range: Vec<(U, U)>) -> Self {
-        self.ranges = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+    pub fn ranges(mut self, ranges: Vec<RangeInclusive<Bound>>) -> Self {
+        self.ranges = ranges;
         self
     }
 
-    /// Set a single range fetch.
-    pub fn set_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges = vec![(from.into(), to.into())];
-        self
-    }
-
-    /// Set the ranges to fetch.
-    pub fn add_range<U: Into<UInt>>(mut self, from: U, to: U) -> Self {
-        self.ranges.push((from.into(), to.into()));
+    /// Set a single range to fetch.
+    pub fn set_range(mut self, range: RangeInclusive<Bound>) -> Self {
+        self.ranges = vec![range];
         self
     }
 
     /// Set the ranges to fetch.
+    pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
+        self.ranges.push(range);
+        self
+    }
+
+    /// Reset the ranges to fetch.
     pub fn reset_ranges(mut self) -> Self {
         self.ranges.clear();
         self

@@ -11,7 +11,10 @@ use matrix_sdk::{
 use ruma::UInt;
 use tracing::warn;
 
-use crate::{error::TimelineError, helpers::unwrap_or_clone_arc};
+use crate::{
+    error::{ClientError, TimelineError},
+    helpers::unwrap_or_clone_arc,
+};
 
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
@@ -934,6 +937,15 @@ pub enum VirtualTimelineItem {
 
 #[extension_trait]
 pub impl MediaSourceExt for MediaSource {
+    fn from_json(json: String) -> Result<MediaSource, ClientError> {
+        let res = serde_json::from_str(&json)?;
+        Ok(res)
+    }
+
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("Media source should always be serializable ")
+    }
+
     fn url(&self) -> String {
         match self {
             MediaSource::Plain(url) => url.to_string(),
