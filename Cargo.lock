@@ -537,6 +537,8 @@ name = "benchmarks"
 version = "1.0.0"
 dependencies = [
  "criterion",
+ "matrix-sdk",
+ "matrix-sdk-base",
  "matrix-sdk-crypto",
  "matrix-sdk-sled",
  "matrix-sdk-sqlite",
