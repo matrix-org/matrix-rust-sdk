@@ -943,7 +943,7 @@ pub impl MediaSourceExt for MediaSource {
     }
 
     fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap()
+        serde_json::to_string(self).expect("Media source should always be serializable ")
     }
 
     fn url(&self) -> String {
