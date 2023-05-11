@@ -29,10 +29,9 @@
 //! user-specified limit representing the maximum number of rooms the user
 //! actually wants to load.
 
-use std::cmp::min;
+use std::{cmp::min, ops::RangeInclusive};
 
-use ruma::UInt;
-
+use super::Bound;
 use crate::sliding_sync::Error;
 
 /// The kind of request generator.
@@ -72,7 +71,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 #[derive(Debug)]
 pub(in super::super) struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
-    pub(super) ranges: Vec<(UInt, UInt)>,
+    pub(super) ranges: Vec<RangeInclusive<u32>>,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
 }
@@ -154,7 +153,7 @@ pub(super) fn create_range(
     desired_size: u32,
     maximum_number_of_rooms_to_fetch: Option<u32>,
     maximum_number_of_rooms: Option<u32>,
-) -> Result<(UInt, UInt), Error> {
+) -> Result<RangeInclusive<Bound>, Error> {
     // Calculate the range.
     // The `start` bound is given. Let's calculate the `end` bound.
 
@@ -185,30 +184,28 @@ pub(super) fn create_range(
         return Err(Error::InvalidRange { start, end });
     }
 
-    Ok((start.into(), end.into()))
+    Ok(RangeInclusive::new(start, end))
 }
 
 #[cfg(test)]
 mod tests {
-    use ruma::uint;
-
     use super::*;
 
     #[test]
     fn test_create_range_from() {
         // From 0, we want 100 items.
-        assert_eq!(create_range(0, 100, None, None), Ok((uint!(0), uint!(99))));
+        assert_eq!(create_range(0, 100, None, None), Ok(0..=99));
 
         // From 100, we want 100 items.
-        assert_eq!(create_range(100, 100, None, None), Ok((uint!(100), uint!(199))));
+        assert_eq!(create_range(100, 100, None, None), Ok(100..=199));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
-        assert_eq!(create_range(0, 100, Some(50), None), Ok((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(50), None), Ok(0..=49));
 
         // From 49, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, Some(50), None), Ok((uint!(49), uint!(49))));
+        assert_eq!(create_range(49, 100, Some(50), None), Ok(49..=49));
 
         // From 50, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
@@ -219,11 +216,11 @@ mod tests {
 
         // From 0, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
-        assert_eq!(create_range(0, 100, None, Some(50)), Ok((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, None, Some(50)), Ok(0..=49));
 
         // From 49, we want 100 items, but there is a maximum number of rooms defined at
         // 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, None, Some(50)), Ok((uint!(49), uint!(49))));
+        assert_eq!(create_range(49, 100, None, Some(50)), Ok(49..=49));
 
         // From 50, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
@@ -234,10 +231,10 @@ mod tests {
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 75, and a maximum number of rooms defined at 50.
-        assert_eq!(create_range(0, 100, Some(75), Some(50)), Ok((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(75), Some(50)), Ok(0..=49));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50, and a maximum number of rooms defined at 75.
-        assert_eq!(create_range(0, 100, Some(50), Some(75)), Ok((uint!(0), uint!(49))));
+        assert_eq!(create_range(0, 100, Some(50), Some(75)), Ok(0..=49));
     }
 }

@@ -8,7 +8,7 @@ use matrix_sdk::ruma::{
         v4::RoomSubscription as RumaRoomSubscription,
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    assign, IdParseError, OwnedRoomId, RoomId, UInt,
+    assign, IdParseError, OwnedRoomId, RoomId,
 };
 pub use matrix_sdk::{
     room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
@@ -533,9 +533,9 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn add_range(self: Arc<Self>, from: u32, to: u32) -> Arc<Self> {
+    pub fn add_range(self: Arc<Self>, from: u32, to_included: u32) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_range(from, to);
+        builder.inner = builder.inner.add_range(from..=to_included);
         Arc::new(builder)
     }
 
@@ -631,7 +631,7 @@ impl SlidingSyncList {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.set_range(start, end).map_err(Into::into)
+        self.inner.set_range(start..=end).map_err(Into::into)
     }
 
     /// Set the ranges to fetch
@@ -639,7 +639,7 @@ impl SlidingSyncList {
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.add_range((start, end)).map_err(Into::into)
+        self.inner.add_range(start..=end).map_err(Into::into)
     }
 
     /// Reset the ranges
@@ -654,7 +654,7 @@ impl SlidingSyncList {
 
     /// The current timeline limit
     pub fn get_timeline_limit(&self) -> Option<u32> {
-        self.inner.timeline_limit().map(|limit| u32::try_from(limit).unwrap_or_default())
+        self.inner.timeline_limit()
     }
 
     /// The current timeline limit
@@ -664,7 +664,7 @@ impl SlidingSyncList {
 
     /// Unset the current timeline limit
     pub fn unset_timeline_limit(&self) {
-        self.inner.set_timeline_limit::<UInt>(None)
+        self.inner.set_timeline_limit(None)
     }
 }
 
