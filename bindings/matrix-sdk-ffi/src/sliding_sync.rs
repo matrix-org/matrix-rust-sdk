@@ -179,7 +179,7 @@ impl SlidingSyncRoom {
     }
 
     pub fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications().clone().into())
+        Arc::new(self.inner.unread_notifications().into())
     }
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
@@ -215,7 +215,7 @@ impl SlidingSyncRoom {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
         let room_id = self.inner.room_id().to_owned();
 
-        self.runner.subscribe(room_id.to_owned().clone(), settings.map(Into::into))?;
+        self.runner.subscribe(room_id.clone(), settings.map(Into::into))?;
 
         let runner = self.runner.clone();
         stoppable_spawn.set_finalizer(Box::new(move || runner.unsubscribe(room_id).unwrap()));
