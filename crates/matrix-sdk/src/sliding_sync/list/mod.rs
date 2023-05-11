@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tracing::{instrument, warn};
 
-use super::{Error, FrozenSlidingSyncRoom, SlidingSyncInternalMessage, SlidingSyncRoom};
+use super::{Error, SlidingSyncInternalMessage};
 use crate::Result;
 
 /// The type used to express natural bounds (including but not limited to:

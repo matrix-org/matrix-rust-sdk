@@ -159,7 +159,7 @@ pub struct SlidingSyncRoom {
 #[uniffi::export]
 impl SlidingSyncRoom {
     pub fn name(&self) -> Option<String> {
-        self.inner.name().map(ToOwned::to_owned)
+        self.inner.name()
     }
 
     pub fn room_id(&self) -> String {
@@ -174,16 +174,12 @@ impl SlidingSyncRoom {
         self.inner.is_initial_response()
     }
 
-    pub fn is_loading_more(&self) -> bool {
-        self.inner.is_loading_more()
-    }
-
     pub fn has_unread_notifications(&self) -> bool {
         self.inner.has_unread_notifications()
     }
 
     pub fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
-        Arc::new(self.inner.unread_notifications().clone().into())
+        Arc::new(self.inner.unread_notifications().into())
     }
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
@@ -217,7 +213,7 @@ impl SlidingSyncRoom {
         settings: Option<RoomSubscription>,
     ) -> Result<SlidingSyncSubscribeResult, ClientError> {
         let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
-        let room_id = self.inner.room_id().clone();
+        let room_id = self.inner.room_id().to_owned();
 
         self.runner.subscribe(room_id.clone(), settings.map(Into::into))?;
 
