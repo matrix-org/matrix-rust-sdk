@@ -10,7 +10,7 @@ TARGET_DIR="${SRC_ROOT}/target"
 
 GENERATED_DIR="${SRC_ROOT}/generated"
 if [ -d "${GENERATED_DIR}" ]; then rm -rf "${GENERATED_DIR}"; fi
-mkdir -p ${GENERATED_DIR}/{macos,simulator}
+mkdir -p ${GENERATED_DIR}/{macos,simulator,catalyst}
 
 REL_FLAG="--release"
 REL_TYPE_DIR="release"
@@ -19,23 +19,38 @@ TARGET_CRATE=matrix-sdk-crypto-ffi
 
 # Build static libs for all the different architectures
 
-# Required by olm-sys crate
+# Required by olm-sys crate. @todo: Is this the right SDK path for Catalyst as well?
 export IOS_SDK_PATH=`xcrun --show-sdk-path --sdk iphoneos`
 
 # iOS
-echo -e "Building for iOS [1/5]"
+echo -e "Building for iOS [1/7]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "aarch64-apple-ios"
 
+# Mac Catalyst
+# 1) The target has no pre=built rust-std, so we use `-Z build-std`.
+#   how to build-std: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#build-std
+#   list of targets with prebuilt rust-std: https://doc.rust-lang.org/nightly/rustc/platform-support.html
+# 2) requires a recent nightly wih https://github.com/rust-lang/rust/pull/111384 merged
+CATALYST_RUST_NIGHTLY="nightly"
+echo -e "\nInstalling nightly and rust-src for Mac Catalyst"
+rustup toolchain install ${CATALYST_RUST_NIGHTLY} --no-self-update
+rustup component add rust-src --toolchain ${CATALYST_RUST_NIGHTLY}
+
+echo -e "\nBuilding for macOS Catalyst (Apple Silicon) [2/7]"
+cargo +${CATALYST_RUST_NIGHTLY} build -p ${TARGET_CRATE} ${REL_FLAG} -Z build-std --target aarch64-apple-ios-macabi
+echo -e "\nBuilding for macOS Catalyst (Intel) [3/7]"
+cargo +${CATALYST_RUST_NIGHTLY} build -p ${TARGET_CRATE} ${REL_FLAG} -Z build-std --target x86_64-apple-ios-macabi
+
 # MacOS
-echo -e "\nBuilding for macOS (Apple Silicon) [2/5]"
+echo -e "\nBuilding for macOS (Apple Silicon) [4/7]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "aarch64-apple-darwin"
-echo -e "\nBuilding for macOS (Intel) [3/5]"
+echo -e "\nBuilding for macOS (Intel) [5/7]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "x86_64-apple-darwin"
 
 # iOS Simulator
-echo -e "\nBuilding for iOS Simulator (Apple Silicon) [4/5]"
+echo -e "\nBuilding for iOS Simulator (Apple Silicon) [6/7]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "aarch64-apple-ios-sim"
-echo -e "\nBuilding for iOS Simulator (Intel) [5/5]"
+echo -e "\nBuilding for iOS Simulator (Intel) [7/7]"
 cargo build -p ${TARGET_CRATE} ${REL_FLAG} --target "x86_64-apple-ios"
 
 echo -e "\nCreating XCFramework"
@@ -46,6 +61,12 @@ lipo -create \
   "${TARGET_DIR}/x86_64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   "${TARGET_DIR}/aarch64-apple-darwin/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   -output "${GENERATED_DIR}/macos/libmatrix_sdk_crypto_ffi.a"
+
+# Catalyst
+lipo -create \
+  "${TARGET_DIR}/aarch64-apple-ios-macabi/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  "${TARGET_DIR}/x86_64-apple-ios-macabi/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
+  -output "${GENERATED_DIR}/catalyst/libmatrix_sdk_crypto_ffi.a"
 
 # iOS Simulator
 lipo -create \
@@ -85,10 +106,13 @@ xcodebuild -create-xcframework \
   -headers ${HEADERS_DIR} \
   -library "${GENERATED_DIR}/simulator/libmatrix_sdk_crypto_ffi.a" \
   -headers ${HEADERS_DIR} \
+  -library "${GENERATED_DIR}/catalyst/libmatrix_sdk_crypto_ffi.a" \
+  -headers ${HEADERS_DIR} \
   -output "${GENERATED_DIR}/MatrixSDKCryptoFFI.xcframework"
 
 # Cleanup
 if [ -d "${GENERATED_DIR}/macos" ]; then rm -rf "${GENERATED_DIR}/macos"; fi
+if [ -d "${GENERATED_DIR}/catalyst" ]; then rm -rf "${GENERATED_DIR}/catalyst"; fi
 if [ -d "${GENERATED_DIR}/simulator" ]; then rm -rf "${GENERATED_DIR}/simulator"; fi
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
