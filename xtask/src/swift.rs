@@ -131,6 +131,11 @@ fn build_xcframework(
     let root_dir = workspace::root_path()?;
     let apple_dir = root_dir.join("bindings/apple");
     let generated_dir = apple_dir.join("generated");
+
+    // Cleanup destination folder
+    let _ = remove_dir_all(&generated_dir);
+    create_dir_all(&generated_dir)?;
+
     let headers_dir = generated_dir.join("ls");
     let swift_dir = generated_dir.join("swift");
     create_dir_all(headers_dir.clone())?;
