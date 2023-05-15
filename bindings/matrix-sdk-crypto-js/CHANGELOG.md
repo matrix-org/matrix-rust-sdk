@@ -2,6 +2,8 @@
 
 -   Extend `OlmDevice.markRequestAsSent` to accept responses to
     `SigningKeysUploadRequest`s.
+-   Add a missing `const` for compatibility with ECMAScript Module compatibility
+    mode.
 -   Fix the body of `SignatureUploadRequest`s to match the spec.
 -   Add a constructor for `SigningKeysUploadRequest`.
 
