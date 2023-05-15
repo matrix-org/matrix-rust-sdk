@@ -136,6 +136,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .insert(receipt_type, receipt);
     }
 
+    #[tracing::instrument(skip_all)]
     pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
         if events.is_empty() {
             return;

@@ -233,6 +233,36 @@ impl SlidingSync {
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
 
+    /// Add a list that will be cached and reloaded from the cache.
+    ///
+    /// This will raise an error if a storage key was not set, or if there
+    /// was a I/O error reading from the cache.
+    ///
+    /// The rest of the semantics is the same as [`Self::add_list`].
+    pub async fn add_cached_list(
+        &self,
+        mut list_builder: SlidingSyncListBuilder,
+    ) -> Result<Option<SlidingSyncList>> {
+        let Some(ref storage_key) = self.inner.storage_key else {
+            return Err(error::Error::MissingStorageKeyForCaching.into());
+        };
+
+        let reloaded_rooms =
+            list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
+
+        if !reloaded_rooms.is_empty() {
+            let mut rooms = self.inner.rooms.write().unwrap();
+
+            for (key, frozen) in reloaded_rooms {
+                rooms.entry(key).or_insert_with(|| {
+                    SlidingSyncRoom::from_frozen(frozen, self.inner.client.clone())
+                });
+            }
+        }
+
+        self.add_list(list_builder)
+    }
+
     /// Lookup a set of rooms
     pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
         &self,
@@ -497,7 +527,7 @@ impl SlidingSync {
 
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
-        spawn(async move {
+        let future = async move {
             debug!("Sliding Sync response handling starts");
 
             // In case the task running this future is detached, we must
@@ -516,9 +546,9 @@ impl SlidingSync {
             debug!("Sliding Sync response has been fully handled");
 
             Ok(Some(updates))
-        })
-        .await
-        .unwrap()
+        };
+
+        spawn(future.instrument(Span::current())).await.unwrap()
     }
 
     /// Create a _new_ Sliding Sync stream.
@@ -617,7 +647,7 @@ impl SlidingSync {
     pub fn reset_lists(&self) -> Result<(), Error> {
         let lists = self.inner.lists.read().unwrap();
 
-        for (_, list) in lists.iter() {
+        for list in lists.values() {
             list.reset()?;
         }
 

@@ -17,7 +17,6 @@ use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
 pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
-use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
@@ -27,6 +26,16 @@ use tracing::{instrument, warn};
 
 use super::{Error, SlidingSyncInternalMessage};
 use crate::Result;
+
+/// Should this [`SlidingSyncList`] be stored in the cache, and automatically
+/// reloaded from the cache upon creation?
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SlidingSyncListCachePolicy {
+    /// Store and load this list from the cache.
+    Enabled,
+    /// Don't store and load this list from the cache.
+    Disabled,
+}
 
 /// The type used to express natural bounds (including but not limited to:
 /// ranges, timeline limit) in the sliding sync SDK.
@@ -44,22 +53,6 @@ impl SlidingSyncList {
     /// Create a new [`SlidingSyncListBuilder`] with the given name.
     pub fn builder(name: impl Into<String>) -> SlidingSyncListBuilder {
         SlidingSyncListBuilder::new(name)
-    }
-
-    pub(crate) fn set_from_cold(
-        &mut self,
-        maximum_number_of_rooms: Option<u32>,
-        room_list: Vector<RoomListEntry>,
-    ) {
-        Observable::set(&mut self.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
-        Observable::set(
-            &mut self.inner.maximum_number_of_rooms.write().unwrap(),
-            maximum_number_of_rooms,
-        );
-
-        let mut lock = self.inner.room_list.write().unwrap();
-        lock.clear();
-        lock.append(room_list);
     }
 
     /// Get the name of the list.
@@ -125,7 +118,13 @@ impl SlidingSyncList {
         self.inner.state.read().unwrap().clone()
     }
 
-    /// Get a stream of state.
+    /// Get a stream of state updates.
+    ///
+    /// If this list has been reloaded from a cache, the initial value read from
+    /// the cache will be published.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
         Observable::subscribe(&self.inner.state.read().unwrap())
     }
@@ -149,6 +148,12 @@ impl SlidingSyncList {
     }
 
     /// Get a stream of room list.
+    ///
+    /// If this list has been reloaded from a cache, the initial value read from
+    /// the cache will be published.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
         ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
     }
@@ -160,6 +165,12 @@ impl SlidingSyncList {
     }
 
     /// Get a stream of rooms count.
+    ///
+    /// If this list has been reloaded from a cache, the initial value is
+    /// published too.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
     }
@@ -177,6 +188,11 @@ impl SlidingSyncList {
     /// Calculate the next request and return it.
     pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
+    }
+
+    /// Returns the current cache policy for this list.
+    pub(super) fn cache_policy(&self) -> SlidingSyncListCachePolicy {
+        self.inner.cache_policy
     }
 
     /// Update the list based on the response from the server.
@@ -274,6 +290,9 @@ pub(super) struct SlidingSyncListInner {
     /// The request generator, i.e. a type that yields the appropriate list
     /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
     request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
+
+    /// Cache policy for this list.
+    cache_policy: SlidingSyncListCachePolicy,
 
     sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
 }

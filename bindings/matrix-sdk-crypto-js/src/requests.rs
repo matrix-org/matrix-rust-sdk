@@ -194,19 +194,19 @@ pub struct SignatureUploadRequest {
     #[wasm_bindgen(readonly)]
     pub id: Option<JsString>,
 
-    /// A JSON-encoded string containing the rest of the payload: `signed_keys`.
+    /// A JSON-encoded string containing the payload of the request
     ///
     /// It represents the body of the HTTP request.
-    #[wasm_bindgen(readonly)]
-    pub body: JsString,
+    #[wasm_bindgen(readonly, js_name = "body")]
+    pub signed_keys: JsString,
 }
 
 #[wasm_bindgen]
 impl SignatureUploadRequest {
     /// Create a new `SignatureUploadRequest`.
     #[wasm_bindgen(constructor)]
-    pub fn new(id: JsString, body: JsString) -> SignatureUploadRequest {
-        Self { id: Some(id), body }
+    pub fn new(id: JsString, signed_keys: JsString) -> SignatureUploadRequest {
+        Self { id: Some(id), signed_keys }
     }
 
     /// Get its request type.
@@ -324,6 +324,12 @@ pub struct SigningKeysUploadRequest {
 
 #[wasm_bindgen]
 impl SigningKeysUploadRequest {
+    /// Create a new `SigningKeysUploadRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> SigningKeysUploadRequest {
+        Self { id: Some(id), body }
+    }
+
     /// Get its request type.
     #[wasm_bindgen(getter, js_name = "type")]
     pub fn request_type(&self) -> RequestType {
@@ -417,7 +423,7 @@ request!(KeysUploadRequest from OriginalKeysUploadRequest groups device_keys, on
 request!(KeysQueryRequest from OriginalKeysQueryRequest groups timeout, device_keys, token);
 request!(KeysClaimRequest from OriginalKeysClaimRequest groups timeout, one_time_keys);
 request!(ToDeviceRequest from OriginalToDeviceRequest extracts event_type: string, txn_id: string and groups messages);
-request!(SignatureUploadRequest from OriginalSignatureUploadRequest groups signed_keys);
+request!(SignatureUploadRequest from OriginalSignatureUploadRequest extracts signed_keys: json);
 request!(RoomMessageRequest from OriginalRoomMessageRequest extracts room_id: string, txn_id: string, event_type: event_type, content: json);
 request!(KeysBackupRequest from OriginalKeysBackupRequest groups rooms);
 

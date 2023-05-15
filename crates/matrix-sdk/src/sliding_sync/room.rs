@@ -234,7 +234,7 @@ impl SlidingSyncRoom {
         *self.inner.state.write().unwrap() = state;
     }
 
-    fn timeline_queue(&self) -> std::sync::RwLockReadGuard<Vector<SyncTimelineEvent>> {
+    fn timeline_queue(&self) -> std::sync::RwLockReadGuard<'_, Vector<SyncTimelineEvent>> {
         self.inner.timeline_queue.read().unwrap()
     }
 }
@@ -455,9 +455,9 @@ mod tests {
         test_room_name {
             name() = None;
             receives room_response!({"name": "gordon"});
-            _ = Some("gordon".to_string());
+            _ = Some("gordon".to_owned());
             receives nothing;
-            _ = Some("gordon".to_string());
+            _ = Some("gordon".to_owned());
         }
 
         test_room_is_dm {
@@ -524,7 +524,7 @@ mod tests {
                 new_room(room_id!("!foo:bar.org"), room_response!({"prev_batch": "t111_222_333"}))
                     .await;
 
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_string()));
+            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
         }
 
         // Some value when updating.
@@ -534,10 +534,10 @@ mod tests {
             assert_eq!(room.inner.prev_batch(), None);
 
             room.update(room_response!({"prev_batch": "t111_222_333"}), vec![]);
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_string()));
+            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
 
             room.update(room_response!({}), vec![]);
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_string()));
+            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
         }
     }
 

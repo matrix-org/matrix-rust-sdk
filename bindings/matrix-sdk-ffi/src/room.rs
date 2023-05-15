@@ -187,12 +187,22 @@ impl Room {
         })
     }
 
+    pub fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+        let room = self.room.clone();
+        let user_id = user_id;
+        RUNTIME.block_on(async move {
+            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(&user_id).await?.context("No user found")?;
+            Ok(Arc::new(RoomMember::new(member)))
+        })
+    }
+
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(user_id).await?.context("No user found")?;
+            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(&user_id).await?.context("No user found")?;
             let avatar_url_string = member.avatar_url().map(|m| m.to_string());
             Ok(avatar_url_string)
         })
@@ -202,8 +212,8 @@ impl Room {
         let room = self.room.clone();
         let user_id = user_id;
         RUNTIME.block_on(async move {
-            let user_id = <&UserId>::try_from(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(user_id).await?.context("No user found")?;
+            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+            let member = room.get_member(&user_id).await?.context("No user found")?;
             let avatar_url_string = member.display_name().map(|m| m.to_owned());
             Ok(avatar_url_string)
         })

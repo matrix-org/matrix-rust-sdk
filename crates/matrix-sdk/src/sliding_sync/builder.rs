@@ -35,6 +35,7 @@ pub struct SlidingSyncBuilder {
     bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
 impl SlidingSyncBuilder {
@@ -47,6 +48,7 @@ impl SlidingSyncBuilder {
             bump_event_types: Vec::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
+            rooms: BTreeMap::new(),
         }
     }
 
@@ -64,10 +66,33 @@ impl SlidingSyncBuilder {
 
     /// Add the given list to the lists.
     ///
-    /// Replace any list with the name.
+    /// Replace any list with the same name.
     pub fn add_list(mut self, list_builder: SlidingSyncListBuilder) -> Self {
         self.lists.push(list_builder);
         self
+    }
+
+    /// Enroll the list in caching, reloads it from the cache if possible, and
+    /// adds it to the list of lists.
+    ///
+    /// This will raise an error if a [`storage_key()`][Self::storage_key] was
+    /// not set, or if there was a I/O error reading from the cache.
+    ///
+    /// Replace any list with the same name.
+    pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
+        let Some(ref storage_key) = self.storage_key else {
+            return Err(super::error::Error::MissingStorageKeyForCaching.into());
+        };
+
+        let reloaded_rooms = list.set_cached_and_reload(&self.client, storage_key).await?;
+
+        for (key, frozen) in reloaded_rooms {
+            self.rooms
+                .entry(key)
+                .or_insert_with(|| SlidingSyncRoom::from_frozen(frozen, self.client.clone()));
+        }
+
+        Ok(self.add_list(list))
     }
 
     /// Activate e2ee, to-device-message and account data extensions if not yet
@@ -204,7 +229,6 @@ impl SlidingSyncBuilder {
         let client = self.client;
 
         let mut delta_token = None;
-        let mut rooms_found: BTreeMap<OwnedRoomId, SlidingSyncRoom> = BTreeMap::new();
 
         let (internal_channel_sender, internal_channel_receiver) = channel(8);
 
@@ -221,15 +245,14 @@ impl SlidingSyncBuilder {
             restore_sliding_sync_state(
                 &client,
                 storage_key,
-                &mut lists,
+                &lists,
                 &mut delta_token,
-                &mut rooms_found,
                 &mut self.extensions,
             )
             .await?;
         }
 
-        let rooms = StdRwLock::new(rooms_found);
+        let rooms = StdRwLock::new(self.rooms);
         let lists = StdRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {

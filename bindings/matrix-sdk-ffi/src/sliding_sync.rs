@@ -745,6 +745,19 @@ impl SlidingSync {
         self.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
     }
 
+    pub fn add_cached_list(
+        &self,
+        list_builder: Arc<SlidingSyncListBuilder>,
+    ) -> Result<Option<Arc<SlidingSyncList>>, ClientError> {
+        RUNTIME.block_on(async move {
+            Ok(self
+                .inner
+                .add_cached_list(list_builder.inner.clone())
+                .await?
+                .map(|inner| Arc::new(SlidingSyncList { inner })))
+        })
+    }
+
     pub fn reset_lists(&self) -> Result<(), SlidingSyncError> {
         self.inner.reset_lists().map_err(Into::into)
     }
@@ -813,6 +826,17 @@ impl SlidingSyncBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner);
         Arc::new(builder)
+    }
+
+    pub fn add_cached_list(
+        self: Arc<Self>,
+        list_builder: Arc<SlidingSyncListBuilder>,
+    ) -> Result<Arc<Self>, ClientError> {
+        let mut builder = unwrap_or_clone_arc(self);
+        let list_builder = unwrap_or_clone_arc(list_builder);
+        builder.inner = RUNTIME
+            .block_on(async move { builder.inner.add_cached_list(list_builder.inner).await })?;
+        Ok(Arc::new(builder))
     }
 
     pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
