@@ -355,6 +355,19 @@ mod tests {
                     assert_eq!(initial_max_number_of_rooms, Some(42));
                 }
 
+                // The maximum number of rooms reloaded from the cache should have been
+                // published.
+                {
+                    let mut stream = max_number_of_room_stream
+                        .write()
+                        .unwrap()
+                        .take()
+                        .expect("stream must be set");
+                    let initial_max_number_of_rooms =
+                        stream.next().await.expect("stream must have emitted something");
+                    assert_eq!(initial_max_number_of_rooms, Some(42));
+                }
+
                 // Clean the cache.
                 clean_storage(&client, "hello", &sliding_sync.inner.lists.read().unwrap()).await;
             }
