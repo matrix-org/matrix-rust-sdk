@@ -14,14 +14,13 @@ use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId};
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
-    Client, RoomListEntry,
-};
-
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
     SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+};
+use crate::{
+    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    Client, RoomListEntry,
 };
 
 /// The default name for the full sync list.

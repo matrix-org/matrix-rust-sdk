@@ -237,7 +237,7 @@ impl SlidingSync {
 
     /// Add a list that will be cached and reloaded from the cache.
     ///
-    /// This will raise an error if a [`storage_key()`] was not set, or if there
+    /// This will raise an error if a storage key was not set, or if there
     /// was a I/O error reading from the cache.
     ///
     /// The rest of the semantics is the same as [`Self::add_list`].
