@@ -40,7 +40,6 @@ pub use error::*;
 use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
-use matrix_sdk_base::sync::SyncResponse;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -61,7 +60,6 @@ use tokio::{
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
-use uuid::Uuid;
 
 use crate::{config::RequestConfig, Client, Result};
 
@@ -248,16 +246,20 @@ impl SlidingSync {
         let Some(ref storage_key) = self.inner.storage_key else {
             return Err(error::Error::MissingStorageKeyForCaching.into());
         };
+
         let reloaded_rooms =
             list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
+
         if !reloaded_rooms.is_empty() {
             let mut rooms = self.inner.rooms.write().unwrap();
+
             for (key, frozen) in reloaded_rooms {
                 rooms.entry(key).or_insert_with(|| {
                     SlidingSyncRoom::from_frozen(frozen, self.inner.client.clone())
                 });
             }
         }
+
         self.add_list(list_builder)
     }
 
@@ -317,11 +319,21 @@ impl SlidingSync {
 
     /// Handle the HTTP response.
     #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
-    fn handle_response(
+    async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
-        mut sync_response: SyncResponse,
     ) -> Result<UpdateSummary, crate::Error> {
+        // Transform a Sliding Sync Response to a `SyncResponse`.
+        //
+        // We may not need the `sync_response` in the future (once `SyncResponse` will
+        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
+        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
+        // happens here.
+        let mut sync_response =
+            self.inner.client.process_sliding_sync(&sliding_sync_response).await?;
+
+        debug!(?sync_response, "Sliding Sync response has been handled by the client");
+
         {
             debug!(
                 pos = ?sliding_sync_response.pos,
@@ -413,7 +425,7 @@ impl SlidingSync {
     }
 
     #[instrument(skip_all, fields(pos))]
-    async fn sync_once(&self, stream_id: &str) -> Result<Option<UpdateSummary>> {
+    async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
         let (request, request_config) = {
             // Collect requests for lists.
             let mut requests_lists = BTreeMap::new();
@@ -450,9 +462,6 @@ impl SlidingSync {
                 assign!(v4::Request::new(), {
                     pos,
                     delta_token,
-                    // We want to track whether the incoming response maps to this
-                    // request. We use the (optional) `txn_id` field for that.
-                    txn_id: Some(stream_id.to_owned()),
                     timeout: Some(timeout),
                     lists: requests_lists,
                     bump_event_types: self.inner.bump_event_types.clone(),
@@ -515,11 +524,10 @@ impl SlidingSync {
         // That's why we are running the handling of the response in a spawned
         // future that cannot be cancelled by anything.
         let this = self.clone();
-        let stream_id = stream_id.to_owned();
 
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
-        let fut = async move {
+        let future = async move {
             debug!("Sliding Sync response handling starts");
 
             // In case the task running this future is detached, we must
@@ -527,38 +535,8 @@ impl SlidingSync {
             // `response_handling_lock`.
             let response_handling_lock = this.response_handling_lock.lock().await;
 
-            match &response.txn_id {
-                None => {
-                    error!(
-                        stream_id,
-                        "Sliding Sync has received an unexpected response: \
-                         `txn_id` must match `stream_id`; it's missing"
-                    );
-                }
-
-                Some(txn_id) if txn_id != &stream_id => {
-                    error!(
-                        stream_id,
-                        txn_id,
-                        "Sliding Sync has received an unexpected response: \
-                         `txn_id` must match `stream_id`; they differ"
-                    );
-                }
-
-                _ => {}
-            }
-
-            // Handle and transform a Sliding Sync Response to a `SyncResponse`.
-            //
-            // We may not need the `sync_response` in the future (once `SyncResponse` will
-            // move to Sliding Sync, i.e. to `v4::Response`), but processing the
-            // `sliding_sync_response` is vital, so it must be done somewhere; for now it
-            // happens here.
-            let sync_response = this.inner.client.process_sliding_sync(&response).await?;
-
-            debug!(?sync_response, "Sliding Sync response has been handled by the client");
-
-            let updates = this.handle_response(response, sync_response)?;
+            // Handle the response.
+            let updates = this.handle_response(response).await?;
 
             this.cache_to_storage().await?;
 
@@ -569,7 +547,8 @@ impl SlidingSync {
 
             Ok(Some(updates))
         };
-        spawn(fut.instrument(Span::current())).await.unwrap()
+
+        spawn(future.instrument(Span::current())).await.unwrap()
     }
 
     /// Create a _new_ Sliding Sync stream.
@@ -579,10 +558,7 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        // Define a stream ID.
-        let stream_id = Uuid::new_v4().to_string();
-
-        debug!(?self.inner.extensions, stream_id, "About to run the sync stream");
+        debug!(?self.inner.extensions, "About to run the sync stream");
 
         let sync_stream_span = Span::current();
 
@@ -611,7 +587,7 @@ impl SlidingSync {
                         }
                     }
 
-                    update_summary = self.sync_once(&stream_id).instrument(sync_stream_span.clone()) => {
+                    update_summary = self.sync_once().instrument(sync_stream_span.clone()) => {
                         match update_summary {
                             Ok(Some(updates)) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
