@@ -71,46 +71,71 @@ pub fn restore_session(c: &mut Criterion) {
         })
     });
 
-    // Sled
-    let sled_path = tempfile::tempdir().unwrap().path().to_path_buf();
-    let sled_store =
-        SledStateStore::builder().path(sled_path).build().expect("Can't create sled store");
-    runtime.block_on(sled_store.save_changes(&changes)).expect("initial filling of sled failed");
+    for encryption_password in [None, Some("hunter2")] {
+        let encrypted_suffix = if encryption_password.is_some() { "encrypted" } else { "clear" };
 
-    group.bench_with_input(BenchmarkId::new("sled store", NAME), &sled_store, |b, store| {
-        b.to_async(&runtime).iter(|| async {
-            let client = Client::builder()
-                .homeserver_url("https://matrix.example.com")
-                .store_config(StoreConfig::new().state_store(store.clone()))
-                .build()
-                .await
-                .expect("Can't build client");
-            client.restore_session(session.clone()).await.expect("couldn't restore session");
-        })
-    });
+        // Sled
+        let sled_path = tempfile::tempdir().unwrap().path().to_path_buf();
+        let mut sled_store_builder = SledStateStore::builder().path(sled_path);
+        if let Some(password) = encryption_password {
+            sled_store_builder = sled_store_builder.passphrase(password.to_owned());
+        }
+        let sled_store = sled_store_builder.build().expect("Can't create sled store");
+        runtime
+            .block_on(sled_store.save_changes(&changes))
+            .expect("initial filling of sled failed");
 
-    // Sqlite
-    let sqlite_dir = tempfile::tempdir().unwrap();
-    let sqlite_store = runtime.block_on(SqliteStateStore::open(sqlite_dir.path(), None)).unwrap();
-    runtime
-        .block_on(sqlite_store.save_changes(&changes))
-        .expect("initial filling of sqlite failed");
+        group.bench_with_input(
+            BenchmarkId::new(format!("sled store {encrypted_suffix}"), NAME),
+            &sled_store,
+            |b, store| {
+                b.to_async(&runtime).iter(|| async {
+                    let client = Client::builder()
+                        .homeserver_url("https://matrix.example.com")
+                        .store_config(StoreConfig::new().state_store(store.clone()))
+                        .build()
+                        .await
+                        .expect("Can't build client");
+                    client
+                        .restore_session(session.clone())
+                        .await
+                        .expect("couldn't restore session");
+                })
+            },
+        );
 
-    group.bench_with_input(BenchmarkId::new("sqlite store", NAME), &sqlite_store, |b, store| {
-        b.to_async(&runtime).iter(|| async {
-            let client = Client::builder()
-                .homeserver_url("https://matrix.example.com")
-                .store_config(StoreConfig::new().state_store(store.clone()))
-                .build()
-                .await
-                .expect("Can't build client");
-            client.restore_session(session.clone()).await.expect("couldn't restore session");
-        })
-    });
+        // Sqlite
+        let sqlite_dir = tempfile::tempdir().unwrap();
+        let sqlite_store = runtime
+            .block_on(SqliteStateStore::open(sqlite_dir.path(), encryption_password))
+            .unwrap();
+        runtime
+            .block_on(sqlite_store.save_changes(&changes))
+            .expect("initial filling of sqlite failed");
 
-    {
-        let _guard = runtime.enter();
-        drop(sqlite_store);
+        group.bench_with_input(
+            BenchmarkId::new(format!("sqlite store {encrypted_suffix}"), NAME),
+            &sqlite_store,
+            |b, store| {
+                b.to_async(&runtime).iter(|| async {
+                    let client = Client::builder()
+                        .homeserver_url("https://matrix.example.com")
+                        .store_config(StoreConfig::new().state_store(store.clone()))
+                        .build()
+                        .await
+                        .expect("Can't build client");
+                    client
+                        .restore_session(session.clone())
+                        .await
+                        .expect("couldn't restore session");
+                })
+            },
+        );
+
+        {
+            let _guard = runtime.enter();
+            drop(sqlite_store);
+        }
     }
 
     group.finish()
