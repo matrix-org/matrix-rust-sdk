@@ -40,7 +40,6 @@ pub use error::*;
 use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
-use matrix_sdk_base::sync::SyncResponse;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -291,11 +290,21 @@ impl SlidingSync {
 
     /// Handle the HTTP response.
     #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
-    fn handle_response(
+    async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
-        mut sync_response: SyncResponse,
     ) -> Result<UpdateSummary, crate::Error> {
+        // Transform a Sliding Sync Response to a `SyncResponse`.
+        //
+        // We may not need the `sync_response` in the future (once `SyncResponse` will
+        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
+        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
+        // happens here.
+        let mut sync_response =
+            self.inner.client.process_sliding_sync(&sliding_sync_response).await?;
+
+        debug!(?sync_response, "Sliding Sync response has been handled by the client");
+
         {
             debug!(
                 pos = ?sliding_sync_response.pos,
@@ -517,17 +526,8 @@ impl SlidingSync {
                 _ => {}
             }
 
-            // Handle and transform a Sliding Sync Response to a `SyncResponse`.
-            //
-            // We may not need the `sync_response` in the future (once `SyncResponse` will
-            // move to Sliding Sync, i.e. to `v4::Response`), but processing the
-            // `sliding_sync_response` is vital, so it must be done somewhere; for now it
-            // happens here.
-            let sync_response = this.inner.client.process_sliding_sync(&response).await?;
-
-            debug!(?sync_response, "Sliding Sync response has been handled by the client");
-
-            let updates = this.handle_response(response, sync_response)?;
+            // Handle the response.
+            let updates = this.handle_response(response).await?;
 
             this.cache_to_storage().await?;
 
@@ -537,7 +537,9 @@ impl SlidingSync {
             debug!("Sliding Sync response has been fully handled");
 
             Ok(Some(updates))
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     }
 
     /// Create a _new_ Sliding Sync stream.
