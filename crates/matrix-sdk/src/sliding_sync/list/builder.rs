@@ -75,7 +75,11 @@ impl SlidingSyncListBuilder {
         }
     }
 
-    /// foo
+    /// Runs a callback once the list has been built.
+    ///
+    /// If the list was cached, then the cached fields won't be available in
+    /// this callback. Use the streams to get published versions of the
+    /// cached fields, once they've been set.
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
         C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
