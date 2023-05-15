@@ -202,7 +202,10 @@ pub(super) async fn restore_sliding_sync_state(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, RwLock};
+
     use futures::executor::block_on;
+    use futures_util::StreamExt;
     use url::Url;
 
     use super::*;
@@ -307,11 +310,20 @@ mod tests {
 
             // Create a new `SlidingSync`, and it should be read from the cache.
             {
+                let max_number_of_room_stream = Arc::new(RwLock::new(None));
+                let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
                     .sliding_sync()
                     .await
                     .storage_key(Some("hello".to_owned()))
-                    .add_cached_list(SlidingSyncList::builder("list_foo"))
+                    .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
+                        // In the `once_built()` handler, nothing has been read from the cache yet.
+                        assert_eq!(list.maximum_number_of_rooms(), None);
+
+                        let mut stream = cloned_stream.write().unwrap();
+                        *stream = Some(list.maximum_number_of_rooms_stream());
+                        list
+                    }))
                     .await?
                     .add_list(SlidingSyncList::builder("list_bar"))
                     .build()
@@ -328,6 +340,19 @@ mod tests {
                     // This one wasn't.
                     let list_bar = lists.get("list_bar").unwrap();
                     assert_eq!(list_bar.maximum_number_of_rooms(), None);
+                }
+
+                // The maximum number of rooms reloaded from the cache should have been
+                // published.
+                {
+                    let mut stream = max_number_of_room_stream
+                        .write()
+                        .unwrap()
+                        .take()
+                        .expect("stream must be set");
+                    let initial_max_number_of_rooms =
+                        stream.next().await.expect("stream must have emitted something");
+                    assert_eq!(initial_max_number_of_rooms, Some(42));
                 }
 
                 // Clean the cache.
