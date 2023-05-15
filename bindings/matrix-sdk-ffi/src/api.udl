@@ -15,9 +15,10 @@ dictionary NotificationItem {
     string? sender_avatar_url;
     string room_display_name;
     string? room_avatar_url;
+    string? room_canonical_alias;
     boolean is_noisy;
     boolean is_direct;
-    boolean is_encrypted;
+    boolean? is_encrypted;
 };
 
 interface TimelineEvent {};
@@ -153,7 +154,15 @@ interface PaginationOptions {
 
 interface RoomMessageEventContent {};
 
+[Error]
+interface ClientError {
+    Generic(string msg);
+};
+
 interface MediaSource {
+    [Name=from_json, Throws=ClientError]
+    constructor(string json);
+    string to_json();
     string url();
 };
 

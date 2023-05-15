@@ -17,6 +17,8 @@ use std::{
     time::Duration,
 };
 
+use matrix_sdk_common::debug::DebugStructExt;
+
 use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 
 /// Configuration for requests the `Client` makes.
@@ -49,12 +51,21 @@ pub struct RequestConfig {
 #[cfg(not(tarpaulin_include))]
 impl Debug for RequestConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut res = fmt.debug_struct("RequestConfig");
+        let Self { timeout, retry_limit, retry_timeout, force_auth, assert_identity } = self;
 
-        res.field("timeout", &self.timeout)
-            .field("retry_limit", &self.retry_limit)
-            .field("retry_timeout", &self.retry_timeout)
-            .finish()
+        let mut res = fmt.debug_struct("RequestConfig");
+        res.field("timeout", timeout)
+            .maybe_field("retry_limit", retry_limit)
+            .maybe_field("retry_timeout", retry_timeout);
+
+        if *force_auth {
+            res.field("force_auth", &true);
+        }
+        if *assert_identity {
+            res.field("assert_identity", &true);
+        }
+
+        res.finish()
     }
 }
 

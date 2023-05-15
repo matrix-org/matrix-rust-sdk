@@ -616,7 +616,7 @@ async fn in_reply_to_details() {
 
     // The event doesn't exist.
     assert_matches!(
-        timeline.fetch_event_details(event_id!("$fakeevent")).await,
+        timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
         Err(Error::Timeline(TimelineError::RemoteEventNotInTimeline))
     );
 
@@ -663,13 +663,6 @@ async fn in_reply_to_details() {
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
-
-    // Fetch details locally first.
-    timeline.fetch_event_details(second_event.event_id().unwrap()).await.unwrap();
-
-    let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
-    let message = assert_matches!(second.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -719,7 +712,7 @@ async fn in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_event_details(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
     server.reset().await;
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
@@ -748,7 +741,7 @@ async fn in_reply_to_details() {
         .mount(&server)
         .await;
 
-    timeline.fetch_event_details(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
 
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);

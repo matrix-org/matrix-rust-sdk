@@ -57,3 +57,8 @@ pub use self::{
 };
 
 uniffi::include_scaffolding!("api");
+
+#[uniffi::export]
+pub fn sdk_git_sha() -> String {
+    env!("VERGEN_GIT_SHA").to_string()
+}

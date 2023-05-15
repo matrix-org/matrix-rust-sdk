@@ -513,6 +513,11 @@ impl Device {
     pub async fn set_local_trust(&self, trust_state: LocalTrust) -> Result<(), CryptoStoreError> {
         self.inner.set_local_trust(trust_state).await
     }
+
+    /// Is the device cross-signed by its own user.
+    pub fn is_cross_signed_by_owner(&self) -> bool {
+        self.inner.is_cross_signed_by_owner()
+    }
 }
 
 /// The collection of all the [`Device`]s a user has.

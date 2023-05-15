@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use extension_trait::extension_trait;
@@ -11,7 +11,10 @@ use matrix_sdk::{
 use ruma::UInt;
 use tracing::warn;
 
-use crate::{error::TimelineError, helpers::unwrap_or_clone_arc};
+use crate::{
+    error::{ClientError, TimelineError},
+    helpers::unwrap_or_clone_arc,
+};
 
 #[uniffi::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
@@ -305,6 +308,21 @@ impl EventTimelineItem {
 
     pub fn local_send_state(&self) -> Option<EventSendState> {
         self.0.send_state().map(Into::into)
+    }
+
+    pub fn read_receipts(&self) -> HashMap<String, Receipt> {
+        self.0.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect()
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct Receipt {
+    pub timestamp: Option<u64>,
+}
+
+impl From<ruma::events::receipt::Receipt> for Receipt {
+    fn from(value: ruma::events::receipt::Receipt) -> Self {
+        Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
     }
 }
 
@@ -919,6 +937,15 @@ pub enum VirtualTimelineItem {
 
 #[extension_trait]
 pub impl MediaSourceExt for MediaSource {
+    fn from_json(json: String) -> Result<MediaSource, ClientError> {
+        let res = serde_json::from_str(&json)?;
+        Ok(res)
+    }
+
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("Media source should always be serializable ")
+    }
+
     fn url(&self) -> String {
         match self {
             MediaSource::Plain(url) => url.to_string(),

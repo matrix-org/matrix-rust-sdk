@@ -44,8 +44,8 @@ async fn it_works_smoke_test() -> anyhow::Result<()> {
         .add_list(
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::Selective)
-                .add_range(0u32, 10)
-                .timeline_limit(0u32),
+                .add_range(0..=10)
+                .timeline_limit(0),
         )
         .build()
         .await?;
@@ -70,8 +70,8 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
             .add_list(
                 SlidingSyncList::builder("init_list")
                     .sync_mode(SlidingSyncMode::Selective)
-                    .add_range(0u32, 1)
-                    .timeline_limit(0u32)
+                    .add_range(0..=1)
+                    .timeline_limit(0)
                     .build(),
             )
             .build()
@@ -127,8 +127,8 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
         .add_list(
             SlidingSyncList::builder("visible_room_list")
                 .sync_mode(SlidingSyncMode::Selective)
-                .add_range(0u32, 1)
-                .timeline_limit(1u32)
+                .add_range(0..=1)
+                .timeline_limit(1)
                 .build(),
         )
         .build()
@@ -191,7 +191,7 @@ async fn modifying_timeline_limit() -> anyhow::Result<()> {
 
     // Sync to receive messages with a `timeline_limit` set to 20.
     {
-        list.set_timeline_limit(Some(uint!(20)));
+        list.set_timeline_limit(Some(20));
 
         let mut update_summary;
 
@@ -282,7 +282,7 @@ async fn adding_list_later() -> anyhow::Result<()> {
     let build_list = |name| {
         SlidingSyncList::builder(name)
             .sync_mode(SlidingSyncMode::Selective)
-            .set_range(0u32, 10u32)
+            .set_range(0..=10)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .build()
     };
@@ -367,7 +367,7 @@ async fn live_lists() -> anyhow::Result<()> {
     let build_list = |name| {
         SlidingSyncList::builder(name)
             .sync_mode(SlidingSyncMode::Selective)
-            .set_range(0u32, 10u32)
+            .set_range(0..=10)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .build()
     };
@@ -477,13 +477,13 @@ async fn list_goes_live() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(21).await?;
     let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
-        .set_range(0u32, 10u32)
+        .set_range(0..=10)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
 
     let full = SlidingSyncList::builder("full")
         .sync_mode(SlidingSyncMode::Growing)
-        .full_sync_batch_size(10u32)
+        .full_sync_batch_size(10)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
     let sync_proxy =
@@ -540,7 +540,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
-        .set_range(0u32, 10u32)
+        .set_range(0..=10)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
     let sync_proxy = sync_proxy_builder.add_list(sliding_window_list).build().await?;
@@ -567,7 +567,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(1u32, 10).unwrap();
+    list.set_range(1..=10).unwrap();
     // Ensure 0-0 invalidation ranges work.
 
     for _n in 0..2 {
@@ -590,7 +590,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
     );
 
-    list.set_range(5u32, 10).unwrap();
+    list.set_range(5..=10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -614,7 +614,7 @@ async fn resizing_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(5u32, 15).unwrap();
+    list.set_range(5..=15).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -643,7 +643,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let sliding_window_list = SlidingSyncList::builder("sliding")
         .sync_mode(SlidingSyncMode::Selective)
-        .set_range(1u32, 10u32)
+        .set_range(1..=10)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
     let sync_proxy = sync_proxy_builder.add_list(sliding_window_list).build().await?;
@@ -670,7 +670,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(0u32, 10).unwrap();
+    list.set_range(0..=10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -693,7 +693,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window again
 
-    list.set_range(2u32, 12).unwrap();
+    list.set_range(2..=12).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -751,7 +751,7 @@ async fn moving_out_of_sliding_window() -> anyhow::Result<()> {
 
     // let's move the window again
 
-    list.set_range(0u32, 10).unwrap();
+    list.set_range(0..=10).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")?;
@@ -787,7 +787,7 @@ async fn fast_unfreeze() -> anyhow::Result<()> {
     let build_lists = || {
         let sliding_window_list = SlidingSyncList::builder("sliding")
             .sync_mode(SlidingSyncMode::Selective)
-            .set_range(1u32, 10u32)
+            .set_range(1..=10)
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
             .build();
         let growing_sync = SlidingSyncList::builder("growing")
@@ -848,7 +848,7 @@ async fn growing_sync_keeps_going() -> anyhow::Result<()> {
     let (_client, sync_proxy_builder) = random_setup_with_rooms(20).await?;
     let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
-        .full_sync_batch_size(5u32)
+        .full_sync_batch_size(5)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
 
@@ -892,7 +892,7 @@ async fn continue_on_reset() -> anyhow::Result<()> {
     print!("setup took its time");
     let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
-        .full_sync_batch_size(5u32)
+        .full_sync_batch_size(5)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
@@ -976,7 +976,7 @@ async fn noticing_new_rooms_in_growing() -> anyhow::Result<()> {
     print!("setup took its time");
     let growing_sync = SlidingSyncList::builder("growing")
         .sync_mode(SlidingSyncMode::Growing)
-        .full_sync_batch_size(10u32)
+        .full_sync_batch_size(10)
         .full_sync_maximum_number_of_rooms_to_fetch(100)
         .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
         .build();
@@ -1053,7 +1053,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
         .add_list(
             SlidingSyncList::builder("sliding_list")
                 .sync_mode(SlidingSyncMode::Selective)
-                .set_range(0u32, 2u32)
+                .set_range(0..=2)
                 .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                 .build(),
         )
@@ -1079,7 +1079,7 @@ async fn restart_room_resubscription() -> anyhow::Result<()> {
 
     // let's move the window
 
-    list.set_range(1u32, 2).unwrap();
+    list.set_range(1..=2).unwrap();
 
     for _n in 0..2 {
         let room_summary = stream.next().await.context("sync has closed unexpectedly")??;
@@ -1211,7 +1211,7 @@ async fn receipts_extension_works() -> anyhow::Result<()> {
     let (client, sync_proxy_builder) = random_setup_with_rooms(1).await?;
     let list = SlidingSyncList::builder("a")
         .sync_mode(SlidingSyncMode::Selective)
-        .ranges(vec![(0u32, 1u32)])
+        .ranges(vec![(0..=1)])
         .sort(vec!["by_recency".to_owned()])
         .build();
 

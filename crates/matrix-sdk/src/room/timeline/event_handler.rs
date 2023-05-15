@@ -401,7 +401,7 @@ impl<'a> TimelineEventHandler<'a> {
             };
 
             trace!("Applying edit");
-            Some(event_item.apply_edit(new_content, edit_json))
+            Some(event_item.with_content(new_content, edit_json))
         });
     }
 

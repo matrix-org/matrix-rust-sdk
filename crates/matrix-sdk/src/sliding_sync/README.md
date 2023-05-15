@@ -79,7 +79,7 @@ let list_builder = SlidingSyncList::builder("main_list")
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
     )))
     .sort(vec!["by_recency".to_owned()])
-    .set_range(0u32, 9u32);
+    .set_range(0u32..=9);
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
@@ -438,7 +438,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
-    .set_range(0u32, 9u32) // only the top 10 items
+    .set_range(0u32..=9) // only the top 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:
