@@ -16,6 +16,7 @@ use wiremock::{
 mod client;
 mod refresh_token;
 mod room;
+#[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
