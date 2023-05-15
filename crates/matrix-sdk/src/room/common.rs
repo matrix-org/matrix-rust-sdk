@@ -1,10 +1,11 @@
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, fmt, ops::Deref, sync::Arc};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, TimelineEvent},
     store::StateStoreExt,
     RoomMemberships, StateChanges,
 };
+use matrix_sdk_common::debug::DebugStructExt;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -46,7 +47,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 #[cfg(feature = "experimental-timeline")]
 use super::timeline::Timeline;
@@ -201,6 +202,7 @@ impl Common {
     /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id(), ?options))]
     pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
@@ -1076,7 +1078,6 @@ impl Common {
 /// See that method and
 /// <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages>
 /// for details.
-#[derive(Debug)]
 #[non_exhaustive]
 pub struct MessagesOptions {
     /// The token to start returning events from.
@@ -1150,5 +1151,18 @@ impl MessagesOptions {
             limit: self.limit,
             filter: self.filter,
         })
+    }
+}
+
+impl fmt::Debug for MessagesOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { from, to, dir, limit, filter } = self;
+
+        let mut s = f.debug_struct("MessagesOptions");
+        s.maybe_field("from", from).maybe_field("to", to).field("dir", dir).field("limit", limit);
+        if !filter.is_empty() {
+            s.field("filter", filter);
+        }
+        s.finish()
     }
 }

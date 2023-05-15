@@ -109,8 +109,8 @@ impl Timeline {
     }
 
     /// Add more events to the start of the timeline.
-    #[instrument(skip_all, fields(initial_pagination_size, room_id = ?self.room().room_id()))]
-    pub async fn paginate_backwards(&self, mut opts: PaginationOptions<'_>) -> Result<()> {
+    #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
+    pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
             && self.inner.items().await.front().map_or(false, |item| item.is_timeline_start())
@@ -124,7 +124,7 @@ impl Timeline {
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();
 
-        while let Some(limit) = opts.next_event_limit(outcome) {
+        while let Some(limit) = options.next_event_limit(outcome) {
             let messages = self
                 .room()
                 .messages(assign!(MessagesOptions::backward(), {
