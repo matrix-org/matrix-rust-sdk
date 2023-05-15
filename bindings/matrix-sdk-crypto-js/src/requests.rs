@@ -324,6 +324,12 @@ pub struct SigningKeysUploadRequest {
 
 #[wasm_bindgen]
 impl SigningKeysUploadRequest {
+    /// Create a new `SigningKeysUploadRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> SigningKeysUploadRequest {
+        Self { id: Some(id), body }
+    }
+
     /// Get its request type.
     #[wasm_bindgen(getter, js_name = "type")]
     pub fn request_type(&self) -> RequestType {
