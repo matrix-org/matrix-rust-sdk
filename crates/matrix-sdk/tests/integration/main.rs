@@ -16,6 +16,7 @@ use wiremock::{
 mod client;
 mod refresh_token;
 mod room;
+mod sliding_sync;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[ctor::ctor]
