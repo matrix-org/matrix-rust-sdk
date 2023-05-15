@@ -172,7 +172,7 @@ async fn create_one_room(
     let update = receive_response!(
         [server, stream]
         {
-            "pos": "1",
+            "pos": "foo",
             "lists": {},
             "rooms": {
                 room_id: {
