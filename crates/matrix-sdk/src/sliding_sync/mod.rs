@@ -493,7 +493,7 @@ impl SlidingSync {
 
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
-        spawn(async move {
+        let fut = async move {
             debug!("Sliding Sync response handling starts");
 
             // In case the task running this future is detached, we must
@@ -503,14 +503,19 @@ impl SlidingSync {
 
             match &response.txn_id {
                 None => {
-                    error!(stream_id, "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; it's missing");
+                    error!(
+                        stream_id,
+                        "Sliding Sync has received an unexpected response: \
+                         `txn_id` must match `stream_id`; it's missing"
+                    );
                 }
 
                 Some(txn_id) if txn_id != &stream_id => {
                     error!(
                         stream_id,
                         txn_id,
-                        "Sliding Sync has received an unexpected response: `txn_id` must match `stream_id`; they differ"
+                        "Sliding Sync has received an unexpected response: \
+                         `txn_id` must match `stream_id`; they differ"
                     );
                 }
 
@@ -537,7 +542,8 @@ impl SlidingSync {
             debug!("Sliding Sync response has been fully handled");
 
             Ok(Some(updates))
-        }).await.unwrap()
+        };
+        spawn(fut.instrument(Span::current())).await.unwrap()
     }
 
     /// Create a _new_ Sliding Sync stream.
