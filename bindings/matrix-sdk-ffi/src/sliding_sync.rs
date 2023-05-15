@@ -830,10 +830,10 @@ impl SlidingSyncBuilder {
 
     pub fn add_cached_list(
         self: Arc<Self>,
-        v: Arc<SlidingSyncListBuilder>,
+        list_builder: Arc<SlidingSyncListBuilder>,
     ) -> Result<Arc<Self>, ClientError> {
         let mut builder = unwrap_or_clone_arc(self);
-        let list_builder = unwrap_or_clone_arc(v);
+        let list_builder = unwrap_or_clone_arc(list_builder);
         builder.inner = RUNTIME
             .block_on(async move { builder.inner.add_cached_list(list_builder.inner).await })?;
         Ok(Arc::new(builder))

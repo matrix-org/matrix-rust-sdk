@@ -118,7 +118,13 @@ impl SlidingSyncList {
         self.inner.state.read().unwrap().clone()
     }
 
-    /// Get a stream of state.
+    /// Get a stream of state updates.
+    ///
+    /// If this list has been reloaded from a cache, the initial value read from
+    /// the cache will be published.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
         Observable::subscribe(&self.inner.state.read().unwrap())
     }
@@ -142,6 +148,12 @@ impl SlidingSyncList {
     }
 
     /// Get a stream of room list.
+    ///
+    /// If this list has been reloaded from a cache, the initial value read from
+    /// the cache will be published.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
         ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
     }
@@ -153,6 +165,12 @@ impl SlidingSyncList {
     }
 
     /// Get a stream of rooms count.
+    ///
+    /// If this list has been reloaded from a cache, the initial value is
+    /// published too.
+    ///
+    /// There's no guarantee of ordering between items emitted by this stream
+    /// and those emitted by other streams exposed on this structure.
     pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
     }

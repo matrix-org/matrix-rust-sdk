@@ -28,7 +28,7 @@ pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Data that might have been read from the cache.
 #[derive(Clone)]
-struct SlidingSyncCachedData {
+struct SlidingSyncListCachedData {
     /// Total number of rooms that is possible to interact with the given list.
     /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
     /// May be reloaded from the cache.
@@ -57,7 +57,7 @@ pub struct SlidingSyncListBuilder {
 
     /// If set, temporary data that's been read from the cache, reloaded from a
     /// `FrozenSlidingSyncList`.
-    reloaded_cached_data: Option<SlidingSyncCachedData>,
+    reloaded_cached_data: Option<SlidingSyncListCachedData>,
 
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
 }
@@ -214,7 +214,7 @@ impl SlidingSyncListBuilder {
                 self.reloaded_cached_data.is_none(),
                 "can't call `set_cached_and_reload` twice"
             );
-            self.reloaded_cached_data = Some(SlidingSyncCachedData {
+            self.reloaded_cached_data = Some(SlidingSyncListCachedData {
                 maximum_number_of_rooms: frozen_list.maximum_number_of_rooms,
                 room_list: frozen_list.room_list,
             });
@@ -243,18 +243,6 @@ impl SlidingSyncListBuilder {
             SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_selective(),
         };
 
-        // Acknowledge data that's been reloaded from the cache, or use default values.
-        let (state, maximum_number_of_rooms, room_list) =
-            if let Some(cached_data) = self.reloaded_cached_data {
-                (
-                    SlidingSyncState::Preloaded,
-                    cached_data.maximum_number_of_rooms,
-                    cached_data.room_list,
-                )
-            } else {
-                (SlidingSyncState::default(), Default::default(), Default::default())
-            };
-
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
@@ -272,9 +260,9 @@ impl SlidingSyncListBuilder {
 
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.
-                state: StdRwLock::new(Observable::new(state)),
-                maximum_number_of_rooms: StdRwLock::new(Observable::new(maximum_number_of_rooms)),
-                room_list: StdRwLock::new(ObservableVector::from(room_list)),
+                state: StdRwLock::new(Observable::new(Default::default())),
+                maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
+                room_list: StdRwLock::new(ObservableVector::from(Vector::new())),
 
                 sliding_sync_internal_channel_sender,
             }),
@@ -282,6 +270,32 @@ impl SlidingSyncListBuilder {
 
         let once_built = self.once_built;
 
-        once_built(list)
+        let list = once_built(list);
+
+        // If we reloaded from the cache, update values in the list here.
+        //
+        // Note about ordering: because of the contract with the observables, the
+        // initial values, if filled, have to be observable in the `once_built`
+        // callback. That's why we're doing this here *after* constructing the
+        // list, and not a few lines above.
+
+        if let Some(SlidingSyncListCachedData { maximum_number_of_rooms, room_list }) =
+            self.reloaded_cached_data
+        {
+            // Mark state as preloaded.
+            Observable::set(&mut list.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
+
+            // Reload values.
+            Observable::set(
+                &mut list.inner.maximum_number_of_rooms.write().unwrap(),
+                maximum_number_of_rooms,
+            );
+
+            let mut prev_room_list = list.inner.room_list.write().unwrap();
+            assert!(prev_room_list.is_empty(), "room list was empty on creation above!");
+            prev_room_list.append(room_list);
+        }
+
+        list
     }
 }
