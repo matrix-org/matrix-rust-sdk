@@ -333,7 +333,10 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{events::room::message::RoomMessageEventContent, room_id, uint, RoomId};
+    use ruma::{
+        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
+        room_id, uint, RoomId,
+    };
     use serde_json::json;
     use wiremock::MockServer;
 
@@ -598,7 +601,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_timeline_initially_empty() {
+    async fn test_timeline_queue_initially_empty() {
         let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
         assert!(room.timeline_queue().is_empty());
@@ -951,18 +954,18 @@ mod tests {
             let timeline_events = (0..=max)
                 .map(|nth| {
                     TimelineEvent::new(
-                    Raw::new(&json!({
-                        "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
-                        "type": "m.room.message",
-                        "event_id": format!("$x{nth}:baz.org"),
-                        "room_id": "!foo:bar.org",
-                        "origin_server_ts": nth,
-                        "sender": "@alice:baz.org",
-                    }))
-                    .unwrap()
-                    .cast(),
-                )
-                .into()
+                        Raw::new(&json!({
+                            "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
+                            "type": "m.room.message",
+                            "event_id": format!("$x{nth}:baz.org"),
+                            "room_id": "!foo:bar.org",
+                            "origin_server_ts": nth,
+                            "sender": "@alice:baz.org",
+                        }))
+                        .unwrap()
+                        .cast(),
+                    )
+                    .into()
                 })
                 .collect::<Vec<_>>();
 
