@@ -3,6 +3,7 @@
 -   Extend `OlmDevice.markRequestAsSent` to accept responses to
     `SigningKeysUploadRequest`s.
 -   Fix the body of `SignatureUploadRequest`s to match the spec.
+-   Add a constructor for `SigningKeysUploadRequest`.
 
 # v0.1.0-alpha.8
 
