@@ -75,7 +75,7 @@ impl SlidingSyncListBuilder {
         }
     }
 
-    /// foo
+    /// Declare a callback that is called when a list is built.
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
         C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
