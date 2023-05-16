@@ -365,7 +365,7 @@ impl Timeline {
     #[instrument(skip_all)]
     pub async fn fetch_members(&self) {
         self.inner.set_sender_profiles_pending().await;
-        match self.room().ensure_members().await {
+        match self.room().sync_members().await {
             Ok(_) => {
                 self.inner.update_sender_profiles().await;
             }
