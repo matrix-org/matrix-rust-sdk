@@ -16,6 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use eyeball_im::ObservableVector;
 use indexmap::IndexMap;
+use matrix_sdk::room;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, OwnedEventId, OwnedUserId, UserId,
@@ -28,7 +29,6 @@ use super::{
     inner::{RoomDataProvider, TimelineInnerState},
     rfind_event_by_id, EventTimelineItem, RelativePosition, TimelineItem,
 };
-use crate::room;
 
 struct FullReceipt<'a> {
     event_id: &'a EventId,

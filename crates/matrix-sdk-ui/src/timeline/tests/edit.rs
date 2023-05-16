@@ -30,7 +30,7 @@ use ruma::{
 use serde_json::json;
 
 use super::{TestTimeline, ALICE};
-use crate::room::timeline::TimelineItemContent;
+use crate::timeline::TimelineItemContent;
 
 #[async_test]
 async fn live_redacted() {

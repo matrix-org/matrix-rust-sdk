@@ -45,8 +45,6 @@ pub mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
-#[cfg(feature = "experimental-timeline")]
-mod events;
 
 pub use account::Account;
 #[cfg(feature = "sso-login")]

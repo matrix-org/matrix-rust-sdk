@@ -245,11 +245,6 @@ pub enum Error {
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 
-    /// An error occurred in the timeline.
-    #[cfg(feature = "experimental-timeline")]
-    #[error(transparent)]
-    Timeline(#[from] crate::room::timeline::Error),
-
     /// The client is in inconsistent state. This happens when we set a room to
     /// a specific type, but then cannot get it in this type.
     #[error("The internal client state is inconsistent.")]

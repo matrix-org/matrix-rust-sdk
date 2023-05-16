@@ -17,6 +17,7 @@ use std::{io, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
+use matrix_sdk::Error;
 use matrix_sdk_test::async_test;
 use ruma::{
     event_id,
@@ -25,7 +26,7 @@ use ruma::{
 use serde_json::json;
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::{room::timeline::event_item::EventSendState, Error};
+use crate::timeline::event_item::EventSendState;
 
 #[async_test]
 async fn remote_echo_full_trip() {

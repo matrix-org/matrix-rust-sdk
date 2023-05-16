@@ -1,5 +1,3 @@
-#![cfg(feature = "experimental-timeline")]
-
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
@@ -34,6 +32,8 @@ use wiremock::{
 };
 
 mod read_receipts;
+#[cfg(feature = "experimental-sliding-sync")]
+mod sliding_sync;
 
 use crate::{logged_in_client, mock_encryption_state, mock_sync};
 

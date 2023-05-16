@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent};
+use matrix_sdk::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    room,
+};
 use ruma::{
     events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
     push::Action,
@@ -26,7 +29,6 @@ use tracing::error;
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{inner::TimelineInner, Timeline, TimelineEventHandlerHandles};
-use crate::room;
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -120,6 +122,7 @@ impl TimelineBuilder {
 
         let inner = Arc::new(inner);
         let room = inner.room();
+        let client = room.client();
 
         let timeline_event_handle = room.add_event_handler({
             let inner = inner.clone();
@@ -133,14 +136,15 @@ impl TimelineBuilder {
 
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
+
         #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = room
-            .client
+        let room_key_handle = client
             .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
         #[cfg(feature = "e2e-encryption")]
-        let forwarded_room_key_handle = room.client.add_event_handler(
-            handle_forwarded_room_key_event(inner.clone(), room.room_id().to_owned()),
-        );
+        let forwarded_room_key_handle = client.add_event_handler(handle_forwarded_room_key_event(
+            inner.clone(),
+            room.room_id().to_owned(),
+        ));
 
         let mut handles = vec![
             timeline_event_handle,
@@ -176,7 +180,6 @@ impl TimelineBuilder {
             handles.push(read_receipts_handle);
         }
 
-        let client = room.client.clone();
         let timeline = Timeline {
             inner,
             start_token: Mutex::new(prev_token),

@@ -49,8 +49,6 @@ use serde::de::DeserializeOwned;
 use tokio::sync::Mutex;
 use tracing::{debug, instrument};
 
-#[cfg(feature = "experimental-timeline")]
-use super::timeline::Timeline;
 use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
@@ -267,16 +265,6 @@ impl Common {
         H: EventHandler<Ev, Ctx>,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
-    }
-
-    /// Get a [`Timeline`] for this room.
-    ///
-    /// This offers a higher-level API than event handlers, in treating things
-    /// like edits and reactions as updates of existing items rather than new
-    /// independent events.
-    #[cfg(feature = "experimental-timeline")]
-    pub async fn timeline(&self) -> Timeline {
-        Timeline::builder(self).track_read_marker_and_receipts().build().await
     }
 
     /// Fetch the event with the given `EventId` in this room.

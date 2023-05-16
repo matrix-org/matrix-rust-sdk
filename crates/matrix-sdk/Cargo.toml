@@ -47,13 +47,7 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-timeline = ["ruma/unstable-msc2677", "ruma/unstable-sanitize", "dep:chrono"]
-
-experimental-sliding-sync = [
-    "matrix-sdk-base/experimental-sliding-sync",
-    "experimental-timeline",
-    "reqwest/gzip",
-]
+experimental-sliding-sync = ["matrix-sdk-base/experimental-sliding-sync", "reqwest/gzip"]
 
 docsrs = [
     "e2e-encryption",
@@ -70,7 +64,6 @@ async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
-chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
@@ -80,7 +73,6 @@ futures-core = "0.3.21"
 futures-util = { workspace = true }
 http = { workspace = true }
 imbl = { version = "2.0.0", features = ["serde"] }
-indexmap = "1.9.1"
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
@@ -88,8 +80,6 @@ matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", de
 matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-features = false, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
-once_cell = { workspace = true }
-pin-project-lite = "0.2.9"
 rand = { version = "0.8.5", optional = true }
 reqwest = { version = "0.11.10", default_features = false }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965"] }
@@ -137,7 +127,6 @@ assert_matches = { workspace = true }
 dirs = "4.0.0"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
-once_cell = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

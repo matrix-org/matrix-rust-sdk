@@ -2,7 +2,7 @@ use std::{fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use ruma::{
     events::{
         policy::rule::{
@@ -43,11 +43,8 @@ use ruma::{
 use tracing::{debug, error};
 
 use super::{EventTimelineItem, Profile, TimelineDetails};
-use crate::{
-    room::timeline::{
-        inner::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
-    },
-    Result,
+use crate::timeline::{
+    inner::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
 };
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
@@ -123,14 +120,14 @@ impl TimelineItemContent {
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone)]
 pub struct Message {
-    pub(in crate::room::timeline) msgtype: MessageType,
-    pub(in crate::room::timeline) in_reply_to: Option<InReplyToDetails>,
-    pub(in crate::room::timeline) edited: bool,
+    pub(in crate::timeline) msgtype: MessageType,
+    pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
+    pub(in crate::timeline) edited: bool,
 }
 
 impl Message {
     /// Construct a `Message` from a `m.room.message` event.
-    pub(in crate::room::timeline) fn from_event(
+    pub(in crate::timeline) fn from_event(
         c: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
         timeline_items: &Vector<Arc<TimelineItem>>,
@@ -216,10 +213,7 @@ impl Message {
         self.edited
     }
 
-    pub(in crate::room::timeline) fn with_in_reply_to(
-        &self,
-        in_reply_to: InReplyToDetails,
-    ) -> Self {
+    pub(in crate::timeline) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
     }
 }
@@ -248,16 +242,16 @@ pub struct InReplyToDetails {
     /// Use [`Timeline::fetch_details_for_event`] to fetch the data if it is
     /// unavailable.
     ///
-    /// [`Timeline::fetch_details_for_event`]: crate::room::timeline::Timeline::fetch_details_for_event
+    /// [`Timeline::fetch_details_for_event`]: crate::Timeline::fetch_details_for_event
     pub event: TimelineDetails<Box<RepliedToEvent>>,
 }
 
 /// An event that is replied to.
 #[derive(Clone, Debug)]
 pub struct RepliedToEvent {
-    pub(in crate::room::timeline) message: Message,
-    pub(in crate::room::timeline) sender: OwnedUserId,
-    pub(in crate::room::timeline) sender_profile: TimelineDetails<Profile>,
+    pub(in crate::timeline) message: Message,
+    pub(in crate::timeline) sender: OwnedUserId,
+    pub(in crate::timeline) sender_profile: TimelineDetails<Profile>,
 }
 
 impl RepliedToEvent {
@@ -293,19 +287,19 @@ impl RepliedToEvent {
         })
     }
 
-    pub(in crate::room::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
+    pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
-    ) -> Result<Self> {
+    ) -> Result<Self, TimelineError> {
         let event = match timeline_event.event.deserialize() {
             Ok(AnyTimelineEvent::MessageLike(event)) => event,
             _ => {
-                return Err(TimelineError::UnsupportedEvent.into());
+                return Err(TimelineError::UnsupportedEvent);
             }
         };
 
         let Some(AnyMessageLikeEventContent::RoomMessage(c)) = event.original_content() else {
-            return Err(TimelineError::UnsupportedEvent.into());
+            return Err(TimelineError::UnsupportedEvent);
         };
 
         let message = Message::from_event(c, event.relations(), &vector![]);
@@ -376,7 +370,7 @@ type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEven
 /// This is a map of the event ID or transaction ID of the reactions to the ID
 /// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
-pub struct ReactionGroup(pub(in crate::room::timeline) ReactionGroupInner);
+pub struct ReactionGroup(pub(in crate::timeline) ReactionGroupInner);
 
 impl ReactionGroup {
     /// The senders of the reactions in this group.
@@ -396,7 +390,7 @@ impl Deref for ReactionGroup {
 /// An `m.sticker` event.
 #[derive(Clone, Debug)]
 pub struct Sticker {
-    pub(in crate::room::timeline) content: StickerEventContent,
+    pub(in crate::timeline) content: StickerEventContent,
 }
 
 impl Sticker {
@@ -409,9 +403,9 @@ impl Sticker {
 /// An event changing a room membership.
 #[derive(Clone, Debug)]
 pub struct RoomMembershipChange {
-    pub(in crate::room::timeline) user_id: OwnedUserId,
-    pub(in crate::room::timeline) content: FullStateEventContent<RoomMemberEventContent>,
-    pub(in crate::room::timeline) change: Option<MembershipChange>,
+    pub(in crate::timeline) user_id: OwnedUserId,
+    pub(in crate::timeline) content: FullStateEventContent<RoomMemberEventContent>,
+    pub(in crate::timeline) change: Option<MembershipChange>,
 }
 
 impl RoomMembershipChange {
@@ -498,9 +492,9 @@ pub enum MembershipChange {
 /// membership is already `join`.
 #[derive(Clone, Debug)]
 pub struct MemberProfileChange {
-    pub(in crate::room::timeline) user_id: OwnedUserId,
-    pub(in crate::room::timeline) displayname_change: Option<Change<Option<String>>>,
-    pub(in crate::room::timeline) avatar_url_change: Option<Change<Option<OwnedMxcUri>>>,
+    pub(in crate::timeline) user_id: OwnedUserId,
+    pub(in crate::timeline) displayname_change: Option<Change<Option<String>>>,
+    pub(in crate::timeline) avatar_url_change: Option<Change<Option<OwnedMxcUri>>>,
 }
 
 impl MemberProfileChange {
@@ -654,8 +648,8 @@ impl AnyOtherFullStateEventContent {
 /// A state event that doesn't have its own variant.
 #[derive(Clone, Debug)]
 pub struct OtherState {
-    pub(in crate::room::timeline) state_key: String,
-    pub(in crate::room::timeline) content: AnyOtherFullStateEventContent,
+    pub(in crate::timeline) state_key: String,
+    pub(in crate::timeline) content: AnyOtherFullStateEventContent,
 }
 
 impl OtherState {

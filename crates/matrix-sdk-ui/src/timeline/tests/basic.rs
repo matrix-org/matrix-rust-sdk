@@ -16,7 +16,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -34,7 +34,7 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::room::timeline::{
+use crate::timeline::{
     event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails, TimelineItem,
     TimelineItemContent, VirtualTimelineItem,
 };

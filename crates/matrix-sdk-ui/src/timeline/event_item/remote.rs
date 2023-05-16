@@ -1,7 +1,7 @@
 use std::fmt;
 
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{receipt::Receipt, AnySyncTimelineEvent},
     serde::Raw,
@@ -12,7 +12,7 @@ use super::BundledReactions;
 
 /// An item for an event that was received from the homeserver.
 #[derive(Clone)]
-pub(in crate::room::timeline) struct RemoteEventTimelineItem {
+pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     pub event_id: OwnedEventId,
     /// All bundled reactions about the event.
@@ -66,7 +66,7 @@ impl RemoteEventTimelineItem {
 
 /// Where we got an event from.
 #[derive(Clone, Copy, Debug)]
-pub(in crate::room::timeline) enum RemoteEventOrigin {
+pub(in crate::timeline) enum RemoteEventOrigin {
     /// The event came from a cache.
     Cache,
     /// The event came from a sync response.

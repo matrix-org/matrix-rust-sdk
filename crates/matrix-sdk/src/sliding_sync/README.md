@@ -216,8 +216,8 @@ the [`BaseClient`][`matrix_sdk_base::BaseClient`] as in previous sync. This
 allows for transparent decryption as well trigger the `client_handlers`.
 
 The current and then following live events list can be queried via the
-[`timeline` API](`SlidingSyncRoom::timeline). This is prefilled with already
-received data.
+`timeline` API from `matrix-sdk-ui`. This is prefilled with already received
+data.
 
 ### Timeline trickling
 
@@ -349,8 +349,8 @@ copies accordingly. Because of where the loop sits in the stack, that can
 be a bit tedious though, so lists and rooms have an additional way of
 subscribing to updates via [`eyeball`].
 
-The `Timeline` one can receive per room by calling
-[`.timeline()`][`SlidingSyncRoom::timeline`] will be populated with the
+The `Timeline` one can receive per room by calling `.timeline()` (from
+`matrix_sdk_ui::timeline::SlidingSyncRoomExt`) will be populated with the
 currently cached timeline events.
 
 ## Caching

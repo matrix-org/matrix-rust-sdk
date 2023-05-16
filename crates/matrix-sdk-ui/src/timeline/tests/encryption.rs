@@ -19,7 +19,7 @@ use std::{collections::BTreeSet, io::Cursor, iter};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk_base::crypto::{decrypt_room_key_export, OlmMachine};
+use matrix_sdk::crypto::{decrypt_room_key_export, OlmMachine};
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -31,7 +31,7 @@ use ruma::{
 };
 
 use super::{TestTimeline, BOB};
-use crate::room::timeline::{EncryptedMessage, TimelineItemContent};
+use crate::timeline::{EncryptedMessage, TimelineItemContent};
 
 #[async_test]
 async fn retry_message_decryption() {
@@ -100,7 +100,7 @@ async fn retry_message_decryption() {
 
     timeline
         .inner
-        .retry_event_decryption(
+        .retry_event_decryption_test(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             &olm_machine,
             Some(iter::once(SESSION_ID).collect()),
@@ -203,7 +203,7 @@ async fn retry_edit_decryption() {
 
     timeline
         .inner
-        .retry_event_decryption(
+        .retry_event_decryption_test(
             room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
             &olm_machine,
             None,
@@ -306,7 +306,7 @@ async fn retry_edit_and_more() {
 
     timeline
         .inner
-        .retry_event_decryption(
+        .retry_event_decryption_test(
             room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
             &olm_machine,
             Some(BTreeSet::from_iter([SESSION_ID])),
@@ -392,7 +392,7 @@ async fn retry_message_decryption_highlighted() {
 
     timeline
         .inner
-        .retry_event_decryption(
+        .retry_event_decryption_test(
             room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
             &olm_machine,
             Some(iter::once(SESSION_ID).collect()),

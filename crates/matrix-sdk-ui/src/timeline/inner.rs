@@ -20,10 +20,13 @@ use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
 use imbl::Vector;
 use indexmap::{IndexMap, IndexSet};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::OlmMachine;
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent};
-#[cfg(feature = "e2e-encryption")]
+#[cfg(all(test, feature = "e2e-encryption"))]
+use matrix_sdk::crypto::OlmMachine;
+use matrix_sdk::{
+    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
+    room, Error, Result,
+};
+#[cfg(all(test, feature = "e2e-encryption"))]
 use ruma::RoomId;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -57,7 +60,7 @@ use super::{
     Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
     TimelineItemContent,
 };
-use crate::{events::SyncTimelineEventWithoutContent, room, Error, Result};
+use crate::events::SyncTimelineEventWithoutContent;
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
@@ -347,11 +350,29 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip(self, olm_machine))]
+    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
     pub(super) async fn retry_event_decryption(
+        &self,
+        room: &room::Common,
+        session_ids: Option<BTreeSet<&str>>,
+    ) {
+        self.retry_event_decryption_inner(room, session_ids).await
+    }
+
+    #[cfg(all(test, feature = "e2e-encryption"))]
+    pub(super) async fn retry_event_decryption_test(
         &self,
         room_id: &RoomId,
         olm_machine: &OlmMachine,
+        session_ids: Option<BTreeSet<&str>>,
+    ) {
+        self.retry_event_decryption_inner((olm_machine, room_id), session_ids).await
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    async fn retry_event_decryption_inner(
+        &self,
+        decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<&str>>,
     ) {
         use super::EncryptedMessage;
@@ -392,8 +413,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 tracing::Span::current().record("event_id", debug(&remote_event.event_id));
 
-                let raw = remote_event.original_json.cast_ref();
-                match olm_machine.decrypt_room_event(raw, room_id).await {
+                match decryptor.decrypt_event_impl(&remote_event.original_json).await {
                     Ok(event) => {
                         trace!("Successfully decrypted event that previously failed to decrypt");
                         Some(event)
@@ -544,7 +564,10 @@ impl TimelineInner {
     }
 
     #[instrument(skip(self))]
-    pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<()> {
+    pub(super) async fn fetch_in_reply_to_details(
+        &self,
+        event_id: &EventId,
+    ) -> Result<(), super::Error> {
         let state = self.state.lock().await;
         let (index, item) = rfind_event_by_id(&state.items, event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
@@ -572,7 +595,7 @@ impl TimelineInner {
             &in_reply_to.event_id,
             self.room(),
         )
-        .await;
+        .await?;
 
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
@@ -686,7 +709,7 @@ async fn fetch_replied_to_event(
     message: &Message,
     in_reply_to: &EventId,
     room: &room::Common,
-) -> TimelineDetails<Box<RepliedToEvent>> {
+) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
     if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
         let details = match item.content() {
             TimelineItemContent::Message(message) => {
@@ -696,11 +719,11 @@ async fn fetch_replied_to_event(
                     sender_profile: item.sender_profile().clone(),
                 }))
             }
-            _ => TimelineDetails::Error(Arc::new(super::Error::UnsupportedEvent.into())),
+            _ => return Err(super::Error::UnsupportedEvent),
         };
 
         debug!("Found replied-to event locally");
-        return details;
+        return Ok(details);
     };
 
     trace!("Setting in-reply-to details to pending");
@@ -715,15 +738,13 @@ async fn fetch_replied_to_event(
     drop(state);
 
     trace!("Fetching replied-to event");
-    match room.event(in_reply_to).await {
-        Ok(timeline_event) => {
-            match RepliedToEvent::try_from_timeline_event(timeline_event, room).await {
-                Ok(event) => TimelineDetails::Ready(Box::new(event)),
-                Err(e) => TimelineDetails::Error(Arc::new(e)),
-            }
-        }
+    let res = match room.event(in_reply_to).await {
+        Ok(timeline_event) => TimelineDetails::Ready(Box::new(
+            RepliedToEvent::try_from_timeline_event(timeline_event, room).await?,
+        )),
         Err(e) => TimelineDetails::Error(Arc::new(e)),
-    }
+    };
+    Ok(res)
 }
 
 #[async_trait]
@@ -849,4 +870,28 @@ async fn handle_remote_event<P: RoomDataProvider>(
 
     TimelineEventHandler::new(event_meta, flow, timeline_state, track_read_receipts)
         .handle_event(event_kind)
+}
+
+// Internal helper to make most of retry_event_decryption independent of a room
+// object, which is annoying to create for testing and not really needed
+#[async_trait]
+trait Decryptor: Copy {
+    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent>;
+}
+
+#[async_trait]
+impl Decryptor for &room::Common {
+    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
+        self.decrypt_event(raw.cast_ref()).await
+    }
+}
+
+#[cfg(all(test, feature = "e2e-encryption"))]
+#[async_trait]
+impl Decryptor for (&OlmMachine, &RoomId) {
+    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
+        let (olm_machine, room_id) = self;
+        let event = olm_machine.decrypt_room_event(raw.cast_ref(), room_id).await?;
+        Ok(event)
+    }
 }

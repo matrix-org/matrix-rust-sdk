@@ -295,10 +295,10 @@ impl Joined {
             return Ok(());
         }
 
-        let Receipts { fully_read, read_receipt, private_read_receipt } = receipts;
+        let Receipts { fully_read, public_read_receipt, private_read_receipt } = receipts;
         let request = assign!(set_read_marker::v3::Request::new(self.inner.room_id().to_owned()), {
             fully_read,
-            read_receipt,
+            read_receipt: public_read_receipt,
             private_read_receipt,
         });
 
@@ -1139,10 +1139,14 @@ impl Joined {
 
 /// Receipts to send all at once.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Receipts {
-    pub(super) fully_read: Option<OwnedEventId>,
-    pub(super) read_receipt: Option<OwnedEventId>,
-    pub(super) private_read_receipt: Option<OwnedEventId>,
+    /// Fully-read marker (room account data).
+    pub fully_read: Option<OwnedEventId>,
+    /// Read receipt (public ephemeral room event).
+    pub public_read_receipt: Option<OwnedEventId>,
+    /// Read receipt (private ephemeral room event).
+    pub private_read_receipt: Option<OwnedEventId>,
 }
 
 impl Receipts {
@@ -1170,7 +1174,7 @@ impl Receipts {
     /// This is used to reset the unread messages/notification count and
     /// advertise to other users the last event that the user has likely seen.
     pub fn public_read_receipt(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
-        self.read_receipt = event_id.into();
+        self.public_read_receipt = event_id.into();
         self
     }
 
@@ -1185,7 +1189,7 @@ impl Receipts {
     /// Whether this `Receipts` is empty.
     pub fn is_empty(&self) -> bool {
         self.fully_read.is_none()
-            && self.read_receipt.is_none()
+            && self.public_read_receipt.is_none()
             && self.private_read_receipt.is_none()
     }
 }

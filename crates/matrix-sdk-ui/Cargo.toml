@@ -1,0 +1,33 @@
+[package]
+name = "matrix-sdk-ui"
+version = "0.6.0"
+edition = "2021"
+
+[features]
+default = ["e2e-encryption"]
+e2e-encryption = ["matrix-sdk/e2e-encryption"]
+experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = "0.4.23"
+eyeball-im = { workspace = true }
+futures-core = "0.3.21"
+futures-util = { workspace = true }
+imbl = { version = "2.0.0", features = ["serde"] }
+indexmap = "1.9.1"
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false }
+mime = "0.3.16"
+once_cell = { workspace = true }
+pin-project-lite = "0.2.9"
+ruma = { workspace = true, features = ["unstable-msc2677", "unstable-sanitize"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true, features = ["attributes"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+assert_matches = { workspace = true }
+matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
