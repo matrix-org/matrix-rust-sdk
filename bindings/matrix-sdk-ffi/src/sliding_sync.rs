@@ -11,10 +11,11 @@ use matrix_sdk::ruma::{
     assign, IdParseError, OwnedRoomId, RoomId,
 };
 pub use matrix_sdk::{
-    room::timeline::Timeline, ruma::api::client::sync::sync_events::v4::SyncRequestListFilters,
-    Client as MatrixClient, LoopCtrl, RoomListEntry as MatrixRoomEntry,
-    SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
+    ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
+    LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
+    SlidingSyncMode, SlidingSyncState,
 };
+use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 use url::Url;

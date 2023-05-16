@@ -1546,6 +1546,7 @@ dependencies = [
  "clap 4.2.4",
  "futures",
  "matrix-sdk",
+ "matrix-sdk-ui",
  "tokio",
  "tracing-subscriber",
  "url",
@@ -2615,7 +2616,6 @@ dependencies = [
  "backoff",
  "bytes",
  "bytesize",
- "chrono",
  "ctor 0.2.0",
  "dashmap",
  "dirs",
@@ -2632,7 +2632,6 @@ dependencies = [
  "hyper",
  "image 0.24.6",
  "imbl",
- "indexmap",
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-indexeddb",
@@ -2640,8 +2639,6 @@ dependencies = [
  "matrix-sdk-test",
  "mime",
  "mime2ext",
- "once_cell",
- "pin-project-lite",
  "rand 0.8.5",
  "reqwest",
  "ruma",
@@ -2861,6 +2858,7 @@ dependencies = [
  "futures-util",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-ui",
  "mime",
  "once_cell",
  "opentelemetry",
@@ -3030,6 +3028,32 @@ version = "0.3.0"
 dependencies = [
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "matrix-sdk-ui"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "assert_matches",
+ "async-trait",
+ "chrono",
+ "eyeball-im",
+ "futures-core",
+ "futures-util",
+ "imbl",
+ "indexmap",
+ "matrix-sdk",
+ "matrix-sdk-test",
+ "mime",
+ "once_cell",
+ "pin-project-lite",
+ "ruma",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

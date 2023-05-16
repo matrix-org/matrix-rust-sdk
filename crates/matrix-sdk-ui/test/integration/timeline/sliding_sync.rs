@@ -5,10 +5,13 @@ use assert_matches::assert_matches;
 use eyeball_im::{Vector, VectorDiff};
 use futures::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
-    room::timeline::{TimelineItem, VirtualTimelineItem},
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
+use matrix_sdk_ui::{
+    timeline::{TimelineItem, VirtualTimelineItem},
+    SlidingSyncRoomExt,
+};
 use ruma::{room_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};

@@ -13,12 +13,8 @@ use ruma::{
     OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, instrument};
 
-use crate::{
-    room::timeline::{EventTimelineItem, Timeline, TimelineBuilder},
-    Client,
-};
+use crate::Client;
 
 /// The state of a [`SlidingSyncRoom`].
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -108,23 +104,25 @@ impl SlidingSyncRoom {
 
     /// Get the required state.
     pub fn required_state(&self) -> Vec<Raw<AnySyncStateEvent>> {
-        let inner = self.inner.inner.read().unwrap();
-
-        inner.required_state.clone()
+        self.inner.inner.read().unwrap().required_state.clone()
     }
 
-    /// `Timeline` of this room
-    pub async fn timeline(&self) -> Option<Timeline> {
-        Some(self.inner.timeline_builder()?.track_read_marker_and_receipts().build().await)
+    /// Get the token for back-pagination.
+    pub fn prev_batch(&self) -> Option<String> {
+        self.inner.inner.read().unwrap().prev_batch.clone()
     }
 
-    /// The latest timeline item of this room.
+    /// Get a copy of the cached timeline events.
     ///
-    /// Use `Timeline::latest_event` instead if you already have a timeline for
-    /// this `SlidingSyncRoom`.
-    #[instrument(skip_all)]
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.timeline_builder()?.build().await.latest_event().await
+    /// Note: This API only exists temporarily, it *will* be removed in the
+    /// future.
+    pub fn timeline_queue(&self) -> Vector<SyncTimelineEvent> {
+        self.inner.timeline_queue.read().unwrap().clone()
+    }
+
+    /// Get a clone of the associated client.
+    pub fn client(&self) -> Client {
+        self.inner.client.clone()
     }
 
     pub(super) fn update(
@@ -233,10 +231,6 @@ impl SlidingSyncRoom {
     fn set_state(&mut self, state: SlidingSyncRoomState) {
         *self.inner.state.write().unwrap() = state;
     }
-
-    fn timeline_queue(&self) -> std::sync::RwLockReadGuard<'_, Vector<SyncTimelineEvent>> {
-        self.inner.timeline_queue.read().unwrap()
-    }
 }
 
 #[derive(Debug)]
@@ -258,33 +252,6 @@ struct SlidingSyncRoomInner {
     /// A queue of received events, used to build a
     /// [`Timeline`][crate::Timeline].
     timeline_queue: RwLock<Vector<SyncTimelineEvent>>,
-}
-
-impl SlidingSyncRoomInner {
-    /// Get the previous batch.
-    fn prev_batch(&self) -> Option<String> {
-        let inner = self.inner.read().unwrap();
-
-        inner.prev_batch.clone()
-    }
-
-    fn timeline_builder(&self) -> Option<TimelineBuilder> {
-        if let Some(room) = self.client.get_room(&self.room_id) {
-            Some(
-                Timeline::builder(&room)
-                    .events(self.prev_batch(), self.timeline_queue.read().unwrap().clone()),
-            )
-        } else if let Some(invited_room) = self.client.get_invited_room(&self.room_id) {
-            Some(Timeline::builder(&invited_room).events(None, Vector::new()))
-        } else {
-            error!(
-                room_id = ?self.room_id,
-                "Room not found in client. Can't provide a timeline for it"
-            );
-
-            None
-        }
-    }
 }
 
 /// A “frozen” [`SlidingSyncRoom`], i.e. that can be written into, or read from
@@ -515,7 +482,7 @@ mod tests {
         {
             let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-            assert_eq!(room.inner.prev_batch(), None);
+            assert_eq!(room.prev_batch(), None);
         }
 
         // Some value when initializing.
@@ -524,20 +491,20 @@ mod tests {
                 new_room(room_id!("!foo:bar.org"), room_response!({"prev_batch": "t111_222_333"}))
                     .await;
 
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
+            assert_eq!(room.prev_batch(), Some("t111_222_333".to_owned()));
         }
 
         // Some value when updating.
         {
             let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
-            assert_eq!(room.inner.prev_batch(), None);
+            assert_eq!(room.prev_batch(), None);
 
             room.update(room_response!({"prev_batch": "t111_222_333"}), vec![]);
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
+            assert_eq!(room.prev_batch(), Some("t111_222_333".to_owned()));
 
             room.update(room_response!({}), vec![]);
-            assert_eq!(room.inner.prev_batch(), Some("t111_222_333".to_owned()));
+            assert_eq!(room.prev_batch(), Some("t111_222_333".to_owned()));
         }
     }
 

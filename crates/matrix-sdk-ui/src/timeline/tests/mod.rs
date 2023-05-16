@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{

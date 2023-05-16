@@ -14,6 +14,7 @@
 
 use std::{iter, sync::Arc};
 
+use matrix_sdk::{event_handler::EventHandler, Client};
 use ruma::{
     events::{forwarded_room_key::ToDeviceForwardedRoomKeyEvent, room_key::ToDeviceRoomKeyEvent},
     OwnedRoomId,
@@ -21,7 +22,6 @@ use ruma::{
 use tracing::{debug_span, error, trace, Instrument};
 
 use super::inner::TimelineInner;
-use crate::{event_handler::EventHandler, Client};
 
 pub(super) fn handle_room_key_event(
     inner: Arc<TimelineInner>,
@@ -70,16 +70,10 @@ async fn retry_decryption(
         return;
     }
 
-    let Some(olm_machine) = client.olm_machine() else {
-        error!("The olm machine isn't yet available");
+    let Some(room) = client.get_room(&room_id) else {
+        error!("Failed to fetch room object");
         return;
     };
 
-    inner
-        .retry_event_decryption(
-            &room_id,
-            olm_machine,
-            Some(iter::once(session_id.as_str()).collect()),
-        )
-        .await;
+    inner.retry_event_decryption(&room, Some(iter::once(session_id.as_str()).collect())).await;
 }

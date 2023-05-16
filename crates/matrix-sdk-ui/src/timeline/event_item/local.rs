@@ -5,7 +5,7 @@ use super::EventSendState;
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
 #[derive(Debug, Clone)]
-pub(in crate::room::timeline) struct LocalEventTimelineItem {
+pub(in crate::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
     pub send_state: EventSendState,
     /// The transaction ID.

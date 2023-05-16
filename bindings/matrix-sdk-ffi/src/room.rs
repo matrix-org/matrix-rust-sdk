@@ -11,7 +11,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    room::{timeline::Timeline, Receipts, Room as SdkRoom},
+    room::{Receipts, Room as SdkRoom},
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
@@ -26,6 +26,7 @@ use matrix_sdk::{
     },
     RoomMemberships,
 };
+use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 use mime::Mime;
 use tracing::error;
 
@@ -806,9 +807,9 @@ pub enum PaginationOptions {
     UntilNumItems { event_limit: u16, items: u16 },
 }
 
-impl From<PaginationOptions> for matrix_sdk::room::timeline::PaginationOptions<'static> {
+impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'static> {
     fn from(value: PaginationOptions) -> Self {
-        use matrix_sdk::room::timeline::PaginationOptions as Opts;
+        use matrix_sdk_ui::timeline::PaginationOptions as Opts;
         match value {
             PaginationOptions::SingleRequest { event_limit } => Opts::single_request(event_limit),
             PaginationOptions::UntilNumItems { event_limit, items } => {

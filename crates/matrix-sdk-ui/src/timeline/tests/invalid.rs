@@ -28,7 +28,7 @@ use ruma::{
 use serde_json::json;
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::room::timeline::TimelineItemContent;
+use crate::timeline::TimelineItemContent;
 
 #[async_test]
 async fn invalid_edit() {

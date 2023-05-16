@@ -22,6 +22,12 @@ use eyeball_im::{VectorDiff, VectorSubscriber};
 use futures_core::Stream;
 use futures_util::TryFutureExt;
 use imbl::Vector;
+use matrix_sdk::{
+    attachment::AttachmentConfig,
+    event_handler::EventHandlerHandle,
+    room::{self, MessagesOptions, Receipts, Room},
+    Client, Result,
+};
 use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
@@ -38,20 +44,15 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{error, instrument, warn};
 
-use super::{Joined, Receipts};
-use crate::{
-    attachment::AttachmentConfig,
-    event_handler::EventHandlerHandle,
-    room::{self, MessagesOptions},
-    Client, Result,
-};
-
 mod builder;
 mod event_handler;
 mod event_item;
 mod inner;
 mod pagination;
 mod read_receipts;
+mod room_ext;
+#[cfg(feature = "experimental-sliding-sync")]
+mod sliding_sync_ext;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
@@ -60,6 +61,8 @@ mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;
 use self::inner::{TimelineInner, TimelineInnerState};
+#[cfg(feature = "experimental-sliding-sync")]
+pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -68,6 +71,7 @@ pub use self::{
         TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
+    room_ext::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
 
@@ -180,10 +184,8 @@ impl Timeline {
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};
-    /// # use matrix_sdk::{
-    /// #     Client, config::SyncSettings,
-    /// #     room::timeline::Timeline, ruma::room_id,
-    /// # };
+    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::room_id};
+    /// # use matrix_sdk_ui::Timeline;
     /// # async {
     /// # let mut client: Client = todo!();
     /// # let room_id = ruma::room_id!("!example:example.org");
@@ -206,8 +208,7 @@ impl Timeline {
     ) {
         self.inner
             .retry_event_decryption(
-                self.room().room_id(),
-                self.room().client.olm_machine().expect("Olm machine wasn't started"),
+                self.room(),
                 Some(session_ids.into_iter().map(AsRef::as_ref).collect()),
             )
             .await;
@@ -216,13 +217,7 @@ impl Timeline {
     #[cfg(feature = "e2e-encryption")]
     #[tracing::instrument(skip(self))]
     async fn retry_decryption_for_all_events(&self) {
-        self.inner
-            .retry_event_decryption(
-                self.room().room_id(),
-                self.room().client.olm_machine().expect("Olm machine wasn't started"),
-                None,
-            )
-            .await;
+        self.inner.retry_event_decryption(self.room(), None).await;
     }
 
     /// Get the current list of timeline items. Do not use this in production!
@@ -282,16 +277,23 @@ impl Timeline {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
 
-        // If this room isn't actually in joined state, we'll get a server error.
-        // Not ideal, but works for now.
-        let room = Joined { inner: self.room().clone() };
+        let send_state = match Room::from(self.room().clone()) {
+            Room::Joined(room) => {
+                let response = room.send(content, Some(&txn_id)).await;
 
-        let response = room.send(content, Some(&txn_id)).await;
-
-        let send_state = match response {
-            Ok(response) => EventSendState::Sent { event_id: response.event_id },
-            Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+                match response {
+                    Ok(response) => EventSendState::Sent { event_id: response.event_id },
+                    Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+                }
+            }
+            _ => {
+                EventSendState::SendingFailed {
+                    // FIXME: Probably not exactly right
+                    error: Arc::new(matrix_sdk::Error::InconsistentState),
+                }
+            }
         };
+
         self.inner.update_event_send_state(&txn_id, send_state).await;
     }
 
@@ -316,9 +318,9 @@ impl Timeline {
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> Result<(), Error> {
-        // If this room isn't actually in joined state, we'll get a server error.
-        // Not ideal, but works for now.
-        let room = Joined { inner: self.room().clone() };
+        let Room::Joined(room) = Room::from(self.room().clone()) else {
+            return Err(Error::RoomNotJoined);
+        };
 
         let body =
             Path::new(&url).file_name().ok_or(Error::InvalidAttachmentFileName)?.to_str().unwrap();
@@ -351,7 +353,7 @@ impl Timeline {
     /// echo in the timeline, or if the event is removed from the timeline
     /// before all requests are handled.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
-    pub async fn fetch_details_for_event(&self, event_id: &EventId) -> Result<()> {
+    pub async fn fetch_details_for_event(&self, event_id: &EventId) -> Result<(), Error> {
         self.inner.fetch_in_reply_to_details(event_id).await
     }
 
@@ -377,7 +379,7 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Common::user_receipt()`](super::Common::user_receipt) that
+    /// Contrary to [`Common::user_receipt()`](room::Common::user_receipt) that
     /// only keeps track of read receipts received from the homeserver, this
     /// keeps also track of implicit read receipts in this timeline, i.e.
     /// when a room member sends an event.
@@ -394,6 +396,8 @@ impl Timeline {
     /// This uses [`Joined::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
+    ///
+    /// [`Joined::send_single_receipt`]: room::Joined::send_single_receipt
     #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
@@ -405,9 +409,10 @@ impl Timeline {
             return Ok(());
         }
 
-        // If this room isn't actually in joined state, we'll get a server error.
-        // Not ideal, but works for now.
-        let room = Joined { inner: self.room().clone() };
+        let Room::Joined(room) = Room::from(self.room().clone()) else {
+            // FIXME: Probably not exactly right
+            return Err(matrix_sdk::Error::InconsistentState);
+        };
 
         room.send_single_receipt(receipt_type, thread, event_id).await
     }
@@ -417,6 +422,8 @@ impl Timeline {
     /// This uses [`Joined::send_multiple_receipts`] internally, but checks
     /// first if the receipts point to events in this timeline that are more
     /// recent than the current ones, to avoid unnecessary requests.
+    ///
+    /// [`Joined::send_multiple_receipts`]: room::Joined::send_multiple_receipts
     #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {
@@ -433,13 +440,13 @@ impl Timeline {
             }
         }
 
-        if let Some(read_receipt) = &receipts.read_receipt {
+        if let Some(read_receipt) = &receipts.public_read_receipt {
             if !self
                 .inner
                 .should_send_receipt(&ReceiptType::Read, &ReceiptThread::Unthreaded, read_receipt)
                 .await
             {
-                receipts.read_receipt = None;
+                receipts.public_read_receipt = None;
             }
         }
 
@@ -457,9 +464,10 @@ impl Timeline {
             }
         }
 
-        // If this room isn't actually in joined state, we'll get a server error.
-        // Not ideal, but works for now.
-        let room = Joined { inner: self.room().clone() };
+        let Room::Joined(room) = Room::from(self.room().clone()) else {
+            // FIXME: Probably not exactly right
+            return Err(matrix_sdk::Error::InconsistentState);
+        };
 
         room.send_multiple_receipts(receipts).await
     }
@@ -633,6 +641,10 @@ pub enum Error {
     /// The attachment could not be sent
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
+
+    /// The room is not in a joined state.
+    #[error("Room is not joined")]
+    RoomNotJoined,
 }
 
 /// Result of comparing events position in the timeline.

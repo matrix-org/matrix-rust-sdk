@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk::{deserialized_responses::EncryptionInfo, Error};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
@@ -23,8 +23,6 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedUserId, TransactionId,
     UserId,
 };
-
-use crate::Error;
 
 mod content;
 mod local;

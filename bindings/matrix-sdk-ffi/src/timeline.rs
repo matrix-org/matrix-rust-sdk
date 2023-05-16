@@ -3,11 +3,11 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use anyhow::bail;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
-pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
-use matrix_sdk::{
-    attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
-    room::timeline::{Profile, TimelineDetails},
+use matrix_sdk::attachment::{
+    BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
 };
+pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
 use ruma::UInt;
 use tracing::warn;
 
@@ -45,7 +45,7 @@ pub enum TimelineDiff {
 }
 
 impl TimelineDiff {
-    pub(crate) fn new(inner: VectorDiff<Arc<matrix_sdk::room::timeline::TimelineItem>>) -> Self {
+    pub(crate) fn new(inner: VectorDiff<Arc<matrix_sdk_ui::timeline::TimelineItem>>) -> Self {
         match inner {
             VectorDiff::Append { values } => {
                 Self::Append { values: values.into_iter().map(TimelineItem::from_arc).collect() }
@@ -184,10 +184,10 @@ pub enum TimelineChange {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct TimelineItem(pub(crate) matrix_sdk::room::timeline::TimelineItem);
+pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
 
 impl TimelineItem {
-    pub(crate) fn from_arc(arc: Arc<matrix_sdk::room::timeline::TimelineItem>) -> Arc<Self> {
+    pub(crate) fn from_arc(arc: Arc<matrix_sdk_ui::timeline::TimelineItem>) -> Arc<Self> {
         // SAFETY: This is valid because Self is a repr(transparent) wrapper
         //         around the other Timeline type.
         unsafe { Arc::from_raw(Arc::into_raw(arc) as _) }
@@ -197,14 +197,14 @@ impl TimelineItem {
 #[uniffi::export]
 impl TimelineItem {
     pub fn as_event(self: Arc<Self>) -> Option<Arc<EventTimelineItem>> {
-        use matrix_sdk::room::timeline::TimelineItem as Item;
+        use matrix_sdk_ui::timeline::TimelineItem as Item;
         unwrap_or_clone_arc_into_variant!(self, .0, Item::Event(evt) => {
             Arc::new(EventTimelineItem(evt))
         })
     }
 
     pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
-        use matrix_sdk::room::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
+        use matrix_sdk_ui::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
         match &self.0 {
             Item::Virtual(VItem::DayDivider(ts)) => {
                 Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() })
@@ -233,9 +233,9 @@ pub enum EventSendState {
     Sent { event_id: String },
 }
 
-impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
-    fn from(value: &matrix_sdk::room::timeline::EventSendState) -> Self {
-        use matrix_sdk::room::timeline::EventSendState::*;
+impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
+    fn from(value: &matrix_sdk_ui::timeline::EventSendState) -> Self {
+        use matrix_sdk_ui::timeline::EventSendState::*;
 
         match value {
             NotSentYet => Self::NotSentYet,
@@ -246,7 +246,7 @@ impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
 }
 
 #[derive(uniffi::Object)]
-pub struct EventTimelineItem(pub(crate) matrix_sdk::room::timeline::EventTimelineItem);
+pub struct EventTimelineItem(pub(crate) matrix_sdk_ui::timeline::EventTimelineItem);
 
 #[uniffi::export]
 impl EventTimelineItem {
@@ -357,12 +357,12 @@ impl From<&TimelineDetails<Profile>> for ProfileDetails {
 }
 
 #[derive(Clone, uniffi::Object)]
-pub struct TimelineItemContent(matrix_sdk::room::timeline::TimelineItemContent);
+pub struct TimelineItemContent(matrix_sdk_ui::timeline::TimelineItemContent);
 
 #[uniffi::export]
 impl TimelineItemContent {
     pub fn kind(&self) -> TimelineItemContentKind {
-        use matrix_sdk::room::timeline::TimelineItemContent as Content;
+        use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match &self.0 {
             Content::Message(_) => TimelineItemContentKind::Message,
@@ -424,7 +424,7 @@ impl TimelineItemContent {
     }
 
     pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
-        use matrix_sdk::room::timeline::TimelineItemContent as Content;
+        use matrix_sdk_ui::timeline::TimelineItemContent as Content;
         unwrap_or_clone_arc_into_variant!(self, .0, Content::Message(msg) => Arc::new(Message(msg)))
     }
 }
@@ -467,7 +467,7 @@ pub enum TimelineItemContentKind {
 }
 
 #[derive(Clone, uniffi::Object)]
-pub struct Message(matrix_sdk::room::timeline::Message);
+pub struct Message(matrix_sdk_ui::timeline::Message);
 
 #[uniffi::export]
 impl Message {
@@ -838,8 +838,8 @@ pub struct InReplyToDetails {
     event: RepliedToEventDetails,
 }
 
-impl From<&matrix_sdk::room::timeline::InReplyToDetails> for InReplyToDetails {
-    fn from(inner: &matrix_sdk::room::timeline::InReplyToDetails) -> Self {
+impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
+    fn from(inner: &matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
         let event_id = inner.event_id.to_string();
         let event = match &inner.event {
             TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
@@ -882,8 +882,8 @@ pub enum EncryptedMessage {
 }
 
 impl EncryptedMessage {
-    fn new(msg: &matrix_sdk::room::timeline::EncryptedMessage) -> Self {
-        use matrix_sdk::room::timeline::EncryptedMessage as Message;
+    fn new(msg: &matrix_sdk_ui::timeline::EncryptedMessage) -> Self {
+        use matrix_sdk_ui::timeline::EncryptedMessage as Message;
 
         match msg {
             Message::OlmV1Curve25519AesSha2 { sender_key } => {
@@ -975,9 +975,9 @@ pub enum MembershipChange {
     NotImplemented,
 }
 
-impl From<matrix_sdk::room::timeline::MembershipChange> for MembershipChange {
-    fn from(membership_change: matrix_sdk::room::timeline::MembershipChange) -> Self {
-        use matrix_sdk::room::timeline::MembershipChange as Change;
+impl From<matrix_sdk_ui::timeline::MembershipChange> for MembershipChange {
+    fn from(membership_change: matrix_sdk_ui::timeline::MembershipChange) -> Self {
+        use matrix_sdk_ui::timeline::MembershipChange as Change;
         match membership_change {
             Change::None => Self::None,
             Change::Error => Self::Error,
@@ -1025,12 +1025,11 @@ pub enum OtherState {
     Custom { event_type: String },
 }
 
-impl From<&matrix_sdk::room::timeline::AnyOtherFullStateEventContent> for OtherState {
-    fn from(content: &matrix_sdk::room::timeline::AnyOtherFullStateEventContent) -> Self {
-        use matrix_sdk::{
-            room::timeline::AnyOtherFullStateEventContent as Content,
-            ruma::events::FullStateEventContent as FullContent,
-        };
+impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
+    fn from(content: &matrix_sdk_ui::timeline::AnyOtherFullStateEventContent) -> Self {
+        use matrix_sdk::ruma::events::FullStateEventContent as FullContent;
+        use matrix_sdk_ui::timeline::AnyOtherFullStateEventContent as Content;
+
         match content {
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,

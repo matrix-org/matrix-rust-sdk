@@ -28,6 +28,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", features = ["experimental-sliding-sync"] }
 mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
@@ -62,7 +63,6 @@ default-features = false
 features = [
     "anyhow",
     "experimental-sliding-sync",
-    "experimental-timeline",
     "e2e-encryption",
     "markdown",
     "socks",
@@ -76,7 +76,6 @@ default-features = false
 features = [
     "anyhow",
     "experimental-sliding-sync",
-    "experimental-timeline",
     "e2e-encryption",
     "markdown",
     "native-tls",

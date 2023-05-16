@@ -45,10 +45,8 @@ use self::{client::Client, error::ClientError};
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
 
-pub use matrix_sdk::{
-    room::timeline::PaginationOutcome,
-    ruma::{api::client::account::register, UserId},
-};
+pub use matrix_sdk::ruma::{api::client::account::register, UserId};
+pub use matrix_sdk_ui::timeline::PaginationOutcome;
 pub use platform::*;
 
 pub use self::{
@@ -60,5 +58,5 @@ uniffi::include_scaffolding!("api");
 
 #[uniffi::export]
 pub fn sdk_git_sha() -> String {
-    env!("VERGEN_GIT_SHA").to_string()
+    env!("VERGEN_GIT_SHA").to_owned()
 }

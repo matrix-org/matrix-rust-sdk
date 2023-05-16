@@ -17,7 +17,7 @@ use std::{collections::HashMap, sync::Arc};
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::{ObservableVector, Vector};
 use indexmap::{map::Entry, IndexMap, IndexSet};
-use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
         reaction::ReactionEventContent,
@@ -49,13 +49,11 @@ use super::{
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, ReactionGroup,
-    TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, MembershipChange, Message,
+    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    room::timeline::{MembershipChange, DEFAULT_SANITIZER_MODE},
-};
+use crate::events::SyncTimelineEventWithoutContent;
 
 pub(super) enum Flow {
     Local {

@@ -23,7 +23,7 @@ use ruma::{
 };
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::room::timeline::{TimelineItem, VirtualTimelineItem};
+use crate::timeline::{TimelineItem, VirtualTimelineItem};
 
 #[async_test]
 async fn day_divider() {
