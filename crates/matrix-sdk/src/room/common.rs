@@ -395,18 +395,6 @@ impl Common {
         }
     }
 
-    pub(crate) async fn ensure_members(&self) -> Result<Option<MembersResponse>> {
-        if !self.are_events_visible() {
-            return Ok(None);
-        }
-
-        if !self.are_members_synced() {
-            self.request_members().await
-        } else {
-            Ok(None)
-        }
-    }
-
     fn are_events_visible(&self) -> bool {
         if let RoomState::Invited = self.inner.state() {
             return matches!(
@@ -424,7 +412,15 @@ impl Common {
     /// quick succession, in that case the return value will be `None`. This
     /// method does nothing if the members are already synced.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
-        self.ensure_members().await
+        if !self.are_events_visible() {
+            return Ok(None);
+        }
+
+        if !self.are_members_synced() {
+            self.request_members().await
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get active members for this room, includes invited, joined members.
@@ -437,7 +433,7 @@ impl Common {
     /// want a method that doesn't do any requests.
     #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
     pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
-        self.ensure_members().await?;
+        self.sync_members().await?;
         self.members_no_sync(RoomMemberships::ACTIVE).await
     }
 
@@ -464,7 +460,7 @@ impl Common {
     /// want a method that doesn't do any requests.
     #[deprecated = "Use members with RoomMemberships::JOIN instead"]
     pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
-        self.ensure_members().await?;
+        self.sync_members().await?;
         self.members_no_sync(RoomMemberships::JOIN).await
     }
 
@@ -495,7 +491,7 @@ impl Common {
     /// * `user_id` - The ID of the user that should be fetched out of the
     /// store.
     pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
-        self.ensure_members().await?;
+        self.sync_members().await?;
         self.get_member_no_sync(user_id).await
     }
 
@@ -529,7 +525,7 @@ impl Common {
     /// Use [members_no_sync()](#method.members_no_sync) if you want a
     /// method that doesn't do any requests.
     pub async fn members(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
-        self.ensure_members().await?;
+        self.sync_members().await?;
         self.members_no_sync(memberships).await
     }
 
