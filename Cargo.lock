@@ -2802,6 +2802,7 @@ dependencies = [
  "tokio",
  "tracing-subscriber",
  "uniffi",
+ "vergen",
  "vodozemac",
  "zeroize",
 ]
