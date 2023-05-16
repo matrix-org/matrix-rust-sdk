@@ -833,7 +833,7 @@ impl Account {
     /// with the server-default push rules is returned.
     ///
     /// Panics if called when the client is not logged in.
-    pub(crate) async fn push_rules(&self) -> Result<Ruleset> {
+    pub async fn push_rules(&self) -> Result<Ruleset> {
         Ok(self
             .account_data::<PushRulesEventContent>()
             .await?
