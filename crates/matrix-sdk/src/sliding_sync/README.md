@@ -34,7 +34,7 @@ a sidecar called the [Sliding Sync Proxy][proxy] is needed. As that
 typically runs on a separate domain, it can be configured on the
 [`SlidingSyncBuilder`]:
 
-```no_run
+```rust,no_run
 # use futures::executor::block_on;
 # use matrix_sdk::Client;
 # use url::Url;
@@ -261,7 +261,7 @@ sure to look at both for all subscribed objects.
 
 In full, this typically looks like this:
 
-```no_run
+```rust,no_run
 # use futures::executor::block_on;
 # use futures::{pin_mut, StreamExt};
 # use matrix_sdk::{
@@ -408,7 +408,7 @@ start up and retrieve only the data needed to actually run.
 
 # Full example
 
-```no_run
+```rust,no_run
 # use futures::executor::block_on;
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
 use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
