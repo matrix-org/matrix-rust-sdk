@@ -25,7 +25,6 @@ mod room;
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    mem,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, Mutex, RwLock as StdRwLock,
@@ -431,7 +430,7 @@ impl SlidingSync {
 
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
-        let (request, request_config) = {
+        let (request, request_config, requested_unsubscribed_rooms) = {
             // Collect requests for lists.
             let mut requests_lists = BTreeMap::new();
 
@@ -458,8 +457,9 @@ impl SlidingSync {
 
             // Collect other data.
             let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
-            // TODO this part of the request can be forgotten if the sync loop is cancelled!
-            let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
+            // Note: these rooms will be actually removed from our tracking when the
+            // response comes.
+            let unsubscribe_rooms = self.inner.unsubscribe.read().unwrap().clone();
             let timeout = Duration::from_secs(30);
             let extensions = self.prepare_extension_config(pos.as_deref());
 
@@ -472,12 +472,13 @@ impl SlidingSync {
                     lists: requests_lists,
                     bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
-                    unsubscribe_rooms,
+                    unsubscribe_rooms: unsubscribe_rooms.clone(),
                     extensions,
                 }),
                 // Configure long-polling. We need 30 seconds for the long-poll itself, in
                 // addition to 30 more extra seconds for the network delays.
                 RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+                unsubscribe_rooms,
             )
         };
 
@@ -540,6 +541,13 @@ impl SlidingSync {
             // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
             let response_handling_lock = this.response_handling_lock.lock().await;
+
+            // Take into account the rooms that we've unsubscribed from.
+            {
+                let prev_unsubscribed = &mut *this.inner.unsubscribe.write().unwrap();
+                // TODO aouch O(n2)
+                prev_unsubscribed.retain(|prev| !requested_unsubscribed_rooms.contains(prev));
+            }
 
             // Handle the response.
             let updates = this.handle_response(response).await?;
