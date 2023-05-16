@@ -136,6 +136,15 @@ impl SlidingSync {
         SlidingSyncBuilder::new(client)
     }
 
+    /// Requests that the sync loop be restarted, in case it was stuck in long polling.
+    fn restart_sync_loop(&self) -> Result<(), Error> {
+        self.inner
+            .internal_channel
+            .0
+            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
+            .map_err(|_| Error::InternalChannelIsBroken)
+    }
+
     /// Subscribe to a given room.
     pub fn subscribe(
         &self,
@@ -144,11 +153,7 @@ impl SlidingSync {
     ) -> Result<()> {
         self.inner.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
 
-        self.inner
-            .internal_channel
-            .0
-            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
-            .map_err(|_| Error::InternalChannelIsBroken)?;
+        self.restart_sync_loop()?;
 
         Ok(())
     }
@@ -158,11 +163,7 @@ impl SlidingSync {
         if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
             self.inner.unsubscribe.write().unwrap().push(room_id);
 
-            self.inner
-                .internal_channel
-                .0
-                .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
-                .map_err(|_| Error::InternalChannelIsBroken)?;
+            self.restart_sync_loop()?;
         }
 
         Ok(())
@@ -229,6 +230,10 @@ impl SlidingSync {
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let list = list_builder.build(self.inner.internal_channel.0.clone());
+
+        // Restart the sync loop, in case it was stuck in long polling waiting for
+        // answers to come.
+        self.restart_sync_loop()?;
 
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
@@ -431,13 +436,13 @@ impl SlidingSync {
             let mut requests_lists = BTreeMap::new();
 
             {
-                let mut lists = self.inner.lists.write().unwrap();
+                let lists = self.inner.lists.read().unwrap();
 
                 if lists.is_empty() {
                     return Ok(None);
                 }
 
-                for (name, list) in lists.iter_mut() {
+                for (name, list) in lists.iter() {
                     requests_lists.insert(name.clone(), list.next_request()?);
                 }
             }
@@ -453,6 +458,7 @@ impl SlidingSync {
 
             // Collect other data.
             let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
+            // TODO this part of the request can be forgotten if the sync loop is cancelled!
             let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
             let timeout = Duration::from_secs(30);
             let extensions = self.prepare_extension_config(pos.as_deref());

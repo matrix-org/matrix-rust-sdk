@@ -186,7 +186,7 @@ impl SlidingSyncList {
     }
 
     /// Calculate the next request and return it.
-    pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
+    pub(super) fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
     }
 
@@ -225,7 +225,7 @@ impl SlidingSyncList {
         Ok(new_changes)
     }
 
-    // Reset `Self`.
+    /// Reset `Self`.
     pub(super) fn reset(&self) -> Result<(), Error> {
         self.inner.reset();
 
