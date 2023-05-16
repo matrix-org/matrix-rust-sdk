@@ -23,7 +23,7 @@ mod list;
 mod room;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::Debug,
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -108,7 +108,7 @@ pub(super) struct SlidingSyncInner {
     bump_event_types: Vec<TimelineEventType>,
 
     subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
-    unsubscribe: StdRwLock<Vec<OwnedRoomId>>,
+    unsubscribe: StdRwLock<HashSet<OwnedRoomId>>,
 
     /// Number of times a Sliding Session session has been reset.
     reset_counter: AtomicU8,
@@ -160,7 +160,7 @@ impl SlidingSync {
     /// Unsubscribe from a given room.
     pub fn unsubscribe(&self, room_id: OwnedRoomId) -> Result<()> {
         if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
-            self.inner.unsubscribe.write().unwrap().push(room_id);
+            self.inner.unsubscribe.write().unwrap().insert(room_id);
 
             self.restart_sync_loop()?;
         }
@@ -472,7 +472,7 @@ impl SlidingSync {
                     lists: requests_lists,
                     bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
-                    unsubscribe_rooms: unsubscribe_rooms.clone(),
+                    unsubscribe_rooms: unsubscribe_rooms.iter().cloned().collect(),
                     extensions,
                 }),
                 // Configure long-polling. We need 30 seconds for the long-poll itself, in
@@ -545,7 +545,6 @@ impl SlidingSync {
             // Take into account the rooms that we've unsubscribed from.
             {
                 let prev_unsubscribed = &mut *this.inner.unsubscribe.write().unwrap();
-                // TODO aouch O(n2)
                 prev_unsubscribed.retain(|prev| !requested_unsubscribed_rooms.contains(prev));
             }
 
