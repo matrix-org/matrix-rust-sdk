@@ -225,7 +225,7 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSendYet,
+    NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed { error: String },
@@ -238,7 +238,7 @@ impl From<&matrix_sdk::room::timeline::EventSendState> for EventSendState {
         use matrix_sdk::room::timeline::EventSendState::*;
 
         match value {
-            NotSentYet => Self::NotSendYet,
+            NotSentYet => Self::NotSentYet,
             SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
