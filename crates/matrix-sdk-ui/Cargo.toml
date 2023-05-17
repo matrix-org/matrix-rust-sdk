@@ -4,8 +4,13 @@ version = "0.6.0"
 edition = "2021"
 
 [features]
-default = ["e2e-encryption"]
+default = ["e2e-encryption", "native-tls"]
+
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
+
+native-tls = ["matrix-sdk/native-tls"]
+rustls-tls = ["matrix-sdk/rustls-tls"]
+
 experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 
 [dependencies]
