@@ -859,7 +859,7 @@ fn apply_sync_operations(
 /// The lifetime of a `SlidingSyncList` usually starts at `NotLoaded` or
 /// `Preloaded` (if it is restored from a cache). When loading rooms in a list,
 /// depending of the [`SlidingSyncMode`], it moves to `PartiallyLoaded` or
-/// `FullyLoaded`. The lifetime of a `SlidingSync` usually starts at a
+/// `FullyLoaded`.
 ///
 /// If the client has been offline for a while, though, the `SlidingSyncList`
 /// might return back to `PartiallyLoaded` at any point.
