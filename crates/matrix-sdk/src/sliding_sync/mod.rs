@@ -750,7 +750,7 @@ mod test {
         api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
         room_id,
     };
-    use wiremock::{http::Method, Match, MockServer, Request};
+    use wiremock::MockServer;
 
     use super::*;
     use crate::test_utils::logged_in_client;
@@ -793,15 +793,6 @@ mod test {
         );
 
         Ok(())
-    }
-
-    struct SlidingSyncMatcher;
-
-    impl Match for SlidingSyncMatcher {
-        fn matches(&self, request: &Request) -> bool {
-            request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-                && request.method == Method::Post
-        }
     }
 
     async fn new_sliding_sync(
