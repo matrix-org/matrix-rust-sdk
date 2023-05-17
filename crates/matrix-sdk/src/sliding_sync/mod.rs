@@ -159,6 +159,7 @@ impl SlidingSync {
     pub async fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
         // If removing the subscription was successful…
         if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
+            // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
             self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
         }
