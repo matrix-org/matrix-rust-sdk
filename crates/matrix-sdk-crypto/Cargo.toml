@@ -71,7 +71,7 @@ assert_matches = { workspace = true }
 ctor = { workspace = true }
 futures-executor = { workspace = true }
 http = { workspace = true }
-indoc = "1.0.4"
+indoc = "2.0.1"
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
