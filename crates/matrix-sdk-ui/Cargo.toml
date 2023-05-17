@@ -35,4 +35,7 @@ tracing = { workspace = true, features = ["attributes"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 assert_matches = { workspace = true }
+ctor = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+wiremock = "0.5.13"

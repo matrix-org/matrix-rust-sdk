@@ -3038,6 +3038,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "chrono",
+ "ctor 0.2.0",
  "eyeball-im",
  "futures-core",
  "futures-util",
@@ -3054,6 +3055,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
+ "wiremock",
 ]
 
 [[package]]

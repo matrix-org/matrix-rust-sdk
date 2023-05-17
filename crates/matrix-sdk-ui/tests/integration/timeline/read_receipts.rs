@@ -8,6 +8,7 @@ use matrix_sdk_test::{
     async_test, EphemeralTestEvent, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
     TimelineTestEvent,
 };
+use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType, event_id,
     events::receipt::ReceiptThread, room_id, user_id,
