@@ -74,7 +74,7 @@ are **inclusive**) like so:
 use ruma::{assign, api::client::sync::sync_events::v4};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncMode::new_selective())
+    .sync_mode(SlidingSyncMode::Selective)
     .filters(Some(assign!(
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
     )))
@@ -423,14 +423,14 @@ let sliding_sync_builder = client
     .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
-    .sync_mode(SlidingSyncMode::new_growing(50, Some(500)))  // sync up by growing the window of 50 rooms, up to 500 rooms
+    .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
         (StateEventType::RoomEncryption, "".to_owned())
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncMode::new_selective())  // sync up the specific range only
+    .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
     .set_range(0u32..=9) // only the top 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
