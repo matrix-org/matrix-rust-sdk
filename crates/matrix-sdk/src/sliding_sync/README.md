@@ -427,7 +427,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
         (StateEventType::RoomEncryption, "".to_owned())
-     ]) // only want to know if the room is encrypted
+     ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::new_selective())  // sync up the specific range only
