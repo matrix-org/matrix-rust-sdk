@@ -343,34 +343,37 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
+        (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
-            ("matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
         ),
-        (WasmFeatureSet::MatrixSdkBase, ("matrix-sdk-base", "--features js")),
-        (WasmFeatureSet::MatrixSdkCommon, ("matrix-sdk-common", "--features js")),
-        (WasmFeatureSet::MatrixSdkCryptoJs, ("matrix-sdk-crypto-js", "")),
+        (WasmFeatureSet::MatrixSdkBase, ("crates/matrix-sdk-base", "--features js")),
+        (WasmFeatureSet::MatrixSdkCommon, ("crates/matrix-sdk-common", "--features js")),
+        (WasmFeatureSet::MatrixSdkCryptoJs, ("bindings/matrix-sdk-crypto-js", "")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            ("matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             (
-                "matrix-sdk",
+                "crates/matrix-sdk",
                 "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls --lib",
             ),
         ),
-        (WasmFeatureSet::IndexeddbNoCrypto, ("matrix-sdk-indexeddb", "--no-default-features")),
+        (
+            WasmFeatureSet::IndexeddbNoCrypto,
+            ("crates/matrix-sdk-indexeddb", "--no-default-features"),
+        ),
         (
             WasmFeatureSet::IndexeddbWithCrypto,
-            ("matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
+            ("crates/matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
         ),
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _p = pushd(format!("crates/{folder}"));
+        let _pwd = pushd(folder)?;
         cmd!("pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
         cmd!("wasm-pack test --node -- ")
             .args(arg_set.split_whitespace())
