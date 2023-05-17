@@ -16,7 +16,7 @@ use tokio::sync::mpsc::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
-    SlidingSyncListInner, SlidingSyncMode, SlidingSyncState,
+    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
 };
 use crate::{
     sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
@@ -212,7 +212,9 @@ impl SlidingSyncListBuilder {
                 cache_policy: self.cache_policy,
 
                 // Computed from the builder.
-                request_generator: StdRwLock::new(self.sync_mode.into()),
+                request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new(
+                    self.sync_mode,
+                )),
 
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.

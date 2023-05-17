@@ -77,6 +77,34 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 }
 
 impl SlidingSyncListRequestGenerator {
+    pub(super) fn new(sync_mode: SlidingSyncMode) -> Self {
+        match sync_mode {
+            SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Paging {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
+            },
+
+            SlidingSyncMode::Growing { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Growing {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
+            },
+
+            SlidingSyncMode::Selective => {
+                Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
+            }
+        }
+    }
+
     pub(super) fn reset(&mut self) {
         // Reset the ranges.
         self.ranges.clear();
@@ -107,36 +135,6 @@ impl SlidingSyncListRequestGenerator {
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded, .. }
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded, .. } => fully_loaded,
             SlidingSyncListRequestGeneratorKind::Selective => true,
-        }
-    }
-}
-
-impl From<SlidingSyncMode> for SlidingSyncListRequestGenerator {
-    fn from(sync_mode: SlidingSyncMode) -> Self {
-        match sync_mode {
-            SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
-                ranges: Vec::new(),
-                kind: SlidingSyncListRequestGeneratorKind::Paging {
-                    batch_size,
-                    maximum_number_of_rooms_to_fetch,
-                    number_of_fetched_rooms: 0,
-                    fully_loaded: false,
-                },
-            },
-
-            SlidingSyncMode::Growing { batch_size, maximum_number_of_rooms_to_fetch } => Self {
-                ranges: Vec::new(),
-                kind: SlidingSyncListRequestGeneratorKind::Growing {
-                    batch_size,
-                    maximum_number_of_rooms_to_fetch,
-                    number_of_fetched_rooms: 0,
-                    fully_loaded: false,
-                },
-            },
-
-            SlidingSyncMode::Selective => {
-                Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
-            }
         }
     }
 }
@@ -234,7 +232,7 @@ mod tests {
     #[test]
     fn test_request_generator_selective_from_sync_mode() {
         let sync_mode = SlidingSyncMode::new_selective();
-        let request_generator = SlidingSyncListRequestGenerator::from(sync_mode);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);
@@ -243,7 +241,7 @@ mod tests {
     #[test]
     fn test_request_generator_paging_from_sync_mode() {
         let sync_mode = SlidingSyncMode::new_paging(1, Some(2));
-        let request_generator = SlidingSyncListRequestGenerator::from(sync_mode);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(
@@ -260,7 +258,7 @@ mod tests {
     #[test]
     fn test_request_generator_growing_from_sync_mode() {
         let sync_mode = SlidingSyncMode::new_growing(1, Some(2));
-        let request_generator = SlidingSyncListRequestGenerator::from(sync_mode);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(
