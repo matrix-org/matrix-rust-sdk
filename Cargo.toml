@@ -30,6 +30,7 @@ ctor = "0.2.0"
 dashmap = "5.2.0"
 eyeball = "0.6.0"
 eyeball-im = "0.2.0"
+futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 ruma = { git = "https://github.com/ruma/ruma", rev = "54a4223caa1c1052464ecdba0f1e08f126e07bcd", features = ["client-api-c", "compat-user-id"] }

@@ -125,7 +125,7 @@ tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 anyhow = { workspace = true }
 assert_matches = { workspace = true }
 dirs = "4.0.0"
-futures = { version = "0.3.21", default-features = false, features = ["executor"] }
+futures-executor = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 

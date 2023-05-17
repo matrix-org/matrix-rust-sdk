@@ -204,7 +204,7 @@ pub(super) async fn restore_sliding_sync_state(
 mod tests {
     use std::sync::{Arc, RwLock};
 
-    use futures::executor::block_on;
+    use futures_executor::block_on;
     use futures_util::StreamExt;
     use url::Url;
 

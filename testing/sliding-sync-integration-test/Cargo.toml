@@ -9,7 +9,7 @@ anyhow = { workspace = true }
 assert_matches = { workspace = true }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
-futures = { version = "0.3.25" }
+futures-util = { workspace = true }
 matrix-sdk-integration-testing = { path = "../matrix-sdk-integration-testing", features = ["helpers"] }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-sliding-sync", "testing"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

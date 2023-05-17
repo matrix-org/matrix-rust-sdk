@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use futures::future::join_all;
+use futures_util::future::join_all;
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,

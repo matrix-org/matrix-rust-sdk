@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use anyhow::Context;
-use futures::{pin_mut, stream::StreamExt};
+use futures_util::{pin_mut, stream::StreamExt};
 use matrix_sdk::{Client, RoomListEntry, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 

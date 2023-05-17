@@ -68,8 +68,8 @@ tokio = { workspace = true, features = ["time"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 assert_matches = { workspace = true }
-ctor.workspace = true
-futures = { version = "0.3.21", features = ["executor"] }
+ctor = { workspace = true }
+futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "1.0.4"
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
