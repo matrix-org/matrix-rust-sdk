@@ -114,7 +114,7 @@ pub(super) struct SlidingSyncInner {
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
 
-    /// Number of times a Sliding Session session has been reset.
+    /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
 
     /// The intended state of the extensions being supplied to sliding /sync
