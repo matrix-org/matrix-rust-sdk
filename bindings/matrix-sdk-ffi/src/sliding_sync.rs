@@ -25,23 +25,15 @@ use crate::{
     EventTimelineItem, Room, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
 
-type TaskHandleFinalizer = Box<dyn FnOnce() + Send + Sync>;
-
 #[derive(uniffi::Object)]
 pub struct TaskHandle {
     handle: JoinHandle<()>,
-    finalizer: RwLock<Option<TaskHandleFinalizer>>,
 }
 
 impl TaskHandle {
     // Create a new task handle.
     fn new(handle: JoinHandle<()>) -> Self {
-        Self { handle, finalizer: RwLock::new(None) }
-    }
-
-    /// Define a function that will run after the handle has been aborted.
-    fn set_finalizer(&mut self, finalizer: TaskHandleFinalizer) {
-        *self.finalizer.write().unwrap() = Some(finalizer);
+        Self { handle }
     }
 }
 
@@ -51,10 +43,6 @@ impl TaskHandle {
         debug!("stoppable.cancel() called");
 
         self.handle.abort();
-
-        if let Some(finalizer) = self.finalizer.write().unwrap().take() {
-            finalizer();
-        }
     }
 
     /// Check whether the handle is finished.
@@ -152,8 +140,8 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
 #[derive(uniffi::Object)]
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
+    sliding_sync: matrix_sdk::SlidingSync,
     timeline: TimelineLock,
-    runner: matrix_sdk::SlidingSync,
     client: Client,
 }
 
@@ -202,27 +190,28 @@ impl SlidingSyncRoom {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Result<SlidingSyncSubscribeResult, ClientError> {
+    ) -> Result<SlidingSyncAddTimelineListenerResult, ClientError> {
         let (items, stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
 
-        Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
+        Ok(SlidingSyncAddTimelineListenerResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
-    pub fn subscribe_and_add_timeline_listener(
-        &self,
-        listener: Box<dyn TimelineListener>,
-        settings: Option<RoomSubscription>,
-    ) -> Result<SlidingSyncSubscribeResult, ClientError> {
-        let (items, mut stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
+    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) -> Arc<TaskHandle> {
         let room_id = self.inner.room_id().to_owned();
+        let sliding_sync = self.sliding_sync.clone();
 
-        self.runner.subscribe_to_room(room_id.clone(), settings.map(Into::into))?;
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            sliding_sync.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
+        })))
+    }
 
-        let runner = self.runner.clone();
-        stoppable_spawn
-            .set_finalizer(Box::new(move || runner.unsubscribe_from_room(room_id).unwrap()));
+    pub fn unsubscribe_from_room(&self) -> Arc<TaskHandle> {
+        let room_id = self.inner.room_id().to_owned();
+        let sliding_sync = self.sliding_sync.clone();
 
-        Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            sliding_sync.unsubscribe_from_room(room_id).await.unwrap();
+        })))
     }
 }
 
@@ -306,7 +295,7 @@ impl SlidingSyncRoom {
 }
 
 #[derive(uniffi::Record)]
-pub struct SlidingSyncSubscribeResult {
+pub struct SlidingSyncAddTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub task_handle: Arc<TaskHandle>,
 }
@@ -689,29 +678,33 @@ impl SlidingSync {
         *self.observer.write().unwrap() = observer;
     }
 
-    pub fn subscribe(
+    pub fn subscribe_to_room(
         &self,
         room_id: String,
         settings: Option<RoomSubscription>,
-    ) -> Result<(), ClientError> {
-        self.inner.subscribe_to_room(room_id.try_into()?, settings.map(Into::into))?;
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let room_id = room_id.try_into()?;
+        let this = self.inner.clone();
 
-        Ok(())
+        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            this.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
+        }))))
     }
 
-    pub fn unsubscribe(&self, room_id: String) -> Result<(), ClientError> {
-        self.inner.unsubscribe_from_room(room_id.try_into()?)?;
+    pub fn unsubscribe_from_room(&self, room_id: String) -> Result<Arc<TaskHandle>, ClientError> {
+        let room_id = room_id.try_into()?;
+        let this = self.inner.clone();
 
-        Ok(())
+        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            this.unsubscribe_from_room(room_id).await.unwrap();
+        }))))
     }
 
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<SlidingSyncRoom>>, ClientError> {
-        let runner = self.inner.clone();
-
         Ok(self.inner.get_room(<&RoomId>::try_from(room_id.as_str())?).map(|inner| {
             Arc::new(SlidingSyncRoom {
                 inner,
-                runner,
+                sliding_sync: self.inner.clone(),
                 client: self.client.clone(),
                 timeline: Default::default(),
             })
@@ -734,7 +727,7 @@ impl SlidingSync {
                 o.map(|inner| {
                     Arc::new(SlidingSyncRoom {
                         inner,
-                        runner: self.inner.clone(),
+                        sliding_sync: self.inner.clone(),
                         client: self.client.clone(),
                         timeline: Default::default(),
                     })
@@ -743,8 +736,12 @@ impl SlidingSync {
             .collect())
     }
 
-    pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) {
-        self.inner.add_list(unwrap_or_clone_arc(list_builder).inner).unwrap();
+    pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<TaskHandle> {
+        let this = self.inner.clone();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            this.add_list(unwrap_or_clone_arc(list_builder).inner).await.unwrap();
+        })))
     }
 
     pub fn add_cached_list(
