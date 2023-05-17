@@ -845,8 +845,8 @@ fn version_info() -> VersionInfo {
     VersionInfo {
         version: matrix_sdk_crypto::VERSION.to_owned(),
         vodozemac_version: matrix_sdk_crypto::vodozemac::VERSION.to_owned(),
-        git_description: env!("VERGEN_GIT_DESCRIBE").to_string(),
-        git_sha: env!("VERGEN_GIT_SHA").to_string(),
+        git_description: env!("VERGEN_GIT_DESCRIBE").to_owned(),
+        git_sha: env!("VERGEN_GIT_SHA").to_owned(),
     }
 }
 
