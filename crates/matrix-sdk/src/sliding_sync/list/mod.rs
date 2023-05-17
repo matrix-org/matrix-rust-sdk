@@ -1223,7 +1223,7 @@ mod tests {
             maximum_number_of_rooms = $maximum_number_of_rooms:expr,
             $(
                 next => {
-                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),* ,
+                    ranges = $( $range_start:literal ..= $range_end:literal ),* ,
                     is_fully_loaded = $is_fully_loaded:expr,
                     list_state = $list_state:ident,
                 }
@@ -1276,29 +1276,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [10; 19],
+                ranges = 10..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [20; 24],
+                ranges = 20..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 24], // the range starts at 0 now!
+                ranges = 0..=24, // the range starts at 0 now!
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1318,29 +1318,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [10; 19],
+                ranges = 10..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms to fetch is reached!
             next => {
-                ranges = [20; 21],
+                ranges = 20..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 21], // the range starts at 0 now!
+                ranges = 0..=21, // the range starts at 0 now!
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1360,29 +1360,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [0; 19],
+                ranges = 0..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1402,29 +1402,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [0; 19],
+                ranges = 0..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1446,18 +1446,18 @@ mod tests {
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             }
@@ -1479,18 +1479,18 @@ mod tests {
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             }
@@ -1503,7 +1503,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [3; 7],
+                ranges = 3..=7,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1516,7 +1516,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [3; 7], [10; 23],
+                ranges = 3..=7, 10..=23,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1529,7 +1529,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [42; 77],
+                ranges = 42..=77,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
