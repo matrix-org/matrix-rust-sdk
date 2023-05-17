@@ -46,7 +46,7 @@ pub use matrix_sdk_base::crypto::{
 };
 #[cfg(feature = "qrcode")]
 pub use qrcode::QrVerification;
-pub use requests::VerificationRequest;
+pub use requests::{VerificationRequest, VerificationRequestState};
 pub use sas::SasVerification;
 
 /// An enum over the different verification types the SDK supports.
