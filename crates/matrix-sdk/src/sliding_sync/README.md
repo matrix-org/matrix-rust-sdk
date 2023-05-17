@@ -181,7 +181,7 @@ data quickly, ensure you are able to render `Invalidated` entries.
 
 ### Unsubscribe
 
-Don't forget to [unsubscribe](`SlidingSync::unsubscribe_to_room`) when the
+Don't forget to [unsubscribe](`SlidingSync::unsubscribe_from_room`) when the
 data isn't needed to be updated anymore, e.g. when the user leaves the room, to
 reduce the bandwidth back down to what is really needed.
 

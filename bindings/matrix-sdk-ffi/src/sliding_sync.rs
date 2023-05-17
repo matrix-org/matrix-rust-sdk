@@ -219,7 +219,7 @@ impl SlidingSyncRoom {
 
         let runner = self.runner.clone();
         stoppable_spawn
-            .set_finalizer(Box::new(move || runner.unsubscribe_to_room(room_id).unwrap()));
+            .set_finalizer(Box::new(move || runner.unsubscribe_from_room(room_id).unwrap()));
 
         Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
@@ -699,7 +699,7 @@ impl SlidingSync {
     }
 
     pub fn unsubscribe(&self, room_id: String) -> Result<(), ClientError> {
-        self.inner.unsubscribe_to_room(room_id.try_into()?)?;
+        self.inner.unsubscribe_from_room(room_id.try_into()?)?;
 
         Ok(())
     }

@@ -23,7 +23,7 @@ mod list;
 mod room;
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -112,7 +112,7 @@ pub(super) struct SlidingSyncInner {
     room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
-    room_unsubscriptions: StdRwLock<HashSet<OwnedRoomId>>,
+    room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
 
     /// Number of times a Sliding Session session has been reset.
     reset_counter: AtomicU8,
@@ -161,7 +161,7 @@ impl SlidingSync {
     }
 
     /// Unsubscribe from a given room.
-    pub fn unsubscribe_to_room(&self, room_id: OwnedRoomId) -> Result<()> {
+    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
         // If removing the subscription was successful…
         if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
