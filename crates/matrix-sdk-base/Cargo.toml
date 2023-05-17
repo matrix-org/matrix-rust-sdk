@@ -50,7 +50,7 @@ tracing = { workspace = true }
 assert_matches = { workspace = true }
 assign = "1.1.1"
 ctor = { workspace = true }
-futures = { version = "0.3.21", default-features = false, features = ["executor"] }
+futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }

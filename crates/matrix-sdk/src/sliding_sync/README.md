@@ -256,7 +256,7 @@ sure to look at both for all subscribed objects.
 In full, this typically looks like this:
 
 ```rust,no_run
-# use futures::{pin_mut, StreamExt};
+# use futures_util::{pin_mut, StreamExt};
 # use matrix_sdk::{
 #    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder},
 #    Client,
@@ -403,9 +403,9 @@ start up and retrieve only the data needed to actually run.
 
 ```rust,no_run
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
-use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
+use ruma::{assign, api::client::sync::sync_events::v4, events::StateEventType};
 use tracing::{warn, error, info, debug};
-use futures::{StreamExt, pin_mut};
+use futures_util::{pin_mut, StreamExt};
 use url::Url;
 # async {
 # let homeserver = Url::parse("http://example.com")?;

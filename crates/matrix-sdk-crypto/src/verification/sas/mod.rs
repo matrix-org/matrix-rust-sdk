@@ -691,7 +691,7 @@ impl Sas {
     /// # Examples
     ///
     /// ```no_run
-    /// use futures::stream::{Stream, StreamExt};
+    /// use futures_util::{Stream, StreamExt};
     /// use matrix_sdk_crypto::{Sas, SasState};
     ///
     /// # async {

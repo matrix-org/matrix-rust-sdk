@@ -581,7 +581,6 @@ impl Client {
     /// # Examples
     ///
     /// ```
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// use matrix_sdk::{
@@ -601,7 +600,7 @@ impl Client {
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
-    /// # block_on(async {
+    /// # futures_executor::block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
     /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
@@ -738,7 +737,6 @@ impl Client {
     /// # Examples
     ///
     /// ```
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use tokio::sync::mpsc;
     /// #
@@ -749,7 +747,7 @@ impl Client {
     ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
     /// };
     /// #
-    /// # block_on(async {
+    /// # futures_executor::block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
     /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
@@ -791,7 +789,6 @@ impl Client {
     /// # Examples
     ///
     /// ```
-    /// # use futures::executor::block_on;
     /// use matrix_sdk::{
     ///     event_handler::Ctx, room::Room,
     ///     ruma::events::room::message::SyncRoomMessageEvent,
@@ -800,7 +797,7 @@ impl Client {
     /// # struct SomeType;
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # block_on(async {
+    /// # futures_executor::block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
     /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
@@ -1019,10 +1016,9 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # futures_executor::block_on(async {
     /// use matrix_sdk::Client;
     ///
     /// let client = Client::new(homeserver).await?;
@@ -2421,7 +2417,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let username = "";
     /// # let password = "";
-    /// use futures::StreamExt;
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;

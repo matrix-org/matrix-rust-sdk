@@ -940,7 +940,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use imbl::vector;
     use ruma::{api::client::sync::sync_events::v4::SlidingOp, room_id, uint};
     use serde_json::json;

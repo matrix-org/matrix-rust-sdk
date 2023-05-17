@@ -747,7 +747,7 @@ pub struct UpdateSummary {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
-    use futures::pin_mut;
+    use futures_util::pin_mut;
     use ruma::{
         api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
         room_id,

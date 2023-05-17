@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::Parser;
-use futures::stream::StreamExt;
+use futures_util::stream::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     encryption::verification::{format_emojis, Emoji, SasState, SasVerification, Verification},
