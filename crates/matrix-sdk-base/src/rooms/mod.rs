@@ -1,3 +1,5 @@
+#![allow(clippy::assign_op_pattern)] // triggered by bitflags! usage
+
 mod members;
 mod normal;
 
