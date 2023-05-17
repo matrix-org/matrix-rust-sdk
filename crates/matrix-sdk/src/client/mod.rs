@@ -240,11 +240,11 @@ impl Client {
     /// homeserver.
     ///
     /// # Example
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
@@ -253,8 +253,7 @@ impl Client {
     /// if capabilities.change_password.enabled {
     ///     // Change password
     /// }
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new(), None).await?;
@@ -428,12 +427,10 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
+    /// # fn persist_session(_: Option<matrix_sdk::Session>) {};
+    /// # async {
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # use matrix_sdk::Session;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # fn persist_session(_: Option<Session>) {};
     ///
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
@@ -460,8 +457,7 @@ impl Client {
     /// });
     ///
     /// tokio::spawn(future);
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
@@ -480,13 +476,11 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// use futures::StreamExt;
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
     /// # use matrix_sdk::Session;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
     /// # fn persist_session(_: &Session) {};
-    ///
+    /// # async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
     ///     .homeserver_url(homeserver)
@@ -517,8 +511,7 @@ impl Client {
     ///         persist_session(&session);
     ///     }
     /// }
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
@@ -615,7 +608,7 @@ impl Client {
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
-    ///
+    /// #
     /// client.add_event_handler(
     ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
@@ -1071,11 +1064,12 @@ impl Client {
     /// * `data` - The additional data which should be attached to the login
     ///   request.
     ///
+    /// # Example
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// use matrix_sdk::Client;
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1095,7 +1089,7 @@ impl Client {
     ///     "Logged in as {user}, got device_id {} and access_token {}",
     ///     response.device_id, response.access_token,
     /// );
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn login_custom(
         &self,
@@ -1129,12 +1123,11 @@ impl Client {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{assign, DeviceId};
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_url = "http://localhost:1234";
     /// # let login_token = "token";
-    /// # block_on(async {
+    /// # async {
     /// let client = Client::new(homeserver).await.unwrap();
     /// let sso_url = client.get_sso_login_url(redirect_url, None);
     ///
@@ -1151,7 +1144,7 @@ impl Client {
     ///     "Logged in as {}, got device_id {} and access_token {}",
     ///     response.user_id, response.device_id, response.access_token,
     /// );
-    /// # })
+    /// # };
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
@@ -1192,10 +1185,9 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// let client = Client::new(homeserver).await.unwrap();
     ///
     /// let response = client
@@ -1211,7 +1203,7 @@ impl Client {
     ///     "Logged in as {}, got device_id {} and access_token {}",
     ///     response.user_id, response.device_id, response.access_token
     /// );
-    /// # })
+    /// # };
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
@@ -1267,8 +1259,7 @@ impl Client {
     ///     Client, Session,
     /// };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     ///
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
@@ -1281,7 +1272,7 @@ impl Client {
     /// };
     ///
     /// client.restore_session(session).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// The `Session` object can also be created from the response the
@@ -1290,8 +1281,7 @@ impl Client {
     /// ```no_run
     /// use matrix_sdk::{Client, Session};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     ///
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
@@ -1301,7 +1291,7 @@ impl Client {
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_session(session).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`login`]: #method.login
@@ -1357,8 +1347,7 @@ impl Client {
     /// ```no_run
     /// use matrix_sdk::{Client, Error, Session};
     /// use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # fn get_credentials() -> (&'static str, &'static str) { ("", "") };
     /// # fn persist_session(_: Option<Session>) {};
     ///
@@ -1395,8 +1384,7 @@ impl Client {
     ///
     ///     Ok(())
     /// }
-    ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
@@ -1479,10 +1467,9 @@ impl Client {
     /// #     },
     /// #     DeviceId,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     ///
     /// let mut request = RegistrationRequest::new();
     /// request.username = Some("user".to_owned());
@@ -1493,7 +1480,7 @@ impl Client {
     ///
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
-    /// # })
+    /// # };
     /// ```
     #[instrument(skip_all)]
     pub async fn register(
@@ -1537,9 +1524,8 @@ impl Client {
     /// #        sync::sync_events::v3::Filter,
     /// #    }
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
@@ -1557,7 +1543,7 @@ impl Client {
     ///     .filter(Filter::FilterId(filter_id));
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
-    /// # });
+    /// # };
     #[instrument(skip(self, definition))]
     pub async fn get_or_upload_filter(
         &self,
@@ -1638,13 +1624,11 @@ impl Client {
     /// # let limit = Some(10);
     /// # let since = Some("since token");
     /// # let server = Some("servername.com".try_into().unwrap());
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    ///
+    /// # async {
     /// let mut client = Client::new(homeserver).await.unwrap();
     ///
     /// client.public_rooms(limit, since, server).await;
-    /// # });
+    /// # };
     /// ```
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
@@ -1676,23 +1660,23 @@ impl Client {
     /// one user is invited, the room will be automatically added to the direct
     /// rooms in the account data.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// use matrix_sdk::Client;
+    ///
     /// # use matrix_sdk::ruma::api::client::room::{
     /// #     create_room::v3::Request as CreateRoomRequest,
     /// #     Visibility,
     /// # };
     /// # use url::Url;
-    ///
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// #
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let request = CreateRoomRequest::new();
     /// let client = Client::new(homeserver).await.unwrap();
     /// assert!(client.create_room(request).await.is_ok());
-    /// # });
+    /// # };
     /// ```
     pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Joined> {
         let invite = request.invite.clone();
@@ -1737,13 +1721,12 @@ impl Client {
     /// * `room_search` - The easiest way to create this request is using the
     /// `get_public_rooms_filtered::Request` itself.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use url::Url;
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// use matrix_sdk::ruma::{
     ///     api::client::directory::get_public_rooms_filtered, directory::Filter,
@@ -1758,9 +1741,9 @@ impl Client {
     /// let response = client.public_rooms_filtered(request).await?;
     ///
     /// for room in response.chunk {
-    ///     println!("Found room {:?}", room);
+    ///     println!("Found room {room:?}");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn public_rooms_filtered(
         &self,
@@ -1788,9 +1771,8 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, config::SyncSettings};
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// use matrix_sdk::ruma::{api::client::profile, user_id};
@@ -1806,7 +1788,7 @@ impl Client {
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn send<Request>(
         &self,
@@ -1962,9 +1944,8 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, config::SyncSettings};
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let response = client.devices().await?;
@@ -1976,7 +1957,7 @@ impl Client {
     ///         device.display_name.as_deref().unwrap_or("")
     ///     );
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn devices(&self) -> HttpResult<get_devices::v3::Response> {
         let request = get_devices::v3::Request::new();
@@ -2002,11 +1983,10 @@ impl Client {
     /// #    ruma::{api::client::uiaa, device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # use url::Url;
     /// # use std::collections::BTreeMap;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let devices = &[device_id!("DEVICEID").to_owned()];
@@ -2024,7 +2004,7 @@ impl Client {
     ///             .await?;
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     pub async fn delete_devices(
         &self,
         devices: &[OwnedDeviceId],
@@ -2106,12 +2086,11 @@ impl Client {
     ///     * [`set_presence`] - To tell the server to set the presence and to
     ///       which state.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let username = "";
     /// # let password = "";
@@ -2135,7 +2114,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`sync`]: #method.sync
@@ -2220,12 +2199,11 @@ impl Client {
     /// up to the user of the API to check the error and decide whether the sync
     /// should continue or not.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let username = "";
     /// # let password = "";
@@ -2246,7 +2224,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
     /// client.sync(SyncSettings::default()).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [argument docs]: #method.sync_once
@@ -2285,8 +2263,7 @@ impl Client {
     /// # use std::time::Duration;
     /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).await.unwrap();
     ///
@@ -2310,7 +2287,7 @@ impl Client {
     ///         LoopCtrl::Continue
     ///     })
     ///     .await;
-    /// })
+    /// };
     /// ```
     #[instrument(skip_all)]
     pub async fn sync_with_callback<C>(
@@ -2365,11 +2342,10 @@ impl Client {
     /// # use std::time::Duration;
     /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).await.unwrap();
-    ///
+    /// #
     /// use tokio::sync::mpsc::channel;
     ///
     /// let (tx, rx) = channel(100);
@@ -2391,7 +2367,7 @@ impl Client {
     ///         Ok(LoopCtrl::Continue)
     ///     })
     ///     .await;
-    /// })
+    /// };
     /// ```
     #[instrument(skip(self, callback))]
     pub async fn sync_with_result_callback<C>(
@@ -2441,8 +2417,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let username = "";
     /// # let password = "";
@@ -2465,7 +2440,7 @@ impl Client {
     ///     }
     /// }
     ///
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(skip(self))]

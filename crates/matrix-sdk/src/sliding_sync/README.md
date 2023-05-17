@@ -35,10 +35,9 @@ typically runs on a separate domain, it can be configured on the
 [`SlidingSyncBuilder`]:
 
 ```rust,no_run
-# use futures::executor::block_on;
 # use matrix_sdk::Client;
 # use url::Url;
-# block_on(async {
+# async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
@@ -47,7 +46,7 @@ let sliding_sync_builder = client
     .homeserver(Url::parse("http://sliding-sync.example.org")?);
 
 # anyhow::Ok(())
-# });
+# };
 ```
 
 After the general configuration, one typically wants to add a list via the
@@ -262,7 +261,6 @@ sure to look at both for all subscribed objects.
 In full, this typically looks like this:
 
 ```rust,no_run
-# use futures::executor::block_on;
 # use futures::{pin_mut, StreamExt};
 # use matrix_sdk::{
 #    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder},
@@ -273,7 +271,7 @@ In full, this typically looks like this:
 # };
 # use tracing::{debug, error, info, warn};
 # use url::Url;
-# block_on(async {
+# async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let sliding_sync = client
@@ -304,7 +302,7 @@ loop {
 }
 
 # anyhow::Ok(())
-# });
+# };
 ```
 
 ### Quick refreshing
@@ -409,13 +407,12 @@ start up and retrieve only the data needed to actually run.
 # Full example
 
 ```rust,no_run
-# use futures::executor::block_on;
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
 use ruma::{assign, {api::client::sync::sync_events::v4, events::StateEventType}};
 use tracing::{warn, error, info, debug};
 use futures::{StreamExt, pin_mut};
 use url::Url;
-# block_on(async {
+# async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let full_sync_list_name = "full-sync".to_owned();
@@ -500,7 +497,7 @@ loop {
 }
 
 # anyhow::Ok(())
-# });
+# };
 ```
 
 [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575

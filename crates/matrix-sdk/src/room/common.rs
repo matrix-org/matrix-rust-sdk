@@ -148,14 +148,14 @@ impl Common {
     /// * `format` - The desired format of the avatar.
     ///
     /// # Example
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let user = "example";
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.login_username(user, "password").send().await.unwrap();
@@ -164,7 +164,7 @@ impl Common {
     /// if let Some(avatar) = room.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # })
+    /// # };
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         let Some(url) = self.avatar_url() else { return Ok(None) };
@@ -180,7 +180,8 @@ impl Common {
     /// decryption fails for an individual message, that message is returned
     /// undecrypted.
     ///
-    /// # Examples
+    /// # Example
+    ///
     /// ```no_run
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
@@ -190,15 +191,14 @@ impl Common {
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// let options =
     ///     MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
     /// let room = client.get_joined_room(room_id!("!roomid:example.com")).unwrap();
     /// assert!(room.messages(options).await.is_ok());
-    /// # });
+    /// # };
     /// ```
     #[instrument(skip_all, fields(room_id = ?self.inner.room_id(), ?options))]
     pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
@@ -709,7 +709,7 @@ impl Common {
     /// ```no_run
     /// # use std::str::FromStr;
     /// # use ruma::events::tag::{TagInfo, TagName, UserTagName};
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
@@ -722,7 +722,7 @@ impl Common {
     ///
     ///     room.set_tag(TagName::User(user_tag), tag_info).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn set_tag(
         &self,

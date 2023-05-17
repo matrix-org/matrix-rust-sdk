@@ -40,14 +40,13 @@ impl RoomMember {
     /// # Example
     ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// use matrix_sdk::{
     ///     media::MediaFormat, room::RoomMember, ruma::room_id, Client,
     ///     RoomMemberships,
     /// };
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
+    /// # async {
     /// # let user = "example";
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.login_username(user, "password").send().await.unwrap();
@@ -58,7 +57,7 @@ impl RoomMember {
     /// if let Some(avatar) = member.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # })
+    /// # };
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         let Some(url) = self.avatar_url() else { return Ok(None) };

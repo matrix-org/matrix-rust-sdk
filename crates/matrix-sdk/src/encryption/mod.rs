@@ -105,12 +105,13 @@ impl Client {
     /// encrypting and uploading a provided reader.
     ///
     /// # Arguments
+    ///
     /// * `content_type` - The content type of the file.
     /// * `reader` - The reader that should be encrypted and uploaded.
     ///
     /// # Example
+    ///
     /// ```no_run
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
     /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
@@ -122,16 +123,16 @@ impl Client {
     /// struct CustomEventContent {
     ///     encrypted_file: matrix_sdk::ruma::events::room::EncryptedFile,
     /// }
-    /// # block_on(async {
+    ///
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let room = client.get_joined_room(&room_id!("!test:example.com")).unwrap();
-    ///
     /// let mut reader = std::io::Cursor::new(b"Hello, world!");
     /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
     ///
     /// room.send(CustomEventContent { encrypted_file }, None).await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &self,
@@ -519,8 +520,7 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -533,7 +533,7 @@ impl Encryption {
     ///         let verification = device.request_verification().await?;
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_device(
         &self,
@@ -559,17 +559,16 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let devices = client.encryption().get_user_devices(alice).await?;
     ///
     /// for device in devices.devices() {
-    ///     println!("{:?}", device);
+    ///     println!("{device:?}");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices, Error> {
         let devices = self
@@ -598,8 +597,7 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -610,7 +608,7 @@ impl Encryption {
     ///
     ///     let verification = user.request_verification().await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_user_identity(
         &self,
@@ -641,14 +639,14 @@ impl Encryption {
     /// interactive auth and the same request needs to be made but this time
     /// with some `auth_data` provided.
     ///
-    /// # Examples
+    /// # Example
+    ///
     /// ```no_run
     /// # use std::collections::BTreeMap;
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # use serde_json::json;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
@@ -668,7 +666,7 @@ impl Encryption {
     ///         panic!("Error durign cross signing bootstrap {:#?}", e);
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData>) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
@@ -718,9 +716,8 @@ impl Encryption {
     /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
@@ -738,7 +735,7 @@ impl Encryption {
     ///     .encryption()
     ///     .export_room_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_room_keys(
@@ -787,9 +784,8 @@ impl Encryption {
     /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
@@ -800,7 +796,7 @@ impl Encryption {
     ///     "Imported {} room keys out of {}",
     ///     result.imported_count, result.total_count
     /// );
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn import_room_keys(

@@ -174,29 +174,27 @@ impl Joined {
     ///
     /// * `typing` - Whether the user is typing or has stopped typing.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// use std::time::Duration;
     ///
     /// use matrix_sdk::ruma::api::client::typing::create_typing_event::v3::Typing;
-    ///
     /// # use matrix_sdk::{
     /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    ///
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.typing_notice(true).await?
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
         // Only send a request to the homeserver if the old timeout has elapsed
@@ -317,16 +315,16 @@ impl Joined {
     /// will wait for a sync to be received, this might time out if no
     /// sync loop is running or if the server is slow.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use matrix_sdk::{
     /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
-    /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # block_on(async {
+    /// #
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
@@ -335,7 +333,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.enable_encryption().await?
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
@@ -479,7 +477,6 @@ impl Joined {
     /// # use std::sync::{Arc, RwLock};
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
     /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::{
@@ -489,11 +486,11 @@ impl Joined {
     ///     },
     ///     uint, MilliSecondsSinceUnixEpoch, TransactionId,
     /// };
-    /// # block_on(async {
+    ///
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
-    ///
     /// let content = RoomMessageEventContent::text_plain("Hello world");
     /// let txn_id = TransactionId::new();
     ///
@@ -523,7 +520,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send(content, Some(&txn_id)).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
@@ -571,13 +568,13 @@ impl Joined {
     ///       events sent by our own device and/or to implement local echo.
     ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
@@ -590,7 +587,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_raw(content, "m.room.message", None).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
@@ -692,8 +689,7 @@ impl Joined {
     /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
@@ -707,7 +703,7 @@ impl Joined {
     ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`upload()`]: crate::Media::upload
@@ -1054,7 +1050,7 @@ impl Joined {
     /// ```no_run
     /// use serde_json::json;
     ///
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
@@ -1067,7 +1063,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event_raw(content, "m.room.member", "").await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
     pub async fn send_state_event_raw(
@@ -1107,18 +1103,19 @@ impl Joined {
     /// # Example
     ///
     /// ```no_run
-    /// # futures::executor::block_on(async {
+    /// use matrix_sdk::ruma::event_id;
+    ///
+    /// # async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    /// use matrix_sdk::ruma::event_id;
-    ///
+    /// #
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     let event_id = event_id!("$xxxxxx:example.org");
     ///     let reason = Some("Indecent material");
     ///     room.redact(&event_id, reason, None).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
     pub async fn redact(
