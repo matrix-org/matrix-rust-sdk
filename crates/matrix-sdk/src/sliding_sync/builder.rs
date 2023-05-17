@@ -272,8 +272,8 @@ impl SlidingSyncBuilder {
                 delta_token: Observable::new(delta_token),
             }),
 
-            subscriptions: StdRwLock::new(self.subscriptions),
-            unsubscribe: Default::default(),
+            room_subscriptions: StdRwLock::new(self.subscriptions),
+            room_unsubscriptions: Default::default(),
 
             internal_channel: (
                 internal_channel_sender,

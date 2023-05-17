@@ -108,8 +108,12 @@ pub(super) struct SlidingSyncInner {
     /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
     bump_event_types: Vec<TimelineEventType>,
 
-    subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
-    unsubscribe: StdRwLock<Vec<OwnedRoomId>>,
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
+    /// one wants to receive updates.
+    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
+
+    /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
+    room_unsubscriptions: StdRwLock<Vec<OwnedRoomId>>,
 
     /// Number of times a Sliding Session session has been reset.
     reset_counter: AtomicU8,
@@ -137,12 +141,16 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    pub fn subscribe(
+    pub fn subscribe_to_room(
         &self,
         room_id: OwnedRoomId,
         settings: Option<v4::RoomSubscription>,
     ) -> Result<()> {
-        self.inner.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
+        self.inner
+            .room_subscriptions
+            .write()
+            .unwrap()
+            .insert(room_id, settings.unwrap_or_default());
 
         self.inner
             .internal_channel
@@ -154,9 +162,9 @@ impl SlidingSync {
     }
 
     /// Unsubscribe from a given room.
-    pub fn unsubscribe(&self, room_id: OwnedRoomId) -> Result<()> {
-        if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
-            self.inner.unsubscribe.write().unwrap().push(room_id);
+    pub fn unsubscribe_to_room(&self, room_id: OwnedRoomId) -> Result<()> {
+        if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
+            self.inner.room_unsubscriptions.write().unwrap().push(room_id);
 
             self.inner
                 .internal_channel
@@ -452,8 +460,9 @@ impl SlidingSync {
             Span::current().record("pos", &pos);
 
             // Collect other data.
-            let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
-            let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
+            let room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
+            let unsubscribe_rooms =
+                mem::take(&mut *self.inner.room_unsubscriptions.write().unwrap());
             let timeout = Duration::from_secs(30);
             let extensions = self.prepare_extension_config(pos.as_deref());
 
