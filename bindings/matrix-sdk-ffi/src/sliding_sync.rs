@@ -189,10 +189,10 @@ impl SlidingSyncRoom {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Result<SlidingSyncSubscribeResult, ClientError> {
+    ) -> Result<SlidingSyncAddTimelineListenerResult, ClientError> {
         let (items, stoppable_spawn) = self.add_timeline_listener_inner(listener)?;
 
-        Ok(SlidingSyncSubscribeResult { items, task_handle: Arc::new(stoppable_spawn) })
+        Ok(SlidingSyncAddTimelineListenerResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
     pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) -> Arc<TaskHandle> {
@@ -294,7 +294,7 @@ impl SlidingSyncRoom {
 }
 
 #[derive(uniffi::Record)]
-pub struct SlidingSyncSubscribeResult {
+pub struct SlidingSyncAddTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub task_handle: Arc<TaskHandle>,
 }
