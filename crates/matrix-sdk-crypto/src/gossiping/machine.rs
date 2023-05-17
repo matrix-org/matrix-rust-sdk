@@ -586,9 +586,7 @@ impl GossipMachine {
         let outbound_session = self
             .outbound_group_sessions
             .get_with_id(session.room_id(), session.session_id())
-            .await
-            .ok()
-            .flatten();
+            .await;
 
         // If this is our own, verified device, we share the entire session from the
         // earliest known index.

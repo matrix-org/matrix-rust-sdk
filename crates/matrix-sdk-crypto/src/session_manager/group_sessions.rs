@@ -62,11 +62,11 @@ impl GroupSessionCache {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room this session is used for.
-    pub async fn get_or_load(&self, room_id: &RoomId) -> StoreResult<Option<OutboundGroupSession>> {
+    pub async fn get_or_load(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         // Get the cached session, if there isn't one load one from the store
         // and put it in the cache.
         if let Some(s) = self.sessions.get(room_id) {
-            Ok(Some(s.clone()))
+            Some(s.clone())
         } else {
             match self.store.get_outbound_group_session(room_id).await {
                 Ok(Some(s)) => {
@@ -76,12 +76,12 @@ impl GroupSessionCache {
 
                     self.sessions.insert(room_id.to_owned(), s.clone());
 
-                    Ok(Some(s))
+                    Some(s)
                 }
-                Ok(None) => Ok(None),
+                Ok(None) => None,
                 Err(e) => {
                     error!("Couldn't restore an outbound group session: {e:?}");
-                    Ok(None)
+                    None
                 }
             }
         }
@@ -106,8 +106,8 @@ impl GroupSessionCache {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> StoreResult<Option<OutboundGroupSession>> {
-        Ok(self.get_or_load(room_id).await?.filter(|o| session_id == o.session_id()))
+    ) -> Option<OutboundGroupSession> {
+        self.get_or_load(room_id).await.filter(|o| session_id == o.session_id())
     }
 }
 
@@ -238,7 +238,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
-        let outbound_session = self.sessions.get_or_load(room_id).await?;
+        let outbound_session = self.sessions.get_or_load(room_id).await;
 
         // If there is no session or the session has expired or is invalid,
         // create a new one.
