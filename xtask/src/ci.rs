@@ -373,7 +373,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _ = pushd(folder)?;
+        let _pwd = pushd(folder)?;
         cmd!("pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
         cmd!("wasm-pack test --node -- ")
             .args(arg_set.split_whitespace())
