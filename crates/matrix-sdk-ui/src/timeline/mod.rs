@@ -180,7 +180,7 @@ impl Timeline {
     /// Retry decryption of previously un-decryptable events given a list of
     /// session IDs whose keys have been imported.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};

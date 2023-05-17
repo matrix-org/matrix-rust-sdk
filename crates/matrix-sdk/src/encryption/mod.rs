@@ -109,7 +109,7 @@ impl Client {
     /// * `content_type` - The content type of the file.
     /// * `reader` - The reader that should be encrypted and uploaded.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -515,7 +515,7 @@ impl Encryption {
     ///
     /// This will always return None if the client hasn't been logged in.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
@@ -554,7 +554,7 @@ impl Encryption {
     ///
     /// * `user_id` - The unique id of the user that the devices belong to.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::user_id};
@@ -592,7 +592,7 @@ impl Encryption {
     ///
     /// This will always return None if the client hasn't been logged in.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::user_id};
@@ -639,7 +639,7 @@ impl Encryption {
     /// interactive auth and the same request needs to be made but this time
     /// with some `auth_data` provided.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::collections::BTreeMap;

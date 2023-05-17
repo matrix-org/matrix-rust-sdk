@@ -38,7 +38,7 @@ use crate::{
 /// When setting the `StateStore` it is up to the user to open/connect
 /// the storage backend before client creation.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use matrix_sdk::Client;
@@ -161,7 +161,7 @@ impl ClientBuilder {
     ///
     /// * `store_config` - The configuration of the store.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
@@ -197,7 +197,7 @@ impl ClientBuilder {
     ///
     /// * `proxy` - The HTTP URL of the proxy.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::Client;

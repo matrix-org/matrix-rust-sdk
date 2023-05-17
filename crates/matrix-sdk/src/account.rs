@@ -66,7 +66,7 @@ impl Account {
 
     /// Get the display name of the account.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -92,7 +92,7 @@ impl Account {
 
     /// Set the display name of the account.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -116,7 +116,7 @@ impl Account {
 
     /// Get the MXC URI of the account's avatar, if set.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -187,7 +187,7 @@ impl Account {
     ///
     /// * `format` - The desired format of the avatar.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -226,7 +226,7 @@ impl Account {
     ///
     /// Returns the MXC URI of the uploaded avatar.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::fs;
@@ -252,7 +252,7 @@ impl Account {
     ///
     /// Allows to get both the display name and avatar URL in a single call.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -292,7 +292,7 @@ impl Account {
     /// password is considered insecure by the homeserver, with details about
     /// the strength requirements in the error's message.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -340,7 +340,7 @@ impl Account {
     /// information for the interactive auth and the same request needs to be
     /// made but this time with some `auth_data` provided.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -382,7 +382,7 @@ impl Account {
     /// These 3PIDs may be used by the homeserver to authenticate the user
     /// during sensitive operations.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -437,7 +437,7 @@ impl Account {
     /// email address is already registered for this account or another, or an
     /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -512,7 +512,7 @@ impl Account {
     /// phone number is already registered for this account or another, or an
     /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -620,7 +620,7 @@ impl Account {
     /// from the identity server. This can also mean that the 3PID was not bound
     /// to an identity server in the first place.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -660,7 +660,7 @@ impl Account {
 
     /// Get the content of an account data event of statically-known type.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -696,7 +696,7 @@ impl Account {
 
     /// Set the given account data event.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;

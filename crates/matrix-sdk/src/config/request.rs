@@ -28,7 +28,7 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 ///
 /// By default requests are retried indefinitely and use no timeout.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use matrix_sdk::config::RequestConfig;

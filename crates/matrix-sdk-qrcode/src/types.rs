@@ -64,7 +64,7 @@ impl QrVerificationData {
     ///
     /// * `bytes` - The raw bytes of a decoded QR code.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -92,7 +92,7 @@ impl QrVerificationData {
     /// identity keys that should be encoded into the QR code are not valid
     /// base64.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -122,7 +122,7 @@ impl QrVerificationData {
     /// The encoding can fail if the identity keys that should be encoded are
     /// not valid base64.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -323,7 +323,7 @@ impl VerificationData {
     /// The encoding can fail if the master keys that should be encoded are not
     /// valid base64.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -423,7 +423,7 @@ impl SelfVerificationData {
     /// The encoding can fail if the keys that should be encoded are not valid
     /// base64.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -523,7 +523,7 @@ impl SelfVerificationNoMasterKey {
     /// The encoding can fail if the keys that should be encoded are not valid
     /// base64.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {

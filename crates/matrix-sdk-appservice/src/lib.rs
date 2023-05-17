@@ -293,7 +293,7 @@ impl AppService {
     ///
     /// See [GET /_matrix/app/v1/users/{userId}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-users-userid).
     ///
-    /// # Example
+    /// # Examples
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {
@@ -314,7 +314,7 @@ impl AppService {
     ///
     /// See [GET /_matrix/app/v1/rooms/{roomAlias}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-rooms-roomalias).
     ///
-    /// # Example
+    /// # Examples
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {

@@ -113,7 +113,7 @@ impl SasVerification {
 
     /// Get the emoji version of the short auth string.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -261,7 +261,7 @@ impl SasVerification {
     ///                │  Done │
     ///                └───────┘
     /// ```
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use futures::stream::{Stream, StreamExt};
