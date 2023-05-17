@@ -31,7 +31,7 @@
 
 use std::{cmp::min, ops::RangeInclusive};
 
-use super::Bound;
+use super::{Bound, SlidingSyncMode};
 use crate::sliding_sync::Error;
 
 /// The kind of request generator.
@@ -77,43 +77,6 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 }
 
 impl SlidingSyncListRequestGenerator {
-    /// Create a new request generator configured for paging-mode.
-    pub(super) fn new_paging(
-        batch_size: u32,
-        maximum_number_of_rooms_to_fetch: Option<u32>,
-    ) -> Self {
-        Self {
-            ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::Paging {
-                batch_size,
-                maximum_number_of_rooms_to_fetch,
-                number_of_fetched_rooms: 0,
-                fully_loaded: false,
-            },
-        }
-    }
-
-    /// Create a new request generator configured for growing-mode.
-    pub(super) fn new_growing(
-        batch_size: u32,
-        maximum_number_of_rooms_to_fetch: Option<u32>,
-    ) -> Self {
-        Self {
-            ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::Growing {
-                batch_size,
-                maximum_number_of_rooms_to_fetch,
-                number_of_fetched_rooms: 0,
-                fully_loaded: false,
-            },
-        }
-    }
-
-    /// Create a new request generator configured for selective-mode.
-    pub(super) fn new_selective() -> Self {
-        Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
-    }
-
     pub(super) fn reset(&mut self) {
         // Reset the ranges.
         self.ranges.clear();
@@ -144,6 +107,36 @@ impl SlidingSyncListRequestGenerator {
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded, .. }
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded, .. } => fully_loaded,
             SlidingSyncListRequestGeneratorKind::Selective => true,
+        }
+    }
+}
+
+impl From<SlidingSyncMode> for SlidingSyncListRequestGenerator {
+    fn from(sync_mode: SlidingSyncMode) -> Self {
+        match sync_mode {
+            SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Paging {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
+            },
+
+            SlidingSyncMode::Growing { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Growing {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
+            },
+
+            SlidingSyncMode::Selective => {
+                Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
+            }
         }
     }
 }

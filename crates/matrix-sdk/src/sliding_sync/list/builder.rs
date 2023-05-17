@@ -16,15 +16,12 @@ use tokio::sync::mpsc::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
-    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+    SlidingSyncListInner, SlidingSyncMode, SlidingSyncState,
 };
 use crate::{
     sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
     Client, RoomListEntry,
 };
-
-/// The default name for the full sync list.
-pub const FULL_SYNC_LIST_NAME: &str = "full-sync";
 
 /// Data that might have been read from the cache.
 #[derive(Clone)]
@@ -45,8 +42,6 @@ pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     sort: Vec<String>,
     required_state: Vec<(StateEventType, String)>,
-    full_sync_batch_size: u32,
-    full_sync_maximum_number_of_rooms_to_fetch: Option<u32>,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<Bound>,
     name: String,
@@ -70,11 +65,6 @@ impl fmt::Debug for SlidingSyncListBuilder {
             .field("sync_mode", &self.sync_mode)
             .field("sort", &self.sort)
             .field("required_state", &self.required_state)
-            .field("full_sync_batch_size", &self.full_sync_batch_size)
-            .field(
-                "full_sync_maximum_number_of_rooms_to_fetch",
-                &self.full_sync_maximum_number_of_rooms_to_fetch,
-            )
             .field("filters", &self.filters)
             .field("timeline_limit", &self.timeline_limit)
             .field("name", &self.name)
@@ -92,8 +82,6 @@ impl SlidingSyncListBuilder {
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
             ],
-            full_sync_batch_size: 20,
-            full_sync_maximum_number_of_rooms_to_fetch: None,
             filters: None,
             timeline_limit: None,
             name: name.into(),
@@ -117,11 +105,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Create a Builder set up for full sync.
-    pub fn default_with_fullsync() -> Self {
-        Self::new(FULL_SYNC_LIST_NAME).sync_mode(SlidingSyncMode::Paging)
-    }
-
     /// Which SlidingSyncMode to start this list under.
     pub fn sync_mode(mut self, value: SlidingSyncMode) -> Self {
         self.sync_mode = value;
@@ -137,23 +120,6 @@ impl SlidingSyncListBuilder {
     /// Required states to return per room.
     pub fn required_state(mut self, value: Vec<(StateEventType, String)>) -> Self {
         self.required_state = value;
-        self
-    }
-
-    /// When doing a full-sync, this method defines the value by which ranges of
-    /// rooms will be extended.
-    pub fn full_sync_batch_size(mut self, value: u32) -> Self {
-        self.full_sync_batch_size = value;
-        self
-    }
-
-    /// When doing a full-sync, this method defines the total limit of rooms to
-    /// load (it can be useful for gigantic accounts).
-    pub fn full_sync_maximum_number_of_rooms_to_fetch(
-        mut self,
-        value: impl Into<Option<u32>>,
-    ) -> Self {
-        self.full_sync_maximum_number_of_rooms_to_fetch = value.into();
         self
     }
 
@@ -233,24 +199,10 @@ impl SlidingSyncListBuilder {
         self,
         sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
     ) -> SlidingSyncList {
-        let request_generator = match &self.sync_mode {
-            SlidingSyncMode::Paging => SlidingSyncListRequestGenerator::new_paging(
-                self.full_sync_batch_size,
-                self.full_sync_maximum_number_of_rooms_to_fetch,
-            ),
-
-            SlidingSyncMode::Growing => SlidingSyncListRequestGenerator::new_growing(
-                self.full_sync_batch_size,
-                self.full_sync_maximum_number_of_rooms_to_fetch,
-            ),
-
-            SlidingSyncMode::Selective => SlidingSyncListRequestGenerator::new_selective(),
-        };
-
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
-                sync_mode: self.sync_mode,
+                sync_mode: self.sync_mode.clone(),
                 sort: self.sort,
                 required_state: self.required_state,
                 filters: self.filters,
@@ -260,7 +212,7 @@ impl SlidingSyncListBuilder {
                 cache_policy: self.cache_policy,
 
                 // Computed from the builder.
-                request_generator: StdRwLock::new(request_generator),
+                request_generator: StdRwLock::new(self.sync_mode.into()),
 
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.
@@ -268,6 +220,7 @@ impl SlidingSyncListBuilder {
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 room_list: StdRwLock::new(ObservableVector::from(Vector::new())),
 
+                // Internal data.
                 sliding_sync_internal_channel_sender,
             }),
         };

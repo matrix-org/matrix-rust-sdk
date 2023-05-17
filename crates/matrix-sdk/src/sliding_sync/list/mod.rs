@@ -294,6 +294,8 @@ pub(super) struct SlidingSyncListInner {
     /// Cache policy for this list.
     cache_policy: SlidingSyncListCachePolicy,
 
+    /// The Sliding Sync internal channel sender. See
+    /// [`SlidingSyncInner::internal_channel`] to learn more.
     sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
 }
 
@@ -313,6 +315,7 @@ impl SlidingSyncListInner {
     /// Call this method when it's necessary to reset `Self`.
     fn reset(&self) {
         self.request_generator.write().unwrap().reset();
+
         {
             let mut state = self.state.write().unwrap();
 
@@ -884,12 +887,26 @@ pub enum SlidingSyncMode {
 
     /// Fully sync all rooms in the background, page by page of `batch_size`,
     /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
-    Paging,
+    Paging {
+        /// The batch size.
+        batch_size: u32,
+
+        /// The maximum number of rooms to fetch. `None` to fetch everything
+        /// possible.
+        maximum_number_of_rooms_to_fetch: Option<u32>,
+    },
 
     /// Fully sync all rooms in the background, with a growing window of
     /// `batch_size`, like `0..=19`, `0..=39`, `0..=59` etc. assuming the
     /// `batch_size` is 20.
-    Growing,
+    Growing {
+        /// The batch size.
+        batch_size: u32,
+
+        /// The maximum number of rooms to fetch. `None` to fetch everything
+        /// possible.
+        maximum_number_of_rooms_to_fetch: Option<u32>,
+    },
 }
 
 impl SlidingSyncMode {
@@ -897,8 +914,25 @@ impl SlidingSyncMode {
     fn ranges_can_be_modified_by_user(&self) -> bool {
         match self {
             Self::Selective => true,
-            Self::Paging | Self::Growing => false,
+            Self::Paging { .. } | Self::Growing { .. } => false,
         }
+    }
+}
+
+impl SlidingSyncMode {
+    /// Create a `SlidingSyncMode::Selective`.
+    pub fn new_selective() -> Self {
+        Self::Selective
+    }
+
+    /// Create a `SlidingSyncMode::Paging`.
+    pub fn new_paging(batch_size: u32, maximum_number_of_rooms_to_fetch: Option<u32>) -> Self {
+        Self::Paging { batch_size, maximum_number_of_rooms_to_fetch }
+    }
+
+    /// Create a `SlidingSyncMode::Growing`.
+    pub fn new_growing(batch_size: u32, maximum_number_of_rooms_to_fetch: Option<u32>) -> Self {
+        Self::Growing { batch_size, maximum_number_of_rooms_to_fetch }
     }
 }
 
@@ -935,7 +969,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .ranges(vec![0..=1, 2..=3])
             .build(sender);
 
@@ -963,7 +997,7 @@ mod tests {
         // Set range on `Selective`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Selective)
+                .sync_mode(SlidingSyncMode::new_selective())
                 .ranges(vec![0..=1, 2..=3])
                 .build(sender.clone());
 
@@ -987,7 +1021,7 @@ mod tests {
         // Set range on `Growing`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Growing)
+                .sync_mode(SlidingSyncMode::new_growing(20, None))
                 .build(sender.clone());
 
             assert!(list.set_range(4..=5).is_err());
@@ -995,8 +1029,9 @@ mod tests {
 
         // Set range on `Paging`.
         {
-            let list =
-                SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build(sender);
+            let list = SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_paging(20, None))
+                .build(sender);
 
             assert!(list.set_range(4..=5).is_err());
         }
@@ -1009,7 +1044,7 @@ mod tests {
         // Add range on `Selective`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Selective)
+                .sync_mode(SlidingSyncMode::new_selective())
                 .ranges(vec![0..=1])
                 .build(sender.clone());
 
@@ -1033,7 +1068,7 @@ mod tests {
         // Add range on `Growing`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Growing)
+                .sync_mode(SlidingSyncMode::new_growing(20, None))
                 .build(sender.clone());
 
             assert!(list.add_range(2..=3).is_err());
@@ -1041,8 +1076,9 @@ mod tests {
 
         // Add range on `Paging`.
         {
-            let list =
-                SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build(sender);
+            let list = SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_paging(20, None))
+                .build(sender);
 
             assert!(list.add_range(2..=3).is_err());
         }
@@ -1055,7 +1091,7 @@ mod tests {
         // Reset ranges on `Selective`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Selective)
+                .sync_mode(SlidingSyncMode::new_selective())
                 .ranges(vec![0..=1])
                 .build(sender.clone());
 
@@ -1079,7 +1115,7 @@ mod tests {
         // Reset range on `Growing`.
         {
             let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Growing)
+                .sync_mode(SlidingSyncMode::new_growing(20, None))
                 .build(sender.clone());
 
             assert!(list.reset_ranges().is_err());
@@ -1087,8 +1123,9 @@ mod tests {
 
         // Reset range on `Paging`.
         {
-            let list =
-                SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::Paging).build(sender);
+            let list = SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_paging(20, None))
+                .build(sender);
 
             assert!(list.reset_ranges().is_err());
         }
@@ -1099,7 +1136,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .ranges(vec![0..=1])
             .timeline_limit(7)
             .build(sender);
@@ -1135,7 +1172,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .add_range(0..=1)
             .build(sender);
 
@@ -1212,8 +1249,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Paging)
-            .full_sync_batch_size(10)
+            .sync_mode(SlidingSyncMode::new_paging(10, None))
             .build(sender);
 
         assert_ranges! {
@@ -1255,9 +1291,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Paging)
-            .full_sync_batch_size(10)
-            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .sync_mode(SlidingSyncMode::new_paging(10, Some(22)))
             .build(sender);
 
         assert_ranges! {
@@ -1299,8 +1333,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Growing)
-            .full_sync_batch_size(10)
+            .sync_mode(SlidingSyncMode::new_growing(10, None))
             .build(sender);
 
         assert_ranges! {
@@ -1342,9 +1375,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Growing)
-            .full_sync_batch_size(10)
-            .full_sync_maximum_number_of_rooms_to_fetch(22)
+            .sync_mode(SlidingSyncMode::new_growing(10, Some(22)))
             .build(sender);
 
         assert_ranges! {
@@ -1386,7 +1417,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .ranges(vec![0..=10, 42..=153])
             .build(sender);
 
@@ -1419,7 +1450,7 @@ mod tests {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(crate::SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .ranges(vec![0..=10, 42..=153].to_vec())
             .build(sender);
 
@@ -1505,7 +1536,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
+            .sync_mode(SlidingSyncMode::new_selective())
             .add_range(0..=3)
             .build(sender);
 
@@ -1629,9 +1660,23 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_mode_serialization() {
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Paging => json!("Paging"));
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Growing => json!("Growing"));
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::Selective => json!("Selective"));
+        assert_json_roundtrip!(
+            from SlidingSyncMode: SlidingSyncMode::new_paging(1, Some(2)) => json!({
+                "Paging": {
+                    "batch_size": 1,
+                    "maximum_number_of_rooms_to_fetch": 2
+                }
+            })
+        );
+        assert_json_roundtrip!(
+            from SlidingSyncMode: SlidingSyncMode::new_growing(1, Some(2)) => json!({
+                "Growing": {
+                    "batch_size": 1,
+                    "maximum_number_of_rooms_to_fetch": 2
+                }
+            })
+        );
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::new_selective() => json!("Selective"));
     }
 
     #[test]
