@@ -36,7 +36,7 @@ byteorder = { workspace = true }
 ctr = "0.9.1"
 dashmap = { workspace = true }
 eyeball = { workspace = true }
-futures-core = "0.3.24"
+futures-core = { workspace = true }
 futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only

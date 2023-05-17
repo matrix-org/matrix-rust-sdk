@@ -30,6 +30,7 @@ ctor = "0.2.0"
 dashmap = "5.2.0"
 eyeball = "0.7.0"
 eyeball-im = "0.2.0"
+futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
