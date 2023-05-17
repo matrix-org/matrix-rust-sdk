@@ -912,10 +912,7 @@ pub enum SlidingSyncMode {
 impl SlidingSyncMode {
     /// Return whether an external caller can modify the sync mode's ranges.
     fn ranges_can_be_modified_by_user(&self) -> bool {
-        match self {
-            Self::Selective => true,
-            Self::Paging { .. } | Self::Growing { .. } => false,
-        }
+        matches!(self, Self::Selective)
     }
 }
 
