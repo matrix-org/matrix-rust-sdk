@@ -1,5 +1,10 @@
 # v0.7.0
 
+- Add a new variant to the `VerificationRequestState` enum called
+  `Transitioned`. This enum variant is used when a `VerificationRequest`
+  transitions into a concrete `Verification` object. The concrete `Verification`
+  object is given as associated data in the `Transitioned` enum variant.
+
 - Replace the libolm backup encryption code with a native Rust version. This
   adds WASM support to the backups_v1 feature.
 

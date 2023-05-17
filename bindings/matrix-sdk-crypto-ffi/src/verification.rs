@@ -550,26 +550,6 @@ pub enum VerificationRequestState {
     },
 }
 
-impl From<RustVerificationRequestState> for VerificationRequestState {
-    fn from(value: RustVerificationRequestState) -> Self {
-        match value {
-            // The clients do not need to distinguish `Created` and `Requested` state
-            RustVerificationRequestState::Created { .. } => Self::Requested,
-            RustVerificationRequestState::Requested { .. } => Self::Requested,
-            RustVerificationRequestState::Ready {
-                their_methods,
-                our_methods,
-                other_device_id: _,
-            } => Self::Ready {
-                their_methods: their_methods.iter().map(|m| m.to_string()).collect(),
-                our_methods: our_methods.iter().map(|m| m.to_string()).collect(),
-            },
-            RustVerificationRequestState::Done => Self::Done,
-            RustVerificationRequestState::Cancelled(c) => Self::Cancelled { cancel_info: c.into() },
-        }
-    }
-}
-
 /// The verificatoin request object which then can transition into some concrete
 /// verification method
 #[derive(uniffi::Object)]
@@ -747,17 +727,57 @@ impl VerificationRequest {
     pub fn set_changes_listener(&self, listener: Box<dyn VerificationRequestListener>) {
         let stream = self.inner.changes();
 
-        self.runtime.spawn(Self::changes_listener(stream, listener));
+        self.runtime.spawn(Self::changes_listener(self.inner.to_owned(), stream, listener));
     }
 
     /// Get the current state of the verification request.
     pub fn state(&self) -> VerificationRequestState {
-        self.inner.state().into()
+        Self::convert_verification_request(&self.inner, self.inner.state())
     }
 }
 
 impl VerificationRequest {
+    fn convert_verification_request(
+        request: &InnerVerificationRequest,
+        value: RustVerificationRequestState,
+    ) -> VerificationRequestState {
+        match value {
+            // The clients do not need to distinguish `Created` and `Requested` state
+            RustVerificationRequestState::Created { .. } => VerificationRequestState::Requested,
+            RustVerificationRequestState::Requested { .. } => VerificationRequestState::Requested,
+            RustVerificationRequestState::Ready {
+                their_methods,
+                our_methods,
+                other_device_id: _,
+            } => VerificationRequestState::Ready {
+                their_methods: their_methods.iter().map(|m| m.to_string()).collect(),
+                our_methods: our_methods.iter().map(|m| m.to_string()).collect(),
+            },
+            RustVerificationRequestState::Done => VerificationRequestState::Done,
+            RustVerificationRequestState::Transitioned { .. } => {
+                let their_methods = request
+                    .their_supported_methods()
+                    .expect("The transitioned state should know the other side's methods")
+                    .into_iter()
+                    .map(|m| m.to_string())
+                    .collect();
+                let our_methods = request
+                    .our_supported_methods()
+                    .expect("The transitioned state should know our own supported methods")
+                    .iter()
+                    .map(|m| m.to_string())
+                    .collect();
+                VerificationRequestState::Ready { their_methods, our_methods }
+            }
+
+            RustVerificationRequestState::Cancelled(c) => {
+                VerificationRequestState::Cancelled { cancel_info: c.into() }
+            }
+        }
+    }
+
     async fn changes_listener(
+        request: InnerVerificationRequest,
         mut stream: impl Stream<Item = RustVerificationRequestState> + std::marker::Unpin,
         listener: Box<dyn VerificationRequestListener>,
     ) {
@@ -771,7 +791,9 @@ impl VerificationRequest {
                     | RustVerificationRequestState::Cancelled { .. }
             );
 
-            listener.on_change(state.into());
+            let state = Self::convert_verification_request(&request, state);
+
+            listener.on_change(state);
 
             if should_break {
                 break;
