@@ -1751,7 +1751,6 @@ pub(crate) mod tests {
     };
 
     use assert_matches::assert_matches;
-    use futures::select;
     use futures_util::{FutureExt, StreamExt};
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
@@ -2362,16 +2361,13 @@ pub(crate) mod tests {
                 panic!("Decrypted event has a mismatched content");
             }
         } else {
-            panic!("Decrypted room event has the wrong type")
+            panic!("Decrypted room event has the wrong type");
         }
 
         // Just decrypting the event should *not* cause an update on the
         // inbound_group_session_stream.
-        select! {
-            igs = room_keys_received_stream.next().fuse() => {
-                panic!("Session stream unexpectedly returned update: {igs:?}");
-            },
-            default => {},
+        if let Some(igs) = room_keys_received_stream.next().now_or_never() {
+            panic!("Session stream unexpectedly returned update: {igs:?}");
         }
     }
 
