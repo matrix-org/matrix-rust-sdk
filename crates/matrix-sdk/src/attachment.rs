@@ -301,8 +301,8 @@ impl Default for AttachmentConfig {
 /// use mime;
 /// # use matrix_sdk::{Client, ruma::room_id };
 /// # use url::Url;
-/// # use futures::executor::block_on;
-/// # block_on(async {
+/// #
+/// # async {
 /// # let homeserver = Url::parse("http://localhost:8080")?;
 /// # let mut client = Client::new(homeserver).await?;
 /// # let room_id = room_id!("!test:localhost");
@@ -327,7 +327,7 @@ impl Default for AttachmentConfig {
 ///     )
 ///     .await?;
 /// }
-/// # anyhow::Ok(()) });
+/// # anyhow::Ok(()) };
 /// ```
 #[cfg(feature = "image-proc")]
 pub fn generate_image_thumbnail<R: BufRead + Seek>(

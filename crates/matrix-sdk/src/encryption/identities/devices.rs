@@ -78,13 +78,12 @@ impl Device {
     /// this. `m.qr_code.show.v1` is only available if the `qrcode` feature is
     /// enabled, which it is by default.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -94,7 +93,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
@@ -131,8 +130,7 @@ impl Device {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -147,7 +145,7 @@ impl Device {
     ///     let verification =
     ///         device.request_verification_with_methods(methods).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn request_verification_with_methods(
         &self,
@@ -174,8 +172,7 @@ impl Device {
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -185,7 +182,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`request_verification()`]: #method.request_verification
@@ -238,8 +235,7 @@ impl Device {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -249,7 +245,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     device.verify().await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = self.inner.verify().await?;
@@ -353,8 +349,7 @@ impl Device {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -376,7 +371,7 @@ impl Device {
     ///         );
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`UserIdentity::verify()`]:
@@ -469,8 +464,7 @@ impl Device {
     /// #    }
     /// # };
     /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
+    /// # async {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
@@ -492,7 +486,7 @@ impl Device {
     ///         );
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`UserIdentity::verify()`]:

@@ -199,14 +199,10 @@ impl ClientBuilder {
     ///
     /// # Example
     ///
-    /// ```
-    /// # futures::executor::block_on(async {
+    /// ```no_run
     /// use matrix_sdk::Client;
     ///
     /// let client_config = Client::builder().proxy("http://localhost:8080");
-    ///
-    /// # anyhow::Ok(())
-    /// # });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self, proxy: impl AsRef<str>) -> Self {

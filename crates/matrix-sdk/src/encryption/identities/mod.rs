@@ -37,10 +37,9 @@
 //! ```no_run
 //! # use matrix_sdk::{Client, ruma::{device_id, user_id}};
 //! # use url::Url;
-//! # use futures::executor::block_on;
 //! # let alice = user_id!("@alice:example.org");
 //! # let homeserver = Url::parse("http://example.com").unwrap();
-//! # block_on(async {
+//! # async {
 //! # let client = Client::new(homeserver).await.unwrap();
 //! let device =
 //!     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
@@ -55,7 +54,7 @@
 //!     // Let's just mark it as verified.
 //!     device.verify().await?;
 //! }
-//! # anyhow::Ok(()) });
+//! # anyhow::Ok(()) };
 //! ```
 //!
 //! Verifying a user identity works largely the same:
@@ -63,10 +62,9 @@
 //! ```no_run
 //! # use matrix_sdk::{Client, ruma::user_id};
 //! # use url::Url;
-//! # use futures::executor::block_on;
 //! # let alice = user_id!("@alice:example.org");
 //! # let homeserver = Url::parse("http://example.com").unwrap();
-//! # block_on(async {
+//! # async {
 //! # let client = Client::new(homeserver).await.unwrap();
 //! let user = client.encryption().get_user_identity(alice).await?;
 //!
@@ -80,7 +78,7 @@
 //!     // Let's just mark it as verified.
 //!     user.verify().await?;
 //! }
-//! # anyhow::Ok(()) });
+//! # anyhow::Ok(()) };
 //! ```
 //!
 //! [cross signing keys]: https://spec.matrix.org/unstable/client-server-api/#cross-signing

@@ -43,7 +43,6 @@ impl SasVerification {
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
@@ -53,7 +52,7 @@ impl SasVerification {
     ///
     /// # let flow_id = "someID";
     /// # let user_id = user_id!("@alice:example");
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas = client
@@ -69,7 +68,7 @@ impl SasVerification {
     ///
     ///     sas.accept_with_settings(only_decimal).await?;
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(request) = self.inner.accept_with_settings(settings) {
@@ -114,11 +113,10 @@ impl SasVerification {
 
     /// Get the emoji version of the short auth string.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
@@ -128,7 +126,7 @@ impl SasVerification {
     ///
     /// # let flow_id = "someID";
     /// # let user_id = user_id!("@alice:example");
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
@@ -152,7 +150,7 @@ impl SasVerification {
     ///
     ///     println!("Do the emojis match?\n{emoji_string}\n{description}");
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
         self.inner.emoji()
@@ -269,10 +267,9 @@ impl SasVerification {
     /// use futures::stream::{Stream, StreamExt};
     /// use matrix_sdk::encryption::verification::{SasState, SasVerification};
     ///
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let sas: SasVerification = unimplemented!();
     /// # let user_confirmed = false;
-    ///
     /// let mut stream = sas.changes();
     ///
     /// while let Some(state) = stream.next().await {
@@ -313,7 +310,7 @@ impl SasVerification {
     ///         | SasState::Confirmed => (),
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
         self.inner.changes()

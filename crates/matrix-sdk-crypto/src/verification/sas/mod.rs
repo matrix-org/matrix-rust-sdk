@@ -687,15 +687,15 @@ impl Sas {
     ///                │  Done │
     ///                └───────┘
     /// ```
+    ///
     /// # Example
     ///
     /// ```no_run
     /// use futures::stream::{Stream, StreamExt};
     /// use matrix_sdk_crypto::{Sas, SasState};
     ///
-    /// # futures::executor::block_on(async {
+    /// # async {
     /// # let sas: Sas = unimplemented!();
-    ///
     /// let mut stream = sas.changes();
     ///
     /// while let Some(state) = stream.next().await {
@@ -731,7 +731,7 @@ impl Sas {
     ///         | SasState::Confirmed => (),
     ///     }
     /// }
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn changes(&self) -> impl Stream<Item = SasState> {
         self.inner.subscribe().map(|s| (&s).into())

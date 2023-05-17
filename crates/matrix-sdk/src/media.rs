@@ -89,15 +89,14 @@ impl Media {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```no_run
     /// # use std::fs;
     /// # use matrix_sdk::{Client, ruma::room_id};
     /// # use url::Url;
-    /// # use futures::executor::block_on;
     /// # use mime;
-    /// # block_on(async {
+    /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/my-cat.jpg")?;
@@ -105,7 +104,7 @@ impl Media {
     /// let response = client.media().upload(&mime::IMAGE_JPEG, image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    /// # anyhow::Ok(()) });
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn upload(
         &self,
