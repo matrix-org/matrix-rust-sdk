@@ -61,6 +61,7 @@ features = ["rt-multi-thread"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
+vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]
 tempfile = "3.3.0"

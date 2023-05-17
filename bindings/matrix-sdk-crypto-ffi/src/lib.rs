@@ -841,6 +841,30 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
 }
 
 #[uniffi::export]
+fn version_info() -> VersionInfo {
+    VersionInfo {
+        version: matrix_sdk_crypto::VERSION.to_owned(),
+        vodozemac_version: matrix_sdk_crypto::vodozemac::VERSION.to_owned(),
+        git_description: env!("VERGEN_GIT_DESCRIBE").to_owned(),
+        git_sha: env!("VERGEN_GIT_SHA").to_owned(),
+    }
+}
+
+/// Build-time information about important crates that are used.
+#[derive(uniffi::Record)]
+pub struct VersionInfo {
+    /// The version of the matrix-sdk-crypto crate.
+    pub version: String,
+    /// The version of the vodozemac crate.
+    pub vodozemac_version: String,
+    /// The Git commit hash of the crate's source tree at build time.
+    pub git_sha: String,
+    /// The build-time output of the `git describe` command of the source tree
+    /// of crate.
+    pub git_description: String,
+}
+
+#[uniffi::export]
 fn version() -> String {
     matrix_sdk_crypto::VERSION.to_owned()
 }
