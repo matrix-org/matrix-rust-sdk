@@ -17,7 +17,7 @@ experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 async-trait = { workspace = true }
 chrono = "0.4.23"
 eyeball-im = { workspace = true }
-futures-core = "0.3.21"
+futures-core = { workspace = true }
 futures-util = { workspace = true }
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "1.9.1"

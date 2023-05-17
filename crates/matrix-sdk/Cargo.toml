@@ -69,7 +69,7 @@ event-listener = "2.5.2"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyre = { version = "0.6.8", optional = true }
-futures-core = "0.3.21"
+futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
 imbl = { version = "2.0.0", features = ["serde"] }
