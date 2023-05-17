@@ -121,6 +121,8 @@ pub(super) struct SlidingSyncInner {
     /// calls. May contain the latest next_batch for to_devices, etc.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
+    /// Internal channel used to pass messages between Sliding Sync and other
+    /// types.
     internal_channel:
         (Sender<SlidingSyncInternalMessage>, AsyncRwLock<Receiver<SlidingSyncInternalMessage>>),
 }

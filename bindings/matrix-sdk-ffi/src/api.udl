@@ -46,15 +46,6 @@ enum SlidingSyncState {
     "FullyLoaded",
 };
 
-enum SlidingSyncMode {
-    /// Sync up the entire room list first, page by page
-    "Paging",
-    /// Sync up the entire room list first through a growing window
-    "Growing",
-    /// Only ever sync the currently selected window
-    "Selective",
-};
-
 callback interface SlidingSyncListStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };

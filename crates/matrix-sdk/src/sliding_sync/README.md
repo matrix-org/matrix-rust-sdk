@@ -120,16 +120,11 @@ background though. For that, the client implementation offers to run lists
 in two additional full-sync-modes, which require additional configuration:
 
 - [`SlidingSyncMode::Paging`]: Pages through the entire list of
-  rooms one request at a time asking for the next `full_sync_batch_size` number of
-  rooms up to the end or `full_sync_maximum_number_of_rooms_to_fetch` if configured
-- [`SlidingSyncMode::Growing`]: Grows the window by `full_sync_batch_size` on
-  every request till all rooms or until `full_sync_maximum_number_of_rooms_to_fetch` of rooms are in list.
-
-For both, one should configure
-[`full_sync_batch_size`](SlidingSyncListBuilder::full_sync_batch_size) and optionally
-[`full_sync_maximum_number_of_rooms_to_fetch`](SlidingSyncListBuilder::full_sync_maximum_number_of_rooms_to_fetch)
-on the [`SlidingSyncListBuilder`]. Both full-sync lists will notice if the number of rooms
-increased at runtime and will attempt to catch up to that (barring the `limit`).
+  rooms one request at a time asking for the next `batch_size` number of
+  rooms up to the end or `maximum_number_of_rooms_to_fetch` if configured
+- [`SlidingSyncMode::Growing`]: Grows the window by `batch_size` on every
+  request till all rooms or until `maximum_number_of_rooms_to_fetch` of rooms
+  are in list.
 
 ## Rooms
 
@@ -425,13 +420,11 @@ let sliding_sync_builder = client
     .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
-    .sync_mode(SlidingSyncMode::Growing)  // sync up by growing the window
+    .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
     .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
         (StateEventType::RoomEncryption, "".to_owned())
-     ]) // only want to know if the room is encrypted
-    .full_sync_batch_size(50)   // grow the window by 50 items at a time
-    .full_sync_maximum_number_of_rooms_to_fetch(500);      // only sync up the top 500 rooms
+     ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only

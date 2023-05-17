@@ -31,11 +31,11 @@
 
 use std::{cmp::min, ops::RangeInclusive};
 
-use super::Bound;
+use super::{Bound, SlidingSyncMode};
 use crate::sliding_sync::Error;
 
 /// The kind of request generator.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(super) enum SlidingSyncListRequestGeneratorKind {
     /// Growing-mode (see [`SlidingSyncMode`]).
     Growing {
@@ -77,41 +77,32 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
 }
 
 impl SlidingSyncListRequestGenerator {
-    /// Create a new request generator configured for paging-mode.
-    pub(super) fn new_paging(
-        batch_size: u32,
-        maximum_number_of_rooms_to_fetch: Option<u32>,
-    ) -> Self {
-        Self {
-            ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::Paging {
-                batch_size,
-                maximum_number_of_rooms_to_fetch,
-                number_of_fetched_rooms: 0,
-                fully_loaded: false,
+    pub(super) fn new(sync_mode: SlidingSyncMode) -> Self {
+        match sync_mode {
+            SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Paging {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
             },
-        }
-    }
 
-    /// Create a new request generator configured for growing-mode.
-    pub(super) fn new_growing(
-        batch_size: u32,
-        maximum_number_of_rooms_to_fetch: Option<u32>,
-    ) -> Self {
-        Self {
-            ranges: Vec::new(),
-            kind: SlidingSyncListRequestGeneratorKind::Growing {
-                batch_size,
-                maximum_number_of_rooms_to_fetch,
-                number_of_fetched_rooms: 0,
-                fully_loaded: false,
+            SlidingSyncMode::Growing { batch_size, maximum_number_of_rooms_to_fetch } => Self {
+                ranges: Vec::new(),
+                kind: SlidingSyncListRequestGeneratorKind::Growing {
+                    batch_size,
+                    maximum_number_of_rooms_to_fetch,
+                    number_of_fetched_rooms: 0,
+                    fully_loaded: false,
+                },
             },
-        }
-    }
 
-    /// Create a new request generator configured for selective-mode.
-    pub(super) fn new_selective() -> Self {
-        Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
+            SlidingSyncMode::Selective => {
+                Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
+            }
+        }
     }
 
     pub(super) fn reset(&mut self) {
@@ -236,5 +227,48 @@ mod tests {
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50, and a maximum number of rooms defined at 75.
         assert_eq!(create_range(0, 100, Some(50), Some(75)), Ok(0..=49));
+    }
+
+    #[test]
+    fn test_request_generator_selective_from_sync_mode() {
+        let sync_mode = SlidingSyncMode::new_selective();
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+
+        assert!(request_generator.ranges.is_empty());
+        assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);
+    }
+
+    #[test]
+    fn test_request_generator_paging_from_sync_mode() {
+        let sync_mode = SlidingSyncMode::new_paging(1, Some(2));
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+
+        assert!(request_generator.ranges.is_empty());
+        assert_eq!(
+            request_generator.kind,
+            SlidingSyncListRequestGeneratorKind::Paging {
+                batch_size: 1,
+                maximum_number_of_rooms_to_fetch: Some(2),
+                number_of_fetched_rooms: 0,
+                fully_loaded: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_request_generator_growing_from_sync_mode() {
+        let sync_mode = SlidingSyncMode::new_growing(1, Some(2));
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+
+        assert!(request_generator.ranges.is_empty());
+        assert_eq!(
+            request_generator.kind,
+            SlidingSyncListRequestGeneratorKind::Growing {
+                batch_size: 1,
+                maximum_number_of_rooms_to_fetch: Some(2),
+                number_of_fetched_rooms: 0,
+                fully_loaded: false,
+            }
+        );
     }
 }
