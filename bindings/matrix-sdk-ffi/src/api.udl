@@ -167,3 +167,7 @@ callback interface SessionVerificationControllerDelegate {
     void did_cancel();
     void did_finish();
 };
+
+callback interface NotificationSettingsDelegate {
+    void notification_settings_did_change();
+};

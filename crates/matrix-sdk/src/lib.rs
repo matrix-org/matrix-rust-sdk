@@ -37,6 +37,7 @@ mod error;
 pub mod event_handler;
 mod http_client;
 pub mod media;
+pub mod notification_settings;
 pub mod room;
 pub mod sync;
 
@@ -52,7 +53,10 @@ pub use client::SsoLoginBuilder;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
+pub use error::{
+    Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
+    RumaApiError,
+};
 pub use http_client::HttpSend;
 pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};

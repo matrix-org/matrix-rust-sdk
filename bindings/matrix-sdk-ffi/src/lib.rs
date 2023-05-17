@@ -29,6 +29,7 @@ mod error;
 pub mod event;
 mod helpers;
 pub mod notification;
+pub mod notification_settings;
 pub mod room;
 pub mod room_member;
 pub mod session_verification;
@@ -42,8 +43,8 @@ pub use matrix_sdk_ui::timeline::PaginationOutcome;
 pub use platform::*;
 
 pub use self::{
-    authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
+    authentication_service::*, client::*, event::*, notification::*, notification_settings::*,
+    room::*, room_member::*, session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
 // Re-exports for more convenient use inside other submodules
 use self::{client::Client, error::ClientError};

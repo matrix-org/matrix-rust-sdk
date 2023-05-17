@@ -34,7 +34,10 @@ use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
 
-use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
+use super::{
+    notification_settings::NotificationSettings, room::Room,
+    session_verification::SessionVerificationController, RUNTIME,
+};
 use crate::{client, ClientError, NotificationItem};
 
 #[derive(Clone, uniffi::Record)]
@@ -112,6 +115,7 @@ pub struct Client {
     notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
+    notification_settings: Arc<NotificationSettings>,
     /// The sliding sync proxy that the client is configured to use by default.
     /// If this value is `Some`, it will be automatically added to the builder
     /// when calling `sliding_sync()`.
@@ -137,11 +141,14 @@ impl Client {
             }
         });
 
+        let notification_settings = Arc::new(NotificationSettings::new(sdk_client.clone()));
+
         let client = Client {
             inner: sdk_client,
             delegate: Arc::new(RwLock::new(None)),
             notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
+            notification_settings,
             sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx: Default::default(),
         };
@@ -595,6 +602,10 @@ impl Client {
             let notification = NotificationItem::new_from_event_id(&event_id, room).await?;
             Ok(notification)
         })
+    }
+
+    pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
+        self.notification_settings.to_owned()
     }
 }
 

@@ -79,6 +79,7 @@ use crate::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
+    notification_settings::NotificationSettings,
     room,
     sync::{RoomUpdate, SyncResponse},
     Account, Error, Media, RefreshTokenError, Result, RumaApiError,
@@ -538,6 +539,11 @@ impl Client {
     /// Get the account of the current owner of the client.
     pub fn account(&self) -> Account {
         Account::new(self.clone())
+    }
+
+    /// Get the notification settings of the current owner of the client.
+    pub fn notification_settings(&self) -> NotificationSettings {
+        NotificationSettings::new(self.clone())
     }
 
     /// Get the encryption manager of the client.

@@ -30,6 +30,7 @@ use ruma::{
         error::{FromHttpResponseError, IntoHttpError},
     },
     events::tag::InvalidUserTagName,
+    push::{InsertPushRuleError, RemovePushRuleError, RuleNotFoundError},
     IdParseError,
 };
 use serde_json::Error as JsonError;
@@ -421,4 +422,51 @@ pub enum RefreshTokenError {
     /// not be forwarded.
     #[error("the access token could not be refreshed")]
     UnableToRefreshToken,
+}
+
+/// Errors that can occur when manipulating push notification settings.
+#[derive(Debug, Error, Clone)]
+pub enum NotificationSettingsError {
+    /// Invalid room id.
+    #[error("Invalid room id")]
+    InvalidRoomId,
+    /// Mentions not enabled.
+    #[error("Mentions not enabled")]
+    MentionsNotEnabled,
+    /// Unable to add push rule.
+    #[error("Unable to add push rule")]
+    UnableToAddPushRule,
+    /// Unable to remove push rule.
+    #[error("Unable to remove push rule")]
+    UnableToRemovePushRule,
+    /// Rule not found
+    #[error("Rule not found")]
+    RuleNotFound,
+    /// Unable to save the push rules
+    #[error("Unable to save push rules")]
+    UnableToSavePushRules,
+}
+
+impl From<IdParseError> for NotificationSettingsError {
+    fn from(_: IdParseError) -> Self {
+        NotificationSettingsError::InvalidRoomId
+    }
+}
+
+impl From<InsertPushRuleError> for NotificationSettingsError {
+    fn from(_: InsertPushRuleError) -> Self {
+        NotificationSettingsError::UnableToAddPushRule
+    }
+}
+
+impl From<RemovePushRuleError> for NotificationSettingsError {
+    fn from(_: RemovePushRuleError) -> Self {
+        NotificationSettingsError::UnableToRemovePushRule
+    }
+}
+
+impl From<RuleNotFoundError> for NotificationSettingsError {
+    fn from(_: RuleNotFoundError) -> Self {
+        NotificationSettingsError::RuleNotFound
+    }
 }

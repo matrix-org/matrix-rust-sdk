@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
+use matrix_sdk::{
+    self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError,
+    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -68,6 +71,12 @@ impl From<mime::FromStrError> for ClientError {
     }
 }
 
+impl From<NotificationSettingsError> for ClientError {
+    fn from(e: NotificationSettingsError) -> Self {
+        anyhow::Error::from(e).into()
+    }
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum RoomError {
@@ -90,4 +99,43 @@ pub enum TimelineError {
     MissingMediaInfoField,
     #[error("Media info field invalid")]
     InvalidMediaInfoField,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum NotificationSettingsError {
+    /// Invalid room id.
+    #[error("Invalid room id")]
+    InvalidRoomId,
+    /// Mentions not enabled.
+    #[error("Mentions not enabled")]
+    MentionsNotEnabled,
+    /// Room not found
+    #[error("Room not found")]
+    RoomNotFound,
+    /// Rule not found
+    #[error("Rule not found")]
+    RuleNotFound,
+    /// Unable to add push rule.
+    #[error("Unable to add push rule")]
+    UnableToAddPushRule,
+    /// Unable to remove push rule.
+    #[error("Unable to remove push rule")]
+    UnableToRemovePushRule,
+    /// Unable to save the push rules
+    #[error("Unable to save push rules")]
+    UnableToSavePushRules,
+}
+
+impl From<SdkNotificationSettingsError> for NotificationSettingsError {
+    fn from(value: SdkNotificationSettingsError) -> Self {
+        match value {
+            SdkNotificationSettingsError::InvalidRoomId => Self::InvalidRoomId,
+            SdkNotificationSettingsError::MentionsNotEnabled => Self::MentionsNotEnabled,
+            SdkNotificationSettingsError::RuleNotFound => Self::RuleNotFound,
+            SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
+            SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,
+            SdkNotificationSettingsError::UnableToSavePushRules => Self::UnableToSavePushRules,
+        }
+    }
 }
