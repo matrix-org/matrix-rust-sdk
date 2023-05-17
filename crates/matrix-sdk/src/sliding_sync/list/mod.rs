@@ -61,6 +61,14 @@ impl SlidingSyncList {
     }
 
     /// Change the sync-mode.
+    ///
+    /// It is sometimes necessary to change the sync-mode of a list on-the-fly.
+    ///
+    /// This will change the sync-mode but also the request generator.
+    ///
+    /// The ranges and the state will be updated when the next request will sent
+    /// and a response will be received. The maximum number of rooms won't
+    /// change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
         self.inner.set_sync_mode(sync_mode);
     }
@@ -309,9 +317,9 @@ impl SlidingSyncListInner {
     ///
     /// This will change the sync-mode but also the request generator.
     ///
-    /// [`Self::ranges`] will be updated when the next request will sent and a
-    /// response will be received. The [`Self::maximum_number_of_rooms`]
-    /// won't change.
+    /// [`Self::ranges`] and [`Self::state`] will be updated when the next
+    /// request will sent and a response will be received. The
+    /// [`Self::maximum_number_of_rooms`] won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
         // Acquire both locks before modifying the values their hold.
         let mut sync_mode_lock = self.sync_mode.write().unwrap();
@@ -1546,6 +1554,143 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = PartiallyLoaded,
             },
+        };
+    }
+
+    #[test]
+    fn test_generator_changing_sync_mode_on_the_fly() {
+        let (sender, _receiver) = channel(4);
+
+        let mut list = SlidingSyncList::builder("testing")
+            .sync_mode(SlidingSyncMode::new_selective())
+            .ranges(vec![0..=10, 42..=153].to_vec())
+            .build(sender);
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+
+        // Changing from `Selective` to `Growing`.
+        list.set_sync_mode(SlidingSyncMode::new_growing(10, None));
+
+        assert_ranges! {
+            list = list,
+            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = 0..=9,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = 0..=19,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        // Changing from `Growing` to `Paging`.
+        list.set_sync_mode(SlidingSyncMode::new_paging(10, None));
+
+        assert_ranges! {
+            list = list,
+            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = 0..=9,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = 10..=19,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = 20..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=24, // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        // Changing from `Paging` to `Selective`.
+        list.set_sync_mode(SlidingSyncMode::new_selective());
+
+        assert_eq!(list.state(), SlidingSyncState::FullyLoaded); // it inherits the state of the previous sync-mode.
+
+        // We need to update the ranges, of course, as they are not managed
+        // automatically anymore.
+        list.set_range(0..=100).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = PartiallyLoaded, // changing the ranges make the state to go `PartiallyLoaded`.
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
         };
     }
 
