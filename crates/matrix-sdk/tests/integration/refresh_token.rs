@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use futures::{channel::mpsc, StreamExt};
+use futures::StreamExt;
 use matrix_sdk::{config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, Session};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
@@ -12,6 +12,7 @@ use ruma::{
     assign, device_id, user_id,
 };
 use serde_json::json;
+use tokio::sync::mpsc;
 use wiremock::{
     matchers::{body_partial_json, header, method, path},
     Mock, ResponseTemplate,
@@ -393,15 +394,15 @@ async fn refresh_token_handled_multi_success() {
         .mount(&server)
         .await;
 
-    let (mut sender, mut receiver) = mpsc::channel::<()>(3);
+    let (sender, mut receiver) = mpsc::channel::<()>(3);
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap();
         sender_clone.try_send(()).unwrap();
     });
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap();
         sender_clone.try_send(()).unwrap();
@@ -413,7 +414,7 @@ async fn refresh_token_handled_multi_success() {
 
     let mut i = 0;
     while i < 3 {
-        if receiver.next().await.is_some() {
+        if receiver.recv().await.is_some() {
             i += 1;
         }
     }
@@ -470,15 +471,15 @@ async fn refresh_token_handled_multi_failure() {
         .mount(&server)
         .await;
 
-    let (mut sender, mut receiver) = futures::channel::mpsc::channel::<()>(3);
+    let (sender, mut receiver) = mpsc::channel::<()>(3);
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap_err();
         sender_clone.try_send(()).unwrap();
     });
     let client_clone = client.clone();
-    let mut sender_clone = sender.clone();
+    let sender_clone = sender.clone();
     spawn(async move {
         client_clone.whoami().await.unwrap_err();
         sender_clone.try_send(()).unwrap();
@@ -490,7 +491,7 @@ async fn refresh_token_handled_multi_failure() {
 
     let mut i = 0;
     while i < 3 {
-        if receiver.next().await.is_some() {
+        if receiver.recv().await.is_some() {
             i += 1;
         }
     }
