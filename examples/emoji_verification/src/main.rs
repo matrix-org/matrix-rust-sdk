@@ -5,13 +5,13 @@ use clap::Parser;
 use futures_util::stream::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    encryption::verification::{format_emojis, Emoji, SasState, SasVerification, Verification},
+    encryption::verification::{
+        format_emojis, Emoji, SasState, SasVerification, Verification, VerificationRequest,
+        VerificationRequestState,
+    },
     ruma::{
         events::{
-            key::verification::{
-                request::ToDeviceKeyVerificationRequestEvent,
-                start::{OriginalSyncKeyVerificationStartEvent, ToDeviceKeyVerificationStartEvent},
-            },
+            key::verification::request::ToDeviceKeyVerificationRequestEvent,
             room::message::{MessageType, OriginalSyncRoomMessageEvent},
         },
         UserId,
@@ -38,11 +38,17 @@ async fn print_devices(user_id: &UserId, client: &Client) {
     println!("Devices of user {user_id}");
 
     for device in client.encryption().get_user_devices(user_id).await.unwrap().devices() {
+        if device.device_id()
+            == client.device_id().expect("We should be logged in now and know our device id")
+        {
+            continue;
+        }
+
         println!(
             "   {:<10} {:<30} {:<}",
             device.device_id(),
             device.display_name().unwrap_or("-"),
-            device.is_verified()
+            if device.is_verified() { "✅" } else { "❌" }
         );
     }
 }
@@ -90,6 +96,28 @@ async fn sas_verification_handler(client: Client, sas: SasVerification) {
     }
 }
 
+async fn request_verification_handler(client: Client, request: VerificationRequest) {
+    println!("Accepting verification request from {}", request.other_user_id(),);
+    request.accept().await.expect("Can't accept verification request");
+
+    let mut stream = request.changes();
+
+    while let Some(state) = stream.next().await {
+        match state {
+            VerificationRequestState::Created { .. }
+            | VerificationRequestState::Requested { .. }
+            | VerificationRequestState::Ready { .. } => (),
+            VerificationRequestState::Transitioned { verification } => match verification {
+                Verification::SasV1(s) => {
+                    tokio::spawn(sas_verification_handler(client, s));
+                    break;
+                }
+            },
+            VerificationRequestState::Done | VerificationRequestState::Cancelled(_) => break,
+        }
+    }
+}
+
 async fn sync(client: Client) -> matrix_sdk::Result<()> {
     client.add_event_handler(
         |ev: ToDeviceKeyVerificationRequestEvent, client: Client| async move {
@@ -99,19 +127,9 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                 .await
                 .expect("Request object wasn't created");
 
-            request.accept().await.expect("Can't accept verification request");
+            tokio::spawn(request_verification_handler(client, request));
         },
     );
-
-    client.add_event_handler(|ev: ToDeviceKeyVerificationStartEvent, client: Client| async move {
-        if let Some(Verification::SasV1(sas)) = client
-            .encryption()
-            .get_verification(&ev.sender, ev.content.transaction_id.as_str())
-            .await
-        {
-            tokio::spawn(sas_verification_handler(client, sas));
-        }
-    });
 
     client.add_event_handler(|ev: OriginalSyncRoomMessageEvent, client: Client| async move {
         if let MessageType::VerificationRequest(_) = &ev.content.msgtype {
@@ -121,21 +139,9 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                 .await
                 .expect("Request object wasn't created");
 
-            request.accept().await.expect("Can't accept verification request");
+            tokio::spawn(request_verification_handler(client, request));
         }
     });
-
-    client.add_event_handler(
-        |ev: OriginalSyncKeyVerificationStartEvent, client: Client| async move {
-            if let Some(Verification::SasV1(sas)) = client
-                .encryption()
-                .get_verification(&ev.sender, ev.content.relates_to.event_id.as_str())
-                .await
-            {
-                tokio::spawn(sas_verification_handler(client, sas));
-            }
-        },
-    );
 
     client.sync(SyncSettings::new()).await?;
 
