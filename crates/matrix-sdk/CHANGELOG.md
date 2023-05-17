@@ -1,5 +1,10 @@
 # unreleased
 
+- Add `VerificationRequest::state` and `VerificationRequest::changes` to check
+  and listen to changes in the state of the `VerificationRequest`. This removes
+  the need to listen to individual matrix events once the `VerificationRequest`
+  object has been acquired.
+
 - `Common::members` and `Common::members_no_sync` take a `RoomMemberships` to be able to filter the
   results by any membership state.
   - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)` are deprecated.
