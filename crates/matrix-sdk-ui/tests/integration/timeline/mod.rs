@@ -3,19 +3,14 @@ use std::{sync::Arc, time::Duration};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{
-    config::SyncSettings,
-    room::timeline::{
-        AnyOtherFullStateEventContent, Error as TimelineError, EventSendState, PaginationOptions,
-        TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
-    },
-    ruma::MilliSecondsSinceUnixEpoch,
-    Error,
-};
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{
     async_test, test_json, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
     StateTestEvent, TimelineTestEvent,
+};
+use matrix_sdk_ui::timeline::{
+    AnyOtherFullStateEventContent, Error as TimelineError, EventSendState, PaginationOptions,
+    RoomExt, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
 };
 use ruma::{
     event_id,
@@ -617,7 +612,7 @@ async fn in_reply_to_details() {
     // The event doesn't exist.
     assert_matches!(
         timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
-        Err(Error::Timeline(TimelineError::RemoteEventNotInTimeline))
+        Err(TimelineError::RemoteEventNotInTimeline)
     );
 
     ev_builder.add_joined_room(

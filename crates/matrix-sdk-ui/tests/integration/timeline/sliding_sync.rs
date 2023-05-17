@@ -3,15 +3,12 @@ use std::{pin::Pin, sync::Arc};
 use anyhow::{Context, Result};
 use assert_matches::assert_matches;
 use eyeball_im::{Vector, VectorDiff};
-use futures::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::{
-    timeline::{TimelineItem, VirtualTimelineItem},
-    SlidingSyncRoomExt,
-};
+use matrix_sdk_ui::timeline::{SlidingSyncRoomExt, TimelineItem, VirtualTimelineItem};
 use ruma::{room_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
@@ -231,7 +228,7 @@ async fn test_timeline_basic() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_string()).await?;
+    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     let (timeline_items, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
     assert!(timeline_items.is_empty());
@@ -278,7 +275,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_string()).await?;
+    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     let (_, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
 
