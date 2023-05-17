@@ -469,9 +469,33 @@ impl SlidingSyncListBuilder {
         Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
     }
 
-    pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
+    pub fn sync_mode_selective(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.sync_mode(mode);
+        builder.inner = builder.inner.sync_mode(SlidingSyncMode::new_selective());
+        Arc::new(builder)
+    }
+
+    pub fn sync_mode_paging(
+        self: Arc<Self>,
+        batch_size: u32,
+        maximum_number_of_rooms_to_fetch: Option<u32>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder
+            .inner
+            .sync_mode(SlidingSyncMode::new_paging(batch_size, maximum_number_of_rooms_to_fetch));
+        Arc::new(builder)
+    }
+
+    pub fn sync_mode_growing(
+        self: Arc<Self>,
+        batch_size: u32,
+        maximum_number_of_rooms_to_fetch: Option<u32>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder
+            .inner
+            .sync_mode(SlidingSyncMode::new_growing(batch_size, maximum_number_of_rooms_to_fetch));
         Arc::new(builder)
     }
 
@@ -498,24 +522,6 @@ impl SlidingSyncListBuilder {
     pub fn no_filters(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.filters(None);
-        Arc::new(builder)
-    }
-
-    pub fn batch_size(self: Arc<Self>, batch_size: u32) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.full_sync_batch_size(batch_size);
-        Arc::new(builder)
-    }
-
-    pub fn room_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.full_sync_maximum_number_of_rooms_to_fetch(limit);
-        Arc::new(builder)
-    }
-
-    pub fn no_room_limit(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.full_sync_maximum_number_of_rooms_to_fetch(None);
         Arc::new(builder)
     }
 
