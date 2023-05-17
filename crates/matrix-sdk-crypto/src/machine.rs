@@ -1411,7 +1411,7 @@ impl OlmMachine {
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # use matrix_sdk_crypto::OlmMachine;
@@ -1468,7 +1468,7 @@ impl OlmMachine {
     /// the requests from [`OlmMachine::outgoing_requests`] are being
     /// processed and sent out.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # use matrix_sdk_crypto::OlmMachine;
@@ -1509,7 +1509,7 @@ impl OlmMachine {
     /// were imported and the total number of sessions that were found in the
     /// key export.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::io::Cursor;
@@ -1610,7 +1610,7 @@ impl OlmMachine {
     /// This method will panic if it can't get enough randomness from the OS to
     /// encrypt the exported keys securely.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};

@@ -174,7 +174,7 @@ impl Joined {
     ///
     /// * `typing` - Whether the user is typing or has stopped typing.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use std::time::Duration;
@@ -315,7 +315,7 @@ impl Joined {
     /// will wait for a sync to be received, this might time out if no
     /// sync loop is running or if the server is slow.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{
@@ -471,7 +471,7 @@ impl Joined {
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
@@ -567,7 +567,7 @@ impl Joined {
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
@@ -933,7 +933,7 @@ impl Joined {
     ///
     /// * `content` - The content of the state event.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
@@ -984,7 +984,7 @@ impl Joined {
     /// * `state_key` - A unique key which defines the overwriting semantics for
     ///   this piece of room state.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
@@ -1045,7 +1045,7 @@ impl Joined {
     /// * `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use serde_json::json;
@@ -1100,7 +1100,7 @@ impl Joined {
     /// * `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID. If not given one is created for the message.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::ruma::event_id;

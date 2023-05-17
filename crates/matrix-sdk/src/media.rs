@@ -89,7 +89,7 @@ impl Media {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::fs;

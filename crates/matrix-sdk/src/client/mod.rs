@@ -239,7 +239,7 @@ impl Client {
     /// This method should be used to check what features are supported by the
     /// homeserver.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -424,7 +424,7 @@ impl Client {
     /// After login, the tokens should only change if support for [refreshing
     /// access tokens] has been enabled.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # fn persist_session(_: Option<matrix_sdk::Session>) {};
@@ -473,7 +473,7 @@ impl Client {
     /// After login, the tokens should only change if support for [refreshing
     /// access tokens] has been enabled.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use futures_util::StreamExt;
@@ -788,7 +788,7 @@ impl Client {
     /// If a value of the same type has been added before, it will be
     /// overwritten.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # use futures::executor::block_on;
@@ -1016,7 +1016,7 @@ impl Client {
     ///
     /// * `password` - The password of the user.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use futures::executor::block_on;
@@ -1064,7 +1064,7 @@ impl Client {
     /// * `data` - The additional data which should be attached to the login
     ///   request.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use url::Url;
@@ -1118,7 +1118,7 @@ impl Client {
     ///
     /// * `token` - A login token.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -1181,7 +1181,7 @@ impl Client {
     ///   return `Ok(())` if the URL was successfully opened. If it returns
     ///   `Err`, the error will be forwarded.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -1342,7 +1342,7 @@ impl Client {
     /// refreshed by the first call or a [`RefreshTokenError`] error, if it
     /// failed.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, Error, Session};
@@ -1660,7 +1660,7 @@ impl Client {
     /// one user is invited, the room will be automatically added to the direct
     /// rooms in the account data.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::Client;
@@ -1721,7 +1721,7 @@ impl Client {
     /// * `room_search` - The easiest way to create this request is using the
     /// `get_public_rooms_filtered::Request` itself.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use url::Url;
@@ -1767,7 +1767,7 @@ impl Client {
     /// * `timeout` - An optional request timeout setting, this overrides the
     /// default request setting if one was set.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, config::SyncSettings};
@@ -2086,7 +2086,7 @@ impl Client {
     ///     * [`set_presence`] - To tell the server to set the presence and to
     ///       which state.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use url::Url;
@@ -2199,7 +2199,7 @@ impl Client {
     /// up to the user of the API to check the error and decide whether the sync
     /// should continue or not.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use url::Url;

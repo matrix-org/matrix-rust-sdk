@@ -78,7 +78,7 @@ impl Device {
     /// this. `m.qr_code.show.v1` is only available if the `qrcode` feature is
     /// enabled, which it is by default.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};

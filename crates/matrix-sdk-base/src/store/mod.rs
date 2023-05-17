@@ -463,7 +463,7 @@ impl StateChanges {
 /// Configuration for the state store and, when `encryption` is enabled, for the
 /// crypto store.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;

@@ -147,7 +147,7 @@ impl Common {
     ///
     /// * `format` - The desired format of the avatar.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -180,7 +180,7 @@ impl Common {
     /// decryption fails for an individual message, that message is returned
     /// undecrypted.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::{room::MessagesOptions, Client};
@@ -545,7 +545,7 @@ impl Common {
 
     /// Get all state events of a given statically-known type in this room.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # async {
@@ -583,7 +583,7 @@ impl Common {
     /// Get a specific state event of statically-known type with an empty state
     /// key in this room.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # async {
@@ -608,7 +608,7 @@ impl Common {
 
     /// Get a specific state event of statically-known type in this room.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # async {
@@ -650,7 +650,7 @@ impl Common {
 
     /// Get account data of statically-known type in this room.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # async {
@@ -704,7 +704,7 @@ impl Common {
     /// * `tag_info` - Information about the tag, generally containing the
     ///   `order` parameter.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::str::FromStr;

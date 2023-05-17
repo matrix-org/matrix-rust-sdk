@@ -37,7 +37,7 @@ impl RoomMember {
     ///
     /// * `format` - The desired format of the avatar.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::{

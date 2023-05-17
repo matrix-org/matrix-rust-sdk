@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// A user session, containing an access token, an optional refresh token and
 /// information about the associated user account.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use matrix_sdk_base::Session;

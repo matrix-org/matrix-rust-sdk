@@ -688,7 +688,7 @@ impl Sas {
     ///                └───────┘
     /// ```
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// use futures::stream::{Stream, StreamExt};

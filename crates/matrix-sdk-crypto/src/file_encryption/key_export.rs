@@ -75,7 +75,7 @@ pub enum KeyExportError {
 ///
 /// * `passphrase` - The passphrase that was used to encrypt the exported keys.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```no_run
 /// # use std::io::Cursor;
@@ -133,7 +133,7 @@ pub fn decrypt_room_key_export(
 /// This method will panic if it can't get enough randomness from the OS to
 /// encrypt the exported keys securely.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```no_run
 /// # use matrix_sdk_crypto::{OlmMachine, encrypt_room_key_export};
