@@ -147,11 +147,11 @@ Notably, this map only knows about the rooms that have come down [Sliding
 Sync protocol][MSC] and if the given room isn't in any active list range, it
 may be stale. Additionally to selecting the room data via the room lists,
 the [Sliding Sync protocol][MSC] allows to subscribe to specific rooms via
-the [`subscribe()`](SlidingSync::subscribe). Any room subscribed to will
-receive updates (with the given settings) regardless of whether they are
-visible in any list. The most common case for using this API is when the
-user enters a room - as we want to receive the incoming new messages
-regardless of whether the room is pushed out of the lists room list.
+the [`subscribe_to_room()`](SlidingSync::subscribe_to_room). Any room subscribed
+to will receive updates (with the given settings) regardless of whether they are
+visible in any list. The most common case for using this API is when the user
+enters a room - as we want to receive the incoming new messages regardless of
+whether the room is pushed out of the lists room list.
 
 ### Room List Entries
 
@@ -181,9 +181,9 @@ data quickly, ensure you are able to render `Invalidated` entries.
 
 ### Unsubscribe
 
-Don't forget to [unsubscribe](`SlidingSync::subscribe`) when the data isn't
-needed to be updated anymore, e.g. when the user leaves the room, to reduce
-the bandwidth back down to what is really needed.
+Don't forget to [unsubscribe](`SlidingSync::unsubscribe_from_room`) when the
+data isn't needed to be updated anymore, e.g. when the user leaves the room, to
+reduce the bandwidth back down to what is really needed.
 
 ## Extensions
 

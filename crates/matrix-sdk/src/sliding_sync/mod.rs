@@ -23,9 +23,8 @@ mod list;
 mod room;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Debug,
-    mem,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, Mutex, RwLock as StdRwLock,
@@ -108,8 +107,12 @@ pub(super) struct SlidingSyncInner {
     /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
     bump_event_types: Vec<TimelineEventType>,
 
-    subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
-    unsubscribe: StdRwLock<Vec<OwnedRoomId>>,
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
+    /// one wants to receive updates.
+    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
+
+    /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
+    room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
 
     /// Number of times a Sliding Session session has been reset.
     reset_counter: AtomicU8,
@@ -137,12 +140,16 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    pub fn subscribe(
+    pub fn subscribe_to_room(
         &self,
         room_id: OwnedRoomId,
         settings: Option<v4::RoomSubscription>,
     ) -> Result<()> {
-        self.inner.subscriptions.write().unwrap().insert(room_id, settings.unwrap_or_default());
+        self.inner
+            .room_subscriptions
+            .write()
+            .unwrap()
+            .insert(room_id, settings.unwrap_or_default());
 
         self.inner
             .internal_channel
@@ -154,9 +161,11 @@ impl SlidingSync {
     }
 
     /// Unsubscribe from a given room.
-    pub fn unsubscribe(&self, room_id: OwnedRoomId) -> Result<()> {
-        if self.inner.subscriptions.write().unwrap().remove(&room_id).is_some() {
-            self.inner.unsubscribe.write().unwrap().push(room_id);
+    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
+        // If removing the subscription was successful…
+        if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
+            // … then keep the unsubscription for the next request.
+            self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
 
             self.inner
                 .internal_channel
@@ -426,7 +435,7 @@ impl SlidingSync {
 
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
-        let (request, request_config) = {
+        let (request, request_config, requested_room_unsubscriptions) = {
             // Collect requests for lists.
             let mut requests_lists = BTreeMap::new();
 
@@ -452,8 +461,8 @@ impl SlidingSync {
             Span::current().record("pos", &pos);
 
             // Collect other data.
-            let room_subscriptions = self.inner.subscriptions.read().unwrap().clone();
-            let unsubscribe_rooms = mem::take(&mut *self.inner.unsubscribe.write().unwrap());
+            let room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
+            let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
             let timeout = Duration::from_secs(30);
             let extensions = self.prepare_extension_config(pos.as_deref());
 
@@ -466,12 +475,13 @@ impl SlidingSync {
                     lists: requests_lists,
                     bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
-                    unsubscribe_rooms,
+                    unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
                     extensions,
                 }),
                 // Configure long-polling. We need 30 seconds for the long-poll itself, in
                 // addition to 30 more extra seconds for the network delays.
                 RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+                room_unsubscriptions,
             )
         };
 
@@ -534,6 +544,17 @@ impl SlidingSync {
             // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
             let response_handling_lock = this.response_handling_lock.lock().await;
+
+            // Room unsubscriptions have been received by the server. We can update the
+            // unsubscriptions buffer. However, it would be an error to empty it entirely as
+            // more unsubscriptions could have been inserted during the request/response
+            // dance. So let's cherry-pick which unsubscriptions to remove.
+            {
+                let room_unsubscriptions = &mut *this.inner.room_unsubscriptions.write().unwrap();
+
+                room_unsubscriptions
+                    .retain(|room_id| !requested_room_unsubscriptions.contains(room_id));
+            }
 
             // Handle the response.
             let updates = this.handle_response(response).await?;
