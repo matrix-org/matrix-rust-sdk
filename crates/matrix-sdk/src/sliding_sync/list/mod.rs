@@ -60,9 +60,14 @@ impl SlidingSyncList {
         self.inner.name.as_str()
     }
 
+    /// Change the sync-mode.
+    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
+        self.inner.set_sync_mode(sync_mode);
+    }
+
     /// Set the ranges to fetch.
     pub fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -74,7 +79,7 @@ impl SlidingSyncList {
 
     /// Reset the ranges to a particular set.
     pub fn set_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -86,7 +91,7 @@ impl SlidingSyncList {
 
     /// Set the ranges to fetch.
     pub fn add_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -103,7 +108,7 @@ impl SlidingSyncList {
     /// order but you will only receive updates when for rooms entering or
     /// leaving the set.
     pub fn reset_ranges(&self) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -258,7 +263,7 @@ pub(super) struct SlidingSyncListInner {
     state: StdRwLock<Observable<SlidingSyncState>>,
 
     /// Which [`SlidingSyncMode`] to start this list under.
-    sync_mode: SlidingSyncMode,
+    sync_mode: StdRwLock<SlidingSyncMode>,
 
     /// Sort the room list by this.
     sort: Vec<String>,
@@ -300,6 +305,23 @@ pub(super) struct SlidingSyncListInner {
 }
 
 impl SlidingSyncListInner {
+    /// Change the sync-mode.
+    ///
+    /// This will change the sync-mode but also the request generator.
+    ///
+    /// [`Self::ranges`] will be updated when the next request will sent and a
+    /// response will be received. The [`Self::maximum_number_of_rooms`]
+    /// won't change.
+    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
+        // Acquire both locks before modifying the values their hold.
+        let mut sync_mode_lock = self.sync_mode.write().unwrap();
+        let mut request_generator_lock = self.request_generator.write().unwrap();
+
+        // Now we can modify both values.
+        *sync_mode_lock = sync_mode.clone();
+        *request_generator_lock = SlidingSyncListRequestGenerator::new(sync_mode);
+    }
+
     /// Reset and add new ranges.
     fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) {
         Observable::set(&mut self.ranges.write().unwrap(), ranges.to_vec());
