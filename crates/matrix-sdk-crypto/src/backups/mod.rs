@@ -44,8 +44,7 @@ use crate::{
 
 mod keys;
 
-pub use keys::{DecodeError, MegolmV1BackupKey};
-pub use olm_rs::errors::OlmPkDecryptionError;
+pub use keys::{DecodeError, DecryptionError, MegolmV1BackupKey};
 
 /// A state machine that handles backing up room keys.
 ///
