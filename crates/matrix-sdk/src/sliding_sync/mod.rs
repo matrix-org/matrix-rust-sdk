@@ -1035,7 +1035,8 @@ mod test {
     fn test_sticky_parameters_api_invalidated_flow() {
         // Construct a valid, non-empty room subscriptions list.
         let mut room_subs: BTreeMap<OwnedRoomId, v4::RoomSubscription> = Default::default();
-        room_subs.insert(room_id!("!r0:bar.org").to_owned(), Default::default());
+        let r0 = room_id!("!r0:bar.org").to_owned();
+        room_subs.insert(r0.clone(), Default::default());
 
         // At first it's invalidated.
         let mut sticky = StickyParameters::new(Default::default(), room_subs);
@@ -1047,6 +1048,7 @@ mod test {
 
         assert!(request.txn_id.is_some());
         assert_eq!(request.room_subscriptions.len(), 1);
+        assert!(request.room_subscriptions.get(&r0).is_some());
 
         let tid = request.txn_id.expect("invalidated + apply_parameters => non-null tid");
 
@@ -1057,6 +1059,10 @@ mod test {
         sticky
             .room_subscriptions_mut()
             .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
+        assert!(sticky.is_invalidated());
+
+        // Committing with the wrong transaction id will keep it invalidated.
+        sticky.maybe_commit("what-are-the-odds-the-rng-will-generate-this-string".into());
         assert!(sticky.is_invalidated());
 
         // Restarting a request will only remember the last generated transaction id.
