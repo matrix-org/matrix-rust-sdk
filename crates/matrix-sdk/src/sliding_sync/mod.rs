@@ -113,7 +113,10 @@ mod sticky_parameters {
     impl StickyParameters {
         /// Create a new set of sticky parameters.
         pub fn new(room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>) -> Self {
-            Self { invalidated: true, txn_id: None, room_subscriptions }
+            // Only initially mark as invalidated if there's any room subscription.
+            let invalidated = !room_subscriptions.is_empty();
+
+            Self { invalidated, txn_id: None, room_subscriptions }
         }
 
         /// Marks the sticky parameters as acknowledged by the server.
@@ -168,6 +171,11 @@ mod sticky_parameters {
         #[cfg(test)]
         pub fn room_subscriptions(&self) -> &BTreeMap<OwnedRoomId, v4::RoomSubscription> {
             &self.room_subscriptions
+        }
+
+        #[cfg(test)]
+        pub fn is_invalidated(&self) -> bool {
+            self.invalidated
         }
     }
 }
@@ -862,7 +870,7 @@ mod test {
     };
     use wiremock::MockServer;
 
-    use super::*;
+    use super::{sticky_parameters::StickyParameters, *};
     use crate::test_utils::logged_in_client;
 
     #[tokio::test]
@@ -998,5 +1006,81 @@ mod test {
         // this test also ensures that Tokio is not panicking when calling `add_list`.
 
         Ok(())
+    }
+
+    #[test]
+    fn test_sticky_parameters_api_non_invalidated_no_effect() {
+        let mut sticky = StickyParameters::new(Default::default());
+        assert!(!sticky.is_invalidated(), "not invalidated if constructed with default parameters");
+
+        let mut request = v4::Request::default();
+        sticky.maybe_apply_parameters(&mut request);
+
+        assert_eq!(request.txn_id, None);
+        assert_eq!(request.room_subscriptions.len(), 0);
+
+        assert!(!sticky.is_invalidated());
+
+        // Committing while it wasn't expected isn't a hard error, and it doesn't change
+        // anything.
+        sticky.maybe_commit("tid123".into());
+
+        assert!(!sticky.is_invalidated());
+    }
+
+    #[test]
+    fn test_sticky_parameters_api_invalidated_flow() {
+        // Construct a valid, non-empty room subscriptions list.
+        let mut room_subs: BTreeMap<OwnedRoomId, v4::RoomSubscription> = Default::default();
+        room_subs.insert(room_id!("!r0:bar.org").to_owned(), Default::default());
+
+        // At first it's invalidated.
+        let mut sticky = StickyParameters::new(room_subs);
+        assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
+
+        // Then when we create a request, the sticky parameters are applied.
+        let mut request = v4::Request::default();
+        sticky.maybe_apply_parameters(&mut request);
+
+        assert!(request.txn_id.is_some());
+        assert_eq!(request.room_subscriptions.len(), 1);
+
+        let tid = request.txn_id.expect("invalidated + apply_parameters => non-null tid");
+
+        sticky.maybe_commit(tid.as_str().into());
+        assert!(!sticky.is_invalidated());
+
+        // Applying new parameters will invalidate again.
+        sticky
+            .room_subscriptions_mut()
+            .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
+        assert!(sticky.is_invalidated());
+
+        sticky
+            .room_subscriptions_mut()
+            .insert(room_id!("!r2:bar.org").to_owned(), Default::default());
+        assert!(sticky.is_invalidated());
+
+        // Restarting a request will only remember the last generated transaction id.
+        let mut request1 = v4::Request::default();
+        sticky.maybe_apply_parameters(&mut request1);
+        assert!(sticky.is_invalidated());
+        assert!(request1.txn_id.is_some());
+        assert_eq!(request1.room_subscriptions.len(), 2);
+
+        let mut request2 = v4::Request::default();
+        sticky.maybe_apply_parameters(&mut request2);
+        assert!(sticky.is_invalidated());
+        assert!(request2.txn_id.is_some());
+        assert_eq!(request2.room_subscriptions.len(), 2);
+
+        // Here we commit with the not most-recent TID, so it keeps the invalidated
+        // status.
+        sticky.maybe_commit(request1.txn_id.unwrap().as_str().into());
+        assert!(sticky.is_invalidated());
+
+        // But here we use the latest TID, so the commit is effective.
+        sticky.maybe_commit(request2.txn_id.unwrap().as_str().into());
+        assert!(!sticky.is_invalidated());
     }
 }
