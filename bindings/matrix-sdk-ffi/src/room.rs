@@ -578,6 +578,21 @@ impl Room {
         })
     }
 
+    /// Sets a new name to the room.
+    pub fn set_name(&self, name: Option<String>) -> Result<(), ClientError> {
+        let room = match &self.room {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => {
+                return Err(anyhow!("Can't set a name in a room that isn't in joined state").into())
+            }
+        };
+
+        RUNTIME.block_on(async move {
+            room.set_name(name).await?;
+            Ok(())
+        })
+    }
+
     /// Sets a new topic in the room.
     pub fn set_topic(&self, topic: String) -> Result<(), ClientError> {
         let room = match &self.room {
