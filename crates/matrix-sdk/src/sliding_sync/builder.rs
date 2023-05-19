@@ -17,8 +17,8 @@ use tokio::sync::{mpsc::channel, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
-    cache::restore_sliding_sync_state, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder,
-    SlidingSyncPositionMarkers, SlidingSyncRoom,
+    cache::restore_sliding_sync_state, sticky_parameters::StickyParameters, SlidingSync,
+    SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
 
@@ -272,7 +272,7 @@ impl SlidingSyncBuilder {
                 delta_token: Observable::new(delta_token),
             }),
 
-            room_subscriptions: StdRwLock::new(self.subscriptions),
+            sticky: StdRwLock::new(StickyParameters::new(self.subscriptions)),
             room_unsubscriptions: Default::default(),
 
             internal_channel: (

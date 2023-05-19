@@ -83,6 +83,95 @@ pub struct SlidingSync {
     response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
+mod sticky_parameters {
+    //! Sticky parameters are implemented in the context of a different mod, so
+    //! it's not possible write to the sticky parameters fields without
+    //! invalidating the sticky parameters.
+    //!
+    //! At the moment, the granularity of stickiness is the entire set of sticky
+    //! parameters; if needs be, we'll change that in the future to have
+    //! something that is per sticky field.
+    use ruma::{OwnedTransactionId, TransactionId};
+
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct StickyParameters {
+        /// Was any of the parameters invalidated? If yes, reinitialize them.
+        invalidated: bool,
+
+        /// If the sticky parameters were applied to a given request, this is
+        /// the transaction id generated for that request, that must be matched
+        /// upon in the next call to `commit()`.
+        txn_id: Option<OwnedTransactionId>,
+
+        /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
+        /// but one wants to receive updates.
+        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    }
+
+    impl StickyParameters {
+        /// Create a new set of sticky parameters.
+        pub fn new(room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>) -> Self {
+            Self { invalidated: true, txn_id: None, room_subscriptions }
+        }
+
+        /// Marks the sticky parameters as acknowledged by the server.
+        pub fn maybe_commit(&mut self, response_txn_id: &TransactionId) {
+            if self.invalidated {
+                // Don't make it a hard error if the response transaction id doesn't match the
+                // expected one; this might be caused by an internal reset, or
+                // because the server returned an unknown position, which also
+                // "resets" the current sliding sync.
+                if self.txn_id.as_deref() == Some(response_txn_id) {
+                    self.invalidated = false;
+                }
+            }
+        }
+
+        /// Manually invalidate all the sticky parameters.
+        pub fn invalidate(&mut self) {
+            self.invalidated = true;
+            self.txn_id = None;
+        }
+
+        /// May apply some sticky parameters.
+        ///
+        /// After receiving the response from this sliding sync, the caller MUST
+        /// also call [`Self::commit`] with the transaction id from the server's
+        /// response.
+        pub fn maybe_apply_parameters(&mut self, request: &mut v4::Request) {
+            if !self.invalidated {
+                return;
+            }
+            let tid = TransactionId::new();
+            assign!(request, {
+                txn_id: Some(tid.to_string()),
+                room_subscriptions: self.room_subscriptions.clone()
+            });
+            self.txn_id = Some(tid);
+        }
+
+        /// Gets mutable access to the room subscriptions.
+        ///
+        /// Assuming it will change something, invalidates the parameters.
+        pub fn room_subscriptions_mut(
+            &mut self,
+        ) -> &mut BTreeMap<OwnedRoomId, v4::RoomSubscription> {
+            self.invalidated = true;
+            &mut self.room_subscriptions
+        }
+
+        /// Gets read-only access to the room subscriptions.
+        ///
+        /// Doesn't invalidate the room parameters.
+        #[cfg(test)]
+        pub fn room_subscriptions(&self) -> &BTreeMap<OwnedRoomId, v4::RoomSubscription> {
+            &self.room_subscriptions
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct SlidingSyncInner {
     /// Customize the homeserver for sliding sync only
@@ -107,9 +196,8 @@ pub(super) struct SlidingSyncInner {
     /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
     bump_event_types: Vec<TimelineEventType>,
 
-    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
-    /// one wants to receive updates.
-    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
+    /// Request parameters that are sticky.
+    sticky: StdRwLock<sticky_parameters::StickyParameters>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
@@ -148,9 +236,10 @@ impl SlidingSync {
         settings: Option<v4::RoomSubscription>,
     ) -> Result<()> {
         self.inner
-            .room_subscriptions
+            .sticky
             .write()
             .unwrap()
+            .room_subscriptions_mut()
             .insert(room_id, settings.unwrap_or_default());
         self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
 
@@ -160,7 +249,7 @@ impl SlidingSync {
     /// Unsubscribe from a given room.
     pub async fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
         // If removing the subscription was successful…
-        if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
+        if self.inner.sticky.write().unwrap().room_subscriptions_mut().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
             self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
@@ -348,6 +437,11 @@ impl SlidingSync {
             Observable::set(&mut position_lock.delta_token, sliding_sync_response.delta_token);
         }
 
+        // Commit sticky parameters, if needed.
+        if let Some(ref txn_id) = sliding_sync_response.txn_id {
+            self.inner.sticky.write().unwrap().maybe_commit(txn_id.as_str().into());
+        }
+
         let update_summary = {
             // Update the rooms.
             let updated_rooms = {
@@ -454,23 +548,25 @@ impl SlidingSync {
             Span::current().record("pos", &pos);
 
             // Collect other data.
-            let room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
             let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
             let timeout = Duration::from_secs(30);
             let extensions = self.prepare_extension_config(pos.as_deref());
 
+            let mut request = assign!(v4::Request::new(), {
+                pos,
+                delta_token,
+                timeout: Some(timeout),
+                lists: requests_lists,
+                bump_event_types: self.inner.bump_event_types.clone(),
+                unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
+                extensions,
+            });
+
+            self.inner.sticky.write().unwrap().maybe_apply_parameters(&mut request);
+
             (
                 // Build the request itself.
-                assign!(v4::Request::new(), {
-                    pos,
-                    delta_token,
-                    timeout: Some(timeout),
-                    lists: requests_lists,
-                    bump_event_types: self.inner.bump_event_types.clone(),
-                    room_subscriptions,
-                    unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
-                    extensions,
-                }),
+                request,
                 // Configure long-polling. We need 30 seconds for the long-poll itself, in
                 // addition to 30 more extra seconds for the network delays.
                 RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
@@ -635,12 +731,14 @@ impl SlidingSync {
                                     sync_stream_span.in_scope(|| {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
-                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value.
+                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
 
                                             Observable::set(&mut position_lock.pos, None);
                                         }
+
+                                        self.inner.sticky.write().unwrap().invalidate();
 
                                         debug!(?self.inner.extensions, "Sliding Sync has been reset");
                                     });
@@ -842,7 +940,8 @@ mod test {
         sliding_sync.subscribe_to_room(room1.clone(), None).await?;
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = sticky.room_subscriptions();
 
             assert!(room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -853,7 +952,8 @@ mod test {
         sliding_sync.unsubscribe_from_room(room2.clone()).await?;
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = sticky.room_subscriptions();
 
             assert!(!room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
