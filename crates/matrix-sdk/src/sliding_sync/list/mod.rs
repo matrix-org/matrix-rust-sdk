@@ -414,11 +414,11 @@ impl SlidingSyncListInner {
         assign!(v4::SyncRequestList::default(), {
             ranges,
             room_details: assign!(v4::RoomDetailsConfig::default(), {
-                required_state,
-                timeline_limit,
+                required_state, // TODO sticky
+                timeline_limit, // TODO sticky
             }),
-            sort,
-            filters,
+            sort, // TODO sticky
+            filters, // TODO sticky
         })
     }
 
