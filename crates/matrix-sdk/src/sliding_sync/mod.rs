@@ -707,7 +707,17 @@ impl SlidingSync {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncPositionMarkers {
+    /// An ephemeral position in the current stream, as received from the
+    /// previous /sync response, or `None` for the first request.
+    ///
+    /// Should not be persisted.
     pos: Observable<Option<String>>,
+
+    /// Server-provided opaque token that remembers what the last timeline and
+    /// state events stored by the client were.
+    ///
+    /// If `None`, the server will send the
+    /// full information for all the lists present in the request.
     delta_token: Observable<Option<String>>,
 }
 
