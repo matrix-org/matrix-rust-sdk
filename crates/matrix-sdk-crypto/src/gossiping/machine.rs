@@ -343,24 +343,13 @@ impl GossipMachine {
         session: &InboundGroupSession,
         message_index: Option<u32>,
     ) -> OlmResult<Option<Session>> {
-        info!(
-            user_id = ?device.user_id(),
-            device_id = ?device.device_id(),
-            session_id = session.session_id(),
-            room_id = ?session.room_id(),
-            ?message_index,
-            "Serving a room key request",
-        );
+        info!(?message_index, "Serving a room key request",);
 
         match self.forward_room_key(session, &device, message_index).await {
             Ok(s) => Ok(Some(s)),
             Err(OlmError::MissingSession) => {
                 info!(
-                    user_id = ?device.user_id(),
-                    device_id = ?device.device_id(),
-                    session_id = session.session_id(),
-                    "Key request is missing an Olm session, \
-                     putting the request in the wait queue",
+                    "Key request is missing an Olm session, putting the request in the wait queue",
                 );
                 self.handle_key_share_without_session(device, event.to_owned().into());
 
@@ -368,9 +357,6 @@ impl GossipMachine {
             }
             Err(OlmError::SessionExport(e)) => {
                 warn!(
-                    user_id = ?device.user_id(),
-                    device_id = ?device.device_id(),
-                    session_id = session.session_id(),
                     "Can't serve a room key request, the session \
                      can't be exported into a forwarded room key: {e:?}",
                 );
@@ -394,11 +380,7 @@ impl GossipMachine {
             self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
         let Some(device) = device else {
-            warn!(
-                user_id = ?event.sender,
-                device_id = ?event.content.requesting_device_id,
-                "Received a key request from an unknown device",
-            );
+            warn!("Received a key request from an unknown device");
             self.store.mark_user_as_changed(&event.sender).await?;
 
             return Ok(None);
@@ -411,15 +393,11 @@ impl GossipMachine {
             Err(e) => {
                 if let KeyForwardDecision::ChangedSenderKey = e {
                     warn!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
                         "Received a key request from a device that changed \
                          their Curve25519 sender key"
                     );
                 } else {
                     debug!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
                         reason = ?e,
                         "Received a key request that we won't serve",
                     );
@@ -431,6 +409,15 @@ impl GossipMachine {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %event.sender,
+            device_id = %event.content.requesting_device_id,
+            %room_id,
+            session_id
+        )
+    )]
     async fn handle_supported_key_request(
         &self,
         event: &RoomKeyRequestEvent,
@@ -442,13 +429,7 @@ impl GossipMachine {
         if let Some(s) = session {
             self.answer_room_key_request(event, &s).await
         } else {
-            debug!(
-                user_id = ?event.sender,
-                device_id = ?event.content.requesting_device_id,
-                session_id,
-                ?room_id,
-                "Received a room key request for an unknown inbound group session",
-            );
+            debug!("Received a room key request for an unknown inbound group session",);
 
             Ok(None)
         }
