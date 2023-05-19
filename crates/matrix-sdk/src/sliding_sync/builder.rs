@@ -262,7 +262,6 @@ impl SlidingSyncBuilder {
 
             lists,
             rooms,
-            bump_event_types: self.bump_event_types,
 
             extensions: Mutex::new(self.extensions),
             reset_counter: Default::default(),
@@ -272,7 +271,10 @@ impl SlidingSyncBuilder {
                 delta_token: Observable::new(delta_token),
             }),
 
-            sticky: StdRwLock::new(StickyParameters::new(self.subscriptions)),
+            sticky: StdRwLock::new(StickyParameters::new(
+                self.bump_event_types,
+                self.subscriptions,
+            )),
             room_unsubscriptions: Default::default(),
 
             internal_channel: (

@@ -108,15 +108,22 @@ mod sticky_parameters {
         /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
         /// but one wants to receive updates.
         room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+
+        /// The `bump_event_types` field. See
+        /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
+        bump_event_types: Vec<TimelineEventType>,
     }
 
     impl StickyParameters {
         /// Create a new set of sticky parameters.
-        pub fn new(room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>) -> Self {
-            // Only initially mark as invalidated if there's any room subscription.
-            let invalidated = !room_subscriptions.is_empty();
+        pub fn new(
+            bump_event_types: Vec<TimelineEventType>,
+            room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+        ) -> Self {
+            // Only initially mark as invalidated if there's any meaningful data.
+            let invalidated = !room_subscriptions.is_empty() || !bump_event_types.is_empty();
 
-            Self { invalidated, txn_id: None, room_subscriptions }
+            Self { invalidated, txn_id: None, room_subscriptions, bump_event_types }
         }
 
         /// Marks the sticky parameters as acknowledged by the server.
@@ -150,7 +157,8 @@ mod sticky_parameters {
             let tid = TransactionId::new();
             assign!(request, {
                 txn_id: Some(tid.to_string()),
-                room_subscriptions: self.room_subscriptions.clone()
+                room_subscriptions: self.room_subscriptions.clone(),
+                bump_event_types: self.bump_event_types.clone(),
             });
             self.txn_id = Some(tid);
         }
@@ -199,10 +207,6 @@ pub(super) struct SlidingSyncInner {
 
     /// The rooms details
     rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 
     /// Request parameters that are sticky.
     sticky: StdRwLock<sticky_parameters::StickyParameters>,
@@ -565,7 +569,6 @@ impl SlidingSync {
                 delta_token,
                 timeout: Some(timeout),
                 lists: requests_lists,
-                bump_event_types: self.inner.bump_event_types.clone(),
                 unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
                 extensions,
             });
@@ -1010,7 +1013,7 @@ mod test {
 
     #[test]
     fn test_sticky_parameters_api_non_invalidated_no_effect() {
-        let mut sticky = StickyParameters::new(Default::default());
+        let mut sticky = StickyParameters::new(Default::default(), Default::default());
         assert!(!sticky.is_invalidated(), "not invalidated if constructed with default parameters");
 
         let mut request = v4::Request::default();
@@ -1035,7 +1038,7 @@ mod test {
         room_subs.insert(room_id!("!r0:bar.org").to_owned(), Default::default());
 
         // At first it's invalidated.
-        let mut sticky = StickyParameters::new(room_subs);
+        let mut sticky = StickyParameters::new(Default::default(), room_subs);
         assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
 
         // Then when we create a request, the sticky parameters are applied.
@@ -1054,11 +1057,6 @@ mod test {
         sticky
             .room_subscriptions_mut()
             .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
-        assert!(sticky.is_invalidated());
-
-        sticky
-            .room_subscriptions_mut()
-            .insert(room_id!("!r2:bar.org").to_owned(), Default::default());
         assert!(sticky.is_invalidated());
 
         // Restarting a request will only remember the last generated transaction id.
