@@ -14,7 +14,7 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
+use ruma::{serde::Raw, JsOption, OwnedDeviceId, OwnedUserId, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -151,6 +151,7 @@ impl Session {
         recipient_device: &ReadOnlyDevice,
         event_type: &str,
         content: Value,
+        message_id: Option<String>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let plaintext = {
             let recipient_signing_key =
@@ -180,12 +181,14 @@ impl Session {
                 ciphertext,
                 recipient_key: self.sender_key,
                 sender_key: self.our_identity_keys.curve25519,
+                message_id: JsOption::from_implicit_option(message_id),
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
                 sender_key: self.our_identity_keys.curve25519,
+                message_id: JsOption::from_implicit_option(message_id),
             }
             .into(),
             _ => unreachable!(),

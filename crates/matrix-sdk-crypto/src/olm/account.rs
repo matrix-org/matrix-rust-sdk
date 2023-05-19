@@ -1204,6 +1204,7 @@ impl ReadOnlyAccount {
                 &device,
                 "m.dummy",
                 serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+                None,
             )
             .await
             .unwrap()
