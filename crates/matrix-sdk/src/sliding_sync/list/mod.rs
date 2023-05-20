@@ -318,7 +318,7 @@ impl SlidingSyncListInner {
     /// This will change the sync-mode but also the request generator.
     ///
     /// [`Self::ranges`] and [`Self::state`] will be updated when the next
-    /// request will sent and a response will be received. The
+    /// request will be sent and a response will be received. The
     /// [`Self::maximum_number_of_rooms`] won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
         // Acquire both locks before modifying the values their hold.
