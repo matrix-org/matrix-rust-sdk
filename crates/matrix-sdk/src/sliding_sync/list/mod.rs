@@ -64,13 +64,23 @@ impl SlidingSyncList {
     ///
     /// It is sometimes necessary to change the sync-mode of a list on-the-fly.
     ///
-    /// This will change the sync-mode but also the request generator.
-    ///
-    /// The ranges and the state will be updated when the next request will be
-    /// sent and a response will be received. The maximum number of rooms
-    /// won't change.
-    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
+    /// This will change the sync-mode but also the request generator. A new
+    /// request generator is generated. Since requests are calculated based on
+    /// the request generator, changing the sync-mode is equivalent to
+    /// “resetting” the list. It's actually not calling [`Self::reset`], which
+    /// means that the state is not reset **purposely**. The ranges and the
+    /// state will be updated when the next request will be sent and a
+    /// response will be received. The maximum number of rooms won't change.
+    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) -> Result<()> {
         self.inner.set_sync_mode(sync_mode);
+
+        // When the sync mode is changed, the sync loop must skip over any work in its
+        // iteration and jump to the next iteration.
+        self.inner.internal_channel_blocking_send(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        )?;
+
+        Ok(())
     }
 
     /// Set the ranges to fetch.
@@ -242,11 +252,11 @@ impl SlidingSyncList {
     pub(super) fn reset(&self) -> Result<(), Error> {
         self.inner.reset();
 
-        // When a list is reset, the sync loop must be “restarted”.
-        self.inner
-            .sliding_sync_internal_channel_sender
-            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
-            .map_err(|_| Error::InternalChannelIsBroken)?;
+        // When a list is reset, the sync loop must skip over any work in its iteration
+        // and jump to the next iteration.
+        self.inner.internal_channel_blocking_send(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        )?;
 
         Ok(())
     }
@@ -647,6 +657,17 @@ impl SlidingSyncListInner {
         }
 
         Ok(())
+    }
+
+    /// Send a message over the internal channel.
+    fn internal_channel_blocking_send(
+        &self,
+        message: SlidingSyncInternalMessage,
+    ) -> Result<(), Error> {
+        Ok(self
+            .sliding_sync_internal_channel_sender
+            .blocking_send(message)
+            .map_err(|_| Error::InternalChannelIsBroken)?)
     }
 }
 
@@ -1590,7 +1611,7 @@ mod tests {
         };
 
         // Changing from `Selective` to `Growing`.
-        list.set_sync_mode(SlidingSyncMode::new_growing(10, None));
+        list.set_sync_mode(SlidingSyncMode::new_growing(10, None)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1626,7 +1647,7 @@ mod tests {
         };
 
         // Changing from `Growing` to `Paging`.
-        list.set_sync_mode(SlidingSyncMode::new_paging(10, None));
+        list.set_sync_mode(SlidingSyncMode::new_paging(10, None)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1662,7 +1683,7 @@ mod tests {
         };
 
         // Changing from `Paging` to `Selective`.
-        list.set_sync_mode(SlidingSyncMode::new_selective());
+        list.set_sync_mode(SlidingSyncMode::new_selective()).unwrap();
 
         assert_eq!(list.state(), SlidingSyncState::FullyLoaded); // it inherits the state of the previous sync-mode.
 
