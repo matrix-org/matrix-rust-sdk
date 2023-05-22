@@ -632,17 +632,6 @@ impl SlidingSync {
     pub async fn stop_sync(&self) -> Result<(), Error> {
         self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
     }
-
-    /// Resets the lists.
-    pub fn reset_lists(&self) -> Result<(), Error> {
-        let lists = self.inner.lists.read().unwrap();
-
-        for list in lists.values() {
-            list.reset()?;
-        }
-
-        Ok(())
-    }
 }
 
 impl SlidingSyncInner {

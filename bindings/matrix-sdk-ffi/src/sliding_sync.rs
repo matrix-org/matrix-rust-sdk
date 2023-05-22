@@ -757,10 +757,6 @@ impl SlidingSync {
         })
     }
 
-    pub fn reset_lists(&self) -> Result<(), SlidingSyncError> {
-        self.inner.reset_lists().map_err(Into::into)
-    }
-
     pub fn sync(&self) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
         let client = self.client.clone();
