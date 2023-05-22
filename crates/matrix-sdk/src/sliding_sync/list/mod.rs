@@ -667,10 +667,9 @@ impl SlidingSyncListInner {
         &self,
         message: SlidingSyncInternalMessage,
     ) -> Result<(), Error> {
-        Ok(self
-            .sliding_sync_internal_channel_sender
+        self.sliding_sync_internal_channel_sender
             .blocking_send(message)
-            .map_err(|_| Error::InternalChannelIsBroken)?)
+            .map_err(|_| Error::InternalChannelIsBroken)
     }
 }
 
