@@ -209,6 +209,9 @@ impl SlidingSyncList {
     }
 
     /// Calculate the next request and return it.
+    ///
+    /// The next request is entirely calculated based on the request generator
+    /// ([`SlidingSyncListRequestGenerator`]).
     pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
     }
