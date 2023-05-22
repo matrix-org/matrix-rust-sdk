@@ -654,6 +654,8 @@ impl SlidingSync {
                     }
                 }
             }
+
+            debug!("Sync stream loop has exited.");
         }
     }
 
