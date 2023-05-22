@@ -152,7 +152,9 @@ impl SlidingSync {
             .write()
             .unwrap()
             .insert(room_id, settings.unwrap_or_default());
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+            .await?;
 
         Ok(())
     }
@@ -163,7 +165,9 @@ impl SlidingSync {
         if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-            self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+            self.inner
+                .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+                .await?;
         }
 
         Ok(())
@@ -230,7 +234,9 @@ impl SlidingSync {
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let list = list_builder.build(self.inner.internal_channel.0.clone());
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+            .await?;
 
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
@@ -591,11 +597,11 @@ impl SlidingSync {
                         use SlidingSyncInternalMessage::*;
 
                         match internal_message {
-                            None | Some(BreakSyncLoop) => {
+                            None | Some(SyncLoopStop) => {
                                 break;
                             }
 
-                            Some(ContinueSyncLoop) => {
+                            Some(SyncLoopSkipOverCurrentIteration) => {
                                 continue;
                             }
                         }
@@ -685,9 +691,13 @@ impl SlidingSyncInner {
 
 #[derive(Debug)]
 enum SlidingSyncInternalMessage {
+    /// Instruct the sync loop to stop.
     #[allow(unused)] // temporary
-    BreakSyncLoop,
-    ContinueSyncLoop,
+    SyncLoopStop,
+
+    /// Instruct the sync loop to skip over any remaining work in its iteration,
+    /// and to jump to the next iteration.
+    SyncLoopSkipOverCurrentIteration,
 }
 
 #[cfg(any(test, feature = "testing"))]

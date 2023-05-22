@@ -60,9 +60,32 @@ impl SlidingSyncList {
         self.inner.name.as_str()
     }
 
+    /// Change the sync-mode.
+    ///
+    /// It is sometimes necessary to change the sync-mode of a list on-the-fly.
+    ///
+    /// This will change the sync-mode but also the request generator. A new
+    /// request generator is generated. Since requests are calculated based on
+    /// the request generator, changing the sync-mode is equivalent to
+    /// “resetting” the list. It's actually not calling `Self::reset`, which
+    /// means that the state is not reset **purposely**. The ranges and the
+    /// state will be updated when the next request will be sent and a
+    /// response will be received. The maximum number of rooms won't change.
+    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) -> Result<()> {
+        self.inner.set_sync_mode(sync_mode);
+
+        // When the sync mode is changed, the sync loop must skip over any work in its
+        // iteration and jump to the next iteration.
+        self.inner.internal_channel_blocking_send(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        )?;
+
+        Ok(())
+    }
+
     /// Set the ranges to fetch.
     pub fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -74,7 +97,7 @@ impl SlidingSyncList {
 
     /// Reset the ranges to a particular set.
     pub fn set_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -86,7 +109,7 @@ impl SlidingSyncList {
 
     /// Set the ranges to fetch.
     pub fn add_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -103,7 +126,7 @@ impl SlidingSyncList {
     /// order but you will only receive updates when for rooms entering or
     /// leaving the set.
     pub fn reset_ranges(&self) -> Result<(), Error> {
-        if self.inner.sync_mode.ranges_can_be_modified_by_user().not() {
+        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
             return Err(Error::CannotModifyRanges(self.name().to_owned()));
         }
 
@@ -186,6 +209,9 @@ impl SlidingSyncList {
     }
 
     /// Calculate the next request and return it.
+    ///
+    /// The next request is entirely calculated based on the request generator
+    /// ([`SlidingSyncListRequestGenerator`]).
     pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
     }
@@ -229,11 +255,11 @@ impl SlidingSyncList {
     pub(super) fn reset(&self) -> Result<(), Error> {
         self.inner.reset();
 
-        // When a list is reset, the sync loop must be “restarted”.
-        self.inner
-            .sliding_sync_internal_channel_sender
-            .blocking_send(SlidingSyncInternalMessage::ContinueSyncLoop)
-            .map_err(|_| Error::InternalChannelIsBroken)?;
+        // When a list is reset, the sync loop must skip over any work in its iteration
+        // and jump to the next iteration.
+        self.inner.internal_channel_blocking_send(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        )?;
 
         Ok(())
     }
@@ -258,7 +284,7 @@ pub(super) struct SlidingSyncListInner {
     state: StdRwLock<Observable<SlidingSyncState>>,
 
     /// Which [`SlidingSyncMode`] to start this list under.
-    sync_mode: SlidingSyncMode,
+    sync_mode: StdRwLock<SlidingSyncMode>,
 
     /// Sort the room list by this.
     sort: Vec<String>,
@@ -300,6 +326,23 @@ pub(super) struct SlidingSyncListInner {
 }
 
 impl SlidingSyncListInner {
+    /// Change the sync-mode.
+    ///
+    /// This will change the sync-mode but also the request generator.
+    ///
+    /// [`Self::ranges`] and [`Self::state`] will be updated when the next
+    /// request will be sent and a response will be received. The
+    /// [`Self::maximum_number_of_rooms`] won't change.
+    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
+        // Acquire both locks before modifying the values their hold.
+        let mut sync_mode_lock = self.sync_mode.write().unwrap();
+        let mut request_generator_lock = self.request_generator.write().unwrap();
+
+        // Now we can modify both values.
+        *sync_mode_lock = sync_mode.clone();
+        *request_generator_lock = SlidingSyncListRequestGenerator::new(sync_mode);
+    }
+
     /// Reset and add new ranges.
     fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) {
         *self.ranges.write().unwrap() = ranges.to_vec();
@@ -615,6 +658,16 @@ impl SlidingSyncListInner {
         }
 
         Ok(())
+    }
+
+    /// Send a message over the internal channel.
+    fn internal_channel_blocking_send(
+        &self,
+        message: SlidingSyncInternalMessage,
+    ) -> Result<(), Error> {
+        self.sliding_sync_internal_channel_sender
+            .blocking_send(message)
+            .map_err(|_| Error::InternalChannelIsBroken)
     }
 }
 
@@ -1140,7 +1193,7 @@ mod tests {
             maximum_number_of_rooms = $maximum_number_of_rooms:expr,
             $(
                 next => {
-                    ranges = $( [ $range_start:literal ; $range_end:literal ] ),* ,
+                    ranges = $( $range_start:literal ..= $range_end:literal ),* ,
                     is_fully_loaded = $is_fully_loaded:expr,
                     list_state = $list_state:ident,
                 }
@@ -1193,29 +1246,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [10; 19],
+                ranges = 10..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [20; 24],
+                ranges = 20..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 24], // the range starts at 0 now!
+                ranges = 0..=24, // the range starts at 0 now!
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1235,29 +1288,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [10; 19],
+                ranges = 10..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms to fetch is reached!
             next => {
-                ranges = [20; 21],
+                ranges = 20..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 21], // the range starts at 0 now!
+                ranges = 0..=21, // the range starts at 0 now!
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1277,29 +1330,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [0; 19],
+                ranges = 0..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 24],
+                ranges = 0..=24,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1319,29 +1372,29 @@ mod tests {
             list_state = NotLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [0; 9],
+                ranges = 0..=9,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             next => {
-                ranges = [0; 19],
+                ranges = 0..=19,
                 is_fully_loaded = false,
                 list_state = PartiallyLoaded,
             },
             // The maximum number of rooms is reached!
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 21],
+                ranges = 0..=21,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1363,18 +1416,18 @@ mod tests {
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             }
@@ -1396,18 +1449,18 @@ mod tests {
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             // Now it's fully loaded, so the same request must be produced everytime.
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
             next => {
-                ranges = [0; 10], [42; 153],
+                ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             }
@@ -1420,7 +1473,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [3; 7],
+                ranges = 3..=7,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1433,7 +1486,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [3; 7], [10; 23],
+                ranges = 3..=7, 10..=23,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1446,7 +1499,7 @@ mod tests {
             list_state = PartiallyLoaded,
             maximum_number_of_rooms = 25,
             next => {
-                ranges = [42; 77],
+                ranges = 42..=77,
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
@@ -1463,6 +1516,143 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = PartiallyLoaded,
             },
+        };
+    }
+
+    #[test]
+    fn test_generator_changing_sync_mode_on_the_fly() {
+        let (sender, _receiver) = channel(4);
+
+        let mut list = SlidingSyncList::builder("testing")
+            .sync_mode(SlidingSyncMode::new_selective())
+            .ranges(vec![0..=10, 42..=153].to_vec())
+            .build(sender);
+
+        assert_ranges! {
+            list = list,
+            list_state = NotLoaded,
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=10, 42..=153,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
+        };
+
+        // Changing from `Selective` to `Growing`.
+        list.set_sync_mode(SlidingSyncMode::new_growing(10, None)).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = 0..=9,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = 0..=19,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        // Changing from `Growing` to `Paging`.
+        list.set_sync_mode(SlidingSyncMode::new_paging(10, None)).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            maximum_number_of_rooms = 25,
+            next => {
+                ranges = 0..=9,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            next => {
+                ranges = 10..=19,
+                is_fully_loaded = false,
+                list_state = PartiallyLoaded,
+            },
+            // The maximum number of rooms is reached!
+            next => {
+                ranges = 20..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=24, // the range starts at 0 now!
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=24,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+        };
+
+        // Changing from `Paging` to `Selective`.
+        list.set_sync_mode(SlidingSyncMode::new_selective()).unwrap();
+
+        assert_eq!(list.state(), SlidingSyncState::FullyLoaded); // it inherits the state of the previous sync-mode.
+
+        // We need to update the ranges, of course, as they are not managed
+        // automatically anymore.
+        list.set_range(0..=100).unwrap();
+
+        assert_ranges! {
+            list = list,
+            list_state = PartiallyLoaded, // changing the ranges make the state to go `PartiallyLoaded`.
+            maximum_number_of_rooms = 25,
+            // The maximum number of rooms is reached directly!
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            // Now it's fully loaded, so the same request must be produced everytime.
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            },
+            next => {
+                ranges = 0..=100,
+                is_fully_loaded = true,
+                list_state = FullyLoaded,
+            }
         };
     }
 

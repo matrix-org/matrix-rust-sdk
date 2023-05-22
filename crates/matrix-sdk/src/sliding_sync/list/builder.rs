@@ -202,7 +202,7 @@ impl SlidingSyncListBuilder {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
-                sync_mode: self.sync_mode.clone(),
+                sync_mode: StdRwLock::new(self.sync_mode.clone()),
                 sort: self.sort,
                 required_state: self.required_state,
                 filters: self.filters,
