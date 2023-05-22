@@ -131,12 +131,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        **self.inner.timeline_limit.read().unwrap()
+        self.inner.timeline_limit.read().unwrap().clone()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
-        Observable::set(&mut self.inner.timeline_limit.write().unwrap(), timeline);
+        *self.inner.timeline_limit.write().unwrap() = timeline;
     }
 
     /// Get the current room list.
@@ -270,7 +270,7 @@ pub(super) struct SlidingSyncListInner {
     filters: Option<v4::SyncRequestListFilters>,
 
     /// The maximum number of timeline events to query for.
-    timeline_limit: StdRwLock<Observable<Option<Bound>>>,
+    timeline_limit: StdRwLock<Option<Bound>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -285,7 +285,7 @@ pub(super) struct SlidingSyncListInner {
     room_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
     /// The ranges windows of the list.
-    ranges: StdRwLock<Observable<Vec<RangeInclusive<Bound>>>>,
+    ranges: StdRwLock<Vec<RangeInclusive<Bound>>>,
 
     /// The request generator, i.e. a type that yields the appropriate list
     /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
@@ -302,14 +302,12 @@ pub(super) struct SlidingSyncListInner {
 impl SlidingSyncListInner {
     /// Reset and add new ranges.
     fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) {
-        Observable::set(&mut self.ranges.write().unwrap(), ranges.to_vec());
+        *self.ranges.write().unwrap() = ranges.to_vec();
     }
 
     /// Add a new range.
     fn add_range(&self, range: RangeInclusive<Bound>) {
-        Observable::update(&mut self.ranges.write().unwrap(), |ranges| {
-            ranges.push(RangeInclusive::new(*range.start(), *range.end()));
-        });
+        self.ranges.write().unwrap().push(RangeInclusive::new(*range.start(), *range.end()));
     }
 
     /// Call this method when it's necessary to reset `Self`.
@@ -972,21 +970,10 @@ mod tests {
             .ranges(vec![0..=1, 2..=3])
             .build(sender);
 
-        {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
-
-            assert_eq!(ranges, &[0..=1, 2..=3]);
-        }
+        assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
 
         list.set_ranges(&[4..=5, 6..=7]).unwrap();
-
-        {
-            let lock = list.inner.ranges.read().unwrap();
-            let ranges = Observable::get(&lock);
-
-            assert_eq!(ranges, &[4..=5, 6..=7]);
-        }
+        assert_eq!(*list.inner.ranges.read().unwrap(), &[4..=5, 6..=7]);
     }
 
     #[test]
@@ -1000,21 +987,10 @@ mod tests {
                 .ranges(vec![0..=1, 2..=3])
                 .build(sender.clone());
 
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert_eq!(ranges, &[0..=1, 2..=3]);
-            }
+            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
 
             list.set_range(4..=5).unwrap();
-
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert_eq!(ranges, &[4..=5]);
-            }
+            assert_eq!(*list.inner.ranges.read().unwrap(), &[4..=5]);
         }
 
         // Set range on `Growing`.
@@ -1047,21 +1023,10 @@ mod tests {
                 .ranges(vec![0..=1])
                 .build(sender.clone());
 
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert_eq!(ranges, &[0..=1]);
-            }
+            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
 
             list.add_range(2..=3).unwrap();
-
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert_eq!(ranges, &[0..=1, 2..=3]);
-            }
+            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
         }
 
         // Add range on `Growing`.
@@ -1094,21 +1059,10 @@ mod tests {
                 .ranges(vec![0..=1])
                 .build(sender.clone());
 
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert_eq!(ranges, &[0..=1]);
-            }
+            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
 
             list.reset_ranges().unwrap();
-
-            {
-                let lock = list.inner.ranges.read().unwrap();
-                let ranges = Observable::get(&lock);
-
-                assert!(ranges.is_empty());
-            }
+            assert!(list.inner.ranges.read().unwrap().is_empty());
         }
 
         // Reset range on `Growing`.
@@ -1140,30 +1094,13 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        {
-            let lock = list.inner.timeline_limit.read().unwrap();
-            let timeline_limit = Observable::get(&lock);
-
-            assert_eq!(timeline_limit, &Some(7));
-        }
+        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(7));
 
         list.set_timeline_limit(Some(42));
-
-        {
-            let lock = list.inner.timeline_limit.read().unwrap();
-            let timeline_limit = Observable::get(&lock);
-
-            assert_eq!(timeline_limit, &Some(42));
-        }
+        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(42));
 
         list.set_timeline_limit(None);
-
-        {
-            let lock = list.inner.timeline_limit.read().unwrap();
-            let timeline_limit = Observable::get(&lock);
-
-            assert_eq!(timeline_limit, &None);
-        }
+        assert_eq!(*list.inner.timeline_limit.read().unwrap(), None);
     }
 
     #[test]
