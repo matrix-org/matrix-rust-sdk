@@ -4,7 +4,6 @@ use std::{
     collections::BTreeMap,
     convert::identity,
     fmt,
-    ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -45,7 +44,6 @@ pub struct SlidingSyncListBuilder {
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<Bound>,
     name: String,
-    ranges: Vec<RangeInclusive<Bound>>,
 
     /// Should this list be cached and reloaded from the cache?
     cache_policy: SlidingSyncListCachePolicy,
@@ -68,7 +66,6 @@ impl fmt::Debug for SlidingSyncListBuilder {
             .field("filters", &self.filters)
             .field("timeline_limit", &self.timeline_limit)
             .field("name", &self.name)
-            .field("ranges", &self.ranges)
             .finish_non_exhaustive()
     }
 }
@@ -85,7 +82,6 @@ impl SlidingSyncListBuilder {
             filters: None,
             timeline_limit: None,
             name: name.into(),
-            ranges: Vec::new(),
             reloaded_cached_data: None,
             cache_policy: SlidingSyncListCachePolicy::Disabled,
             once_built: Arc::new(Box::new(identity)),
@@ -142,12 +138,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set the ranges to fetch.
-    pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
-        self.ranges.push(range);
-        self
-    }
-
     /// Marks this list as sync'd from the cache, and attempts to reload it from
     /// storage.
     ///
@@ -184,13 +174,11 @@ impl SlidingSyncListBuilder {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
-                sync_mode: StdRwLock::new(self.sync_mode.clone()),
                 sort: self.sort,
                 required_state: self.required_state,
                 filters: self.filters,
                 timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
-                ranges: StdRwLock::new(self.ranges),
                 cache_policy: self.cache_policy,
 
                 // Computed from the builder.

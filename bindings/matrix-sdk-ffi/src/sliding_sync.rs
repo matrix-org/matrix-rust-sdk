@@ -3,17 +3,20 @@ use std::sync::{Arc, RwLock};
 use anyhow::Context;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join4, pin_mut, StreamExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::{
-        v4::RoomSubscription as RumaRoomSubscription,
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    },
-    assign, IdParseError, OwnedRoomId, RoomId,
-};
 pub use matrix_sdk::{
     ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
     SlidingSyncMode, SlidingSyncState,
+};
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::{
+            v4::RoomSubscription as RumaRoomSubscription,
+            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        },
+        assign, IdParseError, OwnedRoomId, RoomId,
+    },
+    sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tokio::task::JoinHandle;
@@ -411,6 +414,25 @@ pub trait SlidingSyncListStateObserver: Sync + Send {
 }
 
 #[derive(Clone, uniffi::Object)]
+pub struct SlidingSyncSelectiveModeBuilder {
+    inner: MatrixSlidingSyncSelectiveModeBuilder,
+}
+
+#[uniffi::export]
+impl SlidingSyncSelectiveModeBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { inner: MatrixSlidingSyncSelectiveModeBuilder::new() })
+    }
+
+    pub fn add_range(self: Arc<Self>, start: u32, end_inclusive: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.add_range(start..=end_inclusive);
+        Arc::new(builder)
+    }
+}
+
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncListBuilder {
     inner: matrix_sdk::SlidingSyncListBuilder,
 }
@@ -458,9 +480,14 @@ impl SlidingSyncListBuilder {
         Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
     }
 
-    pub fn sync_mode_selective(self: Arc<Self>) -> Arc<Self> {
+    pub fn sync_mode_selective(
+        self: Arc<Self>,
+        selective_mode_builder: Arc<SlidingSyncSelectiveModeBuilder>,
+    ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.sync_mode(SlidingSyncMode::new_selective());
+        let selective_mode_builder = unwrap_or_clone_arc(selective_mode_builder);
+        builder.inner =
+            builder.inner.sync_mode(SlidingSyncMode::new_selective(selective_mode_builder.inner));
         Arc::new(builder)
     }
 
@@ -611,27 +638,6 @@ impl SlidingSyncList {
     /// Get the current list of rooms
     pub fn current_room_list(&self) -> Vec<RoomListEntry> {
         self.inner.room_list()
-    }
-
-    /// Reset the ranges to a particular set
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.set_range(start..=end).map_err(Into::into)
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.add_range(start..=end).map_err(Into::into)
-    }
-
-    /// Reset the ranges
-    pub fn reset_ranges(&self) -> Result<(), SlidingSyncError> {
-        self.inner.reset_ranges().map_err(Into::into)
     }
 
     /// Total of rooms matching the filter
