@@ -142,12 +142,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Set a single range to fetch.
-    pub fn set_range(mut self, range: RangeInclusive<Bound>) -> Self {
-        self.ranges = vec![range];
-        self
-    }
-
     /// Set the ranges to fetch.
     pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
         self.ranges.push(range);
