@@ -83,18 +83,6 @@ impl SlidingSyncList {
         Ok(())
     }
 
-    /// Set the ranges to fetch.
-    pub fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) -> Result<(), Error> {
-        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
-            return Err(Error::CannotModifyRanges(self.name().to_owned()));
-        }
-
-        self.inner.set_ranges(ranges);
-        self.reset()?;
-
-        Ok(())
-    }
-
     /// Reset the ranges to a particular set.
     pub fn set_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
         if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
@@ -1016,22 +1004,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_list_set_ranges() {
-        let (sender, _receiver) = channel(1);
-
-        let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=1)
-            .add_range(2..=3)
-            .build(sender);
-
-        assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
-
-        list.set_ranges(&[4..=5, 6..=7]).unwrap();
-        assert_eq!(*list.inner.ranges.read().unwrap(), &[4..=5, 6..=7]);
-    }
-
-    #[test]
     fn test_sliding_sync_list_set_range() {
         let (sender, _receiver) = channel(1);
 
@@ -1471,7 +1443,7 @@ mod tests {
             }
         };
 
-        list.set_ranges(&[3..=7]).unwrap();
+        list.set_range(3..=7).unwrap();
 
         assert_ranges! {
             list = list,
