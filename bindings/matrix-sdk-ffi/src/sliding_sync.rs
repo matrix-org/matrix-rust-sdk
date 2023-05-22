@@ -532,12 +532,6 @@ impl SlidingSyncListBuilder {
         Arc::new(builder)
     }
 
-    pub fn reset_ranges(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.reset_ranges();
-        Arc::new(builder)
-    }
-
     pub fn once_built(self: Arc<Self>, callback: Box<dyn SlidingSyncListOnceBuilt>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
 

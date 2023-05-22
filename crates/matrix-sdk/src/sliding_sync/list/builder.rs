@@ -154,12 +154,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    /// Reset the ranges to fetch.
-    pub fn reset_ranges(mut self) -> Self {
-        self.ranges.clear();
-        self
-    }
-
     /// Marks this list as sync'd from the cache, and attempts to reload it from
     /// storage.
     ///
