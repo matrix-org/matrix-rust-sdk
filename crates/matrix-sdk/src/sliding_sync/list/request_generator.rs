@@ -221,9 +221,8 @@ fn create_range(
 
 #[cfg(test)]
 mod tests {
-    use crate::sliding_sync::SlidingSyncSelectiveModeBuilder;
-
     use super::*;
+    use crate::sliding_sync::SlidingSyncSelectiveModeBuilder;
 
     #[test]
     fn test_create_range_from() {

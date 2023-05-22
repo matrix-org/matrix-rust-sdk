@@ -433,7 +433,8 @@ impl SlidingSyncListInner {
         Ok(new_changes)
     }
 
-    /// Update the state of the [`SlidingSyncListRequestGenerator`] after receiving a response.
+    /// Update the state of the [`SlidingSyncListRequestGenerator`] after
+    /// receiving a response.
     fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
 
@@ -1413,7 +1414,8 @@ mod tests {
         // Changing from `Paging` to `Selective`.
         list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().build()).unwrap();
 
-        assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the next request
+        assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
+                                                                     // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
