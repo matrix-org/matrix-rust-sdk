@@ -131,7 +131,7 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        self.inner.timeline_limit.read().unwrap().clone()
+        *self.inner.timeline_limit.read().unwrap()
     }
 
     /// Set timeline limit.
