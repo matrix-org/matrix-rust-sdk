@@ -1021,7 +1021,8 @@ mod tests {
 
         let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective())
-            .ranges(vec![0..=1, 2..=3])
+            .add_range(0..=1)
+            .add_range(2..=3)
             .build(sender);
 
         assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
@@ -1038,7 +1039,8 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective())
-                .ranges(vec![0..=1, 2..=3])
+                .add_range(0..=1)
+                .add_range(2..=3)
                 .build(sender.clone());
 
             assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
@@ -1074,7 +1076,7 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective())
-                .ranges(vec![0..=1])
+                .add_range(0..=1)
                 .build(sender.clone());
 
             assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
@@ -1110,7 +1112,7 @@ mod tests {
         {
             let list = SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective())
-                .ranges(vec![0..=1])
+                .add_range(0..=1)
                 .build(sender.clone());
 
             assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
@@ -1144,7 +1146,7 @@ mod tests {
 
         let list = SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective())
-            .ranges(vec![0..=1])
+            .add_range(0..=1)
             .timeline_limit(7)
             .build(sender);
 
@@ -1408,7 +1410,8 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("testing")
             .sync_mode(SlidingSyncMode::new_selective())
-            .ranges(vec![0..=10, 42..=153])
+            .add_range(0..=10)
+            .add_range(42..=153)
             .build(sender);
 
         assert_ranges! {
@@ -1441,7 +1444,8 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("testing")
             .sync_mode(SlidingSyncMode::new_selective())
-            .ranges(vec![0..=10, 42..=153].to_vec())
+            .add_range(0..=10)
+            .add_range(42..=153)
             .build(sender);
 
         assert_ranges! {
@@ -1526,7 +1530,8 @@ mod tests {
 
         let mut list = SlidingSyncList::builder("testing")
             .sync_mode(SlidingSyncMode::new_selective())
-            .ranges(vec![0..=10, 42..=153].to_vec())
+            .add_range(0..=10)
+            .add_range(42..=153)
             .build(sender);
 
         assert_ranges! {
