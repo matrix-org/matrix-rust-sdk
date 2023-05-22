@@ -17,20 +17,20 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use olm_rs::pk::OlmPkEncryption;
 use ruma::{
     api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
     serde::Base64,
     OwnedDeviceKeyId, OwnedUserId,
 };
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
-use super::recovery::DecodeError;
+use super::{compat::PkEncryption, recovery::DecodeError};
 use crate::olm::InboundGroupSession;
 
 #[derive(Debug)]
 struct InnerBackupKey {
-    key: [u8; MegolmV1BackupKey::KEY_SIZE],
+    key: Curve25519PublicKey,
     signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     version: Mutex<Option<String>>,
 }
@@ -52,16 +52,15 @@ impl std::fmt::Debug for MegolmV1BackupKey {
 }
 
 impl MegolmV1BackupKey {
-    const KEY_SIZE: usize = 32;
-
-    pub(super) fn new(public_key: &str, version: Option<String>) -> Self {
-        let key = Self::from_base64(public_key).expect("Invalid backup key");
-
-        if let Some(version) = version {
-            key.set_version(version)
+    pub(super) fn new(key: Curve25519PublicKey, version: Option<String>) -> Self {
+        Self {
+            inner: InnerBackupKey {
+                key,
+                signatures: Default::default(),
+                version: Mutex::new(version),
+            }
+            .into(),
         }
-
-        key
     }
 
     /// Get the full name of the backup algorithm this backup key supports.
@@ -76,24 +75,17 @@ impl MegolmV1BackupKey {
 
     /// Try to create a new `MegolmV1BackupKey` from a base 64 encoded string.
     pub fn from_base64(public_key: &str) -> Result<Self, DecodeError> {
-        let mut key = [0u8; Self::KEY_SIZE];
-        let decoded_key = crate::utilities::decode(public_key)?;
+        let key = Curve25519PublicKey::from_base64(public_key)?;
 
-        if decoded_key.len() != Self::KEY_SIZE {
-            Err(DecodeError::Length(Self::KEY_SIZE, decoded_key.len()))
-        } else {
-            key.copy_from_slice(&decoded_key);
+        let inner =
+            InnerBackupKey { key, signatures: Default::default(), version: Mutex::new(None) };
 
-            let inner =
-                InnerBackupKey { key, signatures: Default::default(), version: Mutex::new(None) };
-
-            Ok(MegolmV1BackupKey { inner: inner.into() })
-        }
+        Ok(MegolmV1BackupKey { inner: inner.into() })
     }
 
     /// Convert the [`MegolmV1BackupKey`] to a base 64 encoded string.
     pub fn to_base64(&self) -> String {
-        crate::utilities::encode(self.inner.key)
+        self.inner.key.to_base64()
     }
 
     /// Get the backup version that this key is used with, if any.
@@ -110,7 +102,7 @@ impl MegolmV1BackupKey {
     }
 
     pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
-        let pk = OlmPkEncryption::new(&self.to_base64());
+        let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we received the
         // session directly from the creator of the session or not.
@@ -123,23 +115,21 @@ impl MegolmV1BackupKey {
         // The key gets zeroized in `BackedUpRoomKey` but we're creating a copy
         // here that won't, so let's wrap it up in a `Zeroizing` struct.
         let key =
-            Zeroizing::new(serde_json::to_string(&key).expect("Can't serialize exported room key"));
+            Zeroizing::new(serde_json::to_vec(&key).expect("Can't serialize exported room key"));
 
         let message = pk.encrypt(&key);
 
         let session_data = SessionDataInit {
-            ephemeral: Base64::parse(message.ephemeral_key)
-                .expect("Can't decode the base64 encoded ephemeral backup key"),
-            ciphertext: Base64::parse(message.ciphertext)
-                .expect("Can't decode a base64 encoded libolm ciphertext"),
-            mac: Base64::parse(message.mac).expect("Can't decode a base64 encoded MAC"),
+            ephemeral: Base64::new(message.ephemeral_key.to_vec()),
+            ciphertext: Base64::new(message.ciphertext),
+            mac: Base64::new(message.mac),
         }
         .into();
 
         KeyBackupDataInit {
             first_message_index,
             forwarded_count,
-            // TODO is this actually used anywhere? seems to be completely
+            // TODO: is this actually used anywhere? seems to be completely
             // useless and requires us to get the Device out of the store?
             // Also should this be checked at the time of the backup or at the
             // time of the room key receival?

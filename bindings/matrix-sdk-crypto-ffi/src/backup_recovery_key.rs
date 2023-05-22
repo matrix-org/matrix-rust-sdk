@@ -2,7 +2,7 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 
 use hmac::Hmac;
 use matrix_sdk_crypto::{
-    backups::OlmPkDecryptionError,
+    backups::DecryptionError,
     store::{CryptoStoreError as InnerStoreError, RecoveryKey},
 };
 use pbkdf2::pbkdf2;
@@ -24,7 +24,7 @@ pub struct BackupRecoveryKey {
 pub enum PkDecryptionError {
     /// An internal libolm error happened during decryption.
     #[error("Error decryption a PkMessage {0}")]
-    Olm(#[from] OlmPkDecryptionError),
+    Olm(#[from] DecryptionError),
 }
 
 /// Error type for the decoding and storing of the backup key.
@@ -164,6 +164,6 @@ impl BackupRecoveryKey {
         mac: String,
         ciphertext: String,
     ) -> Result<String, PkDecryptionError> {
-        self.inner.decrypt_v1(ephemeral_key, mac, ciphertext).map_err(|e| e.into())
+        self.inner.decrypt_v1(&ephemeral_key, &mac, &ciphertext).map_err(|e| e.into())
     }
 }

@@ -18,15 +18,14 @@ use std::{
 };
 
 use bs58;
-use olm_rs::{
-    errors::OlmPkDecryptionError,
-    pk::{OlmPkDecryption, PkMessage},
-};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use super::MegolmV1BackupKey;
-use crate::store::RecoveryKey;
+use super::{
+    compat::{Error as DecryptionError, Message, PkDecryption},
+    MegolmV1BackupKey,
+};
+use crate::{store::RecoveryKey, utilities::encode};
 
 /// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
@@ -49,6 +48,9 @@ pub enum DecodeError {
     /// The recovery key is too short, we couldn't read enough data.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// The recovery key, a Curve25519 public key, couldn't be decoded.
+    #[error(transparent)]
+    PublicKey(#[from] vodozemac::KeyError),
 }
 
 #[derive(Debug, Error)]
@@ -175,16 +177,14 @@ impl RecoveryKey {
         bs58::encode(bytes.as_slice()).with_alphabet(bs58::Alphabet::BITCOIN).into_string()
     }
 
-    fn get_pk_decrytpion(&self) -> OlmPkDecryption {
-        OlmPkDecryption::from_bytes(self.inner.as_ref())
-            .expect("Can't generate a libom PkDecryption object from our private key")
+    fn get_pk_decrytpion(&self) -> PkDecryption {
+        PkDecryption::from_bytes(self.inner.as_ref())
     }
 
     /// Extract the megolm.v1 public key from this `RecoveryKey`.
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decrytpion();
-        let public_key = MegolmV1BackupKey::new(pk.public_key(), None);
-        public_key
+        MegolmV1BackupKey::new(pk.public_key(), None)
     }
 
     /// Try to decrypt the given ciphertext using this `RecoveryKey`.
@@ -196,14 +196,14 @@ impl RecoveryKey {
     /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
     pub fn decrypt_v1(
         &self,
-        mac: String,
-        ephemeral_key: String,
-        ciphertext: String,
-    ) -> Result<String, OlmPkDecryptionError> {
-        let message = PkMessage::new(mac, ephemeral_key, ciphertext);
+        mac: &str,
+        ephemeral_key: &str,
+        ciphertext: &str,
+    ) -> Result<String, DecryptionError> {
+        let message = Message::from_base64(mac, ephemeral_key, ciphertext)?;
         let pk = self.get_pk_decrytpion();
 
-        pk.decrypt(message)
+        pk.decrypt(&message).map(encode)
     }
 }
 

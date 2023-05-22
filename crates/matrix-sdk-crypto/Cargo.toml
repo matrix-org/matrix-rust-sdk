@@ -19,7 +19,7 @@ default = ["automatic-room-key-forwarding"]
 automatic-room-key-forwarding = []
 js = ["ruma/js", "vodozemac/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
-backups_v1 = ["dep:olm-rs", "dep:bs58"]
+backups_v1 = ["dep:bs58", "dep:cbc", "dep:hkdf"]
 experimental-algorithms = []
 
 # Testing helpers for implementations based upon this
@@ -33,17 +33,19 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 bs58 = { version = "0.4.0", optional = true }
 byteorder = { workspace = true }
+cbc = { version = "0.1.2", features = ["std"], optional = true }
+cfg-if = "1.0"
 ctr = "0.9.1"
 dashmap = { workspace = true }
 eyeball = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
+hkdf = { version = "0.12.3", optional = true }
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
 itertools = "0.10.5"
 matrix-sdk-qrcode = { version = "0.4.0", path = "../matrix-sdk-qrcode", optional = true }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
-olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
 pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
@@ -51,13 +53,12 @@ serde = { workspace = true, features = ["derive", "rc"] }
 rmp-serde = "1.1.1"
 serde_json = { workspace = true }
 sha2 = "0.10.2"
+tokio-stream = { version = "0.1.12", features = ["sync"] }
+tokio = { workspace = true, default-features = false, features = ["sync"] }
 thiserror = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
-cfg-if = "1.0"
-tokio-stream = { version = "0.1.12", features = ["sync"] }
-tokio = { workspace = true, default-features = false, features = ["sync"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tokio = { workspace = true }
@@ -73,6 +74,7 @@ futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "2.0.1"
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
+olm-rs = { version = "2.2.0", features = ["serde"] }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
