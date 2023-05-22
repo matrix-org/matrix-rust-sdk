@@ -66,9 +66,9 @@ impl SlidingSyncList {
     ///
     /// This will change the sync-mode but also the request generator.
     ///
-    /// The ranges and the state will be updated when the next request will be sent
-    /// and a response will be received. The maximum number of rooms won't
-    /// change.
+    /// The ranges and the state will be updated when the next request will be
+    /// sent and a response will be received. The maximum number of rooms
+    /// won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
         self.inner.set_sync_mode(sync_mode);
     }
