@@ -107,9 +107,6 @@ pub enum SlidingSyncError {
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
     RequestGeneratorHasNotBeenInitialized { msg: String },
-    /// Someone has tried to modify a sliding sync list's ranges, but the
-    /// selected sync mode doesn't allow that.
-    CannotModifyRanges { msg: String },
     /// Ranges have a `start` bound greater than `end`.
     InvalidRange {
         /// Start bound.
@@ -132,7 +129,6 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
             E::RequestGeneratorHasNotBeenInitialized(msg) => {
                 Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
-            E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
             E::InternalChannelIsBroken => Self::InternalChannelIsBroken,
             error => Self::Unknown { error: error.to_string() },
