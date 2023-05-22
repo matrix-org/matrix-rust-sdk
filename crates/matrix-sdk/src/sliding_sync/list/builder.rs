@@ -206,9 +206,9 @@ impl SlidingSyncListBuilder {
                 sort: self.sort,
                 required_state: self.required_state,
                 filters: self.filters,
-                timeline_limit: StdRwLock::new(Observable::new(self.timeline_limit)),
+                timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
-                ranges: StdRwLock::new(Observable::new(self.ranges)),
+                ranges: StdRwLock::new(self.ranges),
                 cache_policy: self.cache_policy,
 
                 // Computed from the builder.
