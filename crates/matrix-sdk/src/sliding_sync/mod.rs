@@ -173,24 +173,6 @@ impl SlidingSync {
         Ok(())
     }
 
-    /// Add the common extensions if not already configured.
-    pub fn add_common_extensions(&self) {
-        let mut lock = self.inner.extensions.lock().unwrap();
-        let cfg = lock.get_or_insert_with(Default::default);
-
-        if cfg.to_device.enabled.is_none() {
-            cfg.to_device.enabled = Some(true);
-        }
-
-        if cfg.e2ee.enabled.is_none() {
-            cfg.e2ee.enabled = Some(true);
-        }
-
-        if cfg.account_data.enabled.is_none() {
-            cfg.account_data.enabled = Some(false);
-        }
-    }
-
     /// Lookup a specific room
     pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
         self.inner.rooms.read().unwrap().get(room_id).cloned()
