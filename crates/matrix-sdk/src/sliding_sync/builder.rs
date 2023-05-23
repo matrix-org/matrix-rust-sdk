@@ -4,7 +4,6 @@ use std::{
     sync::{Mutex, RwLock as StdRwLock},
 };
 
-use eyeball::unique::Observable;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
@@ -269,8 +268,8 @@ impl SlidingSyncBuilder {
             reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {
-                pos: Observable::new(None),
-                delta_token: Observable::new(delta_token),
+                pos: None,
+                delta_token,
                 to_device_token,
             }),
 
