@@ -225,10 +225,11 @@ impl SlidingSyncBuilder {
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
     /// storage.
-    pub async fn build(mut self) -> Result<SlidingSync> {
+    pub async fn build(self) -> Result<SlidingSync> {
         let client = self.client;
 
         let mut delta_token = None;
+        let mut to_device_token = None;
 
         let (internal_channel_sender, internal_channel_receiver) = channel(8);
 
@@ -247,7 +248,7 @@ impl SlidingSyncBuilder {
                 storage_key,
                 &lists,
                 &mut delta_token,
-                &mut self.extensions,
+                &mut to_device_token,
             )
             .await?;
         }
@@ -270,6 +271,7 @@ impl SlidingSyncBuilder {
             position: StdRwLock::new(SlidingSyncPositionMarkers {
                 pos: Observable::new(None),
                 delta_token: Observable::new(delta_token),
+                to_device_token,
             }),
 
             room_subscriptions: StdRwLock::new(self.subscriptions),

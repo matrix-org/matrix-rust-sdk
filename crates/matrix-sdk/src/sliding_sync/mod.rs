@@ -94,7 +94,7 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
 
-    /// The `pos`  and `delta_token` markers.
+    /// Position markers
     position: StdRwLock<SlidingSyncPositionMarkers>,
 
     /// The lists of this Sliding Sync instance.
@@ -118,7 +118,7 @@ pub(super) struct SlidingSyncInner {
     reset_counter: AtomicU8,
 
     /// The intended state of the extensions being supplied to sliding /sync
-    /// calls. May contain the latest next_batch for to_devices, etc.
+    /// calls.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
     /// Internal channel used to pass messages between Sliding Sync and other
@@ -185,15 +185,7 @@ impl SlidingSync {
 
     #[instrument(skip(self))]
     fn update_to_device_since(&self, since: String) {
-        // FIXME: Find a better place where the to-device since token should be
-        // persisted.
-        self.inner
-            .extensions
-            .lock()
-            .unwrap()
-            .get_or_insert_with(Default::default)
-            .to_device
-            .since = Some(since);
+        self.inner.position.write().unwrap().to_device_token = Some(since);
     }
 
     /// Find a list by its name, and do something on it if it exists.
@@ -269,42 +261,22 @@ impl SlidingSync {
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
+        let mut extensions = { self.inner.extensions.lock().unwrap().clone().unwrap_or_default() };
+
         if pos.is_none() {
             // The pos is `None`, it's either our initial sync or the proxy forgot about us
             // and sent us an `UnknownPos` error. We need to send out the config for our
             // extensions.
-            let mut extensions = self.inner.extensions.lock().unwrap().clone().unwrap_or_default();
-
-            // Always enable to-device events and the e2ee-extension on the initial request,
-            // no matter what the caller wants.
-            //
-            // The to-device `since` parameter is either `None` or guaranteed to be set
-            // because the `update_to_device_since()` method updates the
-            // self.extensions field and they get persisted to the store using the
-            // `cache_to_storage()` method.
-            //
-            // The token is also loaded from storage in the `SlidingSyncBuilder::build()`
-            // method.
-            extensions.to_device.enabled = Some(true);
             extensions.e2ee.enabled = Some(true);
-
-            extensions
-        } else {
-            // We already enabled all the things, just fetch out the to-device since token
-            // out of self.extensions and set it in a new, and empty, `ExtensionsConfig`.
-            let since = self
-                .inner
-                .extensions
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|e| e.to_device.since.clone());
-
-            let mut extensions: ExtensionsConfig = Default::default();
-            extensions.to_device.since = since;
-
-            extensions
+            extensions.to_device.enabled = Some(true);
         }
+
+        // Try to chime in a to-device token that may be unset or restored from the
+        // cache.
+        let to_device_since = self.inner.position.read().unwrap().to_device_token.clone();
+        extensions.to_device.since = to_device_since;
+
+        extensions
     }
 
     /// Handle the HTTP response.
@@ -560,14 +532,14 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, "About to run the sync-loop");
+        debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
 
         stream! {
             loop {
                 sync_span.in_scope(|| {
-                    debug!(?self.inner.extensions, "Sync-loop is running");
+                    debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
                 });
 
                 let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
@@ -634,7 +606,7 @@ impl SlidingSync {
                                             Observable::set(&mut position_lock.pos, None);
                                         }
 
-                                        debug!(?self.inner.extensions, "Sliding Sync has been reset");
+                                        debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
                                     });
                                 }
 
@@ -717,6 +689,7 @@ impl SlidingSync {
 pub(super) struct SlidingSyncPositionMarkers {
     pos: Observable<Option<String>>,
     delta_token: Observable<Option<String>>,
+    to_device_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -729,15 +702,10 @@ struct FrozenSlidingSync {
 
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(sliding_sync: &SlidingSync) -> Self {
+        let position = sliding_sync.inner.position.read().unwrap();
         FrozenSlidingSync {
-            delta_token: sliding_sync.inner.position.read().unwrap().delta_token.clone(),
-            to_device_since: sliding_sync
-                .inner
-                .extensions
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|ext| ext.to_device.since.clone()),
+            delta_token: position.delta_token.clone(),
+            to_device_since: position.to_device_token.clone(),
         }
     }
 }
