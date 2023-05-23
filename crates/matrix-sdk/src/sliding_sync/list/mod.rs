@@ -1211,7 +1211,7 @@ mod tests {
             next => {
                 ranges = ,
                 is_fully_loaded = true,
-                list_state = PartiallyLoaded,
+                list_state = FullyLoaded,
             },
         };
     }
