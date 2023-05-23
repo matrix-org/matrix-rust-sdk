@@ -189,11 +189,6 @@ impl SlidingSyncListRequestGenerator {
         list_name: &str,
         maximum_number_of_rooms: u32,
     ) -> Result<SlidingSyncState, Error> {
-        let range_end: u32 =
-            self.ranges().first().map(|r| *r.end()).ok_or_else(|| {
-                Error::RequestGeneratorHasNotBeenInitialized(list_name.to_owned())
-            })?;
-
         match &mut self.kind {
             SlidingSyncListRequestGeneratorKind::Paging {
                 number_of_fetched_rooms,
@@ -207,6 +202,10 @@ impl SlidingSyncListRequestGenerator {
                 maximum_number_of_rooms_to_fetch,
                 ..
             } => {
+                let range_end: u32 = self.ranges.first().map(|r| *r.end()).ok_or_else(|| {
+                    Error::RequestGeneratorHasNotBeenInitialized(list_name.to_owned())
+                })?;
+
                 // Calculate the maximum bound for the range.
                 // At this step, the server has given us a maximum number of rooms for this
                 // list. That's our `range_maximum`.
