@@ -714,7 +714,7 @@ pub enum SlidingSyncState {
 /// Builder for a new sliding sync list in selective mode.
 ///
 /// Conveniently allows to add ranges.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SlidingSyncSelectiveModeBuilder {
     ranges: Vec<RangeInclusive<Bound>>,
 }
@@ -722,7 +722,7 @@ pub struct SlidingSyncSelectiveModeBuilder {
 impl SlidingSyncSelectiveModeBuilder {
     /// Create a new `SlidingSyncSelectiveModeBuilder`.
     pub fn new() -> Self {
-        Self { ranges: Vec::new() }
+        Self::default()
     }
 
     /// Select a range to fetch.
@@ -830,7 +830,7 @@ mod tests {
             .sync_mode(
                 SlidingSyncSelectiveModeBuilder::new().add_range(0..=1).add_range(2..=3).build(),
             )
-            .build(sender.clone());
+            .build(sender);
 
         assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[0..=1, 2..=3]);
 
