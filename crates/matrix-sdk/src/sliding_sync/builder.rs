@@ -255,6 +255,12 @@ impl SlidingSyncBuilder {
         let rooms = StdRwLock::new(self.rooms);
         let lists = StdRwLock::new(lists);
 
+        // Always enable to-device events and the e2ee-extension on the initial request,
+        // no matter what the caller wants.
+        let mut extensions = self.extensions.unwrap_or_default();
+        extensions.to_device.enabled = Some(true);
+        extensions.e2ee.enabled = Some(true);
+
         Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
             client,
@@ -263,7 +269,7 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            extensions: Mutex::new(self.extensions),
+            extensions: Mutex::new(Some(extensions.clone())),
             reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {
@@ -274,6 +280,7 @@ impl SlidingSyncBuilder {
             sticky: StdRwLock::new(StickyParameters::new(
                 self.bump_event_types,
                 self.subscriptions,
+                extensions,
             )),
             room_unsubscriptions: Default::default(),
 
