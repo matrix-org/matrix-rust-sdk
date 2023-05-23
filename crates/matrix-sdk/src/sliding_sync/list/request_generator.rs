@@ -32,7 +32,7 @@
 use std::{cmp::min, ops::RangeInclusive};
 
 use super::{Bound, SlidingSyncMode};
-use crate::sliding_sync::Error;
+use crate::{sliding_sync::Error, SlidingSyncState};
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
@@ -109,10 +109,6 @@ impl SlidingSyncListRequestGenerator {
         &self.ranges
     }
 
-    pub(super) fn set_ranges(&mut self, ranges: Vec<RangeInclusive<Bound>>) {
-        self.ranges = ranges;
-    }
-
     pub(super) fn prepare_for_next_request(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
@@ -168,6 +164,85 @@ impl SlidingSyncListRequestGenerator {
         }
 
         Ok(())
+    }
+
+    pub(super) fn handle_response(
+        &mut self,
+        list_name: &str,
+        maximum_number_of_rooms: u32,
+    ) -> Result<SlidingSyncState, Error> {
+        let range_end: u32 =
+            self.ranges().first().map(|r| *r.end()).ok_or_else(|| {
+                Error::RequestGeneratorHasNotBeenInitialized(list_name.to_owned())
+            })?;
+
+        match &mut self.kind {
+            SlidingSyncListRequestGeneratorKind::Paging {
+                number_of_fetched_rooms,
+                fully_loaded,
+                maximum_number_of_rooms_to_fetch,
+                ..
+            }
+            | SlidingSyncListRequestGeneratorKind::Growing {
+                number_of_fetched_rooms,
+                fully_loaded,
+                maximum_number_of_rooms_to_fetch,
+                ..
+            } => {
+                // Calculate the maximum bound for the range.
+                // At this step, the server has given us a maximum number of rooms for this
+                // list. That's our `range_maximum`.
+                let mut range_maximum = maximum_number_of_rooms;
+
+                // But maybe the user has defined a maximum number of rooms to fetch? In this
+                // case, let's take the minimum of the two.
+                if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
+                    range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
+                }
+
+                // Finally, ranges are inclusive!
+                range_maximum = range_maximum.saturating_sub(1);
+
+                // Now, we know what the maximum bound for the range is.
+
+                // The current range hasn't reached its maximum, let's continue.
+                if range_end < range_maximum {
+                    // Update the number of fetched rooms forward. Do not forget that ranges are
+                    // inclusive, so let's add 1.
+                    *number_of_fetched_rooms = range_end.saturating_add(1);
+
+                    // The list is still not fully loaded.
+                    *fully_loaded = false;
+
+                    // Update the _list range_ to cover from 0 to `range_end`.
+                    // The list's range is different from the request generator (this) range.
+                    self.ranges = [0..=range_end].to_vec();
+
+                    // Finally, return the new state.
+                    Ok(SlidingSyncState::PartiallyLoaded)
+                }
+                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
+                // mode.
+                else {
+                    // The number of fetched rooms is set to the maximum too.
+                    *number_of_fetched_rooms = range_maximum;
+
+                    // We update the `fully_loaded` marker.
+                    *fully_loaded = true;
+
+                    // The range is covering the entire list, from 0 to its maximum.
+                    self.ranges = [0..=range_maximum].to_vec();
+
+                    // Finally, let's update the list' state.
+                    Ok(SlidingSyncState::FullyLoaded)
+                }
+            }
+
+            SlidingSyncListRequestGeneratorKind::Selective => {
+                // Selective mode always loads everything.
+                Ok(SlidingSyncState::FullyLoaded)
+            }
+        }
     }
 
     #[cfg(test)]

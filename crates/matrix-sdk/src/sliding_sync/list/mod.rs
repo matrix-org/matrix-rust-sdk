@@ -4,7 +4,6 @@ mod request_generator;
 mod room_list_entry;
 
 use std::{
-    cmp::min,
     collections::HashSet,
     fmt::Debug,
     iter,
@@ -437,89 +436,8 @@ impl SlidingSyncListInner {
     /// receiving a response.
     fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
-
-        let range_end: u32 =
-            request_generator.ranges().first().map(|r| *r.end()).ok_or_else(|| {
-                Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned())
-            })?;
-
-        match &mut request_generator.kind {
-            SlidingSyncListRequestGeneratorKind::Paging {
-                number_of_fetched_rooms,
-                fully_loaded,
-                maximum_number_of_rooms_to_fetch,
-                ..
-            }
-            | SlidingSyncListRequestGeneratorKind::Growing {
-                number_of_fetched_rooms,
-                fully_loaded,
-                maximum_number_of_rooms_to_fetch,
-                ..
-            } => {
-                // Calculate the maximum bound for the range.
-                // At this step, the server has given us a maximum number of rooms for this
-                // list. That's our `range_maximum`.
-                let mut range_maximum = maximum_number_of_rooms;
-
-                // But maybe the user has defined a maximum number of rooms to fetch? In this
-                // case, let's take the minimum of the two.
-                if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
-                    range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
-                }
-
-                // Finally, ranges are inclusive!
-                range_maximum = range_maximum.saturating_sub(1);
-
-                // Now, we know what the maximum bound for the range is.
-
-                // The current range hasn't reached its maximum, let's continue.
-                if range_end < range_maximum {
-                    // Update the number of fetched rooms forward. Do not forget that ranges are
-                    // inclusive, so let's add 1.
-                    *number_of_fetched_rooms = range_end.saturating_add(1);
-
-                    // The list is still not fully loaded.
-                    *fully_loaded = false;
-
-                    // Update the _list range_ to cover from 0 to `range_end`.
-                    // The list's range is different from the request generator (this) range.
-                    request_generator.set_ranges([0..=range_end].to_vec());
-
-                    // Finally, let's update the list' state.
-                    Observable::set_if_not_eq(
-                        &mut self.state.write().unwrap(),
-                        SlidingSyncState::PartiallyLoaded,
-                    );
-                }
-                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
-                // mode.
-                else {
-                    // The number of fetched rooms is set to the maximum too.
-                    *number_of_fetched_rooms = range_maximum;
-
-                    // We update the `fully_loaded` marker.
-                    *fully_loaded = true;
-
-                    // The range is covering the entire list, from 0 to its maximum.
-                    request_generator.set_ranges([0..=range_maximum].to_vec());
-
-                    // Finally, let's update the list' state.
-                    Observable::set_if_not_eq(
-                        &mut self.state.write().unwrap(),
-                        SlidingSyncState::FullyLoaded,
-                    );
-                }
-            }
-
-            SlidingSyncListRequestGeneratorKind::Selective => {
-                // Selective mode always loads everything.
-                Observable::set_if_not_eq(
-                    &mut self.state.write().unwrap(),
-                    SlidingSyncState::FullyLoaded,
-                );
-            }
-        }
-
+        let new_state = request_generator.handle_response(&self.name, maximum_number_of_rooms)?;
+        Observable::set_if_not_eq(&mut self.state.write().unwrap(), new_state);
         Ok(())
     }
 
