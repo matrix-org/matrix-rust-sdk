@@ -908,22 +908,17 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         // Set range on `Selective`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(
-                    SlidingSyncSelectiveModeBuilder::new()
-                        .add_range(0..=1)
-                        .add_range(2..=3)
-                        .build(),
-                )
-                .build(sender.clone());
+        let list = SlidingSyncList::builder("foo")
+            .sync_mode(
+                SlidingSyncSelectiveModeBuilder::new().add_range(0..=1).add_range(2..=3).build(),
+            )
+            .build(sender.clone());
 
-            assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[0..=1, 2..=3]);
+        assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[0..=1, 2..=3]);
 
-            list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5).build())
-                .unwrap();
-            assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[4..=5]);
-        }
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5).build())
+            .unwrap();
+        assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[4..=5]);
     }
 
     #[test]
