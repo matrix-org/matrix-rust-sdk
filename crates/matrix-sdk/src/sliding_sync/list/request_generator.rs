@@ -71,12 +71,15 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 #[derive(Debug)]
 pub(in super::super) struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
+    ///
+    /// Note there's only one range in the `Growing` and `Paging` mode.
     ranges: Vec<RangeInclusive<u32>>,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
 }
 
 impl SlidingSyncListRequestGenerator {
+    /// Create a new request generator from scratch, given a sync mode.
     pub(super) fn new(sync_mode: SlidingSyncMode) -> Self {
         match sync_mode {
             SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
@@ -105,10 +108,24 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
+    /// Return a view on the current room ranges owned by this generator.
+    ///
+    /// After a call to `prepare_for_next_request`, contains the ranges that
+    /// will be requested next.
+    ///
+    /// After a call to `handle_response`, contains the ranges that have been
+    /// updated with respect to the response.
+    ///
+    /// Note these two are the same for a selective-mode list, since a response
+    /// for a selective list will contain all the ranges by default. For paging
+    /// and growing lists, these two converge, as those lists end up being
+    /// filled at some point.
     pub(super) fn ranges(&self) -> &[RangeInclusive<Bound>] {
         &self.ranges
     }
 
+    /// Update internal state of the generator (namely, ranges) before the next
+    /// sliding sync request.
     pub(super) fn prepare_for_next_request(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
@@ -166,6 +183,7 @@ impl SlidingSyncListRequestGenerator {
         Ok(())
     }
 
+    /// Handle a sliding sync response, given a new maximum number of rooms.
     pub(super) fn handle_response(
         &mut self,
         list_name: &str,
