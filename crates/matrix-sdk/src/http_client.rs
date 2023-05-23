@@ -170,7 +170,7 @@ impl HttpClient {
         &self,
         request: http::Request<Bytes>,
         config: RequestConfig,
-    ) -> Result<(http::StatusCode, ByteSize, R::IncomingResponse), HttpError>
+    ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
@@ -178,7 +178,7 @@ impl HttpClient {
         // There's a bunch of state here, factor out a pinned inner future to
         // reduce this size of futures that await this function.
         #[cfg(not(target_arch = "wasm32"))]
-        let ret = Box::pin(async move {
+        let (status_code, response_size, response) = Box::pin(async move {
             use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
             use ruma::api::client::error::{
                 ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
@@ -238,7 +238,7 @@ impl HttpClient {
                     .map_err(error_type)?;
 
                 let status_code = response.status();
-                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+                let response_size = response.body().len();
 
                 let response = R::IncomingResponse::try_from_http_response(response)
                     .map_err(|e| error_type(HttpError::from(e)))?;
@@ -251,15 +251,20 @@ impl HttpClient {
         .await?;
 
         #[cfg(target_arch = "wasm32")]
-        let ret = {
+        let (status_code, response_size, response) = {
             let response = self.inner.send_request(request, config.timeout).await?;
             let status_code = response.status();
-            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+            let response_size = response.body().len();
 
             (status_code, response_size, R::IncomingResponse::try_from_http_response(response)?)
         };
 
-        Ok(ret)
+        let response_bytesize = ByteSize(response_size.try_into().unwrap_or(u64::MAX));
+        tracing::Span::current()
+            .record("status", status_code.as_u16())
+            .record("response_size", response_bytesize.to_string_as(true));
+
+        Ok(response)
     }
 
     #[instrument(
@@ -346,17 +351,12 @@ impl HttpClient {
 
         debug!("Sending request");
         match self.send_request::<R>(request, config).await {
-            Ok((status_code, response_size, response)) => {
-                tracing::Span::current()
-                    .record("status", status_code.as_u16())
-                    .record("response_size", response_size.to_string_as(true));
+            Ok(response) => {
                 debug!("Got response");
-
                 Ok(response)
             }
             Err(e) => {
                 debug!("Error while sending request: {e:?}");
-
                 Err(e)
             }
         }
