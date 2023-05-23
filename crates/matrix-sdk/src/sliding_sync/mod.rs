@@ -36,7 +36,6 @@ use async_stream::stream;
 pub use builder::*;
 pub use client::*;
 pub use error::*;
-use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
 pub use room::*;
@@ -304,8 +303,8 @@ impl SlidingSync {
             );
 
             let mut position_lock = self.inner.position.write().unwrap();
-            Observable::set(&mut position_lock.pos, Some(sliding_sync_response.pos));
-            Observable::set(&mut position_lock.delta_token, sliding_sync_response.delta_token);
+            position_lock.pos = Some(sliding_sync_response.pos);
+            position_lock.delta_token = sliding_sync_response.delta_token;
         }
 
         let update_summary = {
@@ -602,8 +601,7 @@ impl SlidingSync {
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
-
-                                            Observable::set(&mut position_lock.pos, None);
+                                            position_lock.pos = None;
                                         }
 
                                         debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
@@ -673,22 +671,20 @@ impl SlidingSync {
     /// Get a copy of the `pos` value.
     pub fn pos(&self) -> Option<String> {
         let position_lock = self.inner.position.read().unwrap();
-
         position_lock.pos.clone()
     }
 
     /// Set a new value for `pos`.
     pub fn set_pos(&self, new_pos: String) {
         let mut position_lock = self.inner.position.write().unwrap();
-
-        Observable::set(&mut position_lock.pos, Some(new_pos));
+        position_lock.pos = Some(new_pos);
     }
 }
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncPositionMarkers {
-    pos: Observable<Option<String>>,
-    delta_token: Observable<Option<String>>,
+    pos: Option<String>,
+    delta_token: Option<String>,
     to_device_token: Option<String>,
 }
 
