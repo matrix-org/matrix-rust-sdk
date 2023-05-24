@@ -33,7 +33,7 @@ use ruma::{
     serde::Raw,
     DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 use crate::{event_handler::HandlerKind, Client, Result};
 
@@ -197,24 +197,13 @@ impl Client {
         let now = Instant::now();
 
         // Construct notification event handler futures
-        let mut futures = Vec::new();
-        for handler in &*self.notification_handlers().await {
-            for (room_id, room_notifications) in notifications {
-                let Some(room) = self.get_room(room_id) else {
-                    warn!(?room_id, "Can't call notification handler, room not found");
+        for (room_id, room_notifications) in notifications {
+            let Some(room) = self.get_room(room_id) else {
+                    error!(?room_id, "Can't call notification handler, room not found");
                     continue;
                 };
 
-                futures.extend(room_notifications.iter().map(|notification| {
-                    (handler)(notification.clone(), room.clone(), self.clone())
-                }));
-            }
-        }
-
-        // Run the notification handler futures with the
-        // `self.notification_handlers` lock no longer being held, in order.
-        for fut in futures {
-            fut.await;
+            self.handle_notifications(room, &room_notifications).await;
         }
 
         debug!("Ran notification handlers in {:?}", now.elapsed());

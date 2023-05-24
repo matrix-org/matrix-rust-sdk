@@ -26,19 +26,19 @@ use crate::{room, Client};
 ///
 /// This trait defines the set of types that may be used as additional arguments
 /// in event handler functions after the event itself.
-pub trait EventHandlerContext: Sized {
+pub trait EventHandlerContext<E: ?Sized>: Sized {
     #[doc(hidden)]
-    fn from_data(_: &EventHandlerData<'_>) -> Option<Self>;
+    fn from_data(_: &EventHandlerData<'_, E>) -> Option<Self>;
 }
 
-impl EventHandlerContext for Client {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized> EventHandlerContext<E> for Client {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         Some(data.client.clone())
     }
 }
 
-impl EventHandlerContext for EventHandlerHandle {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized> EventHandlerContext<E> for EventHandlerHandle {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         Some(data.handle.clone())
     }
 }
@@ -49,8 +49,8 @@ impl EventHandlerContext for EventHandlerHandle {
 /// Trying to use it in the event handler for another event, for example a
 /// global account data or presence event, will result in the event handler
 /// being skipped and an error getting logged.
-impl EventHandlerContext for room::Room {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized> EventHandlerContext<E> for room::Room {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         data.room.clone()
     }
 }
@@ -70,20 +70,20 @@ impl Deref for RawEvent {
     }
 }
 
-impl EventHandlerContext for RawEvent {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl EventHandlerContext<RawJsonValue> for RawEvent {
+    fn from_data(data: &EventHandlerData<'_, RawJsonValue>) -> Option<Self> {
         Some(Self(data.raw.to_owned()))
     }
 }
 
-impl EventHandlerContext for Option<EncryptionInfo> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized> EventHandlerContext<E> for Option<EncryptionInfo> {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         Some(data.encryption_info.cloned())
     }
 }
 
-impl EventHandlerContext for Vec<Action> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized> EventHandlerContext<E> for Vec<Action> {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         Some(data.push_actions.to_owned())
     }
 }
@@ -93,8 +93,8 @@ impl EventHandlerContext for Vec<Action> {
 #[derive(Debug)]
 pub struct Ctx<T>(pub T);
 
-impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
-    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+impl<E: ?Sized, T: Clone + Send + Sync + 'static> EventHandlerContext<E> for Ctx<T> {
+    fn from_data(data: &EventHandlerData<'_, E>) -> Option<Self> {
         let map = data.client.inner.event_handlers.context.read().unwrap();
         map.get::<T>().cloned().map(Ctx)
     }

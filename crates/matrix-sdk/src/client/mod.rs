@@ -18,7 +18,6 @@ use std::{
     collections::BTreeMap,
     fmt::{self, Debug},
     future::Future,
-    pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
 
@@ -66,7 +65,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock};
 use tracing::{debug, error, info, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -93,18 +92,6 @@ pub use self::{
     builder::{ClientBuildError, ClientBuilder},
     login_builder::LoginBuilder,
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-#[cfg(target_arch = "wasm32")]
-type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
-
-#[cfg(not(target_arch = "wasm32"))]
-type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
-#[cfg(target_arch = "wasm32")]
-type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
@@ -162,8 +149,6 @@ pub(crate) struct ClientInner {
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
-    /// Notification handlers. See `register_notification_handler`.
-    notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
@@ -830,6 +815,7 @@ impl Client {
     /// Similar to [`Client::add_event_handler`], but only allows functions
     /// or closures with exactly the three arguments [`Notification`],
     /// [`room::Room`], [`Client`] for now.
+    #[deprecated = "Use add_event_handler which also accepts functions of the same signature"]
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
         H: Fn(Notification, room::Room, Client) -> Fut
@@ -838,17 +824,8 @@ impl Client {
             + 'static,
         Fut: Future<Output = ()> + SendOutsideWasm + 'static,
     {
-        self.inner.notification_handlers.write().await.push(Box::new(
-            move |notification, room, client| Box::pin((handler)(notification, room, client)),
-        ));
-
+        self.add_event_handler(handler);
         self
-    }
-
-    pub(crate) async fn notification_handlers(
-        &self,
-    ) -> RwLockReadGuard<'_, Vec<NotificationHandlerFn>> {
-        self.inner.notification_handlers.read().await
     }
 
     /// Get all the rooms the client knows about.

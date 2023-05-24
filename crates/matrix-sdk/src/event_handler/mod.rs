@@ -50,7 +50,10 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
-use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
+use ruma::{
+    api::client::push::get_notifications::v3::Notification, events::AnySyncStateEvent,
+    push::Action, serde::Raw, OwnedRoomId,
+};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
@@ -70,9 +73,10 @@ type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
 #[cfg(not(target_arch = "wasm32"))]
-type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
+type EventHandlerFn<E = RawJsonValue> =
+    dyn Fn(EventHandlerData<'_, E>) -> EventHandlerFut + Send + Sync;
 #[cfg(target_arch = "wasm32")]
-type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
+type EventHandlerFn<E = RawJsonValue> = dyn Fn(EventHandlerData<'_, E>) -> EventHandlerFut;
 
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
@@ -84,7 +88,11 @@ pub(crate) struct EventHandlerStore {
 }
 
 impl EventHandlerStore {
-    pub fn add_handler(&self, handle: EventHandlerHandle, handler_fn: Box<EventHandlerFn>) {
+    pub fn add_handler<E: ?Sized + 'static>(
+        &self,
+        handle: EventHandlerHandle,
+        handler_fn: Box<EventHandlerFn<E>>,
+    ) {
         self.handlers.write().unwrap().add(handle, handler_fn);
     }
 
@@ -121,6 +129,7 @@ pub enum HandlerKind {
     StrippedState,
     ToDevice,
     Presence,
+    Notification,
 }
 
 impl HandlerKind {
@@ -142,15 +151,20 @@ impl HandlerKind {
 }
 
 /// A statically-known event kind/type that can be retrieved from an event sync.
-pub trait SyncEvent {
-    #[doc(hidden)]
+#[doc(hidden)]
+pub trait SyncEvent: Sized {
     const KIND: HandlerKind;
     #[doc(hidden)]
     const TYPE: Option<&'static str>;
+
+    #[doc(hidden)]
+    type Raw: ?Sized;
+    #[doc(hidden)]
+    fn from_raw(raw: &Self::Raw) -> serde_json::Result<Self>;
 }
 
-pub(crate) struct EventHandlerWrapper {
-    handler_fn: Box<EventHandlerFn>,
+pub(crate) struct EventHandlerWrapper<T: ?Sized = RawJsonValue> {
+    handler_fn: Box<EventHandlerFn<T>>,
     pub handler_id: u64,
 }
 
@@ -197,7 +211,7 @@ pub struct EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
+pub trait EventHandler<Ev: SyncEvent, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: EventHandlerFuture;
@@ -209,7 +223,7 @@ pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     ///
     /// Returns `None` if one of the context extractors failed.
     #[doc(hidden)]
-    fn handle_event(&self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
+    fn handle_event(&self, ev: Ev, data: EventHandlerData<'_, Ev::Raw>) -> Option<Self::Future>;
 }
 
 #[doc(hidden)]
@@ -229,10 +243,11 @@ where
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct EventHandlerData<'a> {
+pub struct EventHandlerData<'a, E: ?Sized> {
     client: Client,
     room: Option<room::Room>,
-    raw: &'a RawJsonValue,
+    /// It's complicated.
+    raw: &'a E,
     encryption_info: Option<&'a EncryptionInfo>,
     push_actions: &'a [Action],
     handle: EventHandlerHandle,
@@ -290,9 +305,8 @@ impl Client {
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
     {
-        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
-            let maybe_fut =
-                serde_json::from_str(data.raw.get()).map(|ev| handler.handle_event(ev, data));
+        let handler_fn: Box<EventHandlerFn<Ev::Raw>> = Box::new(move |data| {
+            let maybe_fut = Ev::from_raw(data.raw).map(|ev| handler.handle_event(ev, data));
 
             Box::pin(async move {
                 match maybe_fut {
@@ -323,6 +337,56 @@ impl Client {
         self.inner.event_handlers.add_handler(handle.clone(), handler_fn);
 
         handle
+    }
+
+    pub(crate) async fn handle_notifications(
+        &self,
+        room: room::Room,
+        notifications: &[Notification],
+    ) {
+        for notification in notifications {
+            let room_id = room.room_id();
+            //tracing::Span::current().record("room_id", debug(room_id));
+
+            // Construct event handler futures
+            let mut futures: FuturesUnordered<_> = self
+                .inner
+                .event_handlers
+                .handlers
+                .read()
+                .unwrap()
+                .notifications
+                .iter()
+                .map(|wrap| {
+                    let handle = EventHandlerHandle {
+                        ev_kind: HandlerKind::Notification,
+                        ev_type: None,
+                        room_id: Some(room_id.to_owned()),
+                        handler_id: wrap.handler_id,
+                    };
+
+                    let data = EventHandlerData {
+                        client: self.clone(),
+                        room: Some(room.clone()),
+                        raw: notification,
+                        // FIXME: Do we have this info?
+                        encryption_info: None,
+                        push_actions: &notification.actions,
+                        handle,
+                    };
+
+                    (wrap.handler_fn)(data)
+                })
+                .collect();
+
+            if !futures.is_empty() {
+                debug!(amount = futures.len(), "Calling notification handlers");
+
+                // Run the event handler futures with the `self.event_handlers.handlers`
+                // lock no longer being held.
+                while let Some(()) = futures.next().await {}
+            }
+        }
     }
 
     pub(crate) async fn handle_sync_events<T>(
@@ -514,11 +578,11 @@ macro_rules! impl_event_handler {
             Ev: SyncEvent,
             Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
             Fut: EventHandlerFuture,
-            $($ty: EventHandlerContext),*
+            $($ty: EventHandlerContext<Ev::Raw>),*
         {
             type Future = Fut;
 
-            fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
+            fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_, Ev::Raw>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
             }
         }

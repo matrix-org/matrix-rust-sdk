@@ -1,4 +1,4 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2023 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ use std::{
     collections::{btree_map, BTreeMap},
 };
 
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{api::client::push::get_notifications::v3::Notification, OwnedRoomId, RoomId};
 
 use super::{EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, HandlerKind};
 
@@ -27,25 +27,37 @@ pub(super) struct EventHandlerMaps {
     by_kind_type: BTreeMap<KindTypeWrap, Vec<EventHandlerWrapper>>,
     by_kind_roomid: BTreeMap<KindRoomId, Vec<EventHandlerWrapper>>,
     by_kind_type_roomid: BTreeMap<KindTypeRoomIdWrap, Vec<EventHandlerWrapper>>,
+    pub(super) notifications: Vec<EventHandlerWrapper<Notification>>,
 }
 
 impl EventHandlerMaps {
-    pub fn add(&mut self, handle: EventHandlerHandle, handler_fn: Box<EventHandlerFn>) {
+    pub fn add<E: ?Sized + 'static>(
+        &mut self,
+        handle: EventHandlerHandle,
+        handler_fn: Box<EventHandlerFn<E>>,
+    ) {
         let wrapper = EventHandlerWrapper { handler_id: handle.handler_id, handler_fn };
-
-        match Key::new(handle) {
-            Key::Kind(key) => {
-                self.by_kind.entry(key).or_default().push(wrapper);
-            }
-            Key::KindType(key) => {
-                self.by_kind_type.entry(key).or_default().push(wrapper);
-            }
-            Key::KindRoomId(key) => {
-                self.by_kind_roomid.entry(key).or_default().push(wrapper);
-            }
-            Key::KindTypeRoomId(key) => {
-                self.by_kind_type_roomid.entry(key).or_default().push(wrapper)
-            }
+        match try_downcast(wrapper) {
+            Ok(wrapper) => match Key::new(handle) {
+                Key::Kind(key) => {
+                    self.by_kind.entry(key).or_default().push(wrapper);
+                }
+                Key::KindType(key) => {
+                    self.by_kind_type.entry(key).or_default().push(wrapper);
+                }
+                Key::KindRoomId(key) => {
+                    self.by_kind_roomid.entry(key).or_default().push(wrapper);
+                }
+                Key::KindTypeRoomId(key) => {
+                    self.by_kind_type_roomid.entry(key).or_default().push(wrapper);
+                }
+            },
+            Err(wrapper) => match try_downcast(wrapper) {
+                Ok(wrapper) => {
+                    self.notifications.push(wrapper);
+                }
+                Err(_) => unreachable!(),
+            },
         }
     }
 
@@ -195,5 +207,19 @@ impl<'a> Borrow<KindType<'a>> for KindTypeWrap {
 impl<'a> Borrow<KindTypeRoomId<'a>> for KindTypeRoomIdWrap {
     fn borrow(&self) -> &KindTypeRoomId<'a> {
         &self.0
+    }
+}
+
+// Arcane Rust magic 🧙
+pub(crate) fn try_downcast<T, K>(k: K) -> Result<T, K>
+where
+    T: 'static,
+    K: Send + 'static,
+{
+    let mut k = Some(k);
+    if let Some(k) = <dyn std::any::Any>::downcast_mut::<Option<T>>(&mut k) {
+        Ok(k.take().unwrap())
+    } else {
+        Err(k.unwrap())
     }
 }
