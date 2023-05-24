@@ -711,7 +711,6 @@ impl SlidingSyncInner {
 #[derive(Debug)]
 enum SlidingSyncInternalMessage {
     /// Instruct the sync loop to stop.
-    #[allow(unused)] // temporary
     SyncLoopStop,
 
     /// Instruct the sync loop to skip over any remaining work in its iteration,
