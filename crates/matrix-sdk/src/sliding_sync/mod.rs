@@ -774,7 +774,7 @@ mod test {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sync = client.sliding_sync().await.build().await?;
+        let sync = client.sliding_sync().build().await?;
         let extensions = sync.prepare_extension_config(None);
 
         // If the user doesn't provide any extension config, we enable to-device and
@@ -815,7 +815,7 @@ mod test {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync().await;
+        let mut sliding_sync_builder = client.sliding_sync();
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);
