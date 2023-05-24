@@ -4,7 +4,7 @@ version = "0.6.0"
 edition = "2021"
 
 [features]
-default = ["e2e-encryption", "native-tls"]
+default = ["e2e-encryption", "native-tls", "experimental-roomlist"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
