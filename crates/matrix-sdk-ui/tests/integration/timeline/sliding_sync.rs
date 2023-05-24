@@ -28,7 +28,7 @@ macro_rules! receive_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            let next = $sliding_sync_stream.next().await.context("`stream` trip")??;
+            let next = $sliding_sync_stream.next().await.context("`sync` trip")??;
 
             next
         }
