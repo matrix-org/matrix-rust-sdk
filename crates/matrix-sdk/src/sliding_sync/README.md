@@ -240,7 +240,7 @@ does after.
 This is modelled as a [async `Stream`][`futures_core::stream::Stream`] in
 our API, that one basically wants to continue polling. Once one has made its
 setup ready and build its sliding sync sessions, one wants to acquire its
-[`.stream()`](`SlidingSync::stream`) and continuously poll it.
+[`.sync()`](`SlidingSync::sync`) and continuously poll it.
 
 While the async stream API allows for streams to end (by returning `None`)
 Sliding Sync streams items `Result<UpdateSummary, Error>`. For every
@@ -276,7 +276,7 @@ let sliding_sync = client
     .build()
     .await?;
 
-let stream = sliding_sync.stream();
+let stream = sliding_sync.sync();
 
 // continuously poll for updates
 pin_mut!(stream);
@@ -321,7 +321,7 @@ the [`SlidingSync`][] will only process new data and skip the processing
 even across restarts.
 
 To support this, in practice, one can spawn a `Future` that runs
-[`SlidingSync::stream`]. The spawned `Future` can be cancelled safely. If
+[`SlidingSync::sync`]. The spawned `Future` can be cancelled safely. If
 the client was waiting on a response, it's cancelled without any issue. If
 a response was just received, it
 will be fully handled by `SlidingSync`. This _response is always
@@ -470,7 +470,7 @@ tokio::spawn(async move {
     }
 });
 
-let stream = sliding_sync.stream();
+let stream = sliding_sync.sync();
 
 // continuously poll for updates
 pin_mut!(stream);

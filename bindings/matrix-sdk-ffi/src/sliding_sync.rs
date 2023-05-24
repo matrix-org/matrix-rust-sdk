@@ -783,7 +783,7 @@ impl SlidingSync {
         let observer = self.observer.clone();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let stream = inner.stream();
+            let stream = inner.sync();
             pin_mut!(stream);
 
             loop {
@@ -800,7 +800,7 @@ impl SlidingSync {
                     }
 
                     None => {
-                        warn!("Inner streaming loop ended unexpectedly");
+                        warn!("SlidingSync sync-loop ended");
                         break;
                     }
                 };
@@ -810,6 +810,10 @@ impl SlidingSync {
                 }
             }
         })))
+    }
+
+    pub fn stop_sync(&self) {
+        RUNTIME.block_on(async move { self.inner.stop_sync().await.unwrap() });
     }
 }
 

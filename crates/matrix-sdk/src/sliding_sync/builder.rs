@@ -230,7 +230,7 @@ impl SlidingSyncBuilder {
 
         let mut delta_token = None;
 
-        let (internal_channel_sender, internal_channel_receiver) = channel(256);
+        let (internal_channel_sender, internal_channel_receiver) = channel(8);
 
         let mut lists = BTreeMap::new();
 

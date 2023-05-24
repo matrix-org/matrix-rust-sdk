@@ -571,21 +571,21 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    /// Create a _new_ Sliding Sync stream.
+    /// Create a _new_ Sliding Sync sync-loop.
     ///
-    /// This stream will send requests and will handle responses automatically,
-    /// hence updating the lists.
+    /// This method returns a `Stream`, which will send requests and will handle
+    /// responses automatically. Lists and rooms are updated automatically.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, "About to run the sync stream");
+    pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+        debug!(?self.inner.extensions, "About to run the sync-loop");
 
-        let sync_stream_span = Span::current();
+        let sync_span = Span::current();
 
         stream! {
             loop {
-                sync_stream_span.in_scope(|| {
-                    debug!(?self.inner.extensions, "Sync stream loop is running");
+                sync_span.in_scope(|| {
+                    debug!(?self.inner.extensions, "Sync-loop is running");
                 });
 
                 let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
@@ -595,6 +595,10 @@ impl SlidingSync {
 
                     internal_message = internal_channel_receiver_lock.recv() => {
                         use SlidingSyncInternalMessage::*;
+
+                        sync_span.in_scope(|| {
+                            debug!(?internal_message, "Sync-loop has received an internal message");
+                        });
 
                         match internal_message {
                             None | Some(SyncLoopStop) => {
@@ -607,7 +611,7 @@ impl SlidingSync {
                         }
                     }
 
-                    update_summary = self.sync_once().instrument(sync_stream_span.clone()) => {
+                    update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
                             Ok(Some(updates)) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
@@ -627,7 +631,7 @@ impl SlidingSync {
                                     if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
                                         >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
                                     {
-                                        sync_stream_span.in_scope(|| {
+                                        sync_span.in_scope(|| {
                                             error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
                                         });
 
@@ -638,7 +642,7 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_stream_span.in_scope(|| {
+                                    sync_span.in_scope(|| {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value.
@@ -661,8 +665,20 @@ impl SlidingSync {
                 }
             }
 
-            debug!("Sync stream loop has exited.");
+            debug!("Sync-loop has exited.");
         }
+    }
+
+    /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
+    ///
+    /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
+    /// enough to “stop” it, but depending of how this `Stream` is used, it
+    /// might not be obvious to drop it immediately (thinking of using this API
+    /// over FFI; the foreign-language might not be able to drop a value
+    /// immediately). Thus, calling this method will ensure that the sync-loop
+    /// stops gracefully and as soon as it returns.
+    pub async fn stop_sync(&self) -> Result<(), Error> {
+        self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
     }
 
     /// Resets the lists.
@@ -679,20 +695,18 @@ impl SlidingSync {
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
-    async fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<()> {
-        Ok(self
-            .internal_channel
-            .0
-            .send(message)
-            .await
-            .map_err(|_| Error::InternalChannelIsBroken)?)
+    #[instrument]
+    async fn internal_channel_send(
+        &self,
+        message: SlidingSyncInternalMessage,
+    ) -> Result<(), Error> {
+        self.internal_channel.0.send(message).await.map_err(|_| Error::InternalChannelIsBroken)
     }
 }
 
 #[derive(Debug)]
 enum SlidingSyncInternalMessage {
     /// Instruct the sync loop to stop.
-    #[allow(unused)] // temporary
     SyncLoopStop,
 
     /// Instruct the sync loop to skip over any remaining work in its iteration,
@@ -747,7 +761,7 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 }
 
 /// A summary of the updates received after a sync (like in
-/// [`SlidingSync::stream`]).
+/// [`SlidingSync::sync`]).
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
     /// The names of the lists that have seen an update.
@@ -757,9 +771,9 @@ pub struct UpdateSummary {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
-    use futures_util::pin_mut;
+    use futures_util::{pin_mut, StreamExt};
     use ruma::{
         api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
         room_id,
@@ -833,7 +847,7 @@ mod test {
             .set_range(0..=10)])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         let room0 = room_id!("!r0:bar.org").to_owned();
@@ -881,7 +895,7 @@ mod test {
             .set_range(0..=10)])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         sliding_sync
@@ -898,6 +912,29 @@ mod test {
         assert!(lists.contains_key("bar"));
 
         // this test also ensures that Tokio is not panicking when calling `add_list`.
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stop_sync_loop() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .set_range(0..=10)])
+        .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_some());
+        }
+
+        sliding_sync.stop_sync().await?;
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_none());
+        }
 
         Ok(())
     }
