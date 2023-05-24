@@ -596,6 +596,10 @@ impl SlidingSync {
                     internal_message = internal_channel_receiver_lock.recv() => {
                         use SlidingSyncInternalMessage::*;
 
+                        sync_span.in_scope(|| {
+                            debug!(?internal_message, "Sync-loop has received an internal message");
+                        });
+
                         match internal_message {
                             None | Some(SyncLoopStop) => {
                                 break;
