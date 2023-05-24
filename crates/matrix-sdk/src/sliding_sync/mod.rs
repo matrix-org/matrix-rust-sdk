@@ -665,6 +665,18 @@ impl SlidingSync {
         }
     }
 
+    /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
+    ///
+    /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
+    /// enough to “stop” it, but depending of how this `Stream` is used, it
+    /// might not be obvious to drop it immediately (thinking of using this API
+    /// over FFI; the foreign-language might not be able to drop a value
+    /// immediately). Thus, calling this method will ensure that the sync-loop
+    /// stops gracefully and as soon as it returns.
+    pub async fn stop_sync(&self) -> Result<(), Error> {
+        self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
+    }
+
     /// Resets the lists.
     pub fn reset_lists(&self) -> Result<(), Error> {
         let lists = self.inner.lists.read().unwrap();
@@ -679,7 +691,10 @@ impl SlidingSync {
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
-    async fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<()> {
+    async fn internal_channel_send(
+        &self,
+        message: SlidingSyncInternalMessage,
+    ) -> Result<(), Error> {
         Ok(self
             .internal_channel
             .0
