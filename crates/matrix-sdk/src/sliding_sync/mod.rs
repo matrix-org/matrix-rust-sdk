@@ -695,6 +695,7 @@ impl SlidingSync {
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
+    #[instrument]
     async fn internal_channel_send(
         &self,
         message: SlidingSyncInternalMessage,

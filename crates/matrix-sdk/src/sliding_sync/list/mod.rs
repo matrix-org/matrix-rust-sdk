@@ -661,6 +661,7 @@ impl SlidingSyncListInner {
     }
 
     /// Send a message over the internal channel.
+    #[instrument]
     fn internal_channel_blocking_send(
         &self,
         message: SlidingSyncInternalMessage,
