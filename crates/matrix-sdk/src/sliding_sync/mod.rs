@@ -776,9 +776,9 @@ pub struct UpdateSummary {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
-    use futures_util::pin_mut;
+    use futures_util::{pin_mut, StreamExt};
     use ruma::{
         api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
         room_id,
@@ -917,6 +917,29 @@ mod test {
         assert!(lists.contains_key("bar"));
 
         // this test also ensures that Tokio is not panicking when calling `add_list`.
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stop_sync_loop() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .set_range(0..=10)])
+        .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_some());
+        }
+
+        sliding_sync.stop_sync().await?;
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_none());
+        }
 
         Ok(())
     }
