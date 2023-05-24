@@ -42,7 +42,6 @@ typically runs on a separate domain, it can be configured on the
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync()
-    .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?);
 
 # anyhow::Ok(())
@@ -271,7 +270,6 @@ In full, this typically looks like this:
 # let client = Client::new(homeserver).await?;
 let sliding_sync = client
     .sliding_sync()
-    .await
     // any lists you want are added here.
     .build()
     .await?;
@@ -414,7 +412,6 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync()
-    .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
     .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage

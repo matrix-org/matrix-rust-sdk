@@ -218,7 +218,6 @@ mod tests {
             let client = Client::new(homeserver).await?;
             let err = client
                 .sliding_sync()
-                .await
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await
                 .unwrap_err();
@@ -265,7 +264,6 @@ mod tests {
             {
                 let sliding_sync = client
                     .sliding_sync()
-                    .await
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
@@ -314,7 +312,6 @@ mod tests {
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
                     .sliding_sync()
-                    .await
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.
