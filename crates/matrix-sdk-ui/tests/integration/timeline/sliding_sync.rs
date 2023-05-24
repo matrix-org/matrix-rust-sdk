@@ -223,7 +223,7 @@ async fn test_timeline_basic() -> Result<()> {
         .set_range(0..=10)])
     .await?;
 
-    let stream = sliding_sync.stream();
+    let stream = sliding_sync.sync();
     pin_mut!(stream);
 
     let room_id = room_id!("!foo:bar.org");
@@ -270,7 +270,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
         .set_range(0..=10)])
     .await?;
 
-    let stream = sliding_sync.stream();
+    let stream = sliding_sync.sync();
     pin_mut!(stream);
 
     let room_id = room_id!("!foo:bar.org");

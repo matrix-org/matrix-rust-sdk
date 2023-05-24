@@ -49,7 +49,7 @@ async fn it_works_smoke_test() -> anyhow::Result<()> {
         )
         .build()
         .await?;
-    let stream = sync_proxy.stream();
+    let stream = sync_proxy.sync();
     pin_mut!(stream);
     let room_summary =
         stream.next().await.context("No room summary found, loop ended unsuccessfully")?;

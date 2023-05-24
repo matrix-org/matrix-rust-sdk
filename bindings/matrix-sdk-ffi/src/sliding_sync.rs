@@ -777,7 +777,7 @@ impl SlidingSync {
         let observer = self.observer.clone();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let stream = inner.stream();
+            let stream = inner.sync();
             pin_mut!(stream);
 
             loop {

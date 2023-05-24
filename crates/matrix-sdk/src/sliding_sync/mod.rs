@@ -571,21 +571,21 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    /// Create a _new_ Sliding Sync stream.
+    /// Create a _new_ Sliding Sync sync-loop.
     ///
-    /// This stream will send requests and will handle responses automatically,
-    /// hence updating the lists.
+    /// This method returns a `Stream`, which will send requests and will handle
+    /// responses automatically. Lists and rooms are updated automatically.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, "About to run the sync stream");
+    pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+        debug!(?self.inner.extensions, "About to run the sync-loop");
 
-        let sync_stream_span = Span::current();
+        let sync_span = Span::current();
 
         stream! {
             loop {
-                sync_stream_span.in_scope(|| {
-                    debug!(?self.inner.extensions, "Sync stream loop is running");
+                sync_span.in_scope(|| {
+                    debug!(?self.inner.extensions, "Sync-loop is running");
                 });
 
                 let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
@@ -607,7 +607,7 @@ impl SlidingSync {
                         }
                     }
 
-                    update_summary = self.sync_once().instrument(sync_stream_span.clone()) => {
+                    update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
                             Ok(Some(updates)) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
@@ -627,7 +627,7 @@ impl SlidingSync {
                                     if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
                                         >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
                                     {
-                                        sync_stream_span.in_scope(|| {
+                                        sync_span.in_scope(|| {
                                             error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
                                         });
 
@@ -638,7 +638,7 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_stream_span.in_scope(|| {
+                                    sync_span.in_scope(|| {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value.
@@ -661,7 +661,7 @@ impl SlidingSync {
                 }
             }
 
-            debug!("Sync stream loop has exited.");
+            debug!("Sync-loop has exited.");
         }
     }
 
@@ -747,7 +747,7 @@ impl From<&SlidingSync> for FrozenSlidingSync {
 }
 
 /// A summary of the updates received after a sync (like in
-/// [`SlidingSync::stream`]).
+/// [`SlidingSync::sync`]).
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
     /// The names of the lists that have seen an update.
@@ -833,7 +833,7 @@ mod test {
             .set_range(0..=10)])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         let room0 = room_id!("!r0:bar.org").to_owned();
@@ -881,7 +881,7 @@ mod test {
             .set_range(0..=10)])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         sliding_sync
