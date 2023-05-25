@@ -20,6 +20,7 @@ testing = []
 async-stream = { workspace = true, optional = true }
 async-trait = { workspace = true }
 chrono = "0.4.23"
+eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }

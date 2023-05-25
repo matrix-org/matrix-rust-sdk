@@ -2,6 +2,7 @@
 
 use async_stream::stream;
 use async_trait::async_trait;
+use eyeball::shared::Observable;
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
     Client, Error, Result, SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary,
@@ -14,6 +15,7 @@ pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync: SlidingSync,
+    state: Observable<State>,
 }
 
 impl RoomList {
@@ -22,13 +24,9 @@ impl RoomList {
             sliding_sync: client
                 .sliding_sync()
                 .storage_key(Some("matrix-sdk-ui-roomlist".to_string()))
-                .add_cached_list(
-                    SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                        .sync_mode(SlidingSyncMode::new_selective()),
-                )
-                .await?
                 .build()
                 .await?,
+            state: Observable::new(State::Init),
         })
     }
 
@@ -37,10 +35,19 @@ impl RoomList {
             let sync = self.sliding_sync.sync();
             pin_mut!(sync);
 
-            let mut state = State::LoadFirstRooms;
+            // Before doing the first sync, let's transition to the next state.
+            {
+                let next_state = self.state.read().next(&self.sliding_sync).await?;
+
+                Observable::set(&self.state, next_state);
+            }
 
             while let Some(update_summary) = sync.next().await {
-                state = state.next(update_summary, &self.sliding_sync).await?;
+                {
+                    let next_state = self.state.read().next(&self.sliding_sync).await?;
+
+                    Observable::set(&self.state, next_state);
+                }
 
                 // if let State::Failure = state {
                 //     yield Err(());
@@ -52,36 +59,37 @@ impl RoomList {
         }
     }
 
+    pub fn state(&self) -> State {
+        self.state.get()
+    }
+
+    pub fn state_stream(&self) -> impl Stream<Item = State> {
+        Observable::subscribe(&self.state)
+    }
+
     #[cfg(feature = "testing")]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
 }
 
-enum State {
+#[derive(Debug, Copy, Clone)]
+pub enum State {
+    Init,
     LoadFirstRooms,
     LoadAllRooms,
     Enjoy,
-    Failure,
 }
 
 impl State {
-    async fn next(
-        self,
-        update_summary: Result<UpdateSummary, Error>,
-        sliding_sync: &SlidingSync,
-    ) -> Result<Self, Error> {
+    async fn next(&self, sliding_sync: &SlidingSync) -> Result<Self, Error> {
         use State::*;
 
-        if update_summary.is_err() {
-            return Ok(Failure);
-        }
-
         let (next_state, actions) = match self {
+            Init => (LoadFirstRooms, Actions::start()),
             LoadFirstRooms => (LoadAllRooms, Actions::first_rooms_are_loaded()),
             LoadAllRooms => (Enjoy, Actions::none()),
             Enjoy => (Enjoy, Actions::none()),
-            Failure => (Failure, Actions::none()),
         };
 
         for action in actions.iter() {
@@ -95,6 +103,23 @@ impl State {
 #[async_trait]
 trait Action {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
+}
+
+struct AddAllRoomsList;
+
+#[async_trait]
+impl Action for AddAllRoomsList {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .add_cached_list(
+                SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
+                    .sync_mode(SlidingSyncMode::new_selective())
+                    .add_range(0..=20),
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 struct AddVisibleRoomsList;
@@ -160,6 +185,7 @@ macro_rules! actions {
 impl Actions {
     actions! {
         none => [],
+        start => [AddAllRoomsList],
         first_rooms_are_loaded => [ChangeAllRoomsListToSelectiveSyncMode, AddVisibleRoomsList],
     }
 
