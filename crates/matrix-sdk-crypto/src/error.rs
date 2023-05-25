@@ -88,7 +88,7 @@ pub enum MegolmError {
 
     /// Decryption failed because we're missing the room key that was to encrypt
     /// the event.
-    #[error("Can't find the room key to decrypt the event")]
+    #[error("Can't find the room key to decrypt the event, withheld code: {0:?}")]
     MissingRoomKey(Option<WithheldCode>),
 
     /// Decryption failed because of a mismatch between the identity keys of the

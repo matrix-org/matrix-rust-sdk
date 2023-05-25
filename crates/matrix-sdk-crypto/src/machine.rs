@@ -1360,7 +1360,6 @@ impl OlmMachine {
                 _ => {}
             }
 
-            // TODO: log the withheld reason if we have one.
             warn!("Failed to decrypt a room event: {e}");
         }
 
