@@ -113,6 +113,11 @@ where
         Duration::from_secs(delay)
     }
 
+    /// Add a single item to the cache.
+    pub fn insert(&self, item: T) {
+        self.extend([item].into_iter());
+    }
+
     /// Extend the cache with the given iterator of items.
     ///
     /// Items that are already part of the cache, whether they are expired or

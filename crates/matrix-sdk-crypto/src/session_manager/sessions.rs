@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
     time::Duration,
 };
@@ -55,6 +55,7 @@ pub(crate) struct SessionManager {
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
     failures: FailuresCache<OwnedServerName>,
+    failed_devices: DashMap<OwnedUserId, FailuresCache<OwnedDeviceId>>,
 }
 
 impl SessionManager {
@@ -76,6 +77,7 @@ impl SessionManager {
             wedged_devices: Default::default(),
             outgoing_to_device_requests: Default::default(),
             failures: Default::default(),
+            failed_devices: Default::default(),
         }
     }
 
@@ -218,6 +220,7 @@ impl SessionManager {
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         let mut missing: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+        let mut timed_out: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions
         // right now.
@@ -242,7 +245,11 @@ impl SessionManager {
                         true
                     };
 
-                    if is_missing {
+                    let is_timed_out = self.is_user_timed_out(user_id, &device_id);
+
+                    if is_missing && is_timed_out {
+                        timed_out.entry(user_id.to_owned()).or_default().insert(device_id);
+                    } else if is_missing && !is_timed_out {
                         missing
                             .entry(user_id.to_owned())
                             .or_default()
@@ -275,7 +282,11 @@ impl SessionManager {
         if missing.is_empty() {
             Ok(None)
         } else {
-            debug!(?missing, "Collected user/device pairs that are missing an Olm session");
+            debug!(
+                ?missing,
+                ?timed_out,
+                "Collected user/device pairs that are missing an Olm session"
+            );
 
             Ok(Some((
                 TransactionId::new(),
@@ -284,6 +295,10 @@ impl SessionManager {
                 }),
             )))
         }
+    }
+
+    fn is_user_timed_out(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
+        self.failed_devices.get(user_id).map(|d| d.contains(device_id)).unwrap_or(false)
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
@@ -353,6 +368,12 @@ impl SessionManager {
                             error = ?e,
                             "Error creating outbound session"
                         );
+
+                        self.failed_devices
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .insert(device_id.to_owned());
+
                         continue;
                     }
                 };
@@ -375,6 +396,12 @@ impl SessionManager {
 
         self.store.save_changes(changes).await?;
         info!(sessions = ?new_sessions, "Established new Olm sessions");
+
+        for (user, device_map) in new_sessions {
+            if let Some(user_cache) = self.failed_devices.get(user) {
+                user_cache.remove(device_map.into_keys());
+            }
+        }
 
         match self.key_request_machine.collect_incoming_key_requests().await {
             Ok(sessions) => {
@@ -658,5 +685,70 @@ mod tests {
 
         manager.receive_keys_claim_response(&keys_claim_without_failure()).await.unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
+    }
+
+    #[async_test]
+    async fn failed_devices_handling() {
+        let response_with_invalid_signature = json!({
+            "one_time_keys": {
+                "@alice:example.org": {
+                    "DEVICEID": {
+                        "signed_curve25519:AAAAAA": {
+                            "fallback": true,
+                            "key": "1sra5GVo1ONz478aQybxSEeHTSo2xq0Z+Q3Yzqvp3A4",
+                            "signatures": {
+                                "@example:morpheus.localhost": {
+                                    "ed25519:YAFLBLXAUK": "Zwk90fJhZWOYGNOgtOswZ6RSOGeTjTi/h2dMpyB0CR6EVtvTra0WJtp32ntifrxtwD710y2F3pe5Oyrm7jngCQ"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "failures": {},
+        });
+
+        let response = response_from_file(&response_with_invalid_signature);
+        let response = KeyClaimResponse::try_from_http_response(response).unwrap();
+
+        let alice = user_id!("@alice:example.org");
+        let alice_account = ReadOnlyAccount::new(alice, "DEVICEID".into());
+        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+
+        let manager = session_manager().await;
+        manager.store.save_devices(&[alice_device]).await.unwrap();
+
+        // Since we don't have a session with Alice yet, the machine will try to claim
+        // some keys for alice.
+        let (_, users_for_key_claim) =
+            manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
+        assert!(users_for_key_claim.one_time_keys.contains_key(alice));
+
+        // We receive a response with an invalid one-time key, this will mark Alice as
+        // timed out.
+        manager.receive_keys_claim_response(&response).await.unwrap();
+        // Since alice is timed out, we won't claim keys for her.
+        assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
+
+        alice_account.generate_one_time_keys_helper(1).await;
+        let one_time = alice_account.signed_one_time_keys().await;
+        assert!(!one_time.is_empty());
+
+        let mut one_time_keys = BTreeMap::new();
+        one_time_keys
+            .entry(alice.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(alice_account.device_id().to_owned(), one_time);
+
+        // Now we receive a valid one-time key from Alice.
+        let response = KeyClaimResponse::new(one_time_keys);
+        manager.receive_keys_claim_response(&response).await.unwrap();
+
+        // Alice isn't timed out anymore.
+        assert!(!manager
+            .failed_devices
+            .entry(alice.to_owned())
+            .or_default()
+            .contains(alice_account.device_id()));
     }
 }
