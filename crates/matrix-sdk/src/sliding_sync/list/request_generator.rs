@@ -231,8 +231,7 @@ impl SlidingSyncListRequestGenerator {
                     // The list is still not fully loaded.
                     *fully_loaded = false;
 
-                    // Update the _list range_ to cover from 0 to `range_end`.
-                    // The list's range is different from the request generator (this) range.
+                    // Update the range to cover from 0 to `range_end`.
                     self.ranges = [0..=range_end].to_vec();
 
                     // Finally, return the new state.

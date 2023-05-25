@@ -806,7 +806,7 @@ mod tests {
     use serde_json::json;
     use tokio::{
         spawn,
-        sync::mpsc::{channel, unbounded_channel},
+        sync::mpsc::{channel, error::TryRecvError, unbounded_channel},
     };
 
     use super::*;
@@ -823,7 +823,7 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_list_set_range() {
-        let (sender, _receiver) = channel(1);
+        let (sender, mut receiver) = channel(1);
 
         // Set range on `Selective`.
         let list = SlidingSyncList::builder("foo")
@@ -834,9 +834,16 @@ mod tests {
 
         assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[0..=1, 2..=3]);
 
+        // There shouldn't be any internal request to restart the sync loop yet.
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+
         list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5).build())
             .unwrap();
         assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[4..=5]);
+
+        // Setting the sync mode requests exactly one restart of the sync loop.
+        assert!(receiver.try_recv().is_ok());
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]
@@ -1217,7 +1224,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generator_changing_sync_mode_on_the_fly() {
+    fn test_generator_changing_sync_mode_to_various_modes() {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
