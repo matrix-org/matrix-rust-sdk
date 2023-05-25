@@ -229,8 +229,141 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
             "m.room_key" => AnyDecryptedOlmEvent::RoomKey(from_str(json)?),
             "m.forwarded_room_key" => AnyDecryptedOlmEvent::ForwardedRoomKey(from_str(json)?),
             "m.secret.send" => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
+            "m.dummy" => AnyDecryptedOlmEvent::Dummy(from_str(json)?),
 
             _ => AnyDecryptedOlmEvent::Custom(from_str(json)?),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use assert_matches::assert_matches;
+    use serde_json::{json, Value};
+
+    use super::*;
+
+    const ED25519_KEY: &str = "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk";
+
+    fn dummy_event() -> Value {
+        json!({
+            "sender": "@alice:example.org",
+            "sender_device": "DEVICEID",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {},
+            "type": "m.dummy"
+        })
+    }
+
+    fn room_key_event() -> Value {
+        json!({
+            "sender": "@alice:example.org",
+            "sender_device": "DEVICEID",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!Cuyf34gef24t:localhost",
+                "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+                "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
+                                SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
+                                jVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiH\
+                                tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
+                                QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
+                                U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
+                                gdHUwHSgMk77vCc2a5KHKLDA"
+            },
+            "type": "m.room_key"
+        })
+    }
+
+    fn forwarded_room_key_event() -> Value {
+        json!({
+            "sender": "@alice:example.org",
+            "sender_device": "DEVICEID",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "forwarding_curve25519_key_chain": [
+                    "hPQNcabIABgGnx3/ACv/jmMmiQHoeFfuLB17tzWp6Hw"
+                ],
+                "room_id": "!Cuyf34gef24t:localhost",
+                "sender_claimed_ed25519_key": "aj40p+aw64yPIdsxoog8jhPu9i7l7NcFRecuOQblE3Y",
+                "sender_key": "RF3s+E7RkTQTGF2d8Deol0FkQvgII2aJDf3/Jp5mxVU",
+                "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ",
+                "session_key": "AQAAAAq2JpkMceK5f6JrZPJWwzQTn59zliuIv0F7apVLXDcZCCT\
+                                3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
+                                00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
+                                pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
+                                tKFdR73/vo2Q/zE3"
+            },
+            "type": "m.forwarded_room_key"
+        })
+    }
+
+    fn secret_send_event() -> Value {
+        json!({
+            "sender": "@alice:example.org",
+            "sender_device": "DEVICEID",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {
+                "request_id": "randomly_generated_id_9573",
+                "secret": "ThisIsASecretDon'tTellAnyone"
+            },
+            "type": "m.secret.send"
+        })
+    }
+
+    #[test]
+    fn deserialization() -> Result<(), serde_json::Error> {
+        macro_rules! assert_deserialization_result {
+            ( $( $json:path => $to_device_events:ident ),* $(,)? ) => {
+                $(
+                    let json = $json();
+                    let event: AnyDecryptedOlmEvent = serde_json::from_value(json)?;
+
+                    assert_matches!(event, AnyDecryptedOlmEvent::$to_device_events(_));
+                )*
+            }
+        }
+
+        assert_deserialization_result!(
+            // `m.room_key
+            room_key_event => RoomKey,
+
+            // `m.forwarded_room_key`
+            forwarded_room_key_event => ForwardedRoomKey,
+
+            // `m.secret.send`
+            secret_send_event => SecretSend,
+
+            // `m.dummy`
+            dummy_event => Dummy,
+        );
+
+        Ok(())
     }
 }
