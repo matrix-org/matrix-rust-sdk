@@ -70,8 +70,8 @@ impl SlidingSyncList {
     /// means that the state is not reset **purposely**. The ranges and the
     /// state will be updated when the next request will be sent and a
     /// response will be received. The maximum number of rooms won't change.
-    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) -> Result<()> {
-        self.inner.set_sync_mode(sync_mode);
+    pub fn set_sync_mode(&self, sync_mode: impl Into<SlidingSyncMode>) -> Result<()> {
+        self.inner.set_sync_mode(sync_mode.into());
 
         // When the sync mode is changed, the sync loop must skip over any work in its
         // iteration and jump to the next iteration.
@@ -187,7 +187,8 @@ impl SlidingSyncList {
         list_sync_operations: &[v4::SyncOp],
         rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
-        // Make sure to update the generator state first; ordering matters because `update_room_list` observes the latest ranges in the response.
+        // Make sure to update the generator state first; ordering matters because
+        // `update_room_list` observes the latest ranges in the response.
         self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         let new_changes = self.inner.update_room_list(
@@ -390,8 +391,9 @@ impl SlidingSyncListInner {
             // position modification or an update in general (like a new room
             // message). Let's trigger those.
             let request_generator = self.request_generator.read().unwrap();
-            // Note: this is fine to call `request_generator` here because we've handled the response in the generator first.
-            let ranges = request_generator.latest_ranges();
+            // Note: this is fine to call `request_generator` here because we've handled the
+            // response in the generator first.
+            let ranges = request_generator.requested_ranges();
 
             for (start, end) in ranges
                 .iter()
@@ -718,7 +720,7 @@ pub struct SlidingSyncSelectiveModeBuilder {
 
 impl SlidingSyncSelectiveModeBuilder {
     /// Create a new `SlidingSyncSelectiveModeBuilder`.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self::default()
     }
 
@@ -731,6 +733,12 @@ impl SlidingSyncSelectiveModeBuilder {
     /// Finish building the selective mode.
     pub fn build(self) -> SlidingSyncMode {
         SlidingSyncMode::Selective { ranges: self.ranges }
+    }
+}
+
+impl Into<SlidingSyncMode> for SlidingSyncSelectiveModeBuilder {
+    fn into(self) -> SlidingSyncMode {
+        self.build()
     }
 }
 
@@ -775,8 +783,8 @@ impl Default for SlidingSyncMode {
 
 impl SlidingSyncMode {
     /// Create a `SlidingSyncMode::Selective`.
-    pub fn new_selective(builder: SlidingSyncSelectiveModeBuilder) -> Self {
-        builder.build()
+    pub fn new_selective() -> SlidingSyncSelectiveModeBuilder {
+        SlidingSyncSelectiveModeBuilder::new()
     }
 
     /// Create a `SlidingSyncMode::Paging`.
@@ -824,14 +832,12 @@ mod tests {
 
         // Set range on `Selective`.
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(
-                SlidingSyncSelectiveModeBuilder::new().add_range(0..=1).add_range(2..=3).build(),
-            )
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=1).add_range(2..=3))
             .build(sender);
 
         {
             let mut generator = list.inner.request_generator.write().unwrap();
-            assert_eq!(generator.latest_ranges(), &[0..=1, 2..=3]);
+            assert_eq!(generator.requested_ranges(), &[0..=1, 2..=3]);
 
             let ranges = generator.generate_next_ranges(None).unwrap();
             assert_eq!(ranges, &[0..=1, 2..=3]);
@@ -845,7 +851,7 @@ mod tests {
 
         {
             let mut generator = list.inner.request_generator.write().unwrap();
-            assert_eq!(generator.latest_ranges(), &[4..=5]);
+            assert_eq!(generator.requested_ranges(), &[4..=5]);
 
             let ranges = generator.generate_next_ranges(None).unwrap();
             assert_eq!(ranges, &[4..=5]);
@@ -1521,7 +1527,7 @@ mod tests {
                 }
             })
         );
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::new_selective(SlidingSyncSelectiveModeBuilder::new()) => json!({
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::new_selective().build() => json!({
                 "Selective": {
                     "ranges": []
                 }

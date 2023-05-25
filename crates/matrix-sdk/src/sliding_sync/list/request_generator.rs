@@ -120,7 +120,8 @@ impl SlidingSyncListRequestGenerator {
     /// Return a view on the ranges requested by this generator.
     ///
     /// For generators in the selective mode, this is the initial set of ranges.
-    /// For growing and paginated generators, this is the range committed in the latest response received from the server.
+    /// For growing and paginated generators, this is the range committed in the
+    /// latest response received from the server.
     pub(super) fn requested_ranges(&self) -> &[RangeInclusive<Bound>] {
         &self.ranges
     }
@@ -137,7 +138,8 @@ impl SlidingSyncListRequestGenerator {
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Selective => {
                 // Nothing to do: we already have the full ranges, return the existing ranges.
-                // For the growing and paging modes, keep the current value of `requested_end`, which is still valid.
+                // For the growing and paging modes, keep the current value of `requested_end`,
+                // which is still valid.
                 Ok(self.ranges.clone())
             }
 
@@ -326,7 +328,6 @@ fn create_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sliding_sync::SlidingSyncSelectiveModeBuilder;
 
     #[test]
     fn test_create_range_from() {
@@ -377,8 +378,8 @@ mod tests {
 
     #[test]
     fn test_request_generator_selective_from_sync_mode() {
-        let sync_mode = SlidingSyncMode::new_selective(SlidingSyncSelectiveModeBuilder::new());
-        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+        let sync_mode = SlidingSyncMode::new_selective();
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.build());
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);

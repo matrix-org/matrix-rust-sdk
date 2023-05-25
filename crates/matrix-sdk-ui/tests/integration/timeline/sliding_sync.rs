@@ -5,8 +5,7 @@ use assert_matches::assert_matches;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
-    sliding_sync::SlidingSyncSelectiveModeBuilder, SlidingSync, SlidingSyncList,
-    SlidingSyncListBuilder, UpdateSummary,
+    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::timeline::{SlidingSyncRoomExt, TimelineItem, VirtualTimelineItem};
@@ -220,7 +219,7 @@ impl Match for SlidingSyncMatcher {
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
     let stream = sliding_sync.sync();
@@ -266,7 +265,7 @@ async fn test_timeline_basic() -> Result<()> {
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
     let stream = sliding_sync.sync();

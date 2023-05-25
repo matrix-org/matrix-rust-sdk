@@ -2,10 +2,7 @@
 
 use anyhow::Context;
 use futures_util::{pin_mut, stream::StreamExt};
-use matrix_sdk::{
-    sliding_sync::SlidingSyncSelectiveModeBuilder, Client, RoomListEntry, SlidingSyncBuilder,
-    SlidingSyncList,
-};
+use matrix_sdk::{Client, RoomListEntry, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
 async fn setup(
@@ -43,7 +40,7 @@ async fn it_works_smoke_test() -> anyhow::Result<()> {
     let sync_proxy = sync_builder
         .add_list(
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))
                 .timeline_limit(0),
         )
         .build()

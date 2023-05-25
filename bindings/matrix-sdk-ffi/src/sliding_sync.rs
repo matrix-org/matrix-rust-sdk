@@ -418,7 +418,7 @@ pub struct SlidingSyncSelectiveModeBuilder {
 impl SlidingSyncSelectiveModeBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: MatrixSlidingSyncSelectiveModeBuilder::new() })
+        Arc::new(Self { inner: SlidingSyncMode::new_selective() })
     }
 
     pub fn add_range(self: Arc<Self>, start: u32, end_inclusive: u32) -> Arc<Self> {
@@ -482,8 +482,7 @@ impl SlidingSyncListBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         let selective_mode_builder = unwrap_or_clone_arc(selective_mode_builder);
-        builder.inner =
-            builder.inner.sync_mode(SlidingSyncMode::new_selective(selective_mode_builder.inner));
+        builder.inner = builder.inner.sync_mode(selective_mode_builder.inner.build());
         Arc::new(builder)
     }
 

@@ -102,8 +102,8 @@ impl SlidingSyncListBuilder {
     }
 
     /// Which SlidingSyncMode to start this list under.
-    pub fn sync_mode(mut self, value: SlidingSyncMode) -> Self {
-        self.sync_mode = value;
+    pub fn sync_mode(mut self, value: impl Into<SlidingSyncMode>) -> Self {
+        self.sync_mode = value.into();
         self
     }
 

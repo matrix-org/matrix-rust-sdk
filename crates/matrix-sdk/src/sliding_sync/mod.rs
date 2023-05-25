@@ -779,7 +779,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_to_room() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
         let _stream = sliding_sync.sync();
@@ -826,7 +826,7 @@ mod tests {
     #[tokio::test]
     async fn test_to_device_token_properly_cached() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
         // When no to-device token is present, `prepare_extensions_config` doesn't fill
@@ -862,7 +862,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_list() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
         let _stream = sliding_sync.sync();
@@ -871,7 +871,7 @@ mod tests {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder("bar")
-                    .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(50..=60).build()),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(50..=60)),
             )
             .await?;
 
@@ -888,7 +888,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_sync_loop() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).build())])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
         let stream = sliding_sync.sync();
