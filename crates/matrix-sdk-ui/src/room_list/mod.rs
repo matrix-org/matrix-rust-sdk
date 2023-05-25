@@ -119,7 +119,7 @@ struct ChangeAllRoomsListToSelectiveSyncMode;
 impl Action for ChangeAllRoomsListToSelectiveSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
-            .on_list("all_rooms", |list| list.set_sync_mode(SlidingSyncMode::new_growing(20, None)))
+            .on_list(ALL_ROOMS_LIST_NAME, |list| list.set_sync_mode(SlidingSyncMode::new_growing(20, None)))
             .unwrap() // transform into a custom `MyError::UnknownList`
             ?;
 

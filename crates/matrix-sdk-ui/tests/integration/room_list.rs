@@ -26,9 +26,9 @@ impl Match for SlidingSyncMatcher {
 
 macro_rules! sync_then_assert_request_and_fake_response {
     (
-        [$server:ident, $room_list_sync_stream:ident]
-        request = { $( $request_json:tt )* },
-        response = { $( $response_json:tt )* }
+        sync with $server:ident and $room_list_sync_stream:ident,
+        assert request = { $( $request_json:tt )* },
+        respond with = { $( $response_json:tt )* }
         $(,)?
     ) => {
         {
@@ -49,7 +49,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
 
                     if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
                         &json_value,
-                        &json!({ $( $response_json )* }),
+                        &json!({ $( $request_json )* }),
                         assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
                     ) {
                         dbg!(json_value);
@@ -82,15 +82,27 @@ async fn test_foo() -> Result<()> {
     pin_mut!(sync);
 
     sync_then_assert_request_and_fake_response! {
-        [server, sync]
-        request = {
+        sync with server and sync,
+        assert request = {
             "lists": {
                 "all_rooms": {
                     "ranges": [],
+                    "required_state": [
+                        ["m.room.encryption", ""]
+                    ],
+                    "sort": ["by_recency", "by_name"],
                 }
             },
+            "extensions": {
+                "e2ee": {
+                    "enabled": true,
+                },
+                "to_device": {
+                    "enabled": true,
+                }
+            }
         },
-        response = {
+        respond with = {
             "pos": "foo",
             "lists": {},
             "rooms": {},
