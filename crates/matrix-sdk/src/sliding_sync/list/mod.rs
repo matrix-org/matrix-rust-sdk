@@ -187,12 +187,14 @@ impl SlidingSyncList {
         list_sync_operations: &[v4::SyncOp],
         rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
+        // Make sure to update the generator state first; ordering matters because `update_room_list` observes the latest ranges in the response.
+        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
+
         let new_changes = self.inner.update_room_list(
             maximum_number_of_rooms,
             list_sync_operations,
             rooms_that_have_received_an_update,
         )?;
-        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(new_changes)
     }
@@ -281,32 +283,26 @@ impl SlidingSyncListInner {
         }
     }
 
-    // Update the state to the next request, and return it.
+    /// Update the state to the next request, and return it.
     fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
-        {
+        let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
             request_generator
-                .prepare_for_next_request(**self.maximum_number_of_rooms.read().unwrap())?;
-        }
+                .generate_next_ranges(**self.maximum_number_of_rooms.read().unwrap())?
+        };
 
         // Here we go.
-        Ok(self.request())
+        Ok(self.request(ranges))
     }
 
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self) -> v4::SyncRequestList {
+    fn request(&self, ranges: Ranges) -> v4::SyncRequestList {
         use ruma::UInt;
-        let ranges = self
-            .request_generator
-            .read()
-            .unwrap()
-            .ranges()
-            .iter()
-            .map(|r| (UInt::from(*r.start()), UInt::from(*r.end())))
-            .collect();
+        let ranges =
+            ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
         let sort = self.sort.clone();
         let required_state = self.required_state.clone();
         let timeline_limit = self.timeline_limit.read().unwrap().map(UInt::from);
@@ -394,7 +390,8 @@ impl SlidingSyncListInner {
             // position modification or an update in general (like a new room
             // message). Let's trigger those.
             let request_generator = self.request_generator.read().unwrap();
-            let ranges = request_generator.ranges();
+            // Note: this is fine to call `request_generator` here because we've handled the response in the generator first.
+            let ranges = request_generator.latest_ranges();
 
             for (start, end) in ranges
                 .iter()
@@ -822,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_list_set_range() {
+    fn test_sliding_sync_list_selective_mode() {
         let (sender, mut receiver) = channel(1);
 
         // Set range on `Selective`.
@@ -832,14 +829,27 @@ mod tests {
             )
             .build(sender);
 
-        assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[0..=1, 2..=3]);
+        {
+            let mut generator = list.inner.request_generator.write().unwrap();
+            assert_eq!(generator.latest_ranges(), &[0..=1, 2..=3]);
+
+            let ranges = generator.generate_next_ranges(None).unwrap();
+            assert_eq!(ranges, &[0..=1, 2..=3]);
+        }
 
         // There shouldn't be any internal request to restart the sync loop yet.
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
 
         list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5).build())
             .unwrap();
-        assert_eq!(list.inner.request_generator.read().unwrap().ranges(), &[4..=5]);
+
+        {
+            let mut generator = list.inner.request_generator.write().unwrap();
+            assert_eq!(generator.latest_ranges(), &[4..=5]);
+
+            let ranges = generator.generate_next_ranges(None).unwrap();
+            assert_eq!(ranges, &[4..=5]);
+        }
 
         // Setting the sync mode requests exactly one restart of the sync loop.
         assert!(receiver.try_recv().is_ok());
