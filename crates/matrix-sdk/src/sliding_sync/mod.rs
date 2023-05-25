@@ -116,7 +116,7 @@ pub(super) struct SlidingSyncInner {
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
 
-    /// The intended state of the extensions being supplied to sliding /sync
+    /// The intended state of the extensions being supplied to Sliding Sync
     /// calls.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
@@ -699,6 +699,7 @@ struct FrozenSlidingSync {
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(sliding_sync: &SlidingSync) -> Self {
         let position = sliding_sync.inner.position.read().unwrap();
+
         FrozenSlidingSync {
             delta_token: position.delta_token.clone(),
             to_device_since: position.to_device_token.clone(),
@@ -830,6 +831,43 @@ mod tests {
 
         // this test also ensures that Tokio is not panicking when calling
         // `subscribe_to_room` and `unsubscribe_from_room`.
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_to_device_token_properly_cached() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::Selective)
+            .set_range(0..=10)])
+        .await?;
+
+        // When no to-device token is present, `prepare_extensions_config` doesn't fill
+        // the request with it.
+        let config = sliding_sync.prepare_extension_config(Some("pos"));
+        assert!(config.to_device.since.is_none());
+
+        let config = sliding_sync.prepare_extension_config(None);
+        assert!(config.to_device.since.is_none());
+
+        // When no to-device token is present, it's still not there after caching
+        // either.
+        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        assert!(frozen.to_device_since.is_none());
+
+        // When a to-device token is present, `prepare_extensions_config` fills the
+        // request with it.
+        let since = String::from("my-to-device-since-token");
+        sliding_sync.update_to_device_since(since.clone());
+
+        let config = sliding_sync.prepare_extension_config(Some("pos"));
+        assert_eq!(config.to_device.since.as_ref(), Some(&since));
+
+        let config = sliding_sync.prepare_extension_config(None);
+        assert_eq!(config.to_device.since.as_ref(), Some(&since));
+
+        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        assert_eq!(frozen.to_device_since, Some(since));
 
         Ok(())
     }

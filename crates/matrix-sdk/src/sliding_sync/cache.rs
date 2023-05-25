@@ -166,7 +166,7 @@ pub(super) async fn restore_sliding_sync_state(
             trace!("Successfully read the `SlidingSync` from the cache");
             // Let's update the `SlidingSync`.
             if let Some(since) = to_device_since {
-                *to_device_token.get_or_insert_with(Default::default) = since;
+                *to_device_token = Some(since);
             }
             *delta_token = frozen_delta_token;
         }
