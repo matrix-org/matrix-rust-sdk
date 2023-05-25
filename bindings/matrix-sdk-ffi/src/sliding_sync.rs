@@ -180,19 +180,13 @@ impl SlidingSyncRoom {
     pub fn avatar_url(&self) -> Option<String> {
         Some(self.client.get_room(self.inner.room_id())?.avatar_url()?.into())
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl SlidingSyncRoom {
     #[allow(clippy::significant_drop_in_scrutinee)]
-    pub async fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
-        let item = self.inner.latest_event().await?;
+    pub fn latest_room_message(&self) -> Option<Arc<EventTimelineItem>> {
+        let item = RUNTIME.block_on(self.inner.latest_event())?;
         Some(Arc::new(EventTimelineItem(item)))
     }
-}
 
-#[uniffi::export]
-impl SlidingSyncRoom {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
