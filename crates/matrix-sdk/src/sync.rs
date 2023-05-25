@@ -199,11 +199,11 @@ impl Client {
         // Construct notification event handler futures
         for (room_id, room_notifications) in notifications {
             let Some(room) = self.get_room(room_id) else {
-                    error!(?room_id, "Can't call notification handler, room not found");
-                    continue;
-                };
+                error!(?room_id, "Can't call notification handler, room not found");
+                continue;
+            };
 
-            self.handle_notifications(room, &room_notifications).await;
+            self.handle_notifications(room, room_notifications).await;
         }
 
         debug!("Ran notification handlers in {:?}", now.elapsed());
