@@ -1249,12 +1249,6 @@ impl OlmMachine {
         })
     }
 
-    #[instrument(
-        skip_all,
-        // This function is only ever called by decrypt_room_event, so
-        // room_id, sender, algorithm and session_id are recorded already
-        fields(sender_key, event_type),
-    )]
     async fn decrypt_megolm_events(
         &self,
         room_id: &RoomId,
@@ -1264,7 +1258,12 @@ impl OlmMachine {
         if let Some(session) =
             self.store().get_inbound_group_session(room_id, content.session_id()).await?
         {
-            tracing::Span::current().record("sender_key", session.sender_key().to_base64());
+            // This function is only ever called by decrypt_room_event, so
+            // room_id, sender, algorithm and session_id are recorded already
+            //
+            // While we already record the sender key in some cases from the event, the
+            // sender key in the event is deprecated, so let's record it now.
+            tracing::Span::current().record("sender_key", debug(session.sender_key()));
 
             let result = session.decrypt(event).await;
             match result {
@@ -1317,7 +1316,7 @@ impl OlmMachine {
     /// * `event` - The event that should be decrypted.
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id))]
+    #[instrument(skip_all, fields(?room_id, event_id, sender, algorithm, session_id, sender_key))]
     pub async fn decrypt_room_event(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1331,7 +1330,10 @@ impl OlmMachine {
             .record("algorithm", debug(event.content.algorithm()));
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
-            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
+                tracing::Span::current().record("sender_key", debug(c.sender_key));
+                c.into()
+            }
             #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             RoomEventEncryptionScheme::Unknown(_) => {
