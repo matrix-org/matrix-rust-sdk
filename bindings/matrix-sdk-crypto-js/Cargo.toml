@@ -43,7 +43,7 @@ js-sys = "0.3.49"
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-indexeddb" }
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
-ruma = { workspace = true, features = ["js", "rand", "unstable-msc2677"] }
+ruma = { workspace = true, features = ["js", "rand"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.14", default-features = false, features = ["registry", "std"] }
