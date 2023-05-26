@@ -173,6 +173,9 @@ impl SlidingSyncListBuilder {
     ) -> SlidingSyncList {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
+                #[cfg(any(test, feature = "testing"))]
+                sync_mode: StdRwLock::new(self.sync_mode.clone()),
+
                 // From the builder
                 sort: self.sort,
                 required_state: self.required_state,

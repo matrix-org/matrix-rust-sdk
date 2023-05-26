@@ -202,13 +202,20 @@ impl SlidingSyncList {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
+#[allow(dead_code)]
 impl SlidingSyncList {
+    /// Set the maximum number of rooms.
     pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
         Observable::set(
             &mut self.inner.maximum_number_of_rooms.write().unwrap(),
             maximum_number_of_rooms,
         );
+    }
+
+    /// Get the sync-mode.
+    pub fn sync_mode(&self) -> SlidingSyncMode {
+        self.inner.sync_mode.read().unwrap().clone()
     }
 }
 
@@ -254,6 +261,9 @@ pub(super) struct SlidingSyncListInner {
     /// The Sliding Sync internal channel sender. See
     /// [`SlidingSyncInner::internal_channel`] to learn more.
     sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
+
+    #[cfg(any(test, feature = "testing"))]
+    sync_mode: StdRwLock<SlidingSyncMode>,
 }
 
 impl SlidingSyncListInner {
@@ -264,6 +274,11 @@ impl SlidingSyncListInner {
     /// The [`Self::state`] is immediately updated to reflect the new state. The
     /// [`Self::maximum_number_of_rooms`] won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            *self.sync_mode.write().unwrap() = sync_mode.clone();
+        }
+
         {
             let mut request_generator = self.request_generator.write().unwrap();
             *request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
