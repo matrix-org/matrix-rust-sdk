@@ -133,15 +133,22 @@ mod sticky_parameters {
         }
 
         /// Marks the sticky parameters as acknowledged by the server.
-        pub fn maybe_commit(&mut self, response_txn_id: &TransactionId) {
-            if self.invalidated {
-                // Don't make it a hard error if the response transaction id doesn't match the
-                // expected one; this might be caused by an internal reset, or
-                // because the server returned an unknown position, which also
-                // "resets" the current sliding sync.
-                if self.txn_id.as_deref() == Some(response_txn_id) {
-                    self.invalidated = false;
-                }
+        pub fn maybe_commit(
+            &mut self,
+            response_txn_id: &TransactionId,
+            lists: &mut BTreeMap<String, SlidingSyncList>,
+        ) {
+            if !self.invalidated {
+                return;
+            }
+
+            // Don't make it a hard error if the response transaction id doesn't match the
+            // expected one; this might be caused by an internal reset, or
+            // because the server returned an unknown position, which also
+            // "resets" the current sliding sync.
+            if self.txn_id.as_deref() == Some(response_txn_id) {
+                lists.values_mut().for_each(|list| list.commit_sticky());
+                self.invalidated = false;
             }
         }
 
@@ -193,7 +200,7 @@ mod sticky_parameters {
             &self.room_subscriptions
         }
 
-        #[cfg(test)]
+        /// Returns whether the current set of sticky parameters has been invalidated.
         pub fn is_invalidated(&self) -> bool {
             self.invalidated
         }
@@ -400,7 +407,8 @@ impl SlidingSync {
 
         // Commit sticky parameters, if needed.
         if let Some(ref txn_id) = sliding_sync_response.txn_id {
-            self.inner.sticky.write().unwrap().maybe_commit(txn_id.as_str().into());
+            let mut lists = self.inner.lists.write().unwrap();
+            self.inner.sticky.write().unwrap().maybe_commit(txn_id.as_str().into(), &mut lists);
         }
 
         let update_summary = {
@@ -487,17 +495,32 @@ impl SlidingSync {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
-        {
+        let apply_sticky_params = {
             let mut lists = self.inner.lists.write().unwrap();
 
             if lists.is_empty() {
                 return Ok(None);
             }
 
+            // First, collect whether any of the lists invalidated the whole set of sticky parameters.
+            let mut sticky = self.inner.sticky.write().unwrap();
+
+            let mut invalidated = sticky.is_invalidated();
+            if !invalidated {
+                invalidated = lists.values().any(|list| list.sticky_is_invalidated());
+            }
+
+            if invalidated {
+                sticky.invalidate();
+                lists.values_mut().for_each(|list| list.sticky_invalidate());
+            }
+
             for (name, list) in lists.iter_mut() {
                 requests_lists.insert(name.clone(), list.next_request()?);
             }
-        }
+
+            invalidated
+        };
 
         // Collect the `pos` and `delta_token`.
         let (pos, delta_token) = {
@@ -522,6 +545,10 @@ impl SlidingSync {
 
         {
             let mut sticky_params = self.inner.sticky.write().unwrap();
+
+            // Sticky parameters should not change between the beginning and the end of this function! Or we might miss applying the sticky parameters to the sub-list requests, if we invalidated in the meanwhile.
+            assert_eq!(sticky_params.is_invalidated(), apply_sticky_params);
+
             sticky_params.maybe_apply_parameters(&mut request);
 
             // Set the to_device token if the extension is enabled.
@@ -970,7 +997,7 @@ mod tests {
 
         // Committing while it wasn't expected isn't a hard error, and it doesn't change
         // anything.
-        sticky.maybe_commit("tid123".into());
+        sticky.maybe_commit("tid123".into(), &mut Default::default());
 
         assert!(!sticky.is_invalidated());
     }
@@ -996,7 +1023,7 @@ mod tests {
 
         let tid = request.txn_id.expect("invalidated + apply_parameters => non-null tid");
 
-        sticky.maybe_commit(tid.as_str().into());
+        sticky.maybe_commit(tid.as_str().into(), &mut Default::default());
         assert!(!sticky.is_invalidated());
 
         // Applying new parameters will invalidate again.
@@ -1006,7 +1033,10 @@ mod tests {
         assert!(sticky.is_invalidated());
 
         // Committing with the wrong transaction id will keep it invalidated.
-        sticky.maybe_commit("what-are-the-odds-the-rng-will-generate-this-string".into());
+        sticky.maybe_commit(
+            "what-are-the-odds-the-rng-will-generate-this-string".into(),
+            &mut Default::default(),
+        );
         assert!(sticky.is_invalidated());
 
         // Restarting a request will only remember the last generated transaction id.
@@ -1024,11 +1054,11 @@ mod tests {
 
         // Here we commit with the not most-recent TID, so it keeps the invalidated
         // status.
-        sticky.maybe_commit(request1.txn_id.unwrap().as_str().into());
+        sticky.maybe_commit(request1.txn_id.unwrap().as_str().into(), &mut Default::default());
         assert!(sticky.is_invalidated());
 
         // But here we use the latest TID, so the commit is effective.
-        sticky.maybe_commit(request2.txn_id.unwrap().as_str().into());
+        sticky.maybe_commit(request2.txn_id.unwrap().as_str().into(), &mut Default::default());
         assert!(!sticky.is_invalidated());
     }
 
@@ -1091,7 +1121,10 @@ mod tests {
             // Committing with another transaction id doesn't validate anything.
             let mut sticky = sync.inner.sticky.write().unwrap();
             assert!(sticky.is_invalidated());
-            sticky.maybe_commit("very-hopeful-no-rng-will-generate-this-string".into());
+            sticky.maybe_commit(
+                "very-hopeful-no-rng-will-generate-this-string".into(),
+                &mut Default::default(),
+            );
             assert!(sticky.is_invalidated());
         }
 
@@ -1111,7 +1144,7 @@ mod tests {
             // Committing with the expected transaction id will validate it.
             let mut sticky = sync.inner.sticky.write().unwrap();
             assert!(sticky.is_invalidated());
-            sticky.maybe_commit(txn_id2.as_str().into());
+            sticky.maybe_commit(txn_id2.as_str().into(), &mut Default::default());
             assert!(!sticky.is_invalidated());
         }
 

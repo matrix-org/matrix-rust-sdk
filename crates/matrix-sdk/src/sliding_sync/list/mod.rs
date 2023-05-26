@@ -26,6 +26,71 @@ use tracing::{instrument, warn};
 use super::{Error, SlidingSyncInternalMessage};
 use crate::Result;
 
+mod sticky_parameters {
+    use ruma::api::client::sync::sync_events::v4::SyncRequestList;
+
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct ListStickyParameters {
+        /// Sort the room list by this.
+        sort: Vec<String>,
+
+        /// Required states to return per room.
+        required_state: Vec<(StateEventType, String)>,
+
+        /// Any filters to apply to the query.
+        filters: Option<v4::SyncRequestListFilters>,
+
+        /// The maximum number of timeline events to query for.
+        timeline_limit: Option<Bound>,
+
+        /// Whether this set of sticky parameters has been invalidated because a new value has been set or not.
+        invalidated: bool,
+    }
+
+    impl ListStickyParameters {
+        pub fn new(
+            sort: Vec<String>,
+            required_state: Vec<(StateEventType, String)>,
+            filters: Option<v4::SyncRequestListFilters>,
+            timeline_limit: Option<Bound>,
+        ) -> Self {
+            // Consider that each list will have at least one parameter set, so invalidate it by default.
+            Self { sort, required_state, filters, timeline_limit, invalidated: true }
+        }
+
+        pub fn invalidated(&self) -> bool {
+            self.invalidated
+        }
+        pub fn invalidate(&mut self) {
+            self.invalidated = true;
+        }
+        pub fn commit(&mut self) {
+            self.invalidated = false;
+        }
+
+        pub fn timeline_limit(&self) -> Option<Bound> {
+            self.timeline_limit
+        }
+
+        pub fn set_timeline_limit(&mut self, val: Option<Bound>) {
+            self.invalidated = true;
+            self.timeline_limit = val;
+        }
+
+        pub fn maybe_apply_parameters(&self, req: &mut SyncRequestList) {
+            if !self.invalidated {
+                return;
+            }
+            req.sort = self.sort.to_vec();
+            req.room_details.required_state = self.required_state.to_vec();
+            req.room_details.timeline_limit = self.timeline_limit.map(|val| val.into());
+            req.filters = self.filters.clone();
+        }
+    }
+}
+
 /// Should this [`SlidingSyncList`] be stored in the cache, and automatically
 /// reloaded from the cache upon creation?
 #[derive(Clone, Copy, Debug)]
@@ -100,12 +165,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        *self.inner.timeline_limit.read().unwrap()
+        self.inner.sticky.read().unwrap().timeline_limit()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
-        *self.inner.timeline_limit.write().unwrap() = timeline;
+        self.inner.sticky.write().unwrap().set_timeline_limit(timeline);
     }
 
     /// Get the current room list.
@@ -158,7 +223,7 @@ impl SlidingSyncList {
     ///
     /// The next request is entirely calculated based on the request generator
     /// ([`SlidingSyncListRequestGenerator`]).
-    pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
+    pub(super) fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request()
     }
 
@@ -199,6 +264,21 @@ impl SlidingSyncList {
 
         Ok(new_changes)
     }
+
+    /// Returns whether any of the sticky parameters for this list have been invalidated or not.
+    pub fn sticky_is_invalidated(&self) -> bool {
+        self.inner.sticky.read().unwrap().invalidated()
+    }
+
+    /// Invalidate the set of sticky parameters for this list.
+    pub fn sticky_invalidate(&mut self) {
+        self.inner.sticky.write().unwrap().invalidate();
+    }
+
+    /// Commit the set of sticky parameters for this list.
+    pub fn commit_sticky(&mut self) {
+        self.inner.sticky.write().unwrap().commit();
+    }
 }
 
 #[cfg(test)]
@@ -219,17 +299,8 @@ pub(super) struct SlidingSyncListInner {
     /// The state this list is in.
     state: StdRwLock<Observable<SlidingSyncState>>,
 
-    /// Sort the room list by this.
-    sort: Vec<String>,
-
-    /// Required states to return per room.
-    required_state: Vec<(StateEventType, String)>,
-
-    /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
-
-    /// The maximum number of timeline events to query for.
-    timeline_limit: StdRwLock<Option<Bound>>,
+    /// Parameters that are sticky, and can be sent only once per session (until the connection is dropped or the server invalidates what the client knows).
+    sticky: StdRwLock<sticky_parameters::ListStickyParameters>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -303,20 +374,12 @@ impl SlidingSyncListInner {
         use ruma::UInt;
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
-        let sort = self.sort.clone();
-        let required_state = self.required_state.clone();
-        let timeline_limit = self.timeline_limit.read().unwrap().map(UInt::from);
-        let filters = self.filters.clone();
-
-        assign!(v4::SyncRequestList::default(), {
-            ranges,
-            room_details: assign!(v4::RoomDetailsConfig::default(), {
-                required_state, // TODO sticky
-                timeline_limit, // TODO sticky
-            }),
-            sort, // TODO sticky
-            filters, // TODO sticky
-        })
+        let mut req = assign!(v4::SyncRequestList::default(), { ranges });
+        {
+            let sticky = self.sticky.read().unwrap();
+            sticky.maybe_apply_parameters(&mut req);
+        }
+        req
     }
 
     /// Update the [`Self::room_list`]. It also updates
@@ -867,13 +930,13 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(7));
+        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), Some(7));
 
         list.set_timeline_limit(Some(42));
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(42));
+        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), Some(42));
 
         list.set_timeline_limit(None);
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), None);
+        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), None);
     }
 
     #[test]
