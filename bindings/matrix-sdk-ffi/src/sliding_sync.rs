@@ -3,17 +3,20 @@ use std::sync::{Arc, RwLock};
 use anyhow::Context;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join4, pin_mut, StreamExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::{
-        v4::RoomSubscription as RumaRoomSubscription,
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    },
-    assign, IdParseError, OwnedRoomId, RoomId,
-};
 pub use matrix_sdk::{
     ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
     SlidingSyncMode, SlidingSyncState,
+};
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::{
+            v4::RoomSubscription as RumaRoomSubscription,
+            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        },
+        assign, IdParseError, OwnedRoomId, RoomId,
+    },
+    sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tokio::task::JoinHandle;
@@ -104,9 +107,6 @@ pub enum SlidingSyncError {
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
     RequestGeneratorHasNotBeenInitialized { msg: String },
-    /// Someone has tried to modify a sliding sync list's ranges, but the
-    /// selected sync mode doesn't allow that.
-    CannotModifyRanges { msg: String },
     /// Ranges have a `start` bound greater than `end`.
     InvalidRange {
         /// Start bound.
@@ -129,7 +129,6 @@ impl From<matrix_sdk::sliding_sync::Error> for SlidingSyncError {
             E::RequestGeneratorHasNotBeenInitialized(msg) => {
                 Self::RequestGeneratorHasNotBeenInitialized { msg }
             }
-            E::CannotModifyRanges(msg) => Self::CannotModifyRanges { msg },
             E::InvalidRange { start, end } => Self::InvalidRange { start, end },
             E::InternalChannelIsBroken => Self::InternalChannelIsBroken,
             error => Self::Unknown { error: error.to_string() },
@@ -411,6 +410,25 @@ pub trait SlidingSyncListStateObserver: Sync + Send {
 }
 
 #[derive(Clone, uniffi::Object)]
+pub struct SlidingSyncSelectiveModeBuilder {
+    inner: MatrixSlidingSyncSelectiveModeBuilder,
+}
+
+#[uniffi::export]
+impl SlidingSyncSelectiveModeBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { inner: SlidingSyncMode::new_selective() })
+    }
+
+    pub fn add_range(self: Arc<Self>, start: u32, end_inclusive: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.add_range(start..=end_inclusive);
+        Arc::new(builder)
+    }
+}
+
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncListBuilder {
     inner: matrix_sdk::SlidingSyncListBuilder,
 }
@@ -458,9 +476,13 @@ impl SlidingSyncListBuilder {
         Arc::new(Self { inner: matrix_sdk::SlidingSyncList::builder(name) })
     }
 
-    pub fn sync_mode_selective(self: Arc<Self>) -> Arc<Self> {
+    pub fn sync_mode_selective(
+        self: Arc<Self>,
+        selective_mode_builder: Arc<SlidingSyncSelectiveModeBuilder>,
+    ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.sync_mode(SlidingSyncMode::new_selective());
+        let selective_mode_builder = unwrap_or_clone_arc(selective_mode_builder);
+        builder.inner = builder.inner.sync_mode(selective_mode_builder.inner);
         Arc::new(builder)
     }
 
@@ -523,12 +545,6 @@ impl SlidingSyncListBuilder {
     pub fn no_timeline_limit(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.no_timeline_limit();
-        Arc::new(builder)
-    }
-
-    pub fn add_range(self: Arc<Self>, from: u32, to_included: u32) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.add_range(from..=to_included);
         Arc::new(builder)
     }
 
@@ -611,27 +627,6 @@ impl SlidingSyncList {
     /// Get the current list of rooms
     pub fn current_room_list(&self) -> Vec<RoomListEntry> {
         self.inner.room_list()
-    }
-
-    /// Reset the ranges to a particular set
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn set_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.set_range(start..=end).map_err(Into::into)
-    }
-
-    /// Set the ranges to fetch
-    ///
-    /// Remember to cancel the existing stream and fetch a new one as this will
-    /// only be applied on the next request.
-    pub fn add_range(&self, start: u32, end: u32) -> Result<(), SlidingSyncError> {
-        self.inner.add_range(start..=end).map_err(Into::into)
-    }
-
-    /// Reset the ranges
-    pub fn reset_ranges(&self) -> Result<(), SlidingSyncError> {
-        self.inner.reset_ranges().map_err(Into::into)
     }
 
     /// Total of rooms matching the filter

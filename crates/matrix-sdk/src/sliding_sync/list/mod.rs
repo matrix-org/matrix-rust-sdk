@@ -4,11 +4,10 @@ mod request_generator;
 mod room_list_entry;
 
 use std::{
-    cmp::min,
     collections::HashSet,
     fmt::Debug,
     iter,
-    ops::{Not, RangeInclusive},
+    ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -71,55 +70,14 @@ impl SlidingSyncList {
     /// means that the state is not reset **purposely**. The ranges and the
     /// state will be updated when the next request will be sent and a
     /// response will be received. The maximum number of rooms won't change.
-    pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) -> Result<()> {
-        self.inner.set_sync_mode(sync_mode);
+    pub fn set_sync_mode(&self, sync_mode: impl Into<SlidingSyncMode>) -> Result<()> {
+        self.inner.set_sync_mode(sync_mode.into());
 
         // When the sync mode is changed, the sync loop must skip over any work in its
         // iteration and jump to the next iteration.
         self.inner.internal_channel_blocking_send(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
         )?;
-
-        Ok(())
-    }
-
-    /// Reset the ranges to a particular set.
-    pub fn set_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
-            return Err(Error::CannotModifyRanges(self.name().to_owned()));
-        }
-
-        self.inner.set_ranges(&[range]);
-        self.reset()?;
-
-        Ok(())
-    }
-
-    /// Set the ranges to fetch.
-    pub fn add_range(&self, range: RangeInclusive<Bound>) -> Result<(), Error> {
-        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
-            return Err(Error::CannotModifyRanges(self.name().to_owned()));
-        }
-
-        self.inner.add_range(range);
-        self.reset()?;
-
-        Ok(())
-    }
-
-    /// Reset the ranges to fetch.
-    ///
-    /// Note: sending an empty list of ranges is, according to the spec, to be
-    /// understood that the consumer doesn't care about changes of the room
-    /// order but you will only receive updates when for rooms entering or
-    /// leaving the set.
-    pub fn reset_ranges(&self) -> Result<(), Error> {
-        if self.inner.sync_mode.read().unwrap().ranges_can_be_modified_by_user().not() {
-            return Err(Error::CannotModifyRanges(self.name().to_owned()));
-        }
-
-        self.inner.set_ranges(&[]);
-        self.reset()?;
 
         Ok(())
     }
@@ -229,27 +187,17 @@ impl SlidingSyncList {
         list_sync_operations: &[v4::SyncOp],
         rooms_that_have_received_an_update: &[OwnedRoomId],
     ) -> Result<bool, Error> {
+        // Make sure to update the generator state first; ordering matters because
+        // `update_room_list` observes the latest ranges in the response.
+        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
+
         let new_changes = self.inner.update_room_list(
             maximum_number_of_rooms,
             list_sync_operations,
             rooms_that_have_received_an_update,
         )?;
-        self.inner.update_request_generator_state(maximum_number_of_rooms)?;
 
         Ok(new_changes)
-    }
-
-    // Reset `Self`.
-    pub(super) fn reset(&self) -> Result<(), Error> {
-        self.inner.reset();
-
-        // When a list is reset, the sync loop must skip over any work in its iteration
-        // and jump to the next iteration.
-        self.inner.internal_channel_blocking_send(
-            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-        )?;
-
-        Ok(())
     }
 }
 
@@ -270,9 +218,6 @@ pub(super) struct SlidingSyncListInner {
 
     /// The state this list is in.
     state: StdRwLock<Observable<SlidingSyncState>>,
-
-    /// Which [`SlidingSyncMode`] to start this list under.
-    sync_mode: StdRwLock<SlidingSyncMode>,
 
     /// Sort the room list by this.
     sort: Vec<String>,
@@ -298,9 +243,6 @@ pub(super) struct SlidingSyncListInner {
     /// The rooms in order.
     room_list: StdRwLock<ObservableVector<RoomListEntry>>,
 
-    /// The ranges windows of the list.
-    ranges: StdRwLock<Vec<RangeInclusive<Bound>>>,
-
     /// The request generator, i.e. a type that yields the appropriate list
     /// request. See [`SlidingSyncListRequestGenerator`] to learn more.
     request_generator: StdRwLock<SlidingSyncListRequestGenerator>,
@@ -318,32 +260,13 @@ impl SlidingSyncListInner {
     ///
     /// This will change the sync-mode but also the request generator.
     ///
-    /// [`Self::ranges`] and [`Self::state`] will be updated when the next
-    /// request will be sent and a response will be received. The
+    /// The [`Self::state`] is immediately updated to reflect the new state. The
     /// [`Self::maximum_number_of_rooms`] won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
-        // Acquire both locks before modifying the values their hold.
-        let mut sync_mode_lock = self.sync_mode.write().unwrap();
-        let mut request_generator_lock = self.request_generator.write().unwrap();
-
-        // Now we can modify both values.
-        *sync_mode_lock = sync_mode.clone();
-        *request_generator_lock = SlidingSyncListRequestGenerator::new(sync_mode);
-    }
-
-    /// Reset and add new ranges.
-    fn set_ranges(&self, ranges: &[RangeInclusive<Bound>]) {
-        *self.ranges.write().unwrap() = ranges.to_vec();
-    }
-
-    /// Add a new range.
-    fn add_range(&self, range: RangeInclusive<Bound>) {
-        self.ranges.write().unwrap().push(RangeInclusive::new(*range.start(), *range.end()));
-    }
-
-    /// Call this method when it's necessary to reset `Self`.
-    fn reset(&self) {
-        self.request_generator.write().unwrap().reset();
+        {
+            let mut request_generator = self.request_generator.write().unwrap();
+            *request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+        }
 
         {
             let mut state = self.state.write().unwrap();
@@ -360,81 +283,26 @@ impl SlidingSyncListInner {
         }
     }
 
-    // Update the state to the next request, and return it.
+    /// Update the state to the next request, and return it.
     fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
-        {
+        let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
-
-            match request_generator.kind {
-                // Cases where all rooms have been fully loaded.
-                SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
-                | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
-                | SlidingSyncListRequestGeneratorKind::Selective => {
-                    // Let's copy all the ranges from `SlidingSyncList`.
-                    request_generator.ranges = self.ranges.read().unwrap().clone();
-                }
-
-                SlidingSyncListRequestGeneratorKind::Paging {
-                    number_of_fetched_rooms,
-                    batch_size,
-                    maximum_number_of_rooms_to_fetch,
-                    ..
-                } => {
-                    // In paging-mode, range starts at the number of fetched rooms. Since ranges are
-                    // inclusive, and since the number of fetched rooms starts at 1,
-                    // not at 0, there is no need to add 1 here.
-                    let range_start = number_of_fetched_rooms;
-                    let range_desired_size = batch_size;
-
-                    // Create a new range, and use it as the current set of ranges.
-                    request_generator.ranges = vec![create_range(
-                        range_start,
-                        range_desired_size,
-                        maximum_number_of_rooms_to_fetch,
-                        **self.maximum_number_of_rooms.read().unwrap(),
-                    )?];
-                }
-
-                SlidingSyncListRequestGeneratorKind::Growing {
-                    number_of_fetched_rooms,
-                    batch_size,
-                    maximum_number_of_rooms_to_fetch,
-                    ..
-                } => {
-                    // In growing-mode, range always starts from 0. However, the end is growing by
-                    // adding `batch_size` to the previous number of fetched rooms.
-                    let range_start = 0;
-                    let range_desired_size = number_of_fetched_rooms.saturating_add(batch_size);
-
-                    // Create a new range, and use it as the current set of ranges.
-                    request_generator.ranges = vec![create_range(
-                        range_start,
-                        range_desired_size,
-                        maximum_number_of_rooms_to_fetch,
-                        **self.maximum_number_of_rooms.read().unwrap(),
-                    )?];
-                }
-            }
-        }
+            request_generator
+                .generate_next_ranges(**self.maximum_number_of_rooms.read().unwrap())?
+        };
 
         // Here we go.
-        Ok(self.request())
+        Ok(self.request(ranges))
     }
 
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
-    #[instrument(skip(self), fields(name = self.name, ranges = ?&self.ranges))]
-    fn request(&self) -> v4::SyncRequestList {
+    #[instrument(skip(self), fields(name = self.name))]
+    fn request(&self, ranges: Ranges) -> v4::SyncRequestList {
         use ruma::UInt;
-        let ranges = self
-            .request_generator
-            .read()
-            .unwrap()
-            .ranges
-            .iter()
-            .map(|r| (UInt::from(*r.start()), UInt::from(*r.end())))
-            .collect();
+        let ranges =
+            ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
         let sort = self.sort.clone();
         let required_state = self.required_state.clone();
         let timeline_limit = self.timeline_limit.read().unwrap().map(UInt::from);
@@ -521,7 +389,10 @@ impl SlidingSyncListInner {
             // user to know if a room has received an update: be either a
             // position modification or an update in general (like a new room
             // message). Let's trigger those.
-            let ranges = self.ranges.read().unwrap();
+            let request_generator = self.request_generator.read().unwrap();
+            // Note: this is fine to call `request_generator` here because we've handled the
+            // response in the generator first.
+            let ranges = request_generator.requested_ranges();
 
             for (start, end) in ranges
                 .iter()
@@ -559,92 +430,12 @@ impl SlidingSyncListInner {
         Ok(new_changes)
     }
 
-    /// Update the state of the [`SlidingSyncListRequestGenerator`].
+    /// Update the state of the [`SlidingSyncListRequestGenerator`] after
+    /// receiving a response.
     fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
-
-        let range_end: u32 =
-            request_generator.ranges.first().map(|r| *r.end()).ok_or_else(|| {
-                Error::RequestGeneratorHasNotBeenInitialized(self.name.to_owned())
-            })?;
-
-        match &mut request_generator.kind {
-            SlidingSyncListRequestGeneratorKind::Paging {
-                number_of_fetched_rooms,
-                fully_loaded,
-                maximum_number_of_rooms_to_fetch,
-                ..
-            }
-            | SlidingSyncListRequestGeneratorKind::Growing {
-                number_of_fetched_rooms,
-                fully_loaded,
-                maximum_number_of_rooms_to_fetch,
-                ..
-            } => {
-                // Calculate the maximum bound for the range.
-                // At this step, the server has given us a maximum number of rooms for this
-                // list. That's our `range_maximum`.
-                let mut range_maximum = maximum_number_of_rooms;
-
-                // But maybe the user has defined a maximum number of rooms to fetch? In this
-                // case, let's take the minimum of the two.
-                if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
-                    range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
-                }
-
-                // Finally, ranges are inclusive!
-                range_maximum = range_maximum.saturating_sub(1);
-
-                // Now, we know what the maximum bound for the range is.
-
-                // The current range hasn't reached its maximum, let's continue.
-                if range_end < range_maximum {
-                    // Update the number of fetched rooms forward. Do not forget that ranges are
-                    // inclusive, so let's add 1.
-                    *number_of_fetched_rooms = range_end.saturating_add(1);
-
-                    // The list is still not fully loaded.
-                    *fully_loaded = false;
-
-                    // Update the _list range_ to cover from 0 to `range_end`.
-                    // The list's range is different from the request generator (this) range.
-                    self.set_ranges(&[0..=range_end]);
-
-                    // Finally, let's update the list' state.
-                    Observable::set_if_not_eq(
-                        &mut self.state.write().unwrap(),
-                        SlidingSyncState::PartiallyLoaded,
-                    );
-                }
-                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
-                // mode.
-                else {
-                    // The number of fetched rooms is set to the maximum too.
-                    *number_of_fetched_rooms = range_maximum;
-
-                    // We update the `fully_loaded` marker.
-                    *fully_loaded = true;
-
-                    // The range is covering the entire list, from 0 to its maximum.
-                    self.set_ranges(&[0..=range_maximum]);
-
-                    // Finally, let's update the list' state.
-                    Observable::set_if_not_eq(
-                        &mut self.state.write().unwrap(),
-                        SlidingSyncState::FullyLoaded,
-                    );
-                }
-            }
-
-            SlidingSyncListRequestGeneratorKind::Selective => {
-                // Selective mode always loads everything.
-                Observable::set_if_not_eq(
-                    &mut self.state.write().unwrap(),
-                    SlidingSyncState::FullyLoaded,
-                );
-            }
-        }
-
+        let new_state = request_generator.handle_response(&self.name, maximum_number_of_rooms)?;
+        Observable::set_if_not_eq(&mut self.state.write().unwrap(), new_state);
         Ok(())
     }
 
@@ -918,12 +709,41 @@ pub enum SlidingSyncState {
     FullyLoaded,
 }
 
+/// Builder for a new sliding sync list in selective mode.
+///
+/// Conveniently allows to add ranges.
+#[derive(Clone, Debug, Default)]
+pub struct SlidingSyncSelectiveModeBuilder {
+    ranges: Ranges,
+}
+
+impl SlidingSyncSelectiveModeBuilder {
+    /// Create a new `SlidingSyncSelectiveModeBuilder`.
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Select a range to fetch.
+    pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
+        self.ranges.push(range);
+        self
+    }
+}
+
+impl From<SlidingSyncSelectiveModeBuilder> for SlidingSyncMode {
+    fn from(builder: SlidingSyncSelectiveModeBuilder) -> Self {
+        Self::Selective { ranges: builder.ranges }
+    }
+}
+
 /// How a [`SlidingSyncList`] fetches the data.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
     /// Only sync the specific defined windows/ranges.
-    #[default]
-    Selective,
+    Selective {
+        /// The specific defined ranges.
+        ranges: Ranges,
+    },
 
     /// Fully sync all rooms in the background, page by page of `batch_size`,
     /// like `0..=19`, `20..=39`, 40..=59` etc. assuming the `batch_size` is 20.
@@ -949,19 +769,16 @@ pub enum SlidingSyncMode {
     },
 }
 
-impl SlidingSyncMode {
-    /// Return whether an external caller can modify the sync mode's ranges.
-    fn ranges_can_be_modified_by_user(&self) -> bool {
-        // If this gets modified, don't forget to update the `Error::CannotModifyRanges`
-        // error message.
-        matches!(self, Self::Selective)
+impl Default for SlidingSyncMode {
+    fn default() -> Self {
+        Self::Selective { ranges: Vec::new() }
     }
 }
 
 impl SlidingSyncMode {
     /// Create a `SlidingSyncMode::Selective`.
-    pub fn new_selective() -> Self {
-        Self::Selective
+    pub fn new_selective() -> SlidingSyncSelectiveModeBuilder {
+        SlidingSyncSelectiveModeBuilder::new()
     }
 
     /// Create a `SlidingSyncMode::Paging`.
@@ -988,7 +805,7 @@ mod tests {
     use serde_json::json;
     use tokio::{
         spawn,
-        sync::mpsc::{channel, unbounded_channel},
+        sync::mpsc::{channel, error::TryRecvError, unbounded_channel},
     };
 
     use super::*;
@@ -1004,112 +821,41 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_list_set_range() {
-        let (sender, _receiver) = channel(1);
+    fn test_sliding_sync_list_selective_mode() {
+        let (sender, mut receiver) = channel(1);
 
         // Set range on `Selective`.
+        let list = SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=1).add_range(2..=3))
+            .build(sender);
+
         {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective())
-                .add_range(0..=1)
-                .add_range(2..=3)
-                .build(sender.clone());
+            let mut generator = list.inner.request_generator.write().unwrap();
+            assert_eq!(generator.requested_ranges(), &[0..=1, 2..=3]);
 
-            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
-
-            list.set_range(4..=5).unwrap();
-            assert_eq!(*list.inner.ranges.read().unwrap(), &[4..=5]);
+            let ranges = generator.generate_next_ranges(None).unwrap();
+            assert_eq!(ranges, &[0..=1, 2..=3]);
         }
 
-        // Set range on `Growing`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_growing(20, None))
-                .build(sender.clone());
+        // There shouldn't be any internal request to restart the sync loop yet.
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
 
-            assert!(list.set_range(4..=5).is_err());
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5)).unwrap();
+
+        {
+            let mut generator = list.inner.request_generator.write().unwrap();
+            assert_eq!(generator.requested_ranges(), &[4..=5]);
+
+            let ranges = generator.generate_next_ranges(None).unwrap();
+            assert_eq!(ranges, &[4..=5]);
         }
 
-        // Set range on `Paging`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_paging(20, None))
-                .build(sender);
-
-            assert!(list.set_range(4..=5).is_err());
-        }
-    }
-
-    #[test]
-    fn test_sliding_sync_list_add_range() {
-        let (sender, _receiver) = channel(1);
-
-        // Add range on `Selective`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective())
-                .add_range(0..=1)
-                .build(sender.clone());
-
-            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
-
-            list.add_range(2..=3).unwrap();
-            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1, 2..=3]);
-        }
-
-        // Add range on `Growing`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_growing(20, None))
-                .build(sender.clone());
-
-            assert!(list.add_range(2..=3).is_err());
-        }
-
-        // Add range on `Paging`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_paging(20, None))
-                .build(sender);
-
-            assert!(list.add_range(2..=3).is_err());
-        }
-    }
-
-    #[test]
-    fn test_sliding_sync_list_reset_ranges() {
-        let (sender, _receiver) = channel(1);
-
-        // Reset ranges on `Selective`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective())
-                .add_range(0..=1)
-                .build(sender.clone());
-
-            assert_eq!(*list.inner.ranges.read().unwrap(), &[0..=1]);
-
-            list.reset_ranges().unwrap();
-            assert!(list.inner.ranges.read().unwrap().is_empty());
-        }
-
-        // Reset range on `Growing`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_growing(20, None))
-                .build(sender.clone());
-
-            assert!(list.reset_ranges().is_err());
-        }
-
-        // Reset range on `Paging`.
-        {
-            let list = SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_paging(20, None))
-                .build(sender);
-
-            assert!(list.reset_ranges().is_err());
-        }
+        // Setting the sync mode requests exactly one restart of the sync loop.
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        ));
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]
@@ -1117,8 +863,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=1)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
             .timeline_limit(7)
             .build(sender);
 
@@ -1136,8 +881,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=1)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
             .build(sender);
 
         let room0 = room_id!("!room0:bar.org");
@@ -1381,9 +1125,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=10)
-            .add_range(42..=153)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1415,9 +1157,7 @@ mod tests {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=10)
-            .add_range(42..=153)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1443,7 +1183,7 @@ mod tests {
             }
         };
 
-        list.set_range(3..=7).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1456,20 +1196,7 @@ mod tests {
             },
         };
 
-        list.add_range(10..=23).unwrap();
-
-        assert_ranges! {
-            list = list,
-            list_state = PartiallyLoaded,
-            maximum_number_of_rooms = 25,
-            next => {
-                ranges = 3..=7, 10..=23,
-                is_fully_loaded = true,
-                list_state = FullyLoaded,
-            },
-        };
-
-        list.set_range(42..=77).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1482,7 +1209,7 @@ mod tests {
             },
         };
 
-        list.reset_ranges().unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1491,19 +1218,17 @@ mod tests {
             next => {
                 ranges = ,
                 is_fully_loaded = true,
-                list_state = PartiallyLoaded,
+                list_state = FullyLoaded,
             },
         };
     }
 
     #[test]
-    fn test_generator_changing_sync_mode_on_the_fly() {
+    fn test_generator_changing_sync_mode_to_various_modes() {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=10)
-            .add_range(42..=153)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1534,7 +1259,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            list_state = PartiallyLoaded, // we had some partial state, but we can't be sure it's fully loaded until the next request
             maximum_number_of_rooms = 25,
             next => {
                 ranges = 0..=9,
@@ -1570,7 +1295,7 @@ mod tests {
 
         assert_ranges! {
             list = list,
-            list_state = FullyLoaded, // it inherits the state of the previous sync-mode since no sync has been made yet.
+            list_state = PartiallyLoaded, // we had some partial state, but we can't be sure it's fully loaded until the next request
             maximum_number_of_rooms = 25,
             next => {
                 ranges = 0..=9,
@@ -1602,17 +1327,18 @@ mod tests {
         };
 
         // Changing from `Paging` to `Selective`.
-        list.set_sync_mode(SlidingSyncMode::new_selective()).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
 
-        assert_eq!(list.state(), SlidingSyncState::FullyLoaded); // it inherits the state of the previous sync-mode.
+        assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
+                                                                     // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
-        list.set_range(0..=100).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100)).unwrap();
 
         assert_ranges! {
             list = list,
-            list_state = PartiallyLoaded, // changing the ranges make the state to go `PartiallyLoaded`.
+            list_state = PartiallyLoaded, // we had some partial state, but we can't be sure it's fully loaded until the next request
             maximum_number_of_rooms = 25,
             // The maximum number of rooms is reached directly!
             next => {
@@ -1640,8 +1366,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective())
-            .add_range(0..=3)
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=3))
             .build(sender);
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
@@ -1780,7 +1505,12 @@ mod tests {
                 }
             })
         );
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::new_selective() => json!("Selective"));
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::from(SlidingSyncMode::new_selective()) => json!({
+                "Selective": {
+                    "ranges": []
+                }
+            })
+        );
     }
 
     #[test]

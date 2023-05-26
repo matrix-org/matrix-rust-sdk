@@ -19,11 +19,6 @@ pub enum Error {
     #[error("The sliding sync list `{0}` is handling a response, but its request generator has not been initialized")]
     RequestGeneratorHasNotBeenInitialized(String),
 
-    /// Someone has tried to modify a sliding sync list's ranges, but only the
-    /// `Selective` sync mode does allow that.
-    #[error("The chosen sync mode for the list `{0}` doesn't allow to modify the ranges; only `Selective` allows that")]
-    CannotModifyRanges(String),
-
     /// Ranges have a `start` bound greater than `end`.
     #[error("Ranges have invalid bounds: `{start}..{end}`")]
     InvalidRange {

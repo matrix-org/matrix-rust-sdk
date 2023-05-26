@@ -32,7 +32,10 @@
 use std::{cmp::min, ops::RangeInclusive};
 
 use super::{Bound, SlidingSyncMode};
-use crate::sliding_sync::Error;
+use crate::{sliding_sync::Error, SlidingSyncState};
+
+/// Range of rooms in a response from sliding sync.
+pub type Ranges = Vec<RangeInclusive<u32>>;
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
@@ -48,6 +51,8 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
         number_of_fetched_rooms: u32,
         /// Whether all rooms have been loaded.
         fully_loaded: bool,
+        /// End range requested in the previous request.
+        requested_end: Option<u32>,
     },
 
     /// Paging-mode (see [`SlidingSyncMode`]).
@@ -61,6 +66,8 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
         number_of_fetched_rooms: u32,
         /// Whether all romms have been loaded.
         fully_loaded: bool,
+        /// End range requested in the previous request.
+        requested_end: Option<u32>,
     },
 
     /// Selective-mode (see [`SlidingSyncMode`]).
@@ -71,12 +78,15 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 #[derive(Debug)]
 pub(in super::super) struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
-    pub(super) ranges: Vec<RangeInclusive<u32>>,
+    ///
+    /// Note there's only one range in the `Growing` and `Paging` mode.
+    ranges: Vec<RangeInclusive<u32>>,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
 }
 
 impl SlidingSyncListRequestGenerator {
+    /// Create a new request generator from scratch, given a sync mode.
     pub(super) fn new(sync_mode: SlidingSyncMode) -> Self {
         match sync_mode {
             SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
@@ -86,6 +96,7 @@ impl SlidingSyncListRequestGenerator {
                     maximum_number_of_rooms_to_fetch,
                     number_of_fetched_rooms: 0,
                     fully_loaded: false,
+                    requested_end: None,
                 },
             },
 
@@ -96,36 +107,172 @@ impl SlidingSyncListRequestGenerator {
                     maximum_number_of_rooms_to_fetch,
                     number_of_fetched_rooms: 0,
                     fully_loaded: false,
+                    requested_end: None,
                 },
             },
 
-            SlidingSyncMode::Selective => {
-                Self { ranges: Vec::new(), kind: SlidingSyncListRequestGeneratorKind::Selective }
+            SlidingSyncMode::Selective { ranges } => {
+                Self { ranges, kind: SlidingSyncListRequestGeneratorKind::Selective }
             }
         }
     }
 
-    pub(super) fn reset(&mut self) {
-        // Reset the ranges.
-        self.ranges.clear();
+    /// Return a view on the ranges requested by this generator.
+    ///
+    /// For generators in the selective mode, this is the initial set of ranges.
+    /// For growing and paginated generators, this is the range committed in the
+    /// latest response received from the server.
+    pub(super) fn requested_ranges(&self) -> &[RangeInclusive<Bound>] {
+        &self.ranges
+    }
 
-        // Reset particular parts of the generator.
+    /// Update internal state of the generator (namely, ranges) before the next
+    /// sliding sync request.
+    pub(super) fn generate_next_ranges(
+        &mut self,
+        maximum_number_of_rooms: Option<u32>,
+    ) -> Result<Ranges, Error> {
         match &mut self.kind {
+            // Cases where all rooms have been fully loaded.
+            SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
+            | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
+            | SlidingSyncListRequestGeneratorKind::Selective => {
+                // Nothing to do: we already have the full ranges, return the existing ranges.
+                // For the growing and paging modes, keep the current value of `requested_end`,
+                // which is still valid.
+                Ok(self.ranges.clone())
+            }
+
             SlidingSyncListRequestGeneratorKind::Paging {
                 number_of_fetched_rooms,
+                batch_size,
+                maximum_number_of_rooms_to_fetch,
+                requested_end,
+                ..
+            } => {
+                // In paging-mode, range starts at the number of fetched rooms. Since ranges are
+                // inclusive, and since the number of fetched rooms starts at 1,
+                // not at 0, there is no need to add 1 here.
+                let range_start = number_of_fetched_rooms;
+                let range_desired_size = batch_size;
+
+                // Create a new range, and use it as the current set of ranges.
+                let next_range = create_range(
+                    *range_start,
+                    *range_desired_size,
+                    *maximum_number_of_rooms_to_fetch,
+                    maximum_number_of_rooms,
+                )?;
+
+                *requested_end = Some(*next_range.end());
+
+                Ok(vec![next_range])
+            }
+
+            SlidingSyncListRequestGeneratorKind::Growing {
+                number_of_fetched_rooms,
+                batch_size,
+                maximum_number_of_rooms_to_fetch,
+                requested_end,
+                ..
+            } => {
+                // In growing-mode, range always starts from 0. However, the end is growing by
+                // adding `batch_size` to the previous number of fetched rooms.
+                let range_start = 0;
+                let range_desired_size = number_of_fetched_rooms.saturating_add(*batch_size);
+
+                // Create a new range, and use it as the current set of ranges.
+                let next_range = create_range(
+                    range_start,
+                    range_desired_size,
+                    *maximum_number_of_rooms_to_fetch,
+                    maximum_number_of_rooms,
+                )?;
+
+                *requested_end = Some(*next_range.end());
+
+                Ok(vec![next_range])
+            }
+        }
+    }
+
+    /// Handle a sliding sync response, given a new maximum number of rooms.
+    pub(super) fn handle_response(
+        &mut self,
+        list_name: &str,
+        maximum_number_of_rooms: u32,
+    ) -> Result<SlidingSyncState, Error> {
+        match &mut self.kind {
+            SlidingSyncListRequestGeneratorKind::Paging {
+                requested_end,
+                number_of_fetched_rooms,
                 fully_loaded,
+                maximum_number_of_rooms_to_fetch,
                 ..
             }
             | SlidingSyncListRequestGeneratorKind::Growing {
+                requested_end,
                 number_of_fetched_rooms,
                 fully_loaded,
+                maximum_number_of_rooms_to_fetch,
                 ..
             } => {
-                *number_of_fetched_rooms = 0;
-                *fully_loaded = false;
+                let range_end = requested_end.ok_or_else(|| {
+                    Error::RequestGeneratorHasNotBeenInitialized(list_name.to_owned())
+                })?;
+
+                // Calculate the maximum bound for the range.
+                // At this step, the server has given us a maximum number of rooms for this
+                // list. That's our `range_maximum`.
+                let mut range_maximum = maximum_number_of_rooms;
+
+                // But maybe the user has defined a maximum number of rooms to fetch? In this
+                // case, let's take the minimum of the two.
+                if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
+                    range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
+                }
+
+                // Finally, ranges are inclusive!
+                range_maximum = range_maximum.saturating_sub(1);
+
+                // Now, we know what the maximum bound for the range is.
+
+                // The current range hasn't reached its maximum, let's continue.
+                if range_end < range_maximum {
+                    // Update the number of fetched rooms forward. Do not forget that ranges are
+                    // inclusive, so let's add 1.
+                    *number_of_fetched_rooms = range_end.saturating_add(1);
+
+                    // The list is still not fully loaded.
+                    *fully_loaded = false;
+
+                    // Update the range to cover from 0 to `range_end`.
+                    self.ranges = vec![0..=range_end];
+
+                    // Finally, return the new state.
+                    Ok(SlidingSyncState::PartiallyLoaded)
+                }
+                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
+                // mode.
+                else {
+                    // The number of fetched rooms is set to the maximum too.
+                    *number_of_fetched_rooms = range_maximum;
+
+                    // We update the `fully_loaded` marker.
+                    *fully_loaded = true;
+
+                    // The range is covering the entire list, from 0 to its maximum.
+                    self.ranges = vec![0..=range_maximum];
+
+                    // Finally, let's update the list' state.
+                    Ok(SlidingSyncState::FullyLoaded)
+                }
             }
 
-            SlidingSyncListRequestGeneratorKind::Selective => {}
+            SlidingSyncListRequestGeneratorKind::Selective => {
+                // Selective mode always loads everything.
+                Ok(SlidingSyncState::FullyLoaded)
+            }
         }
     }
 
@@ -139,7 +286,7 @@ impl SlidingSyncListRequestGenerator {
     }
 }
 
-pub(super) fn create_range(
+fn create_range(
     start: u32,
     desired_size: u32,
     maximum_number_of_rooms_to_fetch: Option<u32>,
@@ -232,7 +379,7 @@ mod tests {
     #[test]
     fn test_request_generator_selective_from_sync_mode() {
         let sync_mode = SlidingSyncMode::new_selective();
-        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);
@@ -251,6 +398,7 @@ mod tests {
                 maximum_number_of_rooms_to_fetch: Some(2),
                 number_of_fetched_rooms: 0,
                 fully_loaded: false,
+                requested_end: None,
             }
         );
     }
@@ -268,6 +416,7 @@ mod tests {
                 maximum_number_of_rooms_to_fetch: Some(2),
                 number_of_fetched_rooms: 0,
                 fully_loaded: false,
+                requested_end: None,
             }
         );
     }

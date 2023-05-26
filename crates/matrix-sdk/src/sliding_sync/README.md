@@ -72,12 +72,11 @@ are **inclusive**) like so:
 use ruma::{assign, api::client::sync::sync_events::v4};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncMode::Selective)
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
     .filters(Some(assign!(
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
     )))
-    .sort(vec!["by_recency".to_owned()])
-    .add_range(0u32..=9);
+    .sort(vec!["by_recency".to_owned()]);
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
@@ -424,8 +423,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
-    .add_range(0u32..=9) // only the top 10 items
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:

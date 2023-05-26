@@ -219,8 +219,7 @@ impl Match for SlidingSyncMatcher {
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::Selective)
-        .add_range(0..=10)])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
     let stream = sliding_sync.sync();
@@ -266,8 +265,7 @@ async fn test_timeline_basic() -> Result<()> {
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::Selective)
-        .add_range(0..=10)])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
     let stream = sliding_sync.sync();
