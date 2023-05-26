@@ -247,7 +247,7 @@ impl SlidingSyncListRequestGenerator {
                     *fully_loaded = false;
 
                     // Update the range to cover from 0 to `range_end`.
-                    self.ranges = [0..=range_end].to_vec();
+                    self.ranges = vec![0..=range_end];
 
                     // Finally, return the new state.
                     Ok(SlidingSyncState::PartiallyLoaded)
@@ -262,7 +262,7 @@ impl SlidingSyncListRequestGenerator {
                     *fully_loaded = true;
 
                     // The range is covering the entire list, from 0 to its maximum.
-                    self.ranges = [0..=range_maximum].to_vec();
+                    self.ranges = vec![0..=range_maximum];
 
                     // Finally, let's update the list' state.
                     Ok(SlidingSyncState::FullyLoaded)

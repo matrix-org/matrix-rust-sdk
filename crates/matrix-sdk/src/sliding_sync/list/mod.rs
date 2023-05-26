@@ -260,8 +260,7 @@ impl SlidingSyncListInner {
     ///
     /// This will change the sync-mode but also the request generator.
     ///
-    /// [`Self::ranges`] and [`Self::state`] will be updated when the next
-    /// request will be sent and a response will be received. The
+    /// The [`Self::state`] is immediately updated to reflect the new state. The
     /// [`Self::maximum_number_of_rooms`] won't change.
     pub fn set_sync_mode(&self, sync_mode: SlidingSyncMode) {
         {
@@ -715,7 +714,7 @@ pub enum SlidingSyncState {
 /// Conveniently allows to add ranges.
 #[derive(Clone, Debug, Default)]
 pub struct SlidingSyncSelectiveModeBuilder {
-    ranges: Vec<RangeInclusive<Bound>>,
+    ranges: Ranges,
 }
 
 impl SlidingSyncSelectiveModeBuilder {
@@ -732,8 +731,8 @@ impl SlidingSyncSelectiveModeBuilder {
 }
 
 impl From<SlidingSyncSelectiveModeBuilder> for SlidingSyncMode {
-    fn from(builder: SlidingSyncSelectiveModeBuilder) -> SlidingSyncMode {
-        SlidingSyncMode::Selective { ranges: builder.ranges }
+    fn from(builder: SlidingSyncSelectiveModeBuilder) -> Self {
+        Self::Selective { ranges: builder.ranges }
     }
 }
 
@@ -743,7 +742,7 @@ pub enum SlidingSyncMode {
     /// Only sync the specific defined windows/ranges.
     Selective {
         /// The specific defined ranges.
-        ranges: Vec<RangeInclusive<Bound>>,
+        ranges: Ranges,
     },
 
     /// Fully sync all rooms in the background, page by page of `batch_size`,
@@ -852,7 +851,10 @@ mod tests {
         }
 
         // Setting the sync mode requests exactly one restart of the sync loop.
-        assert!(receiver.try_recv().is_ok());
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        ));
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 
