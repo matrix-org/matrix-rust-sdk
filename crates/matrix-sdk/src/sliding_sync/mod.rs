@@ -172,11 +172,6 @@ impl SlidingSync {
         self.inner.rooms.read().unwrap().len()
     }
 
-    #[instrument(skip(self))]
-    fn update_to_device_since(&self, since: String) {
-        self.inner.position.write().unwrap().to_device_token = Some(since);
-    }
-
     /// Find a list by its name, and do something on it if it exists.
     pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
     where
@@ -298,6 +293,9 @@ impl SlidingSync {
             let mut position_lock = self.inner.position.write().unwrap();
             position_lock.pos = Some(sliding_sync_response.pos);
             position_lock.delta_token = sliding_sync_response.delta_token;
+            if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                position_lock.to_device_token = Some(to_device.next_batch);
+            }
         }
 
         let update_summary = {
@@ -362,11 +360,6 @@ impl SlidingSync {
                     if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
                         updated_lists.push(name.clone());
                     }
-                }
-
-                // Update the `to-device` next-batch if any.
-                if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                    self.update_to_device_since(to_device.next_batch);
                 }
 
                 updated_lists
@@ -733,7 +726,7 @@ mod tests {
         assert_matches!(extensions.e2ee, E2EEConfig { enabled: Some(true), .. });
 
         let some_since = "some_since".to_owned();
-        sync.update_to_device_since(some_since.to_owned());
+        sync.inner.position.write().unwrap().to_device_token = Some(some_since.to_owned());
         let extensions = sync.prepare_extension_config(Some("foo"));
 
         // If there's a `pos` and to-device `since` token, we make sure we put the token
@@ -842,7 +835,7 @@ mod tests {
         // When a to-device token is present, `prepare_extensions_config` fills the
         // request with it.
         let since = String::from("my-to-device-since-token");
-        sliding_sync.update_to_device_since(since.clone());
+        sliding_sync.inner.position.write().unwrap().to_device_token = Some(since.clone());
 
         let config = sliding_sync.prepare_extension_config(Some("pos"));
         assert_eq!(config.to_device.since.as_ref(), Some(&since));
