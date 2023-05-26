@@ -387,8 +387,8 @@ mod tests {
 
     #[test]
     fn test_request_generator_paging_from_sync_mode() {
-        let sync_mode = SlidingSyncMode::new_paging(1, Some(2));
-        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+        let sync_mode = SlidingSyncMode::new_paging(1).maximum_number_of_rooms_to_fetch(2);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(
@@ -405,8 +405,8 @@ mod tests {
 
     #[test]
     fn test_request_generator_growing_from_sync_mode() {
-        let sync_mode = SlidingSyncMode::new_growing(1, Some(2));
-        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
+        let sync_mode = SlidingSyncMode::new_growing(1).maximum_number_of_rooms_to_fetch(2);
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(

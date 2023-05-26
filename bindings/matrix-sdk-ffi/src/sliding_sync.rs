@@ -492,9 +492,11 @@ impl SlidingSyncListBuilder {
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder
-            .inner
-            .sync_mode(SlidingSyncMode::new_paging(batch_size, maximum_number_of_rooms_to_fetch));
+        let mut mode_builder = SlidingSyncMode::new_paging(batch_size);
+        if let Some(num) = maximum_number_of_rooms_to_fetch {
+            mode_builder = mode_builder.maximum_number_of_rooms_to_fetch(num);
+        }
+        builder.inner = builder.inner.sync_mode(mode_builder);
         Arc::new(builder)
     }
 
@@ -504,9 +506,11 @@ impl SlidingSyncListBuilder {
         maximum_number_of_rooms_to_fetch: Option<u32>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder
-            .inner
-            .sync_mode(SlidingSyncMode::new_growing(batch_size, maximum_number_of_rooms_to_fetch));
+        let mut mode_builder = SlidingSyncMode::new_growing(batch_size);
+        if let Some(num) = maximum_number_of_rooms_to_fetch {
+            mode_builder = mode_builder.maximum_number_of_rooms_to_fetch(num);
+        }
+        builder.inner = builder.inner.sync_mode(mode_builder);
         Arc::new(builder)
     }
 
