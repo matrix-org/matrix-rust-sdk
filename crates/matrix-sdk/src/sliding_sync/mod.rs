@@ -217,11 +217,6 @@ impl SlidingSync {
         self.inner.rooms.read().unwrap().len()
     }
 
-    #[instrument(skip(self))]
-    fn update_to_device_since(&self, since: String) {
-        self.inner.position.write().unwrap().to_device_token = Some(since);
-    }
-
     /// Find a list by its name, and do something on it if it exists.
     pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
     where
@@ -321,6 +316,9 @@ impl SlidingSync {
             let mut position_lock = self.inner.position.write().unwrap();
             position_lock.pos = Some(sliding_sync_response.pos);
             position_lock.delta_token = sliding_sync_response.delta_token;
+            if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                position_lock.to_device_token = Some(to_device.next_batch);
+            }
         }
 
         // Commit sticky parameters, if needed.
@@ -393,11 +391,6 @@ impl SlidingSync {
                     if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
                         updated_lists.push(name.clone());
                     }
-                }
-
-                // Update the `to-device` next-batch if any.
-                if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                    self.update_to_device_since(to_device.next_batch);
                 }
 
                 updated_lists
@@ -854,7 +847,7 @@ mod tests {
         // When a to-device token is present, `prepare_extensions_config` fills the
         // request with it.
         let since = String::from("my-to-device-since-token");
-        sliding_sync.update_to_device_since(since.clone());
+        sliding_sync.inner.position.write().unwrap().to_device_token = Some(since.clone());
 
         let frozen = FrozenSlidingSync::from(&sliding_sync);
         assert_eq!(frozen.to_device_since, Some(since));
@@ -1065,7 +1058,7 @@ mod tests {
         // into the extension config. The rest doesn't need to be re-enabled due to
         // stickyness.
         let since_token = "since";
-        sync.update_to_device_since(since_token.to_owned());
+        sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
 
         let (request, _, _) = sync
             .generate_sync_request()?
