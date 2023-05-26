@@ -1,3 +1,5 @@
+use std::future::ready;
+
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_test::async_test;
@@ -68,8 +70,14 @@ async fn test_one_list() -> Result<()> {
     let (_, room_list) = new_room_list().await?;
     let sliding_sync = room_list.sliding_sync();
 
-    assert_eq!(sliding_sync.on_list(room_list::ALL_ROOMS_LIST_NAME, |_list| ()), Some(()));
-    assert_eq!(sliding_sync.on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ()), None);
+    assert_eq!(
+        sliding_sync.on_list(room_list::ALL_ROOMS_LIST_NAME, |_list| ready(())).await,
+        Some(())
+    );
+    assert_eq!(
+        sliding_sync.on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await,
+        None
+    );
 
     Ok(())
 }
@@ -111,7 +119,10 @@ async fn test_foo() -> Result<()> {
     };
 
     assert_eq!(
-        room_list.sliding_sync().on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ()),
+        room_list
+            .sliding_sync()
+            .on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ready(()))
+            .await,
         Some(())
     );
 
