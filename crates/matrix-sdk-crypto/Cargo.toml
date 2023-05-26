@@ -50,7 +50,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 rmp-serde = "1.1.1"
-ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc2677"] }
+ruma = { workspace = true, features = ["rand", "canonical-json"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 sha2 = "0.10.2"
