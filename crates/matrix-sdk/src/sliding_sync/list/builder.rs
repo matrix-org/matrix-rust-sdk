@@ -14,12 +14,14 @@ use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoom
 use tokio::sync::mpsc::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, sticky_parameters::ListStickyParameters, Bound,
-    SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
-    SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+    super::SlidingSyncInternalMessage, Bound, ListStickyParameters, SlidingSyncList,
+    SlidingSyncListCachePolicy, SlidingSyncListInner, SlidingSyncListRequestGenerator,
+    SlidingSyncMode, SlidingSyncState,
 };
 use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    sliding_sync::{
+        cache::restore_sliding_sync_list, sticky_parameters::StickyManager, FrozenSlidingSyncRoom,
+    },
     Client, RoomListEntry,
 };
 
@@ -175,12 +177,12 @@ impl SlidingSyncListBuilder {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
                 // From the builder
-                sticky: StdRwLock::new(ListStickyParameters::new(
+                sticky: StdRwLock::new(StickyManager::new(ListStickyParameters::new(
                     self.sort,
                     self.required_state,
                     self.filters,
                     self.timeline_limit,
-                )),
+                ))),
                 name: self.name,
                 cache_policy: self.cache_policy,
 

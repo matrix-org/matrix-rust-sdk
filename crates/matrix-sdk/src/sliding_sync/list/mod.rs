@@ -18,76 +18,54 @@ pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
+use ruma::{
+    api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId, TransactionId,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tracing::{instrument, warn};
 
-use super::{Error, SlidingSyncInternalMessage};
+use super::{
+    sticky_parameters::{StickyData, StickyManager},
+    Error, SlidingSyncInternalMessage,
+};
 use crate::Result;
 
-mod sticky_parameters {
-    use ruma::api::client::sync::sync_events::v4::SyncRequestList;
+#[derive(Debug)]
+pub(super) struct ListStickyParameters {
+    /// Sort the room list by this.
+    sort: Vec<String>,
 
-    use super::*;
+    /// Required states to return per room.
+    required_state: Vec<(StateEventType, String)>,
 
-    #[derive(Debug)]
-    pub struct ListStickyParameters {
-        /// Sort the room list by this.
+    /// Any filters to apply to the query.
+    filters: Option<v4::SyncRequestListFilters>,
+
+    /// The maximum number of timeline events to query for.
+    timeline_limit: Option<Bound>,
+}
+
+impl ListStickyParameters {
+    pub fn new(
         sort: Vec<String>,
-
-        /// Required states to return per room.
         required_state: Vec<(StateEventType, String)>,
-
-        /// Any filters to apply to the query.
         filters: Option<v4::SyncRequestListFilters>,
-
-        /// The maximum number of timeline events to query for.
         timeline_limit: Option<Bound>,
-
-        /// Whether this set of sticky parameters has been invalidated because a new value has been set or not.
-        invalidated: bool,
+    ) -> Self {
+        // Consider that each list will have at least one parameter set, so invalidate it by default.
+        Self { sort, required_state, filters, timeline_limit }
     }
+}
 
-    impl ListStickyParameters {
-        pub fn new(
-            sort: Vec<String>,
-            required_state: Vec<(StateEventType, String)>,
-            filters: Option<v4::SyncRequestListFilters>,
-            timeline_limit: Option<Bound>,
-        ) -> Self {
-            // Consider that each list will have at least one parameter set, so invalidate it by default.
-            Self { sort, required_state, filters, timeline_limit, invalidated: true }
-        }
+impl StickyData for ListStickyParameters {
+    type Request = v4::SyncRequestList;
 
-        pub fn invalidated(&self) -> bool {
-            self.invalidated
-        }
-        pub fn invalidate(&mut self) {
-            self.invalidated = true;
-        }
-        pub fn commit(&mut self) {
-            self.invalidated = false;
-        }
-
-        pub fn timeline_limit(&self) -> Option<Bound> {
-            self.timeline_limit
-        }
-
-        pub fn set_timeline_limit(&mut self, val: Option<Bound>) {
-            self.invalidated = true;
-            self.timeline_limit = val;
-        }
-
-        pub fn maybe_apply_parameters(&self, req: &mut SyncRequestList) {
-            if !self.invalidated {
-                return;
-            }
-            req.sort = self.sort.to_vec();
-            req.room_details.required_state = self.required_state.to_vec();
-            req.room_details.timeline_limit = self.timeline_limit.map(|val| val.into());
-            req.filters = self.filters.clone();
-        }
+    fn apply(&self, req: &mut v4::SyncRequestList) {
+        req.sort = self.sort.to_vec();
+        req.room_details.required_state = self.required_state.to_vec();
+        req.room_details.timeline_limit = self.timeline_limit.map(|val| val.into());
+        req.filters = self.filters.clone();
     }
 }
 
@@ -165,12 +143,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        self.inner.sticky.read().unwrap().timeline_limit()
+        self.inner.sticky.read().unwrap().data().timeline_limit
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
-        self.inner.sticky.write().unwrap().set_timeline_limit(timeline);
+        self.inner.sticky.write().unwrap().data_mut().timeline_limit = timeline;
     }
 
     /// Get the current room list.
@@ -223,8 +201,11 @@ impl SlidingSyncList {
     ///
     /// The next request is entirely calculated based on the request generator
     /// ([`SlidingSyncListRequestGenerator`]).
-    pub(super) fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
-        self.inner.next_request()
+    pub(super) fn next_request(
+        &self,
+        txn_id: &TransactionId,
+    ) -> Result<v4::SyncRequestList, Error> {
+        self.inner.next_request(txn_id)
     }
 
     /// Returns the current cache policy for this list.
@@ -265,19 +246,14 @@ impl SlidingSyncList {
         Ok(new_changes)
     }
 
-    /// Returns whether any of the sticky parameters for this list have been invalidated or not.
-    pub fn sticky_is_invalidated(&self) -> bool {
-        self.inner.sticky.read().unwrap().invalidated()
-    }
-
-    /// Invalidate the set of sticky parameters for this list.
-    pub fn sticky_invalidate(&mut self) {
-        self.inner.sticky.write().unwrap().invalidate();
-    }
-
     /// Commit the set of sticky parameters for this list.
-    pub fn commit_sticky(&mut self) {
-        self.inner.sticky.write().unwrap().commit();
+    pub fn maybe_commit_sticky(&mut self, txn_id: &TransactionId) {
+        self.inner.sticky.write().unwrap().maybe_commit(txn_id);
+    }
+
+    /// Manually invalidate the sticky data, so the sticky parameters are re-sent next time.
+    pub fn invalidate_sticky_data(&mut self) {
+        let _ = self.inner.sticky.write().unwrap().data_mut();
     }
 }
 
@@ -300,7 +276,7 @@ pub(super) struct SlidingSyncListInner {
     state: StdRwLock<Observable<SlidingSyncState>>,
 
     /// Parameters that are sticky, and can be sent only once per session (until the connection is dropped or the server invalidates what the client knows).
-    sticky: StdRwLock<sticky_parameters::ListStickyParameters>,
+    sticky: StdRwLock<StickyManager<ListStickyParameters>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -355,7 +331,7 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
+    fn next_request(&self, txn_id: &TransactionId) -> Result<v4::SyncRequestList, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -364,20 +340,20 @@ impl SlidingSyncListInner {
         };
 
         // Here we go.
-        Ok(self.request(ranges))
+        Ok(self.request(ranges, txn_id))
     }
 
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges) -> v4::SyncRequestList {
+    fn request(&self, ranges: Ranges, txn_id: &TransactionId) -> v4::SyncRequestList {
         use ruma::UInt;
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
         let mut req = assign!(v4::SyncRequestList::default(), { ranges });
         {
-            let sticky = self.sticky.read().unwrap();
-            sticky.maybe_apply_parameters(&mut req);
+            let mut sticky = self.sticky.write().unwrap();
+            sticky.maybe_apply(&mut req, txn_id);
         }
         req
     }
@@ -930,13 +906,13 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), Some(7));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, Some(7));
 
         list.set_timeline_limit(Some(42));
-        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), Some(42));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, Some(42));
 
         list.set_timeline_limit(None);
-        assert_eq!(list.inner.sticky.read().unwrap().timeline_limit(), None);
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, None);
     }
 
     #[test]
@@ -951,7 +927,7 @@ mod tests {
         let room1 = room_id!("!room1:bar.org");
 
         // Simulate a request.
-        let _ = list.next_request();
+        let _ = list.next_request("tid".into());
 
         // A new response.
         let sync0: v4::SyncOp = serde_json::from_value(json!({
@@ -987,7 +963,7 @@ mod tests {
             $(
                 {
                     // Generate a new request.
-                    let request = $list.next_request().unwrap();
+                    let request = $list.next_request("tid".into()).unwrap();
 
                     assert_eq!(
                         request.ranges,
@@ -1444,7 +1420,7 @@ mod tests {
         // Initial range.
         for _ in 0..=1 {
             // Simulate a request.
-            let _ = list.next_request();
+            let _ = list.next_request("tid".into());
 
             // A new response.
             let sync: v4::SyncOp = serde_json::from_value(json!({
@@ -1487,7 +1463,7 @@ mod tests {
         });
 
         // Simulate a request.
-        let _ = list.next_request();
+        let _ = list.next_request("tid".into());
 
         // A new response.
         let sync: v4::SyncOp = serde_json::from_value(json!({

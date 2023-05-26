@@ -46,7 +46,7 @@ use ruma::{
     },
     assign,
     events::TimelineEventType,
-    OwnedRoomId, RoomId,
+    OwnedRoomId, RoomId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -60,6 +60,8 @@ use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
 use crate::{config::RequestConfig, Client, Result};
+
+use self::sticky_parameters::StickyData;
 
 /// Number of times a Sliding Sync session can expire before raising an error.
 ///
@@ -92,10 +94,17 @@ mod sticky_parameters {
     //! something that is per sticky field.
     use ruma::{OwnedTransactionId, TransactionId};
 
-    use super::*;
+    pub trait StickyData {
+        type Request;
+
+        fn apply(&self, req: &mut Self::Request);
+    }
 
     #[derive(Debug)]
-    pub struct StickyParameters {
+    pub struct StickyManager<D: StickyData> {
+        /// The data managed by this sticky manager.
+        data: D,
+
         /// Was any of the parameters invalidated? If yes, reinitialize them.
         invalidated: bool,
 
@@ -103,107 +112,90 @@ mod sticky_parameters {
         /// the transaction id generated for that request, that must be matched
         /// upon in the next call to `commit()`.
         txn_id: Option<OwnedTransactionId>,
-
-        /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
-        /// but one wants to receive updates.
-        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-
-        /// The `bump_event_types` field. See
-        /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
-        bump_event_types: Vec<TimelineEventType>,
-
-        /// The intended state of the extensions being supplied to sliding /sync
-        /// calls.
-        extensions: ExtensionsConfig,
     }
 
-    impl StickyParameters {
-        /// Create a new set of sticky parameters.
-        pub fn new(
-            bump_event_types: Vec<TimelineEventType>,
-            room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-            extensions: ExtensionsConfig,
-        ) -> Self {
-            // Only initially mark as invalidated if there's any meaningful data.
-            let invalidated = !room_subscriptions.is_empty()
-                || !bump_event_types.is_empty()
-                || extensions != ExtensionsConfig::default();
-
-            Self { invalidated, txn_id: None, room_subscriptions, bump_event_types, extensions }
+    impl<D: StickyData> StickyManager<D> {
+        /// Create a new `StickyManager` for the given data.
+        ///
+        /// Always assume the initial data invalidates the request, at first.
+        pub fn new(data: D) -> Self {
+            Self { data, txn_id: None, invalidated: true }
         }
 
-        /// Marks the sticky parameters as acknowledged by the server.
-        pub fn maybe_commit(
-            &mut self,
-            response_txn_id: &TransactionId,
-            lists: &mut BTreeMap<String, SlidingSyncList>,
-        ) {
-            if !self.invalidated {
-                return;
-            }
+        /// Get a mutable reference to the managed data.
+        ///
+        /// Will invalidate the sticky set by default. If you don't need to modify the data, use `Self::data()`; if you're not sure you're going to modify the data, it's best to first use `Self::data()` then `Self::data_mut()` when you're sure.
+        pub fn data_mut(&mut self) -> &mut D {
+            self.invalidated = true;
+            &mut self.data
+        }
 
-            // Don't make it a hard error if the response transaction id doesn't match the
-            // expected one; this might be caused by an internal reset, or
-            // because the server returned an unknown position, which also
-            // "resets" the current sliding sync.
-            if self.txn_id.as_deref() == Some(response_txn_id) {
-                lists.values_mut().for_each(|list| list.commit_sticky());
+        /// Returns a non-invalidating reference to the managed data.
+        pub fn data(&self) -> &D {
+            &self.data
+        }
+
+        /// May apply some the managed sticky parameters to the given request.
+        ///
+        /// After receiving the response from this sliding sync, the caller MUST
+        /// also call [`Self::maybe_commit`] with the transaction id from the server's
+        /// response.
+        pub fn maybe_apply(&mut self, req: &mut D::Request, txn_id: &TransactionId) {
+            if self.invalidated {
+                self.txn_id = Some(txn_id.to_owned());
+                self.data.apply(req);
+            }
+        }
+
+        /// May mark the managed data as not invalidated anymore, if the transaction id received from the response matches the one received from the request.
+        pub fn maybe_commit(&mut self, txn_id: &TransactionId) {
+            if self.invalidated && self.txn_id.as_deref() == Some(txn_id) {
                 self.invalidated = false;
             }
         }
 
-        /// Manually invalidate all the sticky parameters.
-        pub fn invalidate(&mut self) {
-            self.invalidated = true;
-            self.txn_id = None;
-        }
-
-        /// May apply some sticky parameters.
-        ///
-        /// After receiving the response from this sliding sync, the caller MUST
-        /// also call [`Self::commit`] with the transaction id from the server's
-        /// response.
-        pub fn maybe_apply_parameters(&mut self, request: &mut v4::Request) {
-            if !self.invalidated {
-                return;
-            }
-            let tid = TransactionId::new();
-            assign!(request, {
-                txn_id: Some(tid.to_string()),
-                room_subscriptions: self.room_subscriptions.clone(),
-                bump_event_types: self.bump_event_types.clone(),
-                extensions: self.extensions.clone(),
-            });
-            self.txn_id = Some(tid);
-        }
-
-        /// Gets mutable access to the room subscriptions.
-        ///
-        /// Assuming it will change something, invalidates the parameters.
-        pub fn room_subscriptions_mut(
-            &mut self,
-        ) -> &mut BTreeMap<OwnedRoomId, v4::RoomSubscription> {
-            self.invalidated = true;
-            &mut self.room_subscriptions
-        }
-
-        /// Extensions configured for this client.
-        pub fn extensions(&self) -> &ExtensionsConfig {
-            &self.extensions
-        }
-
-        /// Gets read-only access to the room subscriptions.
-        ///
-        /// Doesn't invalidate the room parameters.
         #[cfg(test)]
-        pub fn room_subscriptions(&self) -> &BTreeMap<OwnedRoomId, v4::RoomSubscription> {
-            &self.room_subscriptions
-        }
-
-        /// Returns whether the current set of sticky parameters has been invalidated.
         pub fn is_invalidated(&self) -> bool {
             self.invalidated
         }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct StickyParameters {
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
+    /// but one wants to receive updates.
+    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+
+    /// The `bump_event_types` field. See
+    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
+    bump_event_types: Vec<TimelineEventType>,
+
+    /// The intended state of the extensions being supplied to sliding /sync
+    /// calls.
+    extensions: ExtensionsConfig,
+}
+
+impl StickyParameters {
+    /// Create a new set of sticky parameters.
+    pub fn new(
+        bump_event_types: Vec<TimelineEventType>,
+        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+        extensions: ExtensionsConfig,
+    ) -> Self {
+        Self { room_subscriptions, bump_event_types, extensions }
+    }
+}
+
+impl StickyData for StickyParameters {
+    type Request = v4::Request;
+
+    fn apply(&self, req: &mut Self::Request) {
+        assign!(req, {
+            room_subscriptions: self.room_subscriptions.clone(),
+            bump_event_types: self.bump_event_types.clone(),
+            extensions: self.extensions.clone(),
+        });
     }
 }
 
@@ -228,7 +220,7 @@ pub(super) struct SlidingSyncInner {
     rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// Request parameters that are sticky.
-    sticky: StdRwLock<sticky_parameters::StickyParameters>,
+    sticky: StdRwLock<sticky_parameters::StickyManager<StickyParameters>>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
@@ -266,7 +258,8 @@ impl SlidingSync {
             .sticky
             .write()
             .unwrap()
-            .room_subscriptions_mut()
+            .data_mut()
+            .room_subscriptions
             .insert(room_id, settings.unwrap_or_default());
         self.inner
             .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
@@ -277,8 +270,10 @@ impl SlidingSync {
 
     /// Unsubscribe from a given room.
     pub async fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
-        // If removing the subscription was successful…
-        if self.inner.sticky.write().unwrap().room_subscriptions_mut().remove(&room_id).is_some() {
+        // If there's a subscription…
+        if self.inner.sticky.read().unwrap().data().room_subscriptions.contains_key(&room_id) {
+            // Remove it…
+            self.inner.sticky.write().unwrap().data_mut().room_subscriptions.remove(&room_id);
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
             self.inner
@@ -407,8 +402,10 @@ impl SlidingSync {
 
         // Commit sticky parameters, if needed.
         if let Some(ref txn_id) = sliding_sync_response.txn_id {
+            let txn_id = txn_id.as_str().into();
+            self.inner.sticky.write().unwrap().maybe_commit(txn_id);
             let mut lists = self.inner.lists.write().unwrap();
-            self.inner.sticky.write().unwrap().maybe_commit(txn_id.as_str().into(), &mut lists);
+            lists.values_mut().for_each(|list| list.maybe_commit_sticky(txn_id));
         }
 
         let update_summary = {
@@ -492,35 +489,22 @@ impl SlidingSync {
     fn generate_sync_request(
         &self,
     ) -> Result<Option<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)>> {
+        let txn_id = TransactionId::new();
+
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
-        let apply_sticky_params = {
+        {
             let mut lists = self.inner.lists.write().unwrap();
 
             if lists.is_empty() {
                 return Ok(None);
             }
 
-            // First, collect whether any of the lists invalidated the whole set of sticky parameters.
-            let mut sticky = self.inner.sticky.write().unwrap();
-
-            let mut invalidated = sticky.is_invalidated();
-            if !invalidated {
-                invalidated = lists.values().any(|list| list.sticky_is_invalidated());
-            }
-
-            if invalidated {
-                sticky.invalidate();
-                lists.values_mut().for_each(|list| list.sticky_invalidate());
-            }
-
             for (name, list) in lists.iter_mut() {
-                requests_lists.insert(name.clone(), list.next_request()?);
+                requests_lists.insert(name.clone(), list.next_request(&txn_id)?);
             }
-
-            invalidated
-        };
+        }
 
         // Collect the `pos` and `delta_token`.
         let (pos, delta_token) = {
@@ -536,6 +520,7 @@ impl SlidingSync {
         let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
+            txn_id: Some(txn_id.to_string()),
             pos,
             delta_token,
             timeout: Some(timeout),
@@ -546,13 +531,10 @@ impl SlidingSync {
         {
             let mut sticky_params = self.inner.sticky.write().unwrap();
 
-            // Sticky parameters should not change between the beginning and the end of this function! Or we might miss applying the sticky parameters to the sub-list requests, if we invalidated in the meanwhile.
-            assert_eq!(sticky_params.is_invalidated(), apply_sticky_params);
-
-            sticky_params.maybe_apply_parameters(&mut request);
+            sticky_params.maybe_apply(&mut request, &txn_id);
 
             // Set the to_device token if the extension is enabled.
-            if sticky_params.extensions().to_device.enabled == Some(true) {
+            if sticky_params.data().extensions.to_device.enabled == Some(true) {
                 request.extensions.to_device.since =
                     self.inner.position.read().unwrap().to_device_token.clone();
             }
@@ -743,7 +725,9 @@ impl SlidingSync {
                                             position_lock.pos = None;
                                         }
 
-                                        self.inner.sticky.write().unwrap().invalidate();
+                                        // Force invalidation of all the sticky parameters.
+                                        let _ = self.inner.sticky.write().unwrap().data_mut();
+                                        self.inner.lists.write().unwrap().values_mut().for_each(|list| list.invalidate_sticky_data());
 
                                         debug!(?self.inner.position, "Sliding Sync has been reset");
                                     });
@@ -864,8 +848,8 @@ mod tests {
     use ruma::room_id;
     use wiremock::MockServer;
 
-    use super::{sticky_parameters::StickyParameters, *};
-    use crate::test_utils::logged_in_client;
+    use super::*;
+    use crate::{sliding_sync::sticky_parameters::StickyManager, test_utils::logged_in_client};
 
     async fn new_sliding_sync(
         lists: Vec<SlidingSyncListBuilder>,
@@ -902,7 +886,7 @@ mod tests {
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
-            let room_subscriptions = sticky.room_subscriptions();
+            let room_subscriptions = &sticky.data().room_subscriptions;
 
             assert!(room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -914,7 +898,7 @@ mod tests {
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
-            let room_subscriptions = sticky.room_subscriptions();
+            let room_subscriptions = &sticky.data().room_subscriptions;
 
             assert!(!room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -981,84 +965,115 @@ mod tests {
         Ok(())
     }
 
+    struct EmptyStickyData;
+
+    impl StickyData for EmptyStickyData {
+        type Request = bool;
+
+        fn apply(&self, req: &mut Self::Request) {
+            // Mark that applied has had an effect.
+            *req = true;
+        }
+    }
+
     #[test]
     fn test_sticky_parameters_api_non_invalidated_no_effect() {
-        let mut sticky =
-            StickyParameters::new(Default::default(), Default::default(), Default::default());
-        assert!(!sticky.is_invalidated(), "not invalidated if constructed with default parameters");
+        let mut sticky = StickyManager::new(EmptyStickyData);
 
-        let mut request = v4::Request::default();
-        sticky.maybe_apply_parameters(&mut request);
+        // At first, it's always invalidated.
+        assert!(sticky.is_invalidated());
 
-        assert_eq!(request.txn_id, None);
-        assert_eq!(request.room_subscriptions.len(), 0);
+        let mut applied = false;
+        sticky.maybe_apply(&mut applied, "tid123".into());
+        assert!(applied);
+        assert!(sticky.is_invalidated());
 
+        // Committing with the wrong transaction id won't commit.
+        sticky.maybe_commit("tid456".into());
+        assert!(sticky.is_invalidated());
+
+        // Committing will validate it.
+        sticky.maybe_commit("tid123".into());
         assert!(!sticky.is_invalidated());
 
-        // Committing while it wasn't expected isn't a hard error, and it doesn't change
-        // anything.
-        sticky.maybe_commit("tid123".into(), &mut Default::default());
+        // Applying without being invalidated won't do anything.
+        let mut applied = false;
+        sticky.maybe_apply(&mut applied, "tid123".into());
 
+        assert!(!applied);
         assert!(!sticky.is_invalidated());
     }
 
     #[test]
     fn test_sticky_parameters_api_invalidated_flow() {
-        // Construct a valid, non-empty room subscriptions list.
-        let mut room_subs: BTreeMap<OwnedRoomId, v4::RoomSubscription> = Default::default();
-        let r0 = room_id!("!r0:bar.org").to_owned();
-        room_subs.insert(r0.clone(), Default::default());
+        let r0 = room_id!("!room:example.org");
+
+        let mut room_subscriptions = BTreeMap::new();
+        room_subscriptions.insert(r0.to_owned(), Default::default());
 
         // At first it's invalidated.
-        let mut sticky = StickyParameters::new(Default::default(), room_subs, Default::default());
-        assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
+        let mut sticky = StickyManager::new(StickyParameters::new(
+            Default::default(),
+            room_subscriptions,
+            Default::default(),
+        ));
+        assert!(sticky.is_invalidated());
 
         // Then when we create a request, the sticky parameters are applied.
+        let txn_id: &TransactionId = "tid123".into();
+
         let mut request = v4::Request::default();
-        sticky.maybe_apply_parameters(&mut request);
+        request.txn_id = Some(txn_id.to_string());
+
+        sticky.maybe_apply(&mut request, txn_id);
 
         assert!(request.txn_id.is_some());
         assert_eq!(request.room_subscriptions.len(), 1);
-        assert!(request.room_subscriptions.get(&r0).is_some());
+        assert!(request.room_subscriptions.get(r0).is_some());
 
-        let tid = request.txn_id.expect("invalidated + apply_parameters => non-null tid");
+        let tid = request.txn_id.unwrap();
 
-        sticky.maybe_commit(tid.as_str().into(), &mut Default::default());
+        sticky.maybe_commit(tid.as_str().into());
         assert!(!sticky.is_invalidated());
 
         // Applying new parameters will invalidate again.
         sticky
-            .room_subscriptions_mut()
+            .data_mut()
+            .room_subscriptions
             .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
         assert!(sticky.is_invalidated());
 
         // Committing with the wrong transaction id will keep it invalidated.
-        sticky.maybe_commit(
-            "what-are-the-odds-the-rng-will-generate-this-string".into(),
-            &mut Default::default(),
-        );
+        sticky.maybe_commit("wrong tid today, my love has gone away 🎵".into());
         assert!(sticky.is_invalidated());
+
+        drop(tid);
+        drop(txn_id);
 
         // Restarting a request will only remember the last generated transaction id.
+        let txn_id1: &TransactionId = "tid456".into();
         let mut request1 = v4::Request::default();
-        sticky.maybe_apply_parameters(&mut request1);
+        request1.txn_id = Some(txn_id1.to_string());
+        sticky.maybe_apply(&mut request1, txn_id1);
+
         assert!(sticky.is_invalidated());
-        assert!(request1.txn_id.is_some());
         assert_eq!(request1.room_subscriptions.len(), 2);
 
+        let txn_id2: &TransactionId = "tid789".into();
         let mut request2 = v4::Request::default();
-        sticky.maybe_apply_parameters(&mut request2);
+        request2.txn_id = Some(txn_id2.to_string());
+
+        sticky.maybe_apply(&mut request2, txn_id2);
         assert!(sticky.is_invalidated());
-        assert!(request2.txn_id.is_some());
         assert_eq!(request2.room_subscriptions.len(), 2);
 
         // Here we commit with the not most-recent TID, so it keeps the invalidated
         // status.
-        sticky.maybe_commit(request1.txn_id.unwrap().as_str().into(), &mut Default::default());
+        sticky.maybe_commit(txn_id1);
         assert!(sticky.is_invalidated());
 
         // But here we use the latest TID, so the commit is effective.
-        sticky.maybe_commit(request2.txn_id.unwrap().as_str().into(), &mut Default::default());
+        sticky.maybe_commit(txn_id2);
         assert!(!sticky.is_invalidated());
     }
 
@@ -1066,25 +1081,30 @@ mod tests {
     fn test_extensions_are_sticky() {
         let mut extensions = ExtensionsConfig::default();
         extensions.account_data.enabled = Some(true);
-        extensions.to_device.since = Some("since".to_owned());
 
         // At first it's invalidated.
-        let mut sticky = StickyParameters::new(Default::default(), Default::default(), extensions);
+        let mut sticky = StickyManager::new(StickyParameters::new(
+            Default::default(),
+            Default::default(),
+            extensions,
+        ));
 
         assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
 
         // `StickyParameters::new` follows its caller's intent when it comes to e2ee and to-device.
-        assert_eq!(sticky.extensions().e2ee.enabled, None);
-        assert_eq!(sticky.extensions().to_device.enabled, None,);
-        assert_eq!(sticky.extensions().to_device.since, None,);
+        let extensions = &sticky.data().extensions;
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None,);
+        assert_eq!(extensions.to_device.since, None,);
 
         // What the user explicitly enabled is... enabled.
-        assert_eq!(sticky.extensions().account_data.enabled, Some(true),);
+        assert_eq!(extensions.account_data.enabled, Some(true),);
 
+        let txn_id: &TransactionId = "tid123".into();
         let mut request = v4::Request::default();
-        sticky.maybe_apply_parameters(&mut request);
+        request.txn_id = Some(txn_id.to_string());
+        sticky.maybe_apply(&mut request, txn_id);
         assert!(sticky.is_invalidated());
-        assert!(request.txn_id.is_some());
         assert_eq!(request.extensions.to_device.enabled, None);
         assert_eq!(request.extensions.to_device.since, None);
         assert_eq!(request.extensions.e2ee.enabled, None);
@@ -1102,10 +1122,13 @@ mod tests {
         let sync = ss_builder.build().await?;
 
         // We get to-device and e2ee even without requesting it.
-        assert_eq!(sync.inner.sticky.read().unwrap().extensions().to_device.enabled, Some(true));
-        assert_eq!(sync.inner.sticky.read().unwrap().extensions().e2ee.enabled, Some(true));
+        assert_eq!(
+            sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled,
+            Some(true)
+        );
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, Some(true));
         // But what we didn't enable... isn't enabled.
-        assert_eq!(sync.inner.sticky.read().unwrap().extensions().account_data.enabled, None);
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
 
         // Even without a since token, the first request will contain the extensions configuration, at least.
         let (request, _, _) = sync
@@ -1122,8 +1145,7 @@ mod tests {
             let mut sticky = sync.inner.sticky.write().unwrap();
             assert!(sticky.is_invalidated());
             sticky.maybe_commit(
-                "very-hopeful-no-rng-will-generate-this-string".into(),
-                &mut Default::default(),
+                "hopefully the rng won't generate this very specific transaction id".into(),
             );
             assert!(sticky.is_invalidated());
         }
@@ -1144,7 +1166,7 @@ mod tests {
             // Committing with the expected transaction id will validate it.
             let mut sticky = sync.inner.sticky.write().unwrap();
             assert!(sticky.is_invalidated());
-            sticky.maybe_commit(txn_id2.as_str().into(), &mut Default::default());
+            sticky.maybe_commit(txn_id2.as_str().into());
             assert!(!sticky.is_invalidated());
         }
 
@@ -1152,7 +1174,6 @@ mod tests {
         let (request, _, _) = sync
             .generate_sync_request()?
             .expect("must have generated a request because there's one list");
-        assert!(request.txn_id.is_none());
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert!(request.extensions.to_device.since.is_none());
@@ -1167,7 +1188,6 @@ mod tests {
             .generate_sync_request()?
             .expect("must have generated a request because there's one list");
 
-        assert!(request.txn_id.is_none());
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert_eq!(request.extensions.to_device.since.as_deref(), Some(since_token));

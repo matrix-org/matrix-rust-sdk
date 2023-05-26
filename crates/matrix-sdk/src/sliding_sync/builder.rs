@@ -1,3 +1,4 @@
+use crate::sliding_sync::StickyParameters;
 use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock};
 
 use ruma::{
@@ -12,7 +13,7 @@ use tokio::sync::{mpsc::channel, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
-    cache::restore_sliding_sync_state, sticky_parameters::StickyParameters, SlidingSync,
+    cache::restore_sliding_sync_state, sticky_parameters::StickyManager, SlidingSync,
     SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 use crate::{Client, Result};
@@ -273,11 +274,11 @@ impl SlidingSyncBuilder {
                 to_device_token,
             }),
 
-            sticky: StdRwLock::new(StickyParameters::new(
+            sticky: StdRwLock::new(StickyManager::new(StickyParameters::new(
                 self.bump_event_types,
                 self.subscriptions,
                 extensions,
-            )),
+            ))),
             room_unsubscriptions: Default::default(),
 
             internal_channel: (
