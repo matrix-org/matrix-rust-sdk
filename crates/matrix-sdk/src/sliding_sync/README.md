@@ -404,6 +404,7 @@ use ruma::{assign, api::client::sync::sync_events::v4, events::StateEventType};
 use tracing::{warn, error, info, debug};
 use futures_util::{pin_mut, StreamExt};
 use url::Url;
+use std::future::ready;
 # async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
@@ -441,8 +442,8 @@ let sliding_sync = sliding_sync_builder
 // subscribe to the list APIs for updates
 
 let (list_state_stream, list_count_stream, list_stream) = sliding_sync.on_list(&active_list_name, |list| {
-    (list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream())
-}).unwrap();
+    ready((list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream()))
+}).await.unwrap();
 
 tokio::spawn(async move {
     pin_mut!(list_state_stream);

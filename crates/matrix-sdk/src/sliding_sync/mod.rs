@@ -25,6 +25,7 @@ mod room;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, RwLock as StdRwLock,
@@ -51,7 +52,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     select, spawn,
-    sync::{broadcast::Sender, Mutex as AsyncMutex},
+    sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
@@ -94,10 +95,10 @@ pub(super) struct SlidingSyncInner {
     position: StdRwLock<SlidingSyncPositionMarkers>,
 
     /// The lists of this Sliding Sync instance.
-    lists: StdRwLock<BTreeMap<String, SlidingSyncList>>,
+    lists: AsyncRwLock<BTreeMap<String, SlidingSyncList>>,
 
     /// The rooms details
-    rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
+    rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// The `bump_event_types` field. See
     /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
@@ -164,12 +165,12 @@ impl SlidingSync {
 
     /// Lookup a specific room
     pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().get(room_id).cloned()
+        self.inner.rooms.blocking_read().get(room_id).cloned()
     }
 
     /// Check the number of rooms.
     pub fn get_number_of_rooms(&self) -> usize {
-        self.inner.rooms.read().unwrap().len()
+        self.inner.rooms.blocking_read().len()
     }
 
     #[instrument(skip(self))]
@@ -178,13 +179,21 @@ impl SlidingSync {
     }
 
     /// Find a list by its name, and do something on it if it exists.
-    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
+    pub async fn on_list<Function, FunctionOutput, R>(
+        &self,
+        list_name: &str,
+        function: Function,
+    ) -> Option<R>
     where
-        F: FnOnce(&SlidingSyncList) -> R,
+        Function: FnOnce(&SlidingSyncList) -> FunctionOutput,
+        FunctionOutput: Future<Output = R>,
     {
-        let lists = self.inner.lists.read().unwrap();
+        let lists = self.inner.lists.read().await;
 
-        lists.get(list_name).map(f)
+        match lists.get(list_name) {
+            Some(list) => Some(function(list).await),
+            None => None,
+        }
     }
 
     /// Add the list to the list of lists.
@@ -198,7 +207,7 @@ impl SlidingSync {
     ) -> Result<Option<SlidingSyncList>> {
         let list = list_builder.build(self.inner.internal_channel.clone());
 
-        let old_list = self.inner.lists.write().unwrap().insert(list.name().to_owned(), list);
+        let old_list = self.inner.lists.write().await.insert(list.name().to_owned(), list);
 
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
@@ -225,7 +234,7 @@ impl SlidingSync {
             list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
 
         if !reloaded_rooms.is_empty() {
-            let mut rooms = self.inner.rooms.write().unwrap();
+            let mut rooms = self.inner.rooms.write().await;
 
             for (key, frozen) in reloaded_rooms {
                 rooms.entry(key).or_insert_with(|| {
@@ -242,14 +251,14 @@ impl SlidingSync {
         &self,
         room_ids: I,
     ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.inner.rooms.read().unwrap();
+        let rooms = self.inner.rooms.blocking_read();
 
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
     /// Get all rooms.
     pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().values().cloned().collect()
+        self.inner.rooms.blocking_read().values().cloned().collect()
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
@@ -272,7 +281,7 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
+    #[instrument(skip_all)]
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
@@ -303,7 +312,7 @@ impl SlidingSync {
         let update_summary = {
             // Update the rooms.
             let updated_rooms = {
-                let mut rooms_map = self.inner.rooms.write().unwrap();
+                let mut rooms_map = self.inner.rooms.write().await;
 
                 let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
 
@@ -347,7 +356,7 @@ impl SlidingSync {
             // Update the lists.
             let updated_lists = {
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
-                let mut lists = self.inner.lists.write().unwrap();
+                let mut lists = self.inner.lists.write().await;
 
                 for (name, updates) in sliding_sync_response.lists {
                     let Some(list) = lists.get_mut(&name) else {
@@ -385,7 +394,7 @@ impl SlidingSync {
             let mut requests_lists = BTreeMap::new();
 
             {
-                let mut lists = self.inner.lists.write().unwrap();
+                let mut lists = self.inner.lists.write().await;
 
                 if lists.is_empty() {
                     return Ok(None);
@@ -446,7 +455,7 @@ impl SlidingSync {
         // coming from the `OlmMachine::outgoing_requests()` method.
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request along with  outgoing E2EE requests");
+            debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
             let (e2ee_uploads, response) =
                 futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
@@ -872,7 +881,7 @@ mod tests {
             )
             .await?;
 
-        let lists = sliding_sync.inner.lists.read().unwrap();
+        let lists = sliding_sync.inner.lists.read().await;
 
         assert!(lists.contains_key("foo"));
         assert!(lists.contains_key("bar"));

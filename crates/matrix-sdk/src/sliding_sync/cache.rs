@@ -69,13 +69,13 @@ pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Resu
 
     // Write every `SlidingSyncList` that's configured for caching into the store.
     let frozen_lists = {
-        let rooms_lock = sliding_sync.inner.rooms.read().unwrap();
+        let rooms_lock = sliding_sync.inner.rooms.read().await;
 
         sliding_sync
             .inner
             .lists
             .read()
-            .unwrap()
+            .await
             .iter()
             .filter_map(|(list_name, list)| {
                 matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled).then(|| {
@@ -228,151 +228,148 @@ mod tests {
     }
 
     #[allow(clippy::await_holding_lock)]
-    #[test]
-    fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
-        block_on(async {
-            let homeserver = Url::parse("https://foo.bar")?;
-            let client = Client::new(homeserver).await?;
+    #[tokio::test]
+    async fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
+        let homeserver = Url::parse("https://foo.bar")?;
+        let client = Client::new(homeserver).await?;
 
-            let store = client.store();
+        let store = client.store();
 
-            // Store entries don't exist.
-            assert!(store
-                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+        // Store entries don't exist.
+        assert!(store
+            .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+            .await?
+            .is_none());
+
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+            )
+            .await?
+            .is_none());
+
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
+            )
+            .await?
+            .is_none());
+
+        // Create a new `SlidingSync` instance, and store it.
+        {
+            let sliding_sync = client
+                .sliding_sync()
+                .storage_key(Some("hello".to_owned()))
+                .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await?
-                .is_none());
+                .add_list(SlidingSyncList::builder("list_bar"))
+                .build()
+                .await?;
 
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
-                )
-                .await?
-                .is_none());
-
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
-                )
-                .await?
-                .is_none());
-
-            // Create a new `SlidingSync` instance, and store it.
+            // Modify both lists, so we can check expected caching behavior later.
             {
-                let sliding_sync = client
-                    .sliding_sync()
-                    .storage_key(Some("hello".to_owned()))
-                    .add_cached_list(SlidingSyncList::builder("list_foo"))
-                    .await?
-                    .add_list(SlidingSyncList::builder("list_bar"))
-                    .build()
-                    .await?;
+                let lists = sliding_sync.inner.lists.write().await;
 
-                // Modify both lists, so we can check expected caching behavior later.
-                {
-                    let lists = sliding_sync.inner.lists.write().unwrap();
+                let list_foo = lists.get("list_foo").unwrap();
+                list_foo.set_maximum_number_of_rooms(Some(42));
 
-                    let list_foo = lists.get("list_foo").unwrap();
-                    list_foo.set_maximum_number_of_rooms(Some(42));
-
-                    let list_bar = lists.get("list_bar").unwrap();
-                    list_bar.set_maximum_number_of_rooms(Some(1337));
-                }
-
-                assert!(sliding_sync.cache_to_storage().await.is_ok());
+                let list_bar = lists.get("list_bar").unwrap();
+                list_bar.set_maximum_number_of_rooms(Some(1337));
             }
 
-            // Store entries now exist for the sliding sync object and list_foo.
-            assert!(store
-                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
-                .await?
-                .is_some());
+            assert!(sliding_sync.cache_to_storage().await.is_ok());
+        }
 
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
-                )
-                .await?
-                .is_some());
+        // Store entries now exist for the sliding sync object and list_foo.
+        assert!(store
+            .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+            .await?
+            .is_some());
 
-            // But not for list_bar.
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
-                )
-                .await?
-                .is_none());
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+            )
+            .await?
+            .is_some());
 
-            // Create a new `SlidingSync`, and it should be read from the cache.
+        // But not for list_bar.
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
+            )
+            .await?
+            .is_none());
+
+        // Create a new `SlidingSync`, and it should be read from the cache.
+        {
+            let max_number_of_room_stream = Arc::new(RwLock::new(None));
+            let cloned_stream = max_number_of_room_stream.clone();
+            let sliding_sync = client
+                .sliding_sync()
+                .storage_key(Some("hello".to_owned()))
+                .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
+                    // In the `once_built()` handler, nothing has been read from the cache yet.
+                    assert_eq!(list.maximum_number_of_rooms(), None);
+
+                    let mut stream = cloned_stream.write().unwrap();
+                    *stream = Some(list.maximum_number_of_rooms_stream());
+                    list
+                }))
+                .await?
+                .add_list(SlidingSyncList::builder("list_bar"))
+                .build()
+                .await?;
+
+            // Check the list' state.
             {
-                let max_number_of_room_stream = Arc::new(RwLock::new(None));
-                let cloned_stream = max_number_of_room_stream.clone();
-                let sliding_sync = client
-                    .sliding_sync()
-                    .storage_key(Some("hello".to_owned()))
-                    .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
-                        // In the `once_built()` handler, nothing has been read from the cache yet.
-                        assert_eq!(list.maximum_number_of_rooms(), None);
+                let lists = sliding_sync.inner.lists.write().await;
 
-                        let mut stream = cloned_stream.write().unwrap();
-                        *stream = Some(list.maximum_number_of_rooms_stream());
-                        list
-                    }))
-                    .await?
-                    .add_list(SlidingSyncList::builder("list_bar"))
-                    .build()
-                    .await?;
+                // This one was cached.
+                let list_foo = lists.get("list_foo").unwrap();
+                assert_eq!(list_foo.maximum_number_of_rooms(), Some(42));
 
-                // Check the list' state.
-                {
-                    let lists = sliding_sync.inner.lists.write().unwrap();
-
-                    // This one was cached.
-                    let list_foo = lists.get("list_foo").unwrap();
-                    assert_eq!(list_foo.maximum_number_of_rooms(), Some(42));
-
-                    // This one wasn't.
-                    let list_bar = lists.get("list_bar").unwrap();
-                    assert_eq!(list_bar.maximum_number_of_rooms(), None);
-                }
-
-                // The maximum number of rooms reloaded from the cache should have been
-                // published.
-                {
-                    let mut stream = max_number_of_room_stream
-                        .write()
-                        .unwrap()
-                        .take()
-                        .expect("stream must be set");
-                    let initial_max_number_of_rooms =
-                        stream.next().await.expect("stream must have emitted something");
-                    assert_eq!(initial_max_number_of_rooms, Some(42));
-                }
-
-                // Clean the cache.
-                clean_storage(&client, "hello", &sliding_sync.inner.lists.read().unwrap()).await;
+                // This one wasn't.
+                let list_bar = lists.get("list_bar").unwrap();
+                assert_eq!(list_bar.maximum_number_of_rooms(), None);
             }
 
-            // Store entries don't exist.
-            assert!(store
-                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
-                .await?
-                .is_none());
+            // The maximum number of rooms reloaded from the cache should have been
+            // published.
+            {
+                let mut stream =
+                    max_number_of_room_stream.write().unwrap().take().expect("stream must be set");
+                let initial_max_number_of_rooms =
+                    stream.next().await.expect("stream must have emitted something");
+                assert_eq!(initial_max_number_of_rooms, Some(42));
+            }
 
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
-                )
-                .await?
-                .is_none());
+            // Clean the cache.
+            let lists = sliding_sync.inner.lists.read().await;
 
-            assert!(store
-                .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
-                )
-                .await?
-                .is_none());
+            clean_storage(&client, "hello", &lists).await;
+        }
 
-            Ok(())
-        })
+        // Store entries don't exist.
+        assert!(store
+            .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+            .await?
+            .is_none());
+
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+            )
+            .await?
+            .is_none());
+
+        assert!(store
+            .get_custom_value(
+                format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
+            )
+            .await?
+            .is_none());
+
+        Ok(())
     }
 }

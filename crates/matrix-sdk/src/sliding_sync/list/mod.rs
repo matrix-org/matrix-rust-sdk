@@ -70,7 +70,10 @@ impl SlidingSyncList {
     /// means that the state is not reset **purposely**. The ranges and the
     /// state will be updated when the next request will be sent and a
     /// response will be received. The maximum number of rooms won't change.
-    pub fn set_sync_mode(&self, sync_mode: impl Into<SlidingSyncMode>) {
+    pub fn set_sync_mode<M>(&self, sync_mode: M)
+    where
+        M: Into<SlidingSyncMode>,
+    {
         self.inner.set_sync_mode(sync_mode.into());
 
         // When the sync mode is changed, the sync loop must skip over any work in its
@@ -837,6 +840,7 @@ mod tests {
 
     use futures_util::StreamExt;
     use imbl::vector;
+    use matrix_sdk_test::async_test;
     use ruma::{api::client::sync::sync_events::v4::SlidingOp, room_id, uint};
     use serde_json::json;
     use tokio::{
@@ -859,8 +863,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_sliding_sync_list_selective_mode() {
+    #[async_test]
+    async fn test_sliding_sync_list_selective_mode() {
         let (sender, mut receiver) = channel(1);
 
         // Set range on `Selective`.
@@ -879,7 +883,7 @@ mod tests {
         // There shouldn't be any internal request to restart the sync loop yet.
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5));
+        list.set_sync_mode(SlidingSyncMode::new_selective().add_range(4..=5));
 
         {
             let mut generator = list.inner.request_generator.write().unwrap();
@@ -902,7 +906,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=1))
             .timeline_limit(7)
             .build(sender);
 
@@ -920,7 +924,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=1))
             .build(sender);
 
         let room0 = room_id!("!room0:bar.org");
@@ -1164,7 +1168,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1191,12 +1195,12 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_generator_selective_with_modifying_ranges_on_the_fly() {
+    #[tokio::test]
+    async fn test_generator_selective_with_modifying_ranges_on_the_fly() {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1222,7 +1226,7 @@ mod tests {
             }
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7));
+        list.set_sync_mode(SlidingSyncMode::new_selective().add_range(3..=7));
 
         assert_ranges! {
             list = list,
@@ -1235,7 +1239,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77));
+        list.set_sync_mode(SlidingSyncMode::new_selective().add_range(42..=77));
 
         assert_ranges! {
             list = list,
@@ -1248,7 +1252,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new());
+        list.set_sync_mode(SlidingSyncMode::new_selective());
 
         assert_ranges! {
             list = list,
@@ -1262,12 +1266,12 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_generator_changing_sync_mode_to_various_modes() {
+    #[async_test]
+    async fn test_generator_changing_sync_mode_to_various_modes() {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1366,14 +1370,14 @@ mod tests {
         };
 
         // Changing from `Paging` to `Selective`.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new());
+        list.set_sync_mode(SlidingSyncMode::new_selective());
 
         assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
                                                                      // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100));
+        list.set_sync_mode(SlidingSyncMode::new_selective().add_range(0..=100));
 
         assert_ranges! {
             list = list,
@@ -1405,7 +1409,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=3))
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=3))
             .build(sender);
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);

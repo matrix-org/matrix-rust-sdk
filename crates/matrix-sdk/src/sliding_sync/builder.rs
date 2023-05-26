@@ -8,7 +8,7 @@ use ruma::{
     events::TimelineEventType,
     OwnedRoomId,
 };
-use tokio::sync::broadcast::channel;
+use tokio::sync::{broadcast::channel, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
@@ -248,8 +248,8 @@ impl SlidingSyncBuilder {
             .await?;
         }
 
-        let rooms = StdRwLock::new(self.rooms);
-        let lists = StdRwLock::new(lists);
+        let rooms = AsyncRwLock::new(self.rooms);
+        let lists = AsyncRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
             homeserver: self.homeserver,
