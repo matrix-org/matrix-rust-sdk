@@ -53,7 +53,8 @@ impl ListStickyParameters {
         filters: Option<v4::SyncRequestListFilters>,
         timeline_limit: Option<Bound>,
     ) -> Self {
-        // Consider that each list will have at least one parameter set, so invalidate it by default.
+        // Consider that each list will have at least one parameter set, so invalidate
+        // it by default.
         Self { sort, required_state, filters, timeline_limit }
     }
 }
@@ -251,7 +252,8 @@ impl SlidingSyncList {
         self.inner.sticky.write().unwrap().maybe_commit(txn_id);
     }
 
-    /// Manually invalidate the sticky data, so the sticky parameters are re-sent next time.
+    /// Manually invalidate the sticky data, so the sticky parameters are
+    /// re-sent next time.
     pub fn invalidate_sticky_data(&mut self) {
         let _ = self.inner.sticky.write().unwrap().data_mut();
     }
@@ -275,7 +277,9 @@ pub(super) struct SlidingSyncListInner {
     /// The state this list is in.
     state: StdRwLock<Observable<SlidingSyncState>>,
 
-    /// Parameters that are sticky, and can be sent only once per session (until the connection is dropped or the server invalidates what the client knows).
+    /// Parameters that are sticky, and can be sent only once per session (until
+    /// the connection is dropped or the server invalidates what the client
+    /// knows).
     sticky: StdRwLock<StickyManager<ListStickyParameters>>,
 
     /// The total number of rooms that is possible to interact with for the

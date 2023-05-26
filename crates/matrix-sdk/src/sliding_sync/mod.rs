@@ -60,9 +60,8 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use crate::{config::RequestConfig, Client, Result};
-
 use self::sticky_parameters::StickyData;
+use crate::{config::RequestConfig, Client, Result};
 
 /// Number of times a Sliding Sync session can expire before raising an error.
 ///
@@ -932,9 +931,6 @@ mod tests {
         sticky.maybe_commit("wrong tid today, my love has gone away 🎵".into());
         assert!(sticky.is_invalidated());
 
-        drop(tid);
-        drop(txn_id);
-
         // Restarting a request will only remember the last generated transaction id.
         let txn_id1: &TransactionId = "tid456".into();
         let mut request1 = v4::Request::default();
@@ -976,7 +972,8 @@ mod tests {
 
         assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
 
-        // `StickyParameters::new` follows its caller's intent when it comes to e2ee and to-device.
+        // `StickyParameters::new` follows its caller's intent when it comes to e2ee and
+        // to-device.
         let extensions = &sticky.data().extensions;
         assert_eq!(extensions.e2ee.enabled, None);
         assert_eq!(extensions.to_device.enabled, None,);
@@ -1015,7 +1012,8 @@ mod tests {
         // But what we didn't enable... isn't enabled.
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
 
-        // Even without a since token, the first request will contain the extensions configuration, at least.
+        // Even without a since token, the first request will contain the extensions
+        // configuration, at least.
         let (request, _, _) = sync
             .generate_sync_request()?
             .expect("must have generated a request because there's one list");

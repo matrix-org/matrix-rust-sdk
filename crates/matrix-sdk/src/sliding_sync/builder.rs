@@ -1,4 +1,3 @@
-use crate::sliding_sync::StickyParameters;
 use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock};
 
 use ruma::{
@@ -16,7 +15,7 @@ use super::{
     cache::restore_sliding_sync_state, sticky_parameters::StickyManager, SlidingSync,
     SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
-use crate::{Client, Result};
+use crate::{sliding_sync::StickyParameters, Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
