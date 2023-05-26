@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_request_generator_selective_from_sync_mode() {
         let sync_mode = SlidingSyncMode::new_selective();
-        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.build());
+        let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);

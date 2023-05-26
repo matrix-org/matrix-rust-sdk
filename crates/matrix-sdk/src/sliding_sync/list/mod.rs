@@ -841,8 +841,7 @@ mod tests {
         // There shouldn't be any internal request to restart the sync loop yet.
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5).build())
-            .unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5)).unwrap();
 
         {
             let mut generator = list.inner.request_generator.write().unwrap();
@@ -862,7 +861,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1).build())
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
             .timeline_limit(7)
             .build(sender);
 
@@ -880,7 +879,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1).build())
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=1))
             .build(sender);
 
         let room0 = room_id!("!room0:bar.org");
@@ -1124,12 +1123,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(
-                SlidingSyncSelectiveModeBuilder::new()
-                    .add_range(0..=10)
-                    .add_range(42..=153)
-                    .build(),
-            )
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1161,12 +1155,7 @@ mod tests {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(
-                SlidingSyncSelectiveModeBuilder::new()
-                    .add_range(0..=10)
-                    .add_range(42..=153)
-                    .build(),
-            )
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1192,8 +1181,7 @@ mod tests {
             }
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7).build())
-            .unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1206,8 +1194,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77).build())
-            .unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1220,7 +1207,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().build()).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1239,12 +1226,7 @@ mod tests {
         let (sender, _receiver) = channel(4);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(
-                SlidingSyncSelectiveModeBuilder::new()
-                    .add_range(0..=10)
-                    .add_range(42..=153)
-                    .build(),
-            )
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=10).add_range(42..=153))
             .build(sender);
 
         assert_ranges! {
@@ -1343,15 +1325,14 @@ mod tests {
         };
 
         // Changing from `Paging` to `Selective`.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().build()).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
 
         assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
                                                                      // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100).build())
-            .unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1383,7 +1364,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=3).build())
+            .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=3))
             .build(sender);
 
         assert_eq!(**list.inner.maximum_number_of_rooms.read().unwrap(), None);
@@ -1522,7 +1503,7 @@ mod tests {
                 }
             })
         );
-        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::new_selective().build() => json!({
+        assert_json_roundtrip!(from SlidingSyncMode: SlidingSyncMode::from(SlidingSyncMode::new_selective()) => json!({
                 "Selective": {
                     "ranges": []
                 }
