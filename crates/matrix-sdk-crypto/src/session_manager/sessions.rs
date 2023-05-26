@@ -308,7 +308,21 @@ impl SessionManager {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        debug!(failures = ?response.failures, "Received a `/keys/claim` response");
+        // Collect the (user_id, device_id, device_key_id) triple for logging reasons.
+        let one_time_keys: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = response
+            .one_time_keys
+            .iter()
+            .map(|(u, d)| {
+                (
+                    u,
+                    d.iter()
+                        .map(|(d, k)| (d, k.keys().collect::<BTreeSet<_>>()))
+                        .collect::<BTreeMap<_, _>>(),
+                )
+            })
+            .collect();
+
+        debug!(?one_time_keys, failures = ?response.failures, "Received a `/keys/claim` response");
 
         let failed_servers = response
             .failures
