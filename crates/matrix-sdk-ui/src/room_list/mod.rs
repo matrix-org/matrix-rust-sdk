@@ -73,7 +73,7 @@ impl RoomList {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum State {
     Init,
     LoadFirstRooms,
