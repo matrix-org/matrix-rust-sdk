@@ -14,7 +14,7 @@ rustls-tls = ["matrix-sdk/rustls-tls"]
 experimental-room-list = ["experimental-sliding-sync", "dep:async-stream"]
 experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 
-testing = []
+testing = ["matrix-sdk/testing"]
 
 [dependencies]
 async-stream = { workspace = true, optional = true }

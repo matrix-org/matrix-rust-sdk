@@ -104,7 +104,7 @@ async fn test_foo() -> Result<()> {
             "lists": {
                 "all_rooms": {
                     "ranges": [
-                        [0, 20]
+                        [0, 19]
                     ],
                     "required_state": [
                         ["m.room.encryption", ""]

@@ -65,7 +65,7 @@ impl RoomList {
         Observable::subscribe(&self.state)
     }
 
-    #[cfg(feature = "testing")]
+    #[cfg(any(test, feature = "testing"))]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
@@ -111,7 +111,7 @@ impl Action for AddAllRoomsList {
         sliding_sync
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19)),
             )
             .await?;
 
@@ -135,10 +135,10 @@ impl Action for AddVisibleRoomsList {
     }
 }
 
-struct ChangeAllRoomsListToSelectiveSyncMode;
+struct ChangeAllRoomsListToGrowingSyncMode;
 
 #[async_trait]
-impl Action for ChangeAllRoomsListToSelectiveSyncMode {
+impl Action for ChangeAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
@@ -192,7 +192,7 @@ impl Actions {
     actions! {
         none => [],
         start => [AddAllRoomsList],
-        first_rooms_are_loaded => [ChangeAllRoomsListToSelectiveSyncMode, AddVisibleRoomsList],
+        first_rooms_are_loaded => [ChangeAllRoomsListToGrowingSyncMode, AddVisibleRoomsList],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -202,6 +202,8 @@ impl Actions {
 
 #[cfg(test)]
 mod tests {
+    use std::future::ready;
+
     use matrix_sdk::{config::RequestConfig, Session};
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
@@ -245,9 +247,8 @@ mod tests {
 
     #[async_test]
     async fn test_states() -> Result<()> {
-        let (client, _) = new_client().await;
-        let sliding_sync =
-            client.sliding_sync().storage_key(Some("foo".to_string())).build().await?;
+        let room_list = new_room_list().await;
+        let sliding_sync = room_list.sliding_sync();
 
         let state = State::Init;
 
@@ -264,5 +265,88 @@ mod tests {
         assert_eq!(state, State::Enjoy);
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn test_action_add_all_rooms_list() {
+        let room_list = new_room_list().await;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(ALL_ROOMS_LIST_NAME, |_list| ready(())).await, None);
+
+        // Run the action!
+        AddAllRoomsList.run(sliding_sync).await.unwrap();
+
+        // List is present!
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
+                )))
+                .await,
+            Some(true)
+        );
+    }
+
+    #[async_test]
+    async fn test_action_add_visible_rooms_list() {
+        let room_list = new_room_list().await;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
+
+        // Run the action!
+        AddVisibleRoomsList.run(sliding_sync).await.unwrap();
+
+        // List is present!
+        assert_eq!(
+            sliding_sync
+                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges.is_empty()
+                )))
+                .await,
+            Some(true)
+        );
+    }
+
+    #[async_test]
+    async fn test_action_change_all_rooms_list_to_growing_sync_mode() {
+        let room_list = new_room_list().await;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
+
+        // Just create the list.
+        AddAllRoomsList.run(sliding_sync).await.unwrap();
+
+        // List is present, in Selective mode.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
+                )))
+                .await,
+            Some(true)
+        );
+
+        // Run the action!
+        ChangeAllRoomsListToGrowingSyncMode.run(sliding_sync).await.unwrap();
+
+        // List is still present, in Growing mode.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size: 20, .. }
+                )))
+                .await,
+            Some(true)
+        );
     }
 }
