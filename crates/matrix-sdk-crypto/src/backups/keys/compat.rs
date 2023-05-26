@@ -176,6 +176,7 @@ pub enum MessageDecodeError {
     Key(#[from] KeyError),
 }
 
+#[derive(Debug)]
 pub struct Message {
     pub ciphertext: Vec<u8>,
     pub mac: Vec<u8>,
@@ -225,12 +226,12 @@ mod test {
         }
     }
 
-    impl Into<PkMessage> for Message {
-        fn into(self) -> PkMessage {
+    impl From<Message> for PkMessage {
+        fn from(val: Message) -> Self {
             PkMessage {
-                ciphertext: encode(self.ciphertext),
-                mac: encode(self.mac),
-                ephemeral_key: self.ephemeral_key.to_base64(),
+                ciphertext: encode(val.ciphertext),
+                mac: encode(val.mac),
+                ephemeral_key: val.ephemeral_key.to_base64(),
             }
         }
     }
