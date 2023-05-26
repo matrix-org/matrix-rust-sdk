@@ -68,15 +68,15 @@ by recency and select to list the top 10 via `ranges: [ [0,9] ]` (indexes
 are **inclusive**) like so:
 
 ```rust
-# use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncSelectiveModeBuilder};
+# use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
 use ruma::{assign, api::client::sync::sync_events::v4};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=9).build())
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
     .filters(Some(assign!(
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
     )))
-    .sort(vec!["by_recency".to_owned()])
+    .sort(vec!["by_recency".to_owned()]);
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
@@ -399,7 +399,7 @@ start up and retrieve only the data needed to actually run.
 # Full example
 
 ```rust,no_run
-use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode, SlidingSyncSelectiveModeBuilder}};
+use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
 use ruma::{assign, api::client::sync::sync_events::v4, events::StateEventType};
 use tracing::{warn, error, info, debug};
 use futures_util::{pin_mut, StreamExt};
@@ -423,7 +423,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=9).build())  // sync up the specific range only, first 10 items
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:

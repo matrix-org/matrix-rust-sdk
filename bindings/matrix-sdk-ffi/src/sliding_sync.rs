@@ -482,7 +482,7 @@ impl SlidingSyncListBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         let selective_mode_builder = unwrap_or_clone_arc(selective_mode_builder);
-        builder.inner = builder.inner.sync_mode(selective_mode_builder.inner.build());
+        builder.inner = builder.inner.sync_mode(selective_mode_builder.inner);
         Arc::new(builder)
     }
 

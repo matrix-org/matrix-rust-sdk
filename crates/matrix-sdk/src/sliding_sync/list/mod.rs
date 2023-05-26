@@ -729,16 +729,11 @@ impl SlidingSyncSelectiveModeBuilder {
         self.ranges.push(range);
         self
     }
-
-    /// Finish building the selective mode.
-    pub fn build(self) -> SlidingSyncMode {
-        SlidingSyncMode::Selective { ranges: self.ranges }
-    }
 }
 
-impl Into<SlidingSyncMode> for SlidingSyncSelectiveModeBuilder {
-    fn into(self) -> SlidingSyncMode {
-        self.build()
+impl From<SlidingSyncSelectiveModeBuilder> for SlidingSyncMode {
+    fn from(builder: SlidingSyncSelectiveModeBuilder) -> SlidingSyncMode {
+        SlidingSyncMode::Selective { ranges: builder.ranges }
     }
 }
 
