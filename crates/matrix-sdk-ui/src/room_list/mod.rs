@@ -202,3 +202,70 @@ impl Actions {
         self.actions.as_slice()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk::{config::RequestConfig, Session};
+    use matrix_sdk_test::async_test;
+    use ruma::{api::MatrixVersion, device_id, user_id};
+    use wiremock::MockServer;
+
+    use super::*;
+
+    async fn new_client() -> (Client, MockServer) {
+        let session = Session {
+            access_token: "1234".to_owned(),
+            refresh_token: None,
+            user_id: user_id!("@example:localhost").to_owned(),
+            device_id: device_id!("DEVICEID").to_owned(),
+        };
+
+        let server = MockServer::start().await;
+        let client = Client::builder()
+            .homeserver_url(server.uri())
+            .server_versions([MatrixVersion::V1_0])
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .unwrap();
+        client.restore_session(session).await.unwrap();
+
+        (client, server)
+    }
+
+    async fn new_room_list() -> RoomList {
+        let (client, _) = new_client().await;
+
+        RoomList::new(client).await.unwrap()
+    }
+
+    #[async_test]
+    async fn test_foo() -> Result<()> {
+        let room_list = new_room_list().await;
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_states() -> Result<()> {
+        let (client, _) = new_client().await;
+        let sliding_sync =
+            client.sliding_sync().storage_key(Some("foo".to_string())).build().await?;
+
+        let state = State::Init;
+
+        let state = state.next(&sliding_sync).await?;
+        assert_eq!(state, State::LoadFirstRooms);
+
+        let state = state.next(&sliding_sync).await?;
+        assert_eq!(state, State::LoadAllRooms);
+
+        let state = state.next(&sliding_sync).await?;
+        assert_eq!(state, State::Enjoy);
+
+        let state = state.next(&sliding_sync).await?;
+        assert_eq!(state, State::Enjoy);
+
+        Ok(())
+    }
+}
