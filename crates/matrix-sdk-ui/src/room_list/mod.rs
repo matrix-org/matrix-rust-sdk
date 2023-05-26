@@ -4,9 +4,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
 use futures_util::{pin_mut, Stream, StreamExt};
-use matrix_sdk::{
-    Client, Error, Result, SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary,
-};
+use matrix_sdk::{Client, Error, Result, SlidingSync, SlidingSyncList, SlidingSyncMode};
 use once_cell::sync::Lazy;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
@@ -113,8 +111,7 @@ impl Action for AddAllRoomsList {
         sliding_sync
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective())
-                    .add_range(0..=20),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
             )
             .await?;
 
