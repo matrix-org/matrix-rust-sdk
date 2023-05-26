@@ -440,6 +440,7 @@ impl Device {
             recipient_key = ?self.curve25519_key(),
             event_type,
             session,
+            message_id,
         ))
     ]
     pub(crate) async fn encrypt(
@@ -447,7 +448,23 @@ impl Device {
         event_type: &str,
         content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
+        #[cfg(feature = "message-ids")]
+        let message_id = {
+            #[cfg(not(target_arch = "wasm32"))]
+            let id = ulid::Ulid::new().to_string();
+            #[cfg(target_arch = "wasm32")]
+            let id = ruma::TransactionId::new().to_string();
+
+            tracing::Span::current().record("message_id", &id);
+            Some(id)
+        };
+
+        #[cfg(not(feature = "message-ids"))]
+        let message_id = None;
+
+        self.inner
+            .encrypt(self.verification_machine.store.inner(), event_type, content, message_id)
+            .await
     }
 
     pub(crate) async fn maybe_encrypt_room_key(
@@ -779,11 +796,12 @@ impl ReadOnlyDevice {
         store: &DynCryptoStore,
         event_type: &str,
         content: Value,
+        message_id: Option<String>,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
-            let message = session.encrypt(self, event_type, content).await?;
+            let message = session.encrypt(self, event_type, content, message_id).await?;
 
             trace!("Successfully encrypted an event");
 

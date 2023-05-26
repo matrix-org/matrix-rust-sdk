@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures_util::{Stream, StreamExt};
 use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
-use ruma::events::key::verification::VerificationMethod;
+use ruma::{events::key::verification::VerificationMethod, OwnedDeviceId};
 
-use super::SasVerification;
 #[cfg(feature = "qrcode")]
 use super::{QrVerification, QrVerificationData};
+use super::{SasVerification, Verification};
 use crate::{Client, Result};
 
 /// An object controlling the interactive verification flow.
@@ -25,6 +26,49 @@ use crate::{Client, Result};
 pub struct VerificationRequest {
     pub(crate) inner: BaseVerificationRequest,
     pub(crate) client: Client,
+}
+
+/// An Enum describing the state the verification request is in.
+#[derive(Debug, Clone)]
+pub enum VerificationRequestState {
+    /// The verification request has been newly created by us.
+    Created {
+        /// The verification methods supported by us.
+        our_methods: Vec<VerificationMethod>,
+    },
+    /// The verification request was received from the other party.
+    Requested {
+        /// The verification methods supported by the sender.
+        their_methods: Vec<VerificationMethod>,
+
+        /// The device ID of the device that responded to the verification
+        /// request.
+        other_device_id: OwnedDeviceId,
+    },
+    /// The verification request is ready to start a verification flow.
+    Ready {
+        /// The verification methods supported by the other side.
+        their_methods: Vec<VerificationMethod>,
+
+        /// The verification methods supported by the us.
+        our_methods: Vec<VerificationMethod>,
+
+        /// The device ID of the device that responded to the verification
+        /// request.
+        other_device_id: OwnedDeviceId,
+    },
+    /// The verification request has transitioned into a concrete verification
+    /// flow. For example it transitioned into the emoji based SAS
+    /// verification.
+    Transitioned {
+        /// The concrete [`Verification`] object the verification request
+        /// transitioned into.
+        verification: Verification,
+    },
+    /// The verification flow that was started with this request has finished.
+    Done,
+    /// The verification process has been cancelled.
+    Cancelled(CancelInfo),
 }
 
 impl VerificationRequest {
@@ -164,5 +208,54 @@ impl VerificationRequest {
         }
 
         Ok(())
+    }
+
+    fn convert_state(
+        client: Client,
+        state: matrix_sdk_base::crypto::VerificationRequestState,
+    ) -> VerificationRequestState {
+        use matrix_sdk_base::crypto::VerificationRequestState::*;
+
+        match state {
+            Created { our_methods } => VerificationRequestState::Created { our_methods },
+            Requested { their_methods, other_device_id } => {
+                VerificationRequestState::Requested { their_methods, other_device_id }
+            }
+            Ready { their_methods, our_methods, other_device_id } => {
+                VerificationRequestState::Ready { their_methods, our_methods, other_device_id }
+            }
+            Transitioned { verification } => VerificationRequestState::Transitioned {
+                verification: match verification {
+                    matrix_sdk_base::crypto::Verification::SasV1(s) => {
+                        Verification::SasV1(SasVerification { inner: s, client })
+                    }
+                    #[cfg(feature = "qrcode")]
+                    matrix_sdk_base::crypto::Verification::QrV1(q) => {
+                        Verification::QrV1(QrVerification { inner: q, client })
+                    }
+                    _ => unreachable!("We only support QR code and SAS verification"),
+                },
+            },
+            Done => VerificationRequestState::Done,
+            Cancelled(c) => VerificationRequestState::Cancelled(c),
+        }
+    }
+
+    /// Listen for changes in the verification request.
+    ///
+    /// The changes are presented as a stream of [`VerificationRequestState`]
+    /// values.
+    pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> {
+        let client = self.client.to_owned();
+
+        self.inner.changes().map(move |s| Self::convert_state(client.to_owned(), s))
+    }
+
+    /// Get the current state the verification request is in.
+    ///
+    /// To listen to changes to the [`VerificationRequestState`] use the
+    /// [`VerificationRequest::changes`] method.
+    pub fn state(&self) -> VerificationRequestState {
+        Self::convert_state(self.client.to_owned(), self.inner.state())
     }
 }

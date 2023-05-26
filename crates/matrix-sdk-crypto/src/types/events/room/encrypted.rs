@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedDeviceId, RoomId};
+use ruma::{JsOption, OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
@@ -124,6 +124,9 @@ pub struct OlmV1Curve25519AesSha2Content {
 
     /// The Curve25519 key of the sender.
     pub sender_key: Curve25519PublicKey,
+
+    /// The unique ID of this content.
+    pub message_id: JsOption<String>,
 }
 
 /// The event content for events encrypted with the m.olm.v2.curve25519-aes-sha2
@@ -137,6 +140,10 @@ pub struct OlmV2Curve25519AesSha2Content {
     /// The Curve25519 key of the sender.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub sender_key: Curve25519PublicKey,
+
+    /// The unique ID of this content.
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined", rename = "org.matrix.msgid")]
+    pub message_id: JsOption<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -144,6 +151,8 @@ struct OlmHelper {
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     sender_key: Curve25519PublicKey,
     ciphertext: BTreeMap<String, OlmMessage>,
+    #[serde(default, skip_serializing_if = "JsOption::is_undefined", rename = "org.matrix.msgid")]
+    message_id: JsOption<String>,
 }
 
 impl Serialize for OlmV1Curve25519AesSha2Content {
@@ -154,7 +163,12 @@ impl Serialize for OlmV1Curve25519AesSha2Content {
         let ciphertext =
             BTreeMap::from([(self.recipient_key.to_base64(), self.ciphertext.clone())]);
 
-        OlmHelper { sender_key: self.sender_key, ciphertext }.serialize(serializer)
+        OlmHelper {
+            sender_key: self.sender_key,
+            ciphertext,
+            message_id: self.message_id.to_owned(),
+        }
+        .serialize(serializer)
     }
 }
 
@@ -171,7 +185,12 @@ impl TryFrom<OlmHelper> for OlmV1Curve25519AesSha2Content {
         let recipient_key =
             Curve25519PublicKey::from_base64(&recipient_key).map_err(serde::de::Error::custom)?;
 
-        Ok(Self { ciphertext, recipient_key, sender_key: value.sender_key })
+        Ok(Self {
+            ciphertext,
+            recipient_key,
+            sender_key: value.sender_key,
+            message_id: value.message_id,
+        })
     }
 }
 
@@ -479,7 +498,11 @@ pub(crate) mod test {
         let json = to_device_json();
         let event: EncryptedToDeviceEvent = serde_json::from_value(json.clone())?;
 
-        assert_matches!(event.content, ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(_));
+        let content = assert_matches!(
+            &event.content,
+            ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => c.to_owned()
+        );
+        assert!(content.message_id.is_undefined());
 
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);

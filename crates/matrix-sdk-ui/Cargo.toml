@@ -25,7 +25,7 @@ matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = fal
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
-ruma = { workspace = true, features = ["unstable-msc2677", "unstable-sanitize"] }
+ruma = { workspace = true, features = ["unstable-sanitize"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

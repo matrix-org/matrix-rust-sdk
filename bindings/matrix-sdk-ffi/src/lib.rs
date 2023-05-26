@@ -36,15 +36,7 @@ pub mod sliding_sync;
 pub mod timeline;
 pub mod tracing;
 
-use once_cell::sync::Lazy;
-use tokio::runtime::Runtime;
-
-// Re-exports for more convenient use inside other submodules
-use self::{client::Client, error::ClientError};
-
-pub static RUNTIME: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
-
+use async_compat::TOKIO1 as RUNTIME;
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 pub use matrix_sdk_ui::timeline::PaginationOutcome;
 pub use platform::*;
@@ -53,6 +45,8 @@ pub use self::{
     authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
     session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
+// Re-exports for more convenient use inside other submodules
+use self::{client::Client, error::ClientError};
 
 uniffi::include_scaffolding!("api");
 

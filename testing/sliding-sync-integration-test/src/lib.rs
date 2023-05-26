@@ -12,11 +12,8 @@ async fn setup(
     let sliding_sync_proxy_url =
         option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
     let client = get_client_for_user(name, use_sqlite_store).await?;
-    let sliding_sync_builder = client
-        .sliding_sync()
-        .await
-        .homeserver(sliding_sync_proxy_url.parse()?)
-        .with_common_extensions();
+    let sliding_sync_builder =
+        client.sliding_sync().homeserver(sliding_sync_proxy_url.parse()?).with_common_extensions();
     Ok((client, sliding_sync_builder))
 }
 
@@ -43,13 +40,12 @@ async fn it_works_smoke_test() -> anyhow::Result<()> {
     let sync_proxy = sync_builder
         .add_list(
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::Selective)
-                .add_range(0..=10)
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))
                 .timeline_limit(0),
         )
         .build()
         .await?;
-    let stream = sync_proxy.stream();
+    let stream = sync_proxy.sync();
     pin_mut!(stream);
     let room_summary =
         stream.next().await.context("No room summary found, loop ended unsuccessfully")?;

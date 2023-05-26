@@ -113,12 +113,17 @@ where
         Duration::from_secs(delay)
     }
 
+    /// Add a single item to the cache.
+    pub fn insert(&self, item: T) {
+        self.extend([item]);
+    }
+
     /// Extend the cache with the given iterator of items.
     ///
     /// Items that are already part of the cache, whether they are expired or
     /// not, will have their TTL extended using an exponential backoff
     /// algorithm.
-    pub fn extend(&self, iterator: impl Iterator<Item = T>) {
+    pub fn extend(&self, iterator: impl IntoIterator<Item = T>) {
         let mut lock = self.inner.write().unwrap();
 
         let now = Instant::now();

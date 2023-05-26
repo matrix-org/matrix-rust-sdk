@@ -36,7 +36,6 @@ use async_stream::stream;
 pub use builder::*;
 pub use client::*;
 pub use error::*;
-use eyeball::unique::Observable;
 use futures_core::stream::Stream;
 pub use list::*;
 pub use room::*;
@@ -216,7 +215,7 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
 
-    /// The `pos`  and `delta_token` markers.
+    /// Position markers
     position: StdRwLock<SlidingSyncPositionMarkers>,
 
     /// The lists of this Sliding Sync instance.
@@ -234,8 +233,8 @@ pub(super) struct SlidingSyncInner {
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
 
-    /// The intended state of the extensions being supplied to sliding /sync
-    /// calls. May contain the latest next_batch for to_devices, etc.
+    /// The intended state of the extensions being supplied to Sliding Sync
+    /// calls.
     extensions: Mutex<Option<ExtensionsConfig>>,
 
     /// Internal channel used to pass messages between Sliding Sync and other
@@ -270,7 +269,9 @@ impl SlidingSync {
             .unwrap()
             .room_subscriptions_mut()
             .insert(room_id, settings.unwrap_or_default());
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+            .await?;
 
         Ok(())
     }
@@ -281,28 +282,12 @@ impl SlidingSync {
         if self.inner.sticky.write().unwrap().room_subscriptions_mut().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-            self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+            self.inner
+                .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+                .await?;
         }
 
         Ok(())
-    }
-
-    /// Add the common extensions if not already configured.
-    pub fn add_common_extensions(&self) {
-        let mut lock = self.inner.extensions.lock().unwrap();
-        let cfg = lock.get_or_insert_with(Default::default);
-
-        if cfg.to_device.enabled.is_none() {
-            cfg.to_device.enabled = Some(true);
-        }
-
-        if cfg.e2ee.enabled.is_none() {
-            cfg.e2ee.enabled = Some(true);
-        }
-
-        if cfg.account_data.enabled.is_none() {
-            cfg.account_data.enabled = Some(false);
-        }
     }
 
     /// Lookup a specific room
@@ -317,15 +302,7 @@ impl SlidingSync {
 
     #[instrument(skip(self))]
     fn update_to_device_since(&self, since: String) {
-        // FIXME: Find a better place where the to-device since token should be
-        // persisted.
-        self.inner
-            .extensions
-            .lock()
-            .unwrap()
-            .get_or_insert_with(Default::default)
-            .to_device
-            .since = Some(since);
+        self.inner.position.write().unwrap().to_device_token = Some(since);
     }
 
     /// Find a list by its name, and do something on it if it exists.
@@ -348,7 +325,9 @@ impl SlidingSync {
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let list = list_builder.build(self.inner.internal_channel.0.clone());
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::ContinueSyncLoop).await?;
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+            .await?;
 
         Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
     }
@@ -423,8 +402,8 @@ impl SlidingSync {
             );
 
             let mut position_lock = self.inner.position.write().unwrap();
-            Observable::set(&mut position_lock.pos, Some(sliding_sync_response.pos));
-            Observable::set(&mut position_lock.delta_token, sliding_sync_response.delta_token);
+            position_lock.pos = Some(sliding_sync_response.pos);
+            position_lock.delta_token = sliding_sync_response.delta_token;
         }
 
         // Commit sticky parameters, if needed.
@@ -666,21 +645,21 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    /// Create a _new_ Sliding Sync stream.
+    /// Create a _new_ Sliding Sync sync-loop.
     ///
-    /// This stream will send requests and will handle responses automatically,
-    /// hence updating the lists.
+    /// This method returns a `Stream`, which will send requests and will handle
+    /// responses automatically. Lists and rooms are updated automatically.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
-    pub fn stream(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, "About to run the sync stream");
+    pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
+        debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
 
-        let sync_stream_span = Span::current();
+        let sync_span = Span::current();
 
         stream! {
             loop {
-                sync_stream_span.in_scope(|| {
-                    debug!(?self.inner.extensions, "Sync stream loop is running");
+                sync_span.in_scope(|| {
+                    debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
                 });
 
                 let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
@@ -691,18 +670,22 @@ impl SlidingSync {
                     internal_message = internal_channel_receiver_lock.recv() => {
                         use SlidingSyncInternalMessage::*;
 
+                        sync_span.in_scope(|| {
+                            debug!(?internal_message, "Sync-loop has received an internal message");
+                        });
+
                         match internal_message {
-                            None | Some(BreakSyncLoop) => {
+                            None | Some(SyncLoopStop) => {
                                 break;
                             }
 
-                            Some(ContinueSyncLoop) => {
+                            Some(SyncLoopSkipOverCurrentIteration) => {
                                 continue;
                             }
                         }
                     }
 
-                    update_summary = self.sync_once().instrument(sync_stream_span.clone()) => {
+                    update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
                             Ok(Some(updates)) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
@@ -722,7 +705,7 @@ impl SlidingSync {
                                     if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
                                         >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
                                     {
-                                        sync_stream_span.in_scope(|| {
+                                        sync_span.in_scope(|| {
                                             error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
                                         });
 
@@ -733,19 +716,18 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_stream_span.in_scope(|| {
+                                    sync_span.in_scope(|| {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
-
-                                            Observable::set(&mut position_lock.pos, None);
+                                            position_lock.pos = None;
                                         }
 
                                         self.inner.sticky.write().unwrap().invalidate();
 
-                                        debug!(?self.inner.extensions, "Sliding Sync has been reset");
+                                        debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
                                     });
                                 }
 
@@ -757,38 +739,43 @@ impl SlidingSync {
                     }
                 }
             }
+
+            debug!("Sync-loop has exited.");
         }
     }
 
-    /// Resets the lists.
-    pub fn reset_lists(&self) -> Result<(), Error> {
-        let lists = self.inner.lists.read().unwrap();
-
-        for list in lists.values() {
-            list.reset()?;
-        }
-
-        Ok(())
+    /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
+    ///
+    /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
+    /// enough to “stop” it, but depending of how this `Stream` is used, it
+    /// might not be obvious to drop it immediately (thinking of using this API
+    /// over FFI; the foreign-language might not be able to drop a value
+    /// immediately). Thus, calling this method will ensure that the sync-loop
+    /// stops gracefully and as soon as it returns.
+    pub async fn stop_sync(&self) -> Result<(), Error> {
+        self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
     }
 }
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
-    async fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<()> {
-        Ok(self
-            .internal_channel
-            .0
-            .send(message)
-            .await
-            .map_err(|_| Error::InternalChannelIsBroken)?)
+    #[instrument]
+    async fn internal_channel_send(
+        &self,
+        message: SlidingSyncInternalMessage,
+    ) -> Result<(), Error> {
+        self.internal_channel.0.send(message).await.map_err(|_| Error::InternalChannelIsBroken)
     }
 }
 
 #[derive(Debug)]
 enum SlidingSyncInternalMessage {
-    #[allow(unused)] // temporary
-    BreakSyncLoop,
-    ContinueSyncLoop,
+    /// Instruct the sync loop to stop.
+    SyncLoopStop,
+
+    /// Instruct the sync loop to skip over any remaining work in its iteration,
+    /// and to jump to the next iteration.
+    SyncLoopSkipOverCurrentIteration,
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -796,15 +783,13 @@ impl SlidingSync {
     /// Get a copy of the `pos` value.
     pub fn pos(&self) -> Option<String> {
         let position_lock = self.inner.position.read().unwrap();
-
         position_lock.pos.clone()
     }
 
     /// Set a new value for `pos`.
     pub fn set_pos(&self, new_pos: String) {
         let mut position_lock = self.inner.position.write().unwrap();
-
-        Observable::set(&mut position_lock.pos, Some(new_pos));
+        position_lock.pos = Some(new_pos);
     }
 }
 
@@ -814,14 +799,16 @@ pub(super) struct SlidingSyncPositionMarkers {
     /// previous /sync response, or `None` for the first request.
     ///
     /// Should not be persisted.
-    pos: Observable<Option<String>>,
+    pos: Option<String>,
 
     /// Server-provided opaque token that remembers what the last timeline and
     /// state events stored by the client were.
     ///
     /// If `None`, the server will send the
     /// full information for all the lists present in the request.
-    delta_token: Observable<Option<String>>,
+    delta_token: Option<String>,
+
+    to_device_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -834,21 +821,17 @@ struct FrozenSlidingSync {
 
 impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(sliding_sync: &SlidingSync) -> Self {
+        let position = sliding_sync.inner.position.read().unwrap();
+
         FrozenSlidingSync {
-            delta_token: sliding_sync.inner.position.read().unwrap().delta_token.clone(),
-            to_device_since: sliding_sync
-                .inner
-                .extensions
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|ext| ext.to_device.since.clone()),
+            delta_token: position.delta_token.clone(),
+            to_device_since: position.to_device_token.clone(),
         }
     }
 }
 
 /// A summary of the updates received after a sync (like in
-/// [`SlidingSync::stream`]).
+/// [`SlidingSync::sync`]).
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
     /// The names of the lists that have seen an update.
@@ -858,9 +841,13 @@ pub struct UpdateSummary {
 }
 
 #[cfg(test)]
-mod test {
-    use futures_util::pin_mut;
-    use ruma::room_id;
+mod tests {
+    use assert_matches::assert_matches;
+    use futures_util::{pin_mut, StreamExt};
+    use ruma::{
+        api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
+        room_id,
+    };
     use wiremock::MockServer;
 
     use super::{sticky_parameters::StickyParameters, *};
@@ -872,7 +859,7 @@ mod test {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync().await;
+        let mut sliding_sync_builder = client.sliding_sync();
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);
@@ -886,11 +873,10 @@ mod test {
     #[tokio::test]
     async fn test_subscribe_to_room() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
-            .set_range(0..=10)])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         let room0 = room_id!("!r0:bar.org").to_owned();
@@ -934,20 +920,54 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_add_list() -> Result<()> {
+    async fn test_to_device_token_properly_cached() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::Selective)
-            .set_range(0..=10)])
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        let _stream = sliding_sync.stream();
+        // When no to-device token is present, `prepare_extensions_config` doesn't fill
+        // the request with it.
+        let config = sliding_sync.prepare_extension_config(Some("pos"));
+        assert!(config.to_device.since.is_none());
+
+        let config = sliding_sync.prepare_extension_config(None);
+        assert!(config.to_device.since.is_none());
+
+        // When no to-device token is present, it's still not there after caching
+        // either.
+        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        assert!(frozen.to_device_since.is_none());
+
+        // When a to-device token is present, `prepare_extensions_config` fills the
+        // request with it.
+        let since = String::from("my-to-device-since-token");
+        sliding_sync.update_to_device_since(since.clone());
+
+        let config = sliding_sync.prepare_extension_config(Some("pos"));
+        assert_eq!(config.to_device.since.as_ref(), Some(&since));
+
+        let config = sliding_sync.prepare_extension_config(None);
+        assert_eq!(config.to_device.since.as_ref(), Some(&since));
+
+        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        assert_eq!(frozen.to_device_since, Some(since));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_list() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        .await?;
+
+        let _stream = sliding_sync.sync();
         pin_mut!(_stream);
 
         sliding_sync
             .add_list(
                 SlidingSyncList::builder("bar")
-                    .sync_mode(SlidingSyncMode::Selective)
-                    .set_range(50..=60),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(50..=60)),
             )
             .await?;
 
@@ -1145,6 +1165,28 @@ mod test {
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert_eq!(request.extensions.to_device.since.as_deref(), Some(since_token));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stop_sync_loop() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_some());
+        }
+
+        sliding_sync.stop_sync().await?;
+
+        for _ in 0..3 {
+            assert!(stream.next().await.is_none());
+        }
 
         Ok(())
     }

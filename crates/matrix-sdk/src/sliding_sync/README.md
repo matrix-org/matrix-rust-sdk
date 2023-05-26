@@ -42,7 +42,6 @@ typically runs on a separate domain, it can be configured on the
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync()
-    .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?);
 
 # anyhow::Ok(())
@@ -73,12 +72,11 @@ are **inclusive**) like so:
 use ruma::{assign, api::client::sync::sync_events::v4};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncMode::Selective)
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
     .filters(Some(assign!(
         v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
     )))
-    .sort(vec!["by_recency".to_owned()])
-    .set_range(0u32..=9);
+    .sort(vec!["by_recency".to_owned()]);
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
@@ -240,7 +238,7 @@ does after.
 This is modelled as a [async `Stream`][`futures_core::stream::Stream`] in
 our API, that one basically wants to continue polling. Once one has made its
 setup ready and build its sliding sync sessions, one wants to acquire its
-[`.stream()`](`SlidingSync::stream`) and continuously poll it.
+[`.sync()`](`SlidingSync::sync`) and continuously poll it.
 
 While the async stream API allows for streams to end (by returning `None`)
 Sliding Sync streams items `Result<UpdateSummary, Error>`. For every
@@ -271,12 +269,11 @@ In full, this typically looks like this:
 # let client = Client::new(homeserver).await?;
 let sliding_sync = client
     .sliding_sync()
-    .await
     // any lists you want are added here.
     .build()
     .await?;
 
-let stream = sliding_sync.stream();
+let stream = sliding_sync.sync();
 
 // continuously poll for updates
 pin_mut!(stream);
@@ -321,7 +318,7 @@ the [`SlidingSync`][] will only process new data and skip the processing
 even across restarts.
 
 To support this, in practice, one can spawn a `Future` that runs
-[`SlidingSync::stream`]. The spawned `Future` can be cancelled safely. If
+[`SlidingSync::sync`]. The spawned `Future` can be cancelled safely. If
 the client was waiting on a response, it's cancelled without any issue. If
 a response was just received, it
 will be fully handled by `SlidingSync`. This _response is always
@@ -414,7 +411,6 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync()
-    .await
     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
     .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
@@ -427,8 +423,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncMode::Selective)  // sync up the specific range only
-    .set_range(0u32..=9) // only the top 10 items
+    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
     .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:
@@ -470,7 +465,7 @@ tokio::spawn(async move {
     }
 });
 
-let stream = sliding_sync.stream();
+let stream = sliding_sync.sync();
 
 // continuously poll for updates
 pin_mut!(stream);

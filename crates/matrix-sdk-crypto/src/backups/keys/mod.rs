@@ -48,7 +48,9 @@
 //! the `/room_keys/version` API endpoint.
 
 mod backup;
+mod compat;
 mod recovery;
 
 pub use backup::MegolmV1BackupKey;
+pub use compat::{Error as DecryptionError, MessageDecodeError};
 pub use recovery::DecodeError;

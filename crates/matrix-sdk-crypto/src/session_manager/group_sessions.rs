@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
     ops::Deref,
     sync::Arc,
 };
@@ -318,15 +319,9 @@ impl GroupSessionManager {
         let txn_id = TransactionId::new();
         let request = ToDeviceRequest {
             event_type: ToDeviceEventType::RoomEncrypted,
-            txn_id: txn_id.clone(),
+            txn_id: txn_id.to_owned(),
             messages,
         };
-
-        trace!(
-            recipient_count = request.message_count(),
-            transaction_id = ?txn_id,
-            "Created a to-device request carrying a room_key"
-        );
 
         Ok((txn_id, request, share_infos, changed_sessions, withheld_devices))
     }
@@ -449,6 +444,12 @@ impl GroupSessionManager {
             Self::encrypt_session_for(outbound.clone(), chunk).await?;
 
         if !request.messages.is_empty() {
+            trace!(
+                recipient_count = request.message_count(),
+                transaction_id = ?id,
+                "Created a to-device request carrying a room_key"
+            );
+
             outbound.add_request(id.clone(), request.into(), share_infos);
             being_shared.insert(id, outbound.clone());
         }
@@ -545,7 +546,7 @@ impl GroupSessionManager {
             let (used_sessions, failed_no_olm) = result?;
 
             changes.sessions.extend(used_sessions);
-            withheld_devices.extend(failed_no_olm)
+            withheld_devices.extend(failed_no_olm);
         }
 
         Ok(withheld_devices)
@@ -650,6 +651,88 @@ impl GroupSessionManager {
         Ok(())
     }
 
+    fn log_room_key_sharing_result(
+        session: &OutboundGroupSession,
+        requests: &[Arc<ToDeviceRequest>],
+    ) {
+        #[cfg(feature = "message-ids")]
+        use serde::Deserialize;
+
+        let mut withheld_messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
+
+        #[cfg(feature = "message-ids")]
+        let mut messages: BTreeMap<_, BTreeMap<_, BTreeMap<_, _>>> = BTreeMap::new();
+        #[cfg(not(feature = "message-ids"))]
+        let mut messages: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = BTreeMap::new();
+
+        #[derive(PartialEq, Eq, PartialOrd, Ord)]
+        struct RequestId<'a>(&'a TransactionId);
+
+        impl Debug for RequestId<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_tuple("RequestId").field(&self.0).finish()
+            }
+        }
+
+        #[cfg(feature = "message-ids")]
+        #[derive(Debug, Deserialize)]
+        #[serde(transparent)]
+        struct MessageId<'a>(&'a str);
+
+        #[cfg(feature = "message-ids")]
+        #[derive(Deserialize)]
+        struct ContentStub<'a> {
+            #[serde(borrow, rename = "org.matrix.msgid")]
+            message_id: MessageId<'a>,
+        }
+
+        // We're just collecting the recipients for logging reasons.
+        for request in requests {
+            for (user_id, device_map) in &request.messages {
+                if request.event_type == ToDeviceEventType::RoomEncrypted {
+                    #[cfg(feature = "message-ids")]
+                    for (device, content) in device_map {
+                        let content: ContentStub<'_> = content
+                            .deserialize_as()
+                            .expect("We should be able to deserialize the content we generated");
+
+                        let message_id = content.message_id;
+
+                        messages
+                            .entry(RequestId(&request.txn_id))
+                            .or_default()
+                            .entry(user_id)
+                            .or_default()
+                            .insert(device, message_id);
+                    }
+
+                    #[cfg(not(feature = "message-ids"))]
+                    messages
+                        .entry(RequestId(&request.txn_id))
+                        .or_default()
+                        .entry(user_id)
+                        .or_default()
+                        .extend(device_map.keys());
+                } else {
+                    withheld_messages
+                        .entry(RequestId(&request.txn_id))
+                        .or_default()
+                        .entry(user_id)
+                        .or_default()
+                        .extend(device_map.keys());
+                }
+            }
+        }
+
+        info!(
+            session_id = session.session_id(),
+            request_count = requests.len(),
+            ?messages,
+            ?withheld_messages,
+            "Encrypted a room key and created to-device messages"
+        );
+    }
+
     /// Get to-device requests to share a room key with users in a room.
     ///
     /// # Arguments
@@ -741,32 +824,7 @@ impl GroupSessionManager {
                 changes.outbound_group_sessions.push(outbound.clone());
             }
         } else {
-            let mut recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-            let mut withheld_recipients: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-
-            // We're just collecting the recipients for logging reasons.
-            for request in &requests {
-                for (user_id, device_map) in &request.messages {
-                    let devices = device_map.keys();
-                    if request.event_type == ToDeviceEventType::RoomEncrypted {
-                        recipients.entry(user_id).or_default().extend(devices)
-                    } else {
-                        withheld_recipients.entry(user_id).or_default().extend(devices)
-                    }
-                }
-            }
-
-            let transaction_ids: Vec<_> = requests.iter().map(|r| r.txn_id.clone()).collect();
-
-            info!(
-                room_id = room_id.as_str(),
-                session_id = outbound.session_id(),
-                request_count = requests.len(),
-                ?transaction_ids,
-                ?recipients,
-                ?withheld_recipients,
-                "Encrypted a room key and created to-device requests"
-            );
+            Self::log_room_key_sharing_result(&outbound, &requests)
         }
 
         // Persist any changes we might have collected.

@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
-use ruma::api::client::sync::sync_events::v4::ExtensionsConfig;
 use tracing::{trace, warn};
 
 use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
@@ -152,7 +151,7 @@ pub(super) async fn restore_sliding_sync_state(
     storage_key: &str,
     lists: &BTreeMap<String, SlidingSyncList>,
     delta_token: &mut Option<String>,
-    extensions: &mut Option<ExtensionsConfig>,
+    to_device_token: &mut Option<String>,
 ) -> Result<()> {
     let storage = client.store();
 
@@ -167,10 +166,7 @@ pub(super) async fn restore_sliding_sync_state(
             trace!("Successfully read the `SlidingSync` from the cache");
             // Let's update the `SlidingSync`.
             if let Some(since) = to_device_since {
-                let to_device_ext = &mut extensions.get_or_insert_with(Default::default).to_device;
-                if to_device_ext.enabled == Some(true) {
-                    to_device_ext.since = Some(since);
-                }
+                *to_device_token = Some(since);
             }
             *delta_token = frozen_delta_token;
         }
@@ -218,7 +214,6 @@ mod tests {
             let client = Client::new(homeserver).await?;
             let err = client
                 .sliding_sync()
-                .await
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await
                 .unwrap_err();
@@ -265,7 +260,6 @@ mod tests {
             {
                 let sliding_sync = client
                     .sliding_sync()
-                    .await
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
@@ -314,7 +308,6 @@ mod tests {
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
                     .sliding_sync()
-                    .await
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.

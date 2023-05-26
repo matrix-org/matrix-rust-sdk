@@ -151,7 +151,7 @@ macro_rules! assert_timeline_stream {
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client().await;
 
-    let mut sliding_sync_builder = client.sliding_sync().await;
+    let mut sliding_sync_builder = client.sliding_sync();
 
     for list in lists {
         sliding_sync_builder = sliding_sync_builder.add_list(list);
@@ -219,11 +219,10 @@ impl Match for SlidingSyncMatcher {
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::Selective)
-        .set_range(0..=10)])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
-    let stream = sliding_sync.stream();
+    let stream = sliding_sync.sync();
     pin_mut!(stream);
 
     let room_id = room_id!("!foo:bar.org");
@@ -266,11 +265,10 @@ async fn test_timeline_basic() -> Result<()> {
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
     let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::Selective)
-        .set_range(0..=10)])
+        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
-    let stream = sliding_sync.stream();
+    let stream = sliding_sync.sync();
     pin_mut!(stream);
 
     let room_id = room_id!("!foo:bar.org");
