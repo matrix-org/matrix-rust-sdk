@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    sync::{Mutex, RwLock as StdRwLock},
-};
+use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock};
 
 use ruma::{
     api::client::sync::sync_events::v4::{
@@ -269,7 +265,6 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            extensions: Mutex::new(Some(extensions.clone())),
             reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {

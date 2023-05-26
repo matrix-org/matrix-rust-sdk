@@ -27,7 +27,7 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, Mutex, RwLock as StdRwLock,
+        Arc, RwLock as StdRwLock,
     },
     time::Duration,
 };
@@ -122,12 +122,8 @@ mod sticky_parameters {
         pub fn new(
             bump_event_types: Vec<TimelineEventType>,
             room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-            mut extensions: ExtensionsConfig,
+            extensions: ExtensionsConfig,
         ) -> Self {
-            // Strip the to-device since token from the extensions configuration, in case it was set; it should only be set later.
-            // TODO can remove after https://github.com/matrix-org/matrix-rust-sdk/pull/1963.
-            extensions.to_device.since = None;
-
             // Only initially mark as invalidated if there's any meaningful data.
             let invalidated = !room_subscriptions.is_empty()
                 || !bump_event_types.is_empty()
@@ -232,10 +228,6 @@ pub(super) struct SlidingSyncInner {
 
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
-
-    /// The intended state of the extensions being supplied to Sliding Sync
-    /// calls.
-    extensions: Mutex<Option<ExtensionsConfig>>,
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
@@ -534,9 +526,8 @@ impl SlidingSync {
 
             // Set the to_device token if the extension is enabled.
             if sticky_params.extensions().to_device.enabled == Some(true) {
-                // TODO once https://github.com/matrix-org/matrix-rust-sdk/pull/1963 lands, gets rid of inner.extensions here.
-                let extensions = self.inner.extensions.lock().unwrap().clone().unwrap_or_default();
-                request.extensions.to_device.since = extensions.to_device.since;
+                request.extensions.to_device.since =
+                    self.inner.position.read().unwrap().to_device_token.clone();
             }
         }
 
@@ -652,14 +643,14 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
+        debug!(?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
 
         stream! {
             loop {
                 sync_span.in_scope(|| {
-                    debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
+                    debug!(?self.inner.position,"Sync-loop is running");
                 });
 
                 let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
@@ -727,7 +718,7 @@ impl SlidingSync {
 
                                         self.inner.sticky.write().unwrap().invalidate();
 
-                                        debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
+                                        debug!(?self.inner.position, "Sliding Sync has been reset");
                                     });
                                 }
 
@@ -842,12 +833,8 @@ pub struct UpdateSummary {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
-    use ruma::{
-        api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
-        room_id,
-    };
+    use ruma::room_id;
     use wiremock::MockServer;
 
     use super::{sticky_parameters::StickyParameters, *};
@@ -925,14 +912,6 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        // When no to-device token is present, `prepare_extensions_config` doesn't fill
-        // the request with it.
-        let config = sliding_sync.prepare_extension_config(Some("pos"));
-        assert!(config.to_device.since.is_none());
-
-        let config = sliding_sync.prepare_extension_config(None);
-        assert!(config.to_device.since.is_none());
-
         // When no to-device token is present, it's still not there after caching
         // either.
         let frozen = FrozenSlidingSync::from(&sliding_sync);
@@ -942,12 +921,6 @@ mod tests {
         // request with it.
         let since = String::from("my-to-device-since-token");
         sliding_sync.update_to_device_since(since.clone());
-
-        let config = sliding_sync.prepare_extension_config(Some("pos"));
-        assert_eq!(config.to_device.since.as_ref(), Some(&since));
-
-        let config = sliding_sync.prepare_extension_config(None);
-        assert_eq!(config.to_device.since.as_ref(), Some(&since));
 
         let frozen = FrozenSlidingSync::from(&sliding_sync);
         assert_eq!(frozen.to_device_since, Some(since));
@@ -1093,7 +1066,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut ss_builder = client.sliding_sync().await;
+        let mut ss_builder = client.sliding_sync();
         ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
 
         let sync = ss_builder.build().await?;
