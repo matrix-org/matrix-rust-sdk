@@ -312,11 +312,14 @@ impl SessionManager {
         let one_time_keys: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = response
             .one_time_keys
             .iter()
-            .map(|(u, d)| {
+            .map(|(user_id, device_map)| {
                 (
-                    u,
-                    d.iter()
-                        .map(|(d, k)| (d, k.keys().collect::<BTreeSet<_>>()))
+                    user_id,
+                    device_map
+                        .iter()
+                        .map(|(device_id, key_map)| {
+                            (device_id, key_map.keys().collect::<BTreeSet<_>>())
+                        })
                         .collect::<BTreeMap<_, _>>(),
                 )
             })
