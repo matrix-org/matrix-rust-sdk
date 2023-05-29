@@ -27,7 +27,7 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, Mutex, RwLock as StdRwLock,
+        Arc, RwLock as StdRwLock,
     },
     time::Duration,
 };
@@ -116,9 +116,9 @@ pub(super) struct SlidingSyncInner {
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
 
-    /// The intended state of the extensions being supplied to Sliding Sync
-    /// calls.
-    extensions: Mutex<Option<ExtensionsConfig>>,
+    /// Static configuration for extensions, passed in the slidinc sync
+    /// requests.
+    extensions: ExtensionsConfig,
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
@@ -260,7 +260,7 @@ impl SlidingSync {
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
-        let mut extensions = { self.inner.extensions.lock().unwrap().clone().unwrap_or_default() };
+        let mut extensions = self.inner.extensions.clone();
 
         if pos.is_none() {
             // The pos is `None`, it's either our initial sync or the proxy forgot about us
