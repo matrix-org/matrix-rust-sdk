@@ -779,6 +779,47 @@ impl From<SlidingSyncSelectiveModeBuilder> for SlidingSyncMode {
     }
 }
 
+#[derive(Clone, Debug)]
+enum WindowedModeBuilderKind {
+    Paging,
+    Growing,
+}
+
+/// Builder for a new sliding sync list in growing/paging mode.
+#[derive(Clone, Debug)]
+pub struct SlidingSyncWindowedModeBuilder {
+    mode: WindowedModeBuilderKind,
+    batch_size: u32,
+    maximum_number_of_rooms_to_fetch: Option<u32>,
+}
+
+impl SlidingSyncWindowedModeBuilder {
+    fn new(mode: WindowedModeBuilderKind, batch_size: u32) -> Self {
+        Self { mode, batch_size, maximum_number_of_rooms_to_fetch: None }
+    }
+
+    /// The maximum number of rooms to fetch.
+    pub fn maximum_number_of_rooms_to_fetch(mut self, num: u32) -> Self {
+        self.maximum_number_of_rooms_to_fetch = Some(num);
+        self
+    }
+}
+
+impl From<SlidingSyncWindowedModeBuilder> for SlidingSyncMode {
+    fn from(builder: SlidingSyncWindowedModeBuilder) -> Self {
+        match builder.mode {
+            WindowedModeBuilderKind::Paging => Self::Paging {
+                batch_size: builder.batch_size,
+                maximum_number_of_rooms_to_fetch: builder.maximum_number_of_rooms_to_fetch,
+            },
+            WindowedModeBuilderKind::Growing => Self::Growing {
+                batch_size: builder.batch_size,
+                maximum_number_of_rooms_to_fetch: builder.maximum_number_of_rooms_to_fetch,
+            },
+        }
+    }
+}
+
 /// How a [`SlidingSyncList`] fetches the data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlidingSyncMode {
@@ -825,13 +866,13 @@ impl SlidingSyncMode {
     }
 
     /// Create a `SlidingSyncMode::Paging`.
-    pub fn new_paging(batch_size: u32, maximum_number_of_rooms_to_fetch: Option<u32>) -> Self {
-        Self::Paging { batch_size, maximum_number_of_rooms_to_fetch }
+    pub fn new_paging(batch_size: u32) -> SlidingSyncWindowedModeBuilder {
+        SlidingSyncWindowedModeBuilder::new(WindowedModeBuilderKind::Paging, batch_size)
     }
 
     /// Create a `SlidingSyncMode::Growing`.
-    pub fn new_growing(batch_size: u32, maximum_number_of_rooms_to_fetch: Option<u32>) -> Self {
-        Self::Growing { batch_size, maximum_number_of_rooms_to_fetch }
+    pub fn new_growing(batch_size: u32) -> SlidingSyncWindowedModeBuilder {
+        SlidingSyncWindowedModeBuilder::new(WindowedModeBuilderKind::Growing, batch_size)
     }
 }
 
@@ -1000,7 +1041,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_paging(10, None))
+            .sync_mode(SlidingSyncMode::new_paging(10))
             .build(sender);
 
         assert_ranges! {
@@ -1042,7 +1083,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_paging(10, Some(22)))
+            .sync_mode(SlidingSyncMode::new_paging(10).maximum_number_of_rooms_to_fetch(22))
             .build(sender);
 
         assert_ranges! {
@@ -1084,7 +1125,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_growing(10, None))
+            .sync_mode(SlidingSyncMode::new_growing(10))
             .build(sender);
 
         assert_ranges! {
@@ -1126,7 +1167,7 @@ mod tests {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("testing")
-            .sync_mode(SlidingSyncMode::new_growing(10, Some(22)))
+            .sync_mode(SlidingSyncMode::new_growing(10).maximum_number_of_rooms_to_fetch(22))
             .build(sender);
 
         assert_ranges! {
@@ -1298,7 +1339,7 @@ mod tests {
         };
 
         // Changing from `Selective` to `Growing`.
-        list.set_sync_mode(SlidingSyncMode::new_growing(10, None)).unwrap();
+        list.set_sync_mode(SlidingSyncMode::new_growing(10)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1334,7 +1375,7 @@ mod tests {
         };
 
         // Changing from `Growing` to `Paging`.
-        list.set_sync_mode(SlidingSyncMode::new_paging(10, None)).unwrap();
+        list.set_sync_mode(SlidingSyncMode::new_paging(10)).unwrap();
 
         assert_ranges! {
             list = list,
@@ -1533,7 +1574,7 @@ mod tests {
     #[test]
     fn test_sliding_sync_mode_serialization() {
         assert_json_roundtrip!(
-            from SlidingSyncMode: SlidingSyncMode::new_paging(1, Some(2)) => json!({
+            from SlidingSyncMode: SlidingSyncMode::from(SlidingSyncMode::new_paging(1).maximum_number_of_rooms_to_fetch(2)) => json!({
                 "Paging": {
                     "batch_size": 1,
                     "maximum_number_of_rooms_to_fetch": 2
@@ -1541,7 +1582,7 @@ mod tests {
             })
         );
         assert_json_roundtrip!(
-            from SlidingSyncMode: SlidingSyncMode::new_growing(1, Some(2)) => json!({
+            from SlidingSyncMode: SlidingSyncMode::from(SlidingSyncMode::new_growing(1).maximum_number_of_rooms_to_fetch(2)) => json!({
                 "Growing": {
                     "batch_size": 1,
                     "maximum_number_of_rooms_to_fetch": 2
