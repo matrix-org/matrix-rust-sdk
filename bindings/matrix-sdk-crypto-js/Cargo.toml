@@ -54,6 +54,6 @@ zeroize = { workspace = true }
 
 [dependencies.matrix-sdk-crypto]
 path = "../../crates/matrix-sdk-crypto"
-version = "0.6.0"
+version = "0.7.0"
 default_features = false
 features = ["js", "automatic-room-key-forwarding"]
