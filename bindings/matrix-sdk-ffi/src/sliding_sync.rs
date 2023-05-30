@@ -652,6 +652,16 @@ impl SlidingSyncList {
     pub fn unset_timeline_limit(&self) {
         self.inner.set_timeline_limit(None)
     }
+
+    /// Changes the sync mode, and automatically restarts the sliding sync
+    /// internally.
+    pub fn set_sync_mode(
+        &self,
+        builder: Arc<SlidingSyncSelectiveModeBuilder>,
+    ) -> Result<(), ClientError> {
+        let builder = unwrap_or_clone_arc(builder);
+        self.inner.set_sync_mode(builder.inner).map_err(Into::into)
+    }
 }
 
 pub trait SlidingSyncObserver: Sync + Send {
