@@ -15,3 +15,5 @@
 
 - Add new API `store::Store::room_keys_received_stream` to provide
   updates of room keys being received.
+
+- Improvement: Time out user/device pairs who have invalid one-time keys
