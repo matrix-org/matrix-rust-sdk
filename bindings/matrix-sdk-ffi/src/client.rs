@@ -193,6 +193,7 @@ impl Client {
         media_source: Arc<MediaSource>,
         body: Option<String>,
         mime_type: String,
+        temp_dir: Option<String>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
         let client = self.inner.clone();
         let source = (*media_source).clone();
@@ -206,6 +207,7 @@ impl Client {
                     body,
                     &mime_type,
                     true,
+                    temp_dir,
                 )
                 .await?;
 
