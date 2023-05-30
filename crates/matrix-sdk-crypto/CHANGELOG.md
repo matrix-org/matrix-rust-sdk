@@ -1,3 +1,6 @@
+# v0.7.1
+
+
 # v0.7.0
 
 - Add a new optional `message-ids` feature which adds a unique ID to the content
