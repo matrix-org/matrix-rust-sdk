@@ -196,11 +196,11 @@ impl RecoveryKey {
     /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
     pub fn decrypt_v1(
         &self,
-        mac: &str,
         ephemeral_key: &str,
+        mac: &str,
         ciphertext: &str,
     ) -> Result<String, DecryptionError> {
-        let message = Message::from_base64(mac, ephemeral_key, ciphertext)?;
+        let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
         let pk = self.get_pk_decrytpion();
 
         pk.decrypt(&message).map(encode)
