@@ -137,35 +137,29 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    pub fn subscribe_to_room(
-        &self,
-        room_id: OwnedRoomId,
-        settings: Option<v4::RoomSubscription>,
-    ) -> Result<()> {
+    pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
         self.inner
             .room_subscriptions
             .write()
             .unwrap()
             .insert(room_id, settings.unwrap_or_default());
 
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
-
-        Ok(())
+        self.inner.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
     }
 
     /// Unsubscribe from a given room.
-    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
+    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
         // If removing the subscription was successful…
         if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-            self.inner.internal_channel_send(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            )?;
-        }
 
-        Ok(())
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
     }
 
     /// Lookup a specific room
@@ -206,8 +200,9 @@ impl SlidingSync {
 
         let old_list = self.inner.lists.write().unwrap().insert(list.name().to_owned(), list);
 
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
+        self.inner.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
 
         Ok(old_list)
     }
@@ -637,6 +632,14 @@ impl SlidingSyncInner {
     fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
         self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
     }
+
+    /// Send a message over the internal channel if there is a receiver, i.e. if
+    /// the sync-loop is running.
+    #[instrument]
+    fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
+        // If there is no receiver, the send will fail, but that's OK here.
+        let _ = self.internal_channel.send(message);
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -783,8 +786,8 @@ mod tests {
         let room1 = room_id!("!r1:bar.org").to_owned();
         let room2 = room_id!("!r2:bar.org").to_owned();
 
-        sliding_sync.subscribe_to_room(room0.clone(), None)?;
-        sliding_sync.subscribe_to_room(room1.clone(), None)?;
+        sliding_sync.subscribe_to_room(room0.clone(), None);
+        sliding_sync.subscribe_to_room(room1.clone(), None);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -794,8 +797,8 @@ mod tests {
             assert!(!room_subscriptions.contains_key(&room2));
         }
 
-        sliding_sync.unsubscribe_from_room(room0.clone())?;
-        sliding_sync.unsubscribe_from_room(room2.clone())?;
+        sliding_sync.unsubscribe_from_room(room0.clone());
+        sliding_sync.unsubscribe_from_room(room2.clone());
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();

@@ -70,15 +70,14 @@ impl SlidingSyncList {
     /// means that the state is not reset **purposely**. The ranges and the
     /// state will be updated when the next request will be sent and a
     /// response will be received. The maximum number of rooms won't change.
-    pub fn set_sync_mode(&self, sync_mode: impl Into<SlidingSyncMode>) -> Result<()> {
+    pub fn set_sync_mode(&self, sync_mode: impl Into<SlidingSyncMode>) {
         self.inner.set_sync_mode(sync_mode.into());
 
         // When the sync mode is changed, the sync loop must skip over any work in its
         // iteration and jump to the next iteration.
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
-
-        Ok(())
+        self.inner.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
     }
 
     /// Get the current state.
@@ -438,13 +437,12 @@ impl SlidingSyncListInner {
         Ok(())
     }
 
-    /// Send a message over the internal channel.
+    /// Send a message over the internal channel if there is a receiver, i.e. if
+    /// the sync-loop is running.
     #[instrument]
-    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
-        self.sliding_sync_internal_channel_sender
-            .send(message)
-            .map(|_| ())
-            .map_err(|_| Error::InternalChannelIsBroken)
+    fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
+        // If there is no receiver, the send will fail, but that's OK here.
+        let _ = self.sliding_sync_internal_channel_sender.send(message);
     }
 }
 
@@ -881,7 +879,7 @@ mod tests {
         // There shouldn't be any internal request to restart the sync loop yet.
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5)).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(4..=5));
 
         {
             let mut generator = list.inner.request_generator.write().unwrap();
@@ -1224,7 +1222,7 @@ mod tests {
             }
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7)).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(3..=7));
 
         assert_ranges! {
             list = list,
@@ -1237,7 +1235,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77)).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(42..=77));
 
         assert_ranges! {
             list = list,
@@ -1250,7 +1248,7 @@ mod tests {
             },
         };
 
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new());
 
         assert_ranges! {
             list = list,
@@ -1296,7 +1294,7 @@ mod tests {
         };
 
         // Changing from `Selective` to `Growing`.
-        list.set_sync_mode(SlidingSyncMode::new_growing(10)).unwrap();
+        list.set_sync_mode(SlidingSyncMode::new_growing(10));
 
         assert_ranges! {
             list = list,
@@ -1332,7 +1330,7 @@ mod tests {
         };
 
         // Changing from `Growing` to `Paging`.
-        list.set_sync_mode(SlidingSyncMode::new_paging(10)).unwrap();
+        list.set_sync_mode(SlidingSyncMode::new_paging(10));
 
         assert_ranges! {
             list = list,
@@ -1368,14 +1366,14 @@ mod tests {
         };
 
         // Changing from `Paging` to `Selective`.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new()).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new());
 
         assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
                                                                      // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
-        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100)).unwrap();
+        list.set_sync_mode(SlidingSyncSelectiveModeBuilder::new().add_range(0..=100));
 
         assert_ranges! {
             list = list,

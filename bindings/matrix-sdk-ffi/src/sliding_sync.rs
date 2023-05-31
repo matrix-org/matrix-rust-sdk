@@ -195,16 +195,16 @@ impl SlidingSyncRoom {
         Ok(SlidingSyncAddTimelineListenerResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
-    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) -> Result<(), ClientError> {
+    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) {
         let room_id = self.inner.room_id().to_owned();
 
-        self.sliding_sync.subscribe_to_room(room_id, settings.map(Into::into)).map_err(Into::into)
+        self.sliding_sync.subscribe_to_room(room_id, settings.map(Into::into));
     }
 
-    pub fn unsubscribe_from_room(&self) -> Result<(), ClientError> {
+    pub fn unsubscribe_from_room(&self) {
         let room_id = self.inner.room_id().to_owned();
 
-        self.sliding_sync.unsubscribe_from_room(room_id).map_err(Into::into)
+        self.sliding_sync.unsubscribe_from_room(room_id);
     }
 }
 
@@ -649,12 +649,9 @@ impl SlidingSyncList {
 
     /// Changes the sync mode, and automatically restarts the sliding sync
     /// internally.
-    pub fn set_sync_mode(
-        &self,
-        builder: Arc<SlidingSyncSelectiveModeBuilder>,
-    ) -> Result<(), ClientError> {
+    pub fn set_sync_mode(&self, builder: Arc<SlidingSyncSelectiveModeBuilder>) {
         let builder = unwrap_or_clone_arc(builder);
-        self.inner.set_sync_mode(builder.inner).map_err(Into::into)
+        self.inner.set_sync_mode(builder.inner);
     }
 }
 
@@ -688,13 +685,17 @@ impl SlidingSync {
     ) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
 
-        self.inner.subscribe_to_room(room_id, settings.map(Into::into)).map_err(Into::into)
+        self.inner.subscribe_to_room(room_id, settings.map(Into::into));
+
+        Ok(())
     }
 
     pub fn unsubscribe_from_room(&self, room_id: String) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
 
-        self.inner.unsubscribe_from_room(room_id).map_err(Into::into)
+        self.inner.unsubscribe_from_room(room_id);
+
+        Ok(())
     }
 
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<SlidingSyncRoom>>, ClientError> {
