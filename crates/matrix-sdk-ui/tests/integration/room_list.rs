@@ -1,7 +1,9 @@
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
-    room_list::{Error, State},
+    room_list::{
+        Error, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+    },
     RoomList,
 };
 use serde_json::json;
@@ -90,7 +92,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
 }
 
 #[async_test]
-async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<(), Error> {
+async fn test_init_to_enjoy() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();
@@ -102,7 +104,7 @@ async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<(), Error> 
         states = Init -> LoadFirstRooms -> LoadAllRooms,
         assert request = {
             "lists": {
-                "all_rooms": {
+                ALL_ROOMS: {
                     "ranges": [
                         [0, 19]
                     ],
@@ -122,10 +124,107 @@ async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<(), Error> 
             }
         },
         respond with = {
-            "pos": "foo",
-            "lists": {},
-            "rooms": {},
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 200,
+                    "ops": [
+                        // let's ignore them for now
+                    ]
+                }
+            },
+            "rooms": {
+                // let's ignore them for now
+            },
             "extensions": {},
+        },
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        sync once,
+        states = LoadAllRooms -> Enjoy,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [
+                        [0, 49]
+                    ],
+                    "required_state": [
+                        ["m.room.encryption", ""]
+                    ],
+                    "sort": ["by_recency", "by_name"],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                    "required_state": [
+                        ["m.room.encryption", ""]
+                    ],
+                    "sort": ["by_recency", "by_name"],
+                }
+            }
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 200,
+                    "ops": [
+                        // let's ignore them for now
+                    ]
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [],
+                }
+            },
+            "rooms": {
+                // let's ignore them for now
+            },
+        },
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        sync once,
+        states = Enjoy -> Enjoy,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [
+                        [0, 99]
+                    ],
+                    "required_state": [
+                        ["m.room.encryption", ""]
+                    ],
+                    "sort": ["by_recency", "by_name"],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                    "required_state": [
+                        ["m.room.encryption", ""]
+                    ],
+                    "sort": ["by_recency", "by_name"],
+                }
+            }
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 200,
+                    "ops": [
+                        // let's ignore them for now
+                    ]
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [],
+                }
+            },
+            "rooms": {
+                // let's ignore them for now
+            },
         },
     };
 

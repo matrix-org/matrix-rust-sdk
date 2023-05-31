@@ -183,7 +183,7 @@ impl Action for ChangeAllRoomsListToGrowingSyncMode {
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
                 let list = list.clone();
 
-                async move { list.set_sync_mode(SlidingSyncMode::new_growing(20, None)).await }
+                async move { list.set_sync_mode(SlidingSyncMode::new_growing(50, None)).await }
             })
             .await
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?
@@ -380,7 +380,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 20, .. }
+                    SlidingSyncMode::Growing { batch_size: 50, .. }
                 )))
                 .await,
             Some(true)
