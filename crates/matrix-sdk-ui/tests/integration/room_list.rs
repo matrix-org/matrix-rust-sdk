@@ -1,14 +1,16 @@
-use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::{room_list, RoomList};
+use matrix_sdk_ui::{
+    room_list::{Error, State},
+    RoomList,
+};
 use serde_json::json;
 use tokio::{spawn, sync::mpsc::unbounded_channel};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
 use crate::logged_in_client;
 
-async fn new_room_list() -> Result<(MockServer, RoomList)> {
+async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
     let room_list = RoomList::new(client).await?;
 
@@ -42,7 +44,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            assert_eq!(room_list::State:: $state_0, $room_list.state(), "pre state");
+            assert_eq!(State:: $state_0, $room_list.state(), "pre state");
 
             let mut states = $room_list.state_stream();
             let (state_sender, mut state_receiver) = unbounded_channel();
@@ -53,7 +55,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             });
 
-            let next = $room_list_sync_stream.next().await.context("`sync` trip")??;
+            let next = $room_list_sync_stream.next().await.unwrap()?;
 
             for request in $server.received_requests().await.expect("Request recording has been disabled").iter().rev() {
                 if SlidingSyncMatcher.matches(request) {
@@ -74,7 +76,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
 
             $(
                 assert_eq!(
-                    room_list::State:: $state_n ,
+                    State:: $state_n ,
                     state_receiver.recv().await.expect("receiving state failed"),
                     "next state",
                 );
@@ -88,7 +90,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
 }
 
 #[async_test]
-async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<()> {
+async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();

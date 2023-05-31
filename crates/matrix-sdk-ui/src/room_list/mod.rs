@@ -4,8 +4,11 @@ use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
 use futures_util::{pin_mut, Stream, StreamExt};
-use matrix_sdk::{Client, Error, Result, SlidingSync, SlidingSyncList, SlidingSyncMode};
+use matrix_sdk::{
+    Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncMode,
+};
 use once_cell::sync::Lazy;
+use thiserror::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
@@ -17,13 +20,14 @@ pub struct RoomList {
 }
 
 impl RoomList {
-    pub async fn new(client: Client) -> Result<Self> {
+    pub async fn new(client: Client) -> Result<Self, Error> {
         Ok(Self {
             sliding_sync: client
                 .sliding_sync()
                 .storage_key(Some("matrix-sdk-ui-roomlist".to_string()))
                 .build()
-                .await?,
+                .await
+                .map_err(Error::SlidingSync)?,
             state: Observable::new(State::Init),
         })
     }
@@ -53,7 +57,7 @@ impl RoomList {
                     }
 
                     Err(error) => {
-                        yield Err(error);
+                        yield Err(Error::SlidingSync(error));
                     }
                 }
 
@@ -77,6 +81,17 @@ impl RoomList {
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Error from [`matrix_sdk::SlidingSync`].
+    #[error("SlidingSync failed")]
+    SlidingSync(SlidingSyncError),
+
+    /// An operation has been requested on an unknown list.
+    #[error("Unknown list `{0}`")]
+    UnknownList(String),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -135,7 +150,8 @@ impl Action for AddAllRoomsList {
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19)),
             )
-            .await?;
+            .await
+            .map_err(Error::SlidingSync)?;
 
         Ok(())
     }
@@ -151,7 +167,8 @@ impl Action for AddVisibleRoomsList {
                 SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective()),
             )
-            .await?;
+            .await
+            .map_err(Error::SlidingSync)?;
 
         Ok(())
     }
@@ -166,15 +183,11 @@ impl Action for ChangeAllRoomsListToGrowingSyncMode {
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
                 let list = list.clone();
 
-                async move {
-                    list.set_sync_mode(
-                        SlidingSyncMode::new_growing(20, None)
-                    ).await
-                }
+                async move { list.set_sync_mode(SlidingSyncMode::new_growing(20, None)).await }
             })
             .await
-            .unwrap() // transform into a custom `MyError::UnknownList`
-            ?;
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?
+            .map_err(Error::SlidingSync)?;
 
         Ok(())
     }
@@ -254,15 +267,15 @@ mod tests {
         (client, server)
     }
 
-    async fn new_room_list() -> RoomList {
+    async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client).await.unwrap()
+        RoomList::new(client).await
     }
 
     #[async_test]
-    async fn test_states() -> Result<()> {
-        let room_list = new_room_list().await;
+    async fn test_states() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
         let state = State::Init;
@@ -288,15 +301,15 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_action_add_all_rooms_list() {
-        let room_list = new_room_list().await;
+    async fn test_action_add_all_rooms_list() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
         // List is absent.
         assert_eq!(sliding_sync.on_list(ALL_ROOMS_LIST_NAME, |_list| ready(())).await, None);
 
         // Run the action!
-        AddAllRoomsList.run(sliding_sync).await.unwrap();
+        AddAllRoomsList.run(sliding_sync).await?;
 
         // List is present!
         assert_eq!(
@@ -308,18 +321,20 @@ mod tests {
                 .await,
             Some(true)
         );
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_action_add_visible_rooms_list() {
-        let room_list = new_room_list().await;
+    async fn test_action_add_visible_rooms_list() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
         // List is absent.
         assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
 
         // Run the action!
-        AddVisibleRoomsList.run(sliding_sync).await.unwrap();
+        AddVisibleRoomsList.run(sliding_sync).await?;
 
         // List is present!
         assert_eq!(
@@ -331,18 +346,20 @@ mod tests {
                 .await,
             Some(true)
         );
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_action_change_all_rooms_list_to_growing_sync_mode() {
-        let room_list = new_room_list().await;
+    async fn test_action_change_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
         // List is absent.
         assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
 
         // Just create the list.
-        AddAllRoomsList.run(sliding_sync).await.unwrap();
+        AddAllRoomsList.run(sliding_sync).await?;
 
         // List is present, in Selective mode.
         assert_eq!(
@@ -368,5 +385,7 @@ mod tests {
                 .await,
             Some(true)
         );
+
+        Ok(())
     }
 }
