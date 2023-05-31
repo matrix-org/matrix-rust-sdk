@@ -14,7 +14,7 @@ use std::{
 pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
-use eyeball_im_util::VectorExt;
+use eyeball_im_util::{FilteredVectorSubscriber, VectorExt};
 pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 pub(super) use request_generator::*;
@@ -133,12 +133,10 @@ impl SlidingSyncList {
     ///
     /// It's similar to [`Self::room_list_stream`] but the room list is filtered
     /// by `filter`.
-    pub fn room_list_filtered_stream<F>(
+    pub fn room_list_filtered_stream(
         &self,
-        filter: F,
-    ) -> impl Stream<Item = VectorDiff<RoomListEntry>>
-    where
-        F: Fn(&RoomListEntry) -> bool + Unpin,
+        filter: Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>,
+    ) -> FilteredVectorSubscriber<RoomListEntry, Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>>
     {
         let (_, stream) =
             ObservableVector::subscribe_filtered(&self.inner.room_list.read().unwrap(), filter);

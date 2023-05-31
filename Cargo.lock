@@ -3002,6 +3002,7 @@ dependencies = [
  "ctor 0.2.0",
  "eyeball",
  "eyeball-im",
+ "eyeball-im-util",
  "futures-core",
  "futures-util",
  "imbl",
