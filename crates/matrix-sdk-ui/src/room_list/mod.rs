@@ -9,7 +9,6 @@ use std::{
 use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
-use eyeball_im::VectorDiff;
 use eyeball_im_util::FilteredVectorSubscriber;
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
@@ -205,13 +204,10 @@ impl Action for ChangeAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                let list = list.clone();
-
-                async move { list.set_sync_mode(SlidingSyncMode::new_growing(50, None)).await }
+                ready(list.set_sync_mode(SlidingSyncMode::new_growing(50)))
             })
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?
-            .map_err(Error::SlidingSync)?;
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
 
         Ok(())
     }
