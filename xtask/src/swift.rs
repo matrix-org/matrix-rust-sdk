@@ -115,7 +115,15 @@ fn generate_uniffi(library_file: &Path, ffi_directory: &Path) -> Result<()> {
 }
 
 fn build_for_target(target: &str, profile: &str) -> Result<PathBuf> {
-    cmd!("cargo build -p matrix-sdk-ffi --target {target} --profile {profile}").run()?;
+    let is_catalyst = target.ends_with("-macabi");
+    if is_catalyst {
+        const CATALYST_RUST_NIGHTLY: &str = "nightly";
+        cmd!("rustup toolchain install {CATALYST_RUST_NIGHTLY} --no-self-update").run()?;
+        cmd!("rustup component add rust-src --toolchain {CATALYST_RUST_NIGHTLY}").run()?;
+        cmd!("cargo +{CATALYST_RUST_NIGHTLY} build -p matrix-sdk-ffi -Z build-std --target {target} --profile {profile}").run()?;
+    } else {
+        cmd!("cargo build -p matrix-sdk-ffi --target {target} --profile {profile}").run()?;
+    }
 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
@@ -147,20 +155,25 @@ fn build_xcframework(
 
         (vec![build_path.clone()], build_path)
     } else {
-        println!("-- Building for iOS [1/5]");
+        println!("-- Building for iOS [1/7]");
         let ios_path = build_for_target("aarch64-apple-ios", profile)?;
 
-        println!("-- Building for macOS (Apple Silicon) [2/5]");
+        println!("-- Building for macOS (Apple Silicon) [2/7]");
         let darwin_arm_path = build_for_target("aarch64-apple-darwin", profile)?;
-        println!("-- Building for macOS (Intel) [3/5]");
+        println!("-- Building for macOS (Intel) [3/7]");
         let darwin_x86_path = build_for_target("x86_64-apple-darwin", profile)?;
 
-        println!("-- Building for iOS Simulator (Apple Silicon) [4/5]");
+        println!("-- Building for Mac Catalyst (Apple Silicon) [4/7]");
+        let catalyst_arm_path = build_for_target("aarch64-apple-ios-macabi", profile)?;
+        println!("-- Building for Mac Catalyst (Intel) [5/7]");
+        let catalyst_x86_path = build_for_target("x86_64-apple-ios-macabi", profile)?;
+
+        println!("-- Building for iOS Simulator (Apple Silicon) [6/7]");
         let ios_sim_arm_path = build_for_target("aarch64-apple-ios-sim", profile)?;
-        println!("-- Building for iOS Simulator (Intel) [5/5]");
+        println!("-- Building for iOS Simulator (Intel) [7/7]");
         let ios_sim_x86_path = build_for_target("x86_64-apple-ios", profile)?;
 
-        println!("-- Running Lipo for macOS [1/2]");
+        println!("-- Running Lipo for macOS [1/3]");
         // # macOS
         let lipo_target_macos = generated_dir.join("libmatrix_sdk_ffi_macos.a");
         cmd!(
@@ -169,7 +182,16 @@ fn build_xcframework(
         )
         .run()?;
 
-        println!("-- Running Lipo for iOS Simulator [2/2]");
+        println!("-- Running Lipo for Mac Catalyst [2/3]");
+        // # Catalyst
+        let lipo_target_catalyst = generated_dir.join("libmatrix_sdk_ffi_catalyst.a");
+        cmd!(
+            "lipo -create {catalyst_x86_path} {catalyst_arm_path}
+            -output {lipo_target_catalyst}"
+        )
+        .run()?;
+
+        println!("-- Running Lipo for iOS Simulator [3/3]");
         // # iOS Simulator
         let lipo_target_sim = generated_dir.join("libmatrix_sdk_ffi_iossimulator.a");
         cmd!(
@@ -177,7 +199,7 @@ fn build_xcframework(
             -output {lipo_target_sim}"
         )
         .run()?;
-        (vec![lipo_target_macos, lipo_target_sim, ios_path], darwin_x86_path)
+        (vec![lipo_target_macos, lipo_target_catalyst, lipo_target_sim, ios_path], darwin_x86_path)
     };
 
     println!("-- Generating uniffi files");
