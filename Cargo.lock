@@ -5718,8 +5718,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vodozemac"
-version = "0.3.0"
-source = "git+https://github.com/matrix-org/vodozemac?rev=195ae1c9112fd602358b3373dc662573707e57e5#195ae1c9112fd602358b3373dc662573707e57e5"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d1b4c112e19e1f9361e34c7a40d30bd7f1de0fec43b83f2f8383d6eee9f561"
 dependencies = [
  "aes",
  "arrayvec",
