@@ -14,6 +14,7 @@ use std::{
 pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
+use eyeball_im_util::VectorExt;
 pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 pub(super) use request_generator::*;
@@ -126,6 +127,23 @@ impl SlidingSyncList {
     /// and those emitted by other streams exposed on this structure.
     pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
         ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
+    }
+
+    /// Get a stream of room list, but filtered.
+    ///
+    /// It's similar to [`Self::room_list_stream`] but the room list is filtered
+    /// by `filter`.
+    pub fn room_list_filtered_stream<F>(
+        &self,
+        filter: F,
+    ) -> impl Stream<Item = VectorDiff<RoomListEntry>>
+    where
+        F: Fn(&RoomListEntry) -> bool + Unpin,
+    {
+        let (_, stream) =
+            ObservableVector::subscribe_filtered(&self.inner.room_list.read().unwrap(), filter);
+
+        stream
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
