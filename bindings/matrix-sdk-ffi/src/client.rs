@@ -97,13 +97,6 @@ impl From<PushFormat> for RumaPushFormat {
     }
 }
 
-impl std::ops::Deref for Client {
-    type Target = MatrixClient;
-    fn deref(&self) -> &MatrixClient {
-        &self.client
-    }
-}
-
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
@@ -114,7 +107,7 @@ pub trait NotificationDelegate: Sync + Send {
 
 #[derive(Clone, uniffi::Object)]
 pub struct Client {
-    pub(crate) client: MatrixClient,
+    pub(crate) inner: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
     notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
@@ -127,13 +120,13 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(client: MatrixClient) -> Self {
+    pub fn new(sdk_client: MatrixClient) -> Self {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
         let ctrl = session_verification_controller.clone();
 
-        client.add_event_handler(move |ev: AnyToDeviceEvent| {
+        sdk_client.add_event_handler(move |ev: AnyToDeviceEvent| {
             let ctrl = ctrl.clone();
             async move {
                 if let Some(session_verification_controller) = &*ctrl.clone().read().await {
@@ -145,7 +138,7 @@ impl Client {
         });
 
         let client = Client {
-            client,
+            inner: sdk_client,
             delegate: Arc::new(RwLock::new(None)),
             notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
@@ -153,7 +146,7 @@ impl Client {
             sliding_sync_reset_broadcast_tx: Default::default(),
         };
 
-        let mut unknown_token_error_receiver = client.subscribe_to_unknown_token_errors();
+        let mut unknown_token_error_receiver = client.inner.subscribe_to_unknown_token_errors();
         let client_clone = client.clone();
         RUNTIME.spawn(async move {
             loop {
@@ -183,7 +176,7 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            let mut builder = self.client.login_username(&username, &password);
+            let mut builder = self.inner.login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
                 builder = builder.initial_device_display_name(initial_device_name);
             }
@@ -201,7 +194,7 @@ impl Client {
         body: Option<String>,
         mime_type: String,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        let client = self.client.clone();
+        let client = self.inner.clone();
         let source = (*media_source).clone();
         let mime_type: mime::Mime = mime_type.parse()?;
 
@@ -247,26 +240,26 @@ impl Client {
     /// Restores the client from a `matrix_sdk::Session`.
     pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            self.client.restore_session(session).await?;
+            self.inner.restore_session(session).await?;
             Ok(())
         })
     }
 
     pub(crate) async fn async_homeserver(&self) -> String {
-        self.client.homeserver().await.to_string()
+        self.inner.homeserver().await.to_string()
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
     pub(crate) async fn authentication_issuer(&self) -> Option<String> {
-        self.client.authentication_issuer().await
+        self.inner.authentication_issuer().await
     }
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
     /// not configured.
     pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
         RUNTIME.block_on(async move {
-            self.client.sliding_sync_proxy().await.map(|server| server.to_string())
+            self.inner.sliding_sync_proxy().await.map(|server| server.to_string())
         })
     }
 
@@ -276,7 +269,7 @@ impl Client {
 
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.client.get_login_types().await?;
+        let login_types = self.inner.get_login_types().await?;
         let supports_password = login_types
             .flows
             .iter()
@@ -287,7 +280,7 @@ impl Client {
     /// Gets information about the owner of a given access token.
     pub(crate) fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
         RUNTIME
-            .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
+            .block_on(async move { self.inner.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 }
 
@@ -300,8 +293,8 @@ impl Client {
     pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
-                self.client.session().context("Missing session")?;
-            let homeserver_url = self.client.homeserver().await.into();
+                self.inner.session().context("Missing session")?;
+            let homeserver_url = self.inner.homeserver().await.into();
             let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
 
             Ok(Session {
@@ -316,12 +309,12 @@ impl Client {
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
-        let user_id = self.client.user_id().context("No User ID found")?;
+        let user_id = self.inner.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
         RUNTIME.block_on(async move {
             let display_name = l.account().get_display_name().await?.context("No User ID found")?;
             Ok(display_name)
@@ -329,7 +322,7 @@ impl Client {
     }
 
     pub fn set_display_name(&self, name: String) -> Result<(), ClientError> {
-        let client = self.client.clone();
+        let client = self.inner.clone();
         RUNTIME.block_on(async move {
             client
                 .account()
@@ -341,7 +334,7 @@ impl Client {
     }
 
     pub fn avatar_url(&self) -> Result<Option<String>, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
         RUNTIME.block_on(async move {
             let avatar_url = l.account().get_avatar_url().await?;
             Ok(avatar_url.map(|u| u.to_string()))
@@ -349,7 +342,7 @@ impl Client {
     }
 
     pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
         RUNTIME.block_on(async move {
             let url = l.account().get_cached_avatar_url().await?;
             Ok(url)
@@ -357,12 +350,12 @@ impl Client {
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
-        let device_id = self.client.device_id().context("No Device ID found")?;
+        let device_id = self.inner.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
     }
 
     pub fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
-        let client = self.client.clone();
+        let client = self.inner.clone();
 
         RUNTIME.block_on(async move {
             let response = client.create_room(request.into()).await?;
@@ -376,7 +369,7 @@ impl Client {
     /// It will be returned as a JSON string.
     pub fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
         RUNTIME.block_on(async move {
-            let event = self.client.account().account_data_raw(event_type.into()).await?;
+            let event = self.inner.account().account_data_raw(event_type.into()).await?;
             Ok(event.map(|e| e.json().get().to_owned()))
         })
     }
@@ -387,13 +380,13 @@ impl Client {
     pub fn set_account_data(&self, event_type: String, content: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let raw_content = Raw::from_json_string(content)?;
-            self.client.account().set_account_data_raw(event_type.into(), raw_content).await?;
+            self.inner.account().set_account_data_raw(event_type.into(), raw_content).await?;
             Ok(())
         })
     }
 
     pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> Result<String, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
 
         RUNTIME.block_on(async move {
             let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
@@ -406,7 +399,7 @@ impl Client {
         &self,
         media_source: Arc<MediaSource>,
     ) -> Result<Vec<u8>, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
         let source = (*media_source).clone();
 
         RUNTIME.block_on(async move {
@@ -422,7 +415,7 @@ impl Client {
         width: u64,
         height: u64,
     ) -> Result<Vec<u8>, ClientError> {
-        let l = self.client.clone();
+        let l = self.inner.clone();
         let source = (*media_source).clone();
 
         RUNTIME.block_on(async move {
@@ -451,16 +444,16 @@ impl Client {
             {
                 return Ok(Arc::new(session_verification_controller.clone()));
             }
-            let user_id = self.client.user_id().context("Failed retrieving current user_id")?;
+            let user_id = self.inner.user_id().context("Failed retrieving current user_id")?;
             let user_identity = self
-                .client
+                .inner
                 .encryption()
                 .get_user_identity(user_id)
                 .await?
                 .context("Failed retrieving user identity")?;
 
             let session_verification_controller =
-                SessionVerificationController::new(self.client.encryption(), user_identity);
+                SessionVerificationController::new(self.inner.encryption(), user_identity);
 
             *self.session_verification_controller.write().await =
                 Some(session_verification_controller.clone());
@@ -471,7 +464,7 @@ impl Client {
 
     /// Log out the current user
     pub fn logout(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(self.client.logout())?;
+        RUNTIME.block_on(self.inner.logout())?;
         Ok(())
     }
 
@@ -496,7 +489,7 @@ impl Client {
                 profile_tag,
                 lang,
             };
-            self.client.set_pusher(pusher_init.into()).await?;
+            self.inner.set_pusher(pusher_init.into()).await?;
             Ok(())
         })
     }
@@ -507,12 +500,12 @@ impl Client {
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
-        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+        self.inner.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
-        let sdk_room = self.client.get_dm_room(&user_id).map(SdkRoom::Joined);
+        let sdk_room = self.inner.get_dm_room(&user_id).map(SdkRoom::Joined);
         let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
         Ok(dm)
     }
@@ -520,7 +513,7 @@ impl Client {
     pub fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(user_id)?;
-            self.client.account().ignore_user(&user_id).await?;
+            self.inner.account().ignore_user(&user_id).await?;
             Ok(())
         })
     }
@@ -528,7 +521,7 @@ impl Client {
     pub fn unignore_user(&self, user_id: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(user_id)?;
-            self.client.account().unignore_user(&user_id).await?;
+            self.inner.account().unignore_user(&user_id).await?;
             Ok(())
         })
     }
@@ -539,7 +532,7 @@ impl Client {
         limit: u64,
     ) -> Result<SearchUsersResults, ClientError> {
         RUNTIME.block_on(async move {
-            let response = self.client.search_users(&search_term, limit).await?;
+            let response = self.inner.search_users(&search_term, limit).await?;
             Ok(SearchUsersResults::from(response))
         })
     }
@@ -547,7 +540,7 @@ impl Client {
     pub fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
         RUNTIME.block_on(async move {
             let owned_user_id = UserId::parse(user_id.clone())?;
-            let response = self.client.get_profile(&owned_user_id).await?;
+            let response = self.inner.get_profile(&owned_user_id).await?;
 
             let user_profile = UserProfile {
                 user_id,
@@ -585,7 +578,7 @@ impl Client {
             }
         };
         RUNTIME.block_on(async move {
-            self.client.register_notification_handler(handler).await;
+            self.inner.register_notification_handler(handler).await;
         })
     }
 
@@ -598,7 +591,7 @@ impl Client {
             // We may also need to do a sync here since this may fail if the keys are not
             // valid anymore
             let room_id = RoomId::parse(room_id)?;
-            let room = self.client.get_room(&room_id).context("Room not found")?;
+            let room = self.inner.get_room(&room_id).context("Room not found")?;
             let notification = NotificationItem::new_from_event_id(&event_id, room).await?;
             Ok(notification)
         })

@@ -172,12 +172,13 @@ impl SlidingSyncRoom {
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
         self.client
+            .inner
             .get_room(self.inner.room_id())
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
 
     pub fn avatar_url(&self) -> Option<String> {
-        Some(self.client.get_room(self.inner.room_id())?.avatar_url()?.into())
+        Some(self.client.inner.get_room(self.inner.room_id())?.avatar_url()?.into())
     }
 
     #[allow(clippy::significant_drop_in_scrutinee)]
@@ -254,7 +255,7 @@ impl SlidingSyncRoom {
         };
 
         let handle_sync_gap = {
-            let gap_broadcast_rx = self.client.client.subscribe_sync_gap(self.inner.room_id());
+            let gap_broadcast_rx = self.client.inner.subscribe_sync_gap(self.inner.room_id());
             let timeline = timeline.to_owned();
             async move {
                 gap_broadcast_rx.for_each(|_| timeline.clear()).await;
@@ -265,7 +266,8 @@ impl SlidingSyncRoom {
         // inside handle_sliding_sync_reset since we want to reset the sliding
         // sync for ignore user list events
         let handle_ignore_user_list_changes = {
-            let ignore_user_list_change_rx = self.client.subscribe_to_ignore_user_list_changes();
+            let ignore_user_list_change_rx =
+                self.client.inner.subscribe_to_ignore_user_list_changes();
             let timeline = timeline.to_owned();
             async move {
                 ignore_user_list_change_rx.for_each(|_| timeline.clear()).await;
@@ -893,7 +895,7 @@ impl SlidingSyncBuilder {
 #[uniffi::export]
 impl Client {
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.client.sliding_sync();
+        let mut inner = self.inner.sliding_sync();
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
