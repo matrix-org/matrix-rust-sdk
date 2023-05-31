@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::RawMemberEvent,
+    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
@@ -820,21 +820,52 @@ impl_state_store! {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        self.inner
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
+        if let Some(e) = self
+            .inner
+            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::STRIPPED_ROOM_STATE)?
+            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, &event_type, state_key)))?
+            .await?
+            .map(|f| self.deserialize_event(&f))
+            .transpose()?
+        {
+            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
+        } else if let Some(e) = self
+            .inner
             .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(keys::ROOM_STATE)?
             .get(&self.encode_key(keys::ROOM_STATE, (room_id, event_type, state_key)))?
             .await?
             .map(|f| self.deserialize_event(&f))
-            .transpose()
+            .transpose()?
+        {
+            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
+        } else {
+            Ok(None)
+        }
     }
 
      async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        let stripped_range = self.encode_to_range(keys::STRIPPED_ROOM_STATE, (room_id, &event_type))?;
+        let stripped_events = self
+            .inner
+            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(keys::STRIPPED_ROOM_STATE)?
+            .get_all_with_key(&stripped_range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Stripped))
+            .collect::<Vec<_>>();
+
+        if !stripped_events.is_empty() {
+            return Ok(stripped_events)
+        }
+
         let range = self.encode_to_range(keys::ROOM_STATE, (room_id, event_type))?;
         Ok(self
             .inner
@@ -843,7 +874,7 @@ impl_state_store! {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok())
+            .filter_map(|f| self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Sync))
             .collect::<Vec<_>>())
     }
 

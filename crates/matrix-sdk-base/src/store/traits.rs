@@ -20,11 +20,10 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EmptyStateKey,
-        GlobalAccountDataEvent, GlobalAccountDataEventContent, GlobalAccountDataEventType,
-        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
-        StaticStateEventContent, SyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
+        GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
@@ -32,8 +31,9 @@ use ruma::{
 
 use super::{StateChanges, StoreError};
 use crate::{
-    deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent, RoomInfo,
-    RoomMemberships,
+    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
+    media::MediaRequest,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -102,7 +102,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>, Self::Error>;
+    ) -> Result<Option<RawAnySyncOrStrippedState>, Self::Error>;
 
     /// Get a list of state events for a given room and `StateEventType`.
     ///
@@ -115,7 +115,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>, Self::Error>;
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error>;
 
     /// Get the current profile for the given user in the given room.
     ///
@@ -370,7 +370,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>, Self::Error> {
+    ) -> Result<Option<RawAnySyncOrStrippedState>, Self::Error> {
         self.0.get_state_event(room_id, event_type, state_key).await.map_err(Into::into)
     }
 
@@ -378,7 +378,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>, Self::Error> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
         self.0.get_state_events(room_id, event_type).await.map_err(Into::into)
     }
 
@@ -530,12 +530,12 @@ pub trait StateStoreExt: StateStore {
     async fn get_state_event_static<C>(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<Raw<SyncStateEvent<C>>>, Self::Error>
+    ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
         C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(Raw::cast))
+        Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(|raw| raw.cast()))
     }
 
     /// Get a specific state event of statically-known type.
@@ -547,14 +547,17 @@ pub trait StateStoreExt: StateStore {
         &self,
         room_id: &RoomId,
         state_key: &K,
-    ) -> Result<Option<Raw<SyncStateEvent<C>>>, Self::Error>
+    ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key.as_ref()).await?.map(Raw::cast))
+        Ok(self
+            .get_state_event(room_id, C::TYPE.into(), state_key.as_ref())
+            .await?
+            .map(|raw| raw.cast()))
     }
 
     /// Get a list of state events of a statically-known type for a given room.
@@ -565,7 +568,7 @@ pub trait StateStoreExt: StateStore {
     async fn get_state_events_static<C>(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<Raw<SyncStateEvent<C>>>, Self::Error>
+    ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
@@ -575,7 +578,7 @@ pub trait StateStoreExt: StateStore {
             .get_state_events(room_id, C::TYPE.into())
             .await?
             .into_iter()
-            .map(Raw::cast)
+            .map(|raw| raw.cast())
             .collect())
     }
 

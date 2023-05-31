@@ -19,7 +19,10 @@ use std::{collections::BTreeMap, fmt};
 pub use matrix_sdk_common::deserialized_responses::*;
 use ruma::{
     events::{
-        room::member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
+        room::{
+            member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+        },
         AnyStrippedStateEvent, AnySyncStateEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
         StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
@@ -263,5 +266,15 @@ impl MemberEvent {
     /// The user id associated to this member event.
     pub fn user_id(&self) -> &UserId {
         self.state_key()
+    }
+}
+
+impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
+    /// The power levels of the event.
+    pub fn power_levels(&self) -> RoomPowerLevels {
+        match self {
+            Self::Sync(e) => e.power_levels(),
+            Self::Stripped(e) => e.power_levels(),
+        }
     }
 }

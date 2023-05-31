@@ -23,7 +23,7 @@ use async_trait::async_trait;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::RawMemberEvent,
+    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
@@ -787,11 +787,26 @@ impl SledStateStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
         let db = self.clone();
         let key = self.encode_key(keys::ROOM_STATE, (room_id, event_type.to_string(), state_key));
+        let stripped_key = self
+            .encode_key(keys::STRIPPED_ROOM_STATE, (room_id, event_type.to_string(), state_key));
         spawn_blocking(move || {
-            db.room_state.get(key)?.map(|e| db.deserialize_value(&e)).transpose()
+            if let Some(e) = db
+                .stripped_room_state
+                .get(stripped_key)?
+                .map(|v| db.deserialize_value(&v))
+                .transpose()?
+            {
+                Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
+            } else if let Some(e) =
+                db.room_state.get(key)?.map(|v| db.deserialize_value(&v)).transpose()?
+            {
+                Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
+            } else {
+                Ok(None)
+            }
         })
         .await?
     }
@@ -800,13 +815,31 @@ impl SledStateStore {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         let db = self.clone();
         let key = self.encode_key(keys::ROOM_STATE, (room_id, event_type.to_string()));
+        let stripped_key =
+            self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, event_type.to_string()));
         spawn_blocking(move || {
+            let stripped_events = db
+                .stripped_room_state
+                .scan_prefix(stripped_key)
+                .flat_map(|e| {
+                    e.map(|(_, e)| {
+                        db.deserialize_value(&e).map(RawAnySyncOrStrippedState::Stripped)
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            if !stripped_events.is_empty() {
+                return Ok(stripped_events);
+            }
+
             db.room_state
                 .scan_prefix(key)
-                .flat_map(|e| e.map(|(_, e)| db.deserialize_value(&e)))
+                .flat_map(|e| {
+                    e.map(|(_, e)| db.deserialize_value(&e).map(RawAnySyncOrStrippedState::Sync))
+                })
                 .collect::<Result<_, _>>()
         })
         .await?
@@ -828,30 +861,9 @@ impl SledStateStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<RawMemberEvent>> {
-        let db = self.clone();
-        let key =
-            self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key));
-        let stripped_key = self.encode_key(
-            keys::STRIPPED_ROOM_STATE,
-            (room_id, StateEventType::RoomMember, state_key),
-        );
-        spawn_blocking(move || {
-            if let Some(e) = db
-                .stripped_room_state
-                .get(stripped_key)?
-                .map(|v| db.deserialize_value(&v))
-                .transpose()?
-            {
-                Ok(Some(RawMemberEvent::Stripped(e)))
-            } else if let Some(e) =
-                db.room_state.get(key)?.map(|v| db.deserialize_value(&v)).transpose()?
-            {
-                Ok(Some(RawMemberEvent::Sync(e)))
-            } else {
-                Ok(None)
-            }
-        })
-        .await?
+        self.get_state_event(room_id, StateEventType::RoomMember, state_key.as_str())
+            .await
+            .map(|opt| opt.map(|raw| raw.cast()))
     }
 
     /// Get the user IDs for the given room with the given memberships and
@@ -1230,7 +1242,7 @@ impl StateStore for SledStateStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
+    ) -> StoreResult<Option<RawAnySyncOrStrippedState>> {
         self.get_state_event(room_id, event_type, state_key).await.map_err(Into::into)
     }
 
@@ -1238,7 +1250,7 @@ impl StateStore for SledStateStore {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> StoreResult<Vec<RawAnySyncOrStrippedState>> {
         self.get_state_events(room_id, event_type).await.map_err(Into::into)
     }
 

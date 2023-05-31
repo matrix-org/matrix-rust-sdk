@@ -171,7 +171,10 @@ async fn test_state_event_getting() {
         .deserialize()
         .unwrap();
 
-    assert_matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
+    assert_matches::assert_matches!(
+        encryption_event.as_sync(),
+        Some(AnySyncStateEvent::RoomEncryption(_))
+    );
 }
 
 #[async_test]
