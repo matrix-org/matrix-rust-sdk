@@ -41,19 +41,27 @@ impl RoomList {
             }
 
             while let Some(update_summary) = sync.next().await {
-                {
-                    let next_state = self.state.read().next(&self.sliding_sync).await?;
+                match update_summary {
+                    Ok(_update_summary) => {
+                        {
+                            let next_state = self.state.read().next(&self.sliding_sync).await?;
 
-                    Observable::set(&self.state, next_state);
+                            Observable::set(&self.state, next_state);
+                        }
+
+                        yield Ok(());
+                    }
+
+                    Err(error) => {
+                        yield Err(error);
+                    }
                 }
 
-                // if let State::Failure = state {
-                //     yield Err(());
-                //     // transform into a custom `MyError::SyncFailure`
-                // } else {
-                    yield Ok(());
-                // }
             }
+
+            let next_state = State::Terminated;
+
+            Observable::set(&self.state, next_state);
         }
     }
 
@@ -73,10 +81,23 @@ impl RoomList {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum State {
+    /// That's the first initial state. The next state is calculated before
+    /// doing the first sync.
     Init,
+
+    /// At this state, the first rooms starts to be synced.
     LoadFirstRooms,
+
+    /// At this state, all rooms starts to be synced.
     LoadAllRooms,
+
+    /// This state is the cruising speed, i.e. the “normal” state, where nothing
+    /// fancy happens: all rooms are syncing, and life is great.
     Enjoy,
+
+    /// At this state, the sync has been stopped (because it was requested, or
+    /// because it has errored too many times previously).
+    Terminated,
 }
 
 impl State {
@@ -88,6 +109,7 @@ impl State {
             LoadFirstRooms => (LoadAllRooms, Actions::first_rooms_are_loaded()),
             LoadAllRooms => (Enjoy, Actions::none()),
             Enjoy => (Enjoy, Actions::none()),
+            Terminated => (Terminated, Actions::none()),
         };
 
         for action in actions.iter() {
@@ -239,13 +261,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_foo() -> Result<()> {
-        let room_list = new_room_list().await;
-
-        Ok(())
-    }
-
-    #[async_test]
     async fn test_states() -> Result<()> {
         let room_list = new_room_list().await;
         let sliding_sync = room_list.sliding_sync();
@@ -263,6 +278,11 @@ mod tests {
 
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
+
+        let state = State::Terminated;
+
+        let state = state.next(&sliding_sync).await?;
+        assert_eq!(state, State::Terminated);
 
         Ok(())
     }
