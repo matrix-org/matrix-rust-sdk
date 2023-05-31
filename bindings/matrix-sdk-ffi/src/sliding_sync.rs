@@ -196,22 +196,16 @@ impl SlidingSyncRoom {
         Ok(SlidingSyncAddTimelineListenerResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
-    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) -> Arc<TaskHandle> {
+    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) {
         let room_id = self.inner.room_id().to_owned();
-        let sliding_sync = self.sliding_sync.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            sliding_sync.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
-        })))
+        self.sliding_sync.subscribe_to_room(room_id, settings.map(Into::into));
     }
 
-    pub fn unsubscribe_from_room(&self) -> Arc<TaskHandle> {
+    pub fn unsubscribe_from_room(&self) {
         let room_id = self.inner.room_id().to_owned();
-        let sliding_sync = self.sliding_sync.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            sliding_sync.unsubscribe_from_room(room_id).await.unwrap();
-        })))
+        self.sliding_sync.unsubscribe_from_room(room_id);
     }
 }
 
@@ -657,12 +651,9 @@ impl SlidingSyncList {
 
     /// Changes the sync mode, and automatically restarts the sliding sync
     /// internally.
-    pub fn set_sync_mode(
-        &self,
-        builder: Arc<SlidingSyncSelectiveModeBuilder>,
-    ) -> Result<(), ClientError> {
+    pub fn set_sync_mode(&self, builder: Arc<SlidingSyncSelectiveModeBuilder>) {
         let builder = unwrap_or_clone_arc(builder);
-        self.inner.set_sync_mode(builder.inner).map_err(Into::into)
+        self.inner.set_sync_mode(builder.inner);
     }
 }
 
@@ -693,22 +684,20 @@ impl SlidingSync {
         &self,
         room_id: String,
         settings: Option<RoomSubscription>,
-    ) -> Result<Arc<TaskHandle>, ClientError> {
+    ) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
-        let this = self.inner.clone();
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            this.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
-        }))))
+        self.inner.subscribe_to_room(room_id, settings.map(Into::into));
+
+        Ok(())
     }
 
-    pub fn unsubscribe_from_room(&self, room_id: String) -> Result<Arc<TaskHandle>, ClientError> {
+    pub fn unsubscribe_from_room(&self, room_id: String) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
-        let this = self.inner.clone();
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            this.unsubscribe_from_room(room_id).await.unwrap();
-        }))))
+        self.inner.unsubscribe_from_room(room_id);
+
+        Ok(())
     }
 
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<SlidingSyncRoom>>, ClientError> {
@@ -803,8 +792,8 @@ impl SlidingSync {
         })))
     }
 
-    pub fn stop_sync(&self) {
-        RUNTIME.block_on(async move { self.inner.stop_sync().await.unwrap() });
+    pub fn stop_sync(&self) -> Result<(), ClientError> {
+        self.inner.stop_sync().map_err(Into::into)
     }
 }
 

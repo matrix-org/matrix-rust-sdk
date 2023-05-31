@@ -11,7 +11,7 @@ use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::broadcast::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
