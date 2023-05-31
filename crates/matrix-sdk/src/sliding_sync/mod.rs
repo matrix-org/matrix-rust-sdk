@@ -51,10 +51,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     select, spawn,
-    sync::{
-        mpsc::{error::TryRecvError, Receiver, Sender},
-        Mutex as AsyncMutex, RwLock as AsyncRwLock,
-    },
+    sync::{broadcast::Sender, Mutex as AsyncMutex},
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
@@ -122,8 +119,7 @@ pub(super) struct SlidingSyncInner {
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
-    internal_channel:
-        (Sender<SlidingSyncInternalMessage>, AsyncRwLock<Receiver<SlidingSyncInternalMessage>>),
+    internal_channel: Sender<SlidingSyncInternalMessage>,
 }
 
 impl SlidingSync {
@@ -131,7 +127,7 @@ impl SlidingSync {
         Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
     }
 
-    async fn cache_to_storage(&self) -> Result<(), crate::Error> {
+    async fn cache_to_storage(&self) -> Result<()> {
         cache::store_sliding_sync_state(self).await
     }
 
@@ -141,7 +137,7 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    pub async fn subscribe_to_room(
+    pub fn subscribe_to_room(
         &self,
         room_id: OwnedRoomId,
         settings: Option<v4::RoomSubscription>,
@@ -151,22 +147,22 @@ impl SlidingSync {
             .write()
             .unwrap()
             .insert(room_id, settings.unwrap_or_default());
+
         self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-            .await?;
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
 
         Ok(())
     }
 
     /// Unsubscribe from a given room.
-    pub async fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
+    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
         // If removing the subscription was successful…
         if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-            self.inner
-                .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-                .await?;
+            self.inner.internal_channel_send(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            )?;
         }
 
         Ok(())
@@ -206,12 +202,14 @@ impl SlidingSync {
         &self,
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
-        let list = list_builder.build(self.inner.internal_channel.0.clone());
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-            .await?;
+        let list = list_builder.build(self.inner.internal_channel.clone());
 
-        Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
+        let old_list = self.inner.lists.write().unwrap().insert(list.name().to_owned(), list);
+
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
+
+        Ok(old_list)
     }
 
     /// Add a list that will be cached and reloaded from the cache.
@@ -534,37 +532,18 @@ impl SlidingSync {
         debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
+        let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
 
         stream! {
-            // Drain the internal channel, in case some messages were still present in it.
-            // It's unlikely to happen in a closed Rust world, but it can happen with async
-            // operations over FFI. Let's make sure the internal channel is properly drained
-            // before starting the sync-loop.
-            {
-                let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
-
-                // *Gurgle, gurgle, gurgle*
-                while internal_channel_receiver_lock.try_recv().is_ok() {}
-
-                // At this point, the receiver must be empty.
-                assert_eq!(
-                    internal_channel_receiver_lock.try_recv(),
-                    Err(TryRecvError::Empty),
-                    "Sliding Sync internal channel is not empty"
-                );
-            }
-
             loop {
                 sync_span.in_scope(|| {
                     debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
                 });
 
-                let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
-
                 select! {
                     biased;
 
-                    internal_message = internal_channel_receiver_lock.recv() => {
+                    internal_message = internal_channel_receiver.recv() => {
                         use SlidingSyncInternalMessage::*;
 
                         sync_span.in_scope(|| {
@@ -572,11 +551,11 @@ impl SlidingSync {
                         });
 
                         match internal_message {
-                            None | Some(SyncLoopStop) => {
+                            Err(_) | Ok(SyncLoopStop) => {
                                 break;
                             }
 
-                            Some(SyncLoopSkipOverCurrentIteration) => {
+                            Ok(SyncLoopSkipOverCurrentIteration) => {
                                 continue;
                             }
                         }
@@ -647,23 +626,20 @@ impl SlidingSync {
     /// over FFI; the foreign-language might not be able to drop a value
     /// immediately). Thus, calling this method will ensure that the sync-loop
     /// stops gracefully and as soon as it returns.
-    pub async fn stop_sync(&self) -> Result<(), Error> {
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
+    pub fn stop_sync(&self) -> Result<()> {
+        Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
 }
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
     #[instrument]
-    async fn internal_channel_send(
-        &self,
-        message: SlidingSyncInternalMessage,
-    ) -> Result<(), Error> {
-        self.internal_channel.0.send(message).await.map_err(|_| Error::InternalChannelIsBroken)
+    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
+        self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum SlidingSyncInternalMessage {
     /// Instruct the sync loop to stop.
     SyncLoopStop,
@@ -807,8 +783,8 @@ mod tests {
         let room1 = room_id!("!r1:bar.org").to_owned();
         let room2 = room_id!("!r2:bar.org").to_owned();
 
-        sliding_sync.subscribe_to_room(room0.clone(), None).await?;
-        sliding_sync.subscribe_to_room(room1.clone(), None).await?;
+        sliding_sync.subscribe_to_room(room0.clone(), None)?;
+        sliding_sync.subscribe_to_room(room1.clone(), None)?;
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -818,8 +794,8 @@ mod tests {
             assert!(!room_subscriptions.contains_key(&room2));
         }
 
-        sliding_sync.unsubscribe_from_room(room0.clone()).await?;
-        sliding_sync.unsubscribe_from_room(room2.clone()).await?;
+        sliding_sync.unsubscribe_from_room(room0.clone())?;
+        sliding_sync.unsubscribe_from_room(room2.clone())?;
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -916,7 +892,7 @@ mod tests {
             assert!(stream.next().await.is_some());
         }
 
-        sliding_sync.stop_sync().await?;
+        sliding_sync.stop_sync()?;
 
         for _ in 0..3 {
             assert!(stream.next().await.is_none());

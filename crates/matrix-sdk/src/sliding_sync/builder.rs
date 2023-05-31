@@ -8,7 +8,7 @@ use ruma::{
     events::TimelineEventType,
     OwnedRoomId,
 };
-use tokio::sync::{mpsc::channel, RwLock as AsyncRwLock};
+use tokio::sync::broadcast::channel;
 use url::Url;
 
 use super::{
@@ -226,7 +226,7 @@ impl SlidingSyncBuilder {
         let mut delta_token = None;
         let mut to_device_token = None;
 
-        let (internal_channel_sender, internal_channel_receiver) = channel(8);
+        let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
         let mut lists = BTreeMap::new();
 
@@ -272,10 +272,7 @@ impl SlidingSyncBuilder {
             room_subscriptions: StdRwLock::new(self.subscriptions),
             room_unsubscriptions: Default::default(),
 
-            internal_channel: (
-                internal_channel_sender,
-                AsyncRwLock::new(internal_channel_receiver),
-            ),
+            internal_channel: internal_channel_sender,
         }))
     }
 }

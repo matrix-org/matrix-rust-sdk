@@ -20,7 +20,7 @@ pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
 use super::{Error, SlidingSyncInternalMessage};
@@ -75,9 +75,8 @@ impl SlidingSyncList {
 
         // When the sync mode is changed, the sync loop must skip over any work in its
         // iteration and jump to the next iteration.
-        self.inner.internal_channel_blocking_send(
-            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-        )?;
+        self.inner
+            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)?;
 
         Ok(())
     }
@@ -441,12 +440,10 @@ impl SlidingSyncListInner {
 
     /// Send a message over the internal channel.
     #[instrument]
-    fn internal_channel_blocking_send(
-        &self,
-        message: SlidingSyncInternalMessage,
-    ) -> Result<(), Error> {
+    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
         self.sliding_sync_internal_channel_sender
-            .blocking_send(message)
+            .send(message)
+            .map(|_| ())
             .map_err(|_| Error::InternalChannelIsBroken)
     }
 }
@@ -846,7 +843,10 @@ mod tests {
     use serde_json::json;
     use tokio::{
         spawn,
-        sync::mpsc::{channel, error::TryRecvError, unbounded_channel},
+        sync::{
+            broadcast::{channel, error::TryRecvError},
+            mpsc::unbounded_channel,
+        },
     };
 
     use super::*;
