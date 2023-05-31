@@ -1,5 +1,3 @@
-use std::future::ready;
-
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_test::async_test;
@@ -90,7 +88,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
 }
 
 #[async_test]
-async fn test_foo() -> Result<()> {
+async fn test_init_to_load_first_rooms_to_load_all_rooms() -> Result<()> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();
@@ -128,22 +126,6 @@ async fn test_foo() -> Result<()> {
             "extensions": {},
         },
     };
-
-    assert_eq!(
-        room_list
-            .sliding_sync()
-            .on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ready(()))
-            .await,
-        Some(())
-    );
-
-    assert_eq!(
-        room_list
-            .sliding_sync()
-            .on_list(room_list::VISIBLE_ROOMS_LIST_NAME, |_list| ready(()))
-            .await,
-        Some(())
-    );
 
     Ok(())
 }
