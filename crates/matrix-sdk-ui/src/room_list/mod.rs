@@ -3,16 +3,18 @@
 use std::{
     fmt,
     future::ready,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock, RwLockWriteGuard},
 };
 
 use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
+use eyeball_im::VectorDiff;
 use eyeball_im_util::FilteredVectorSubscriber;
 use futures_util::{pin_mut, Stream, StreamExt};
+pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
-    Client, Error as SlidingSyncError, RoomListEntry, SlidingSync, SlidingSyncList, SlidingSyncMode,
+    Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncMode,
 };
 use once_cell::sync::Lazy;
 use thiserror::Error;
@@ -22,8 +24,9 @@ pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
 pub struct RoomList {
     sliding_sync: SlidingSync,
-    entries_stream:
+    entries_stream: RwLock<
         FilteredVectorSubscriber<RoomListEntry, Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>>,
+    >,
     state: Observable<State>,
 }
 
@@ -66,7 +69,11 @@ impl RoomList {
         let entries =
             Arc::try_unwrap(entries).map_err(|_| Error::Entries)?.into_inner().unwrap().unwrap();
 
-        Ok(Self { sliding_sync, entries_stream: entries, state: Observable::new(State::Init) })
+        Ok(Self {
+            sliding_sync,
+            entries_stream: RwLock::new(entries),
+            state: Observable::new(State::Init),
+        })
     }
 
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
@@ -112,6 +119,12 @@ impl RoomList {
 
     pub fn state_stream(&self) -> impl Stream<Item = State> {
         Observable::subscribe(&self.state)
+    }
+
+    pub fn entries_stream(
+        &self,
+    ) -> RwLockWriteGuard<impl Stream<Item = VectorDiff<RoomListEntry>>> {
+        self.entries_stream.write().unwrap()
     }
 
     #[cfg(any(test, feature = "testing"))]

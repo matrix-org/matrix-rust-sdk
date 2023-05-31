@@ -1,12 +1,18 @@
+use std::ops::DerefMut;
+
+use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        Error, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        Error, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     RoomList,
 };
+use ruma::room_id;
 use serde_json::json;
+use stream_assert::*;
 use tokio::{spawn, sync::mpsc::unbounded_channel};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -106,13 +112,13 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
-                        [0, 19]
+                        [0, 19],
                     ],
                     "required_state": [
-                        ["m.room.encryption", ""]
+                        ["m.room.encryption", ""],
                     ],
                     "sort": ["by_recency", "by_name"],
-                }
+                },
             },
             "extensions": {
                 "e2ee": {
@@ -120,8 +126,8 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
                 },
                 "to_device": {
                     "enabled": true,
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "0",
@@ -130,8 +136,8 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
                     "count": 200,
                     "ops": [
                         // let's ignore them for now
-                    ]
-                }
+                    ],
+                },
             },
             "rooms": {
                 // let's ignore them for now
@@ -148,17 +154,13 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
-                        [0, 49]
+                        [0, 49],
                     ],
-                    "required_state": [
-                        ["m.room.encryption", ""]
-                    ],
-                    "sort": ["by_recency", "by_name"],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
                     "required_state": [
-                        ["m.room.encryption", ""]
+                        ["m.room.encryption", ""],
                     ],
                     "sort": ["by_recency", "by_name"],
                 }
@@ -171,12 +173,12 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
                     "count": 200,
                     "ops": [
                         // let's ignore them for now
-                    ]
+                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
                     "ops": [],
-                }
+                },
             },
             "rooms": {
                 // let's ignore them for now
@@ -191,22 +193,12 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
         assert request = {
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [
-                        [0, 99]
-                    ],
-                    "required_state": [
-                        ["m.room.encryption", ""]
-                    ],
-                    "sort": ["by_recency", "by_name"],
+                    "ranges": [[0, 99]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
-                    "required_state": [
-                        ["m.room.encryption", ""]
-                    ],
-                    "sort": ["by_recency", "by_name"],
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "2",
@@ -215,18 +207,102 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
                     "count": 200,
                     "ops": [
                         // let's ignore them for now
-                    ]
+                    ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
                     "ops": [],
-                }
+                },
             },
             "rooms": {
                 // let's ignore them for now
             },
         },
     };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_entries_stream() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        sync once,
+        states = Init -> LoadFirstRooms -> LoadAllRooms,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 2],
+                            "room_ids": [
+                                "!r0:bar.org",
+                                "!r1:bar.org",
+                                "!r2:bar.org",
+                            ]
+                        }
+                    ]
+                }
+            },
+            "rooms": {
+                "!r0:bar.org": {
+                    "name": "Room #0",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r1:bar.org": {
+                    "name": "Room #1",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r2:bar.org": {
+                    "name": "Room #2",
+                    "initial": true,
+                    "timeline": [],
+                }
+            },
+        },
+    };
+
+    let mut entries = room_list.entries_stream();
+    let entries = entries.deref_mut();
+    pin_mut!(entries);
+
+    assert_next_matches!(entries, VectorDiff::Append { values: _ });
+    assert_next_matches!(
+        entries,
+        VectorDiff::Set { index: 0, value } => {
+            assert_eq!(value, RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned()));
+        }
+    );
+    assert_next_matches!(
+        entries,
+        VectorDiff::Set { index: 1, value } => {
+            assert_eq!(value, RoomListEntry::Filled(room_id!("!r1:bar.org").to_owned()));
+        }
+    );
+    assert_next_matches!(
+        entries,
+        VectorDiff::Set { index: 2, value } => {
+            assert_eq!(value, RoomListEntry::Filled(room_id!("!r2:bar.org").to_owned()));
+        }
+    );
+    assert_pending!(entries);
 
     Ok(())
 }
