@@ -402,7 +402,10 @@ mod test {
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         events::{
-            room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            room::{
+                member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+                topic::RoomTopicEventContent,
+            },
             AnySyncStateEvent, StateEventType,
         },
         room_id,
@@ -553,7 +556,7 @@ mod test {
             .unwrap();
         let event =
             store.get_state_event(room_id, StateEventType::RoomTopic, "").await.unwrap().unwrap();
-        event.deserialize().unwrap();
+        event.cast::<RoomTopicEventContent>().deserialize().unwrap();
     }
 
     #[async_test]

@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    deserialized_responses::RawMemberEvent,
+    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
     media::{MediaRequest, UniqueKey},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey,
     StateStoreDataValue,
@@ -547,24 +547,6 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             .await?)
     }
 
-    async fn get_state_event(
-        &self,
-        room_id: Key,
-        event_type: Key,
-        state_key: Key,
-        stripped: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .query_row(
-                "SELECT data FROM state_event
-                 WHERE room_id = ? AND event_type = ? AND state_key = ? AND stripped = ?",
-                (room_id, event_type, state_key, stripped),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?)
-    }
-
     async fn get_maybe_stripped_state_event(
         &self,
         room_id: Key,
@@ -582,12 +564,20 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             .optional()?)
     }
 
-    async fn get_state_events(&self, room_id: Key, event_type: Key) -> Result<Vec<Vec<u8>>> {
+    async fn get_maybe_stripped_state_events(
+        &self,
+        room_id: Key,
+        event_type: Key,
+    ) -> Result<Vec<(bool, Vec<u8>)>> {
         Ok(self
             .prepare(
-                "SELECT data FROM state_event
-                 WHERE room_id = ? AND event_type = ? AND stripped = FALSE",
-                |mut stmt| stmt.query((room_id, event_type))?.mapped(|row| row.get(0)).collect(),
+                "SELECT stripped, data FROM state_event
+                 WHERE room_id = ? AND event_type = ?",
+                |mut stmt| {
+                    stmt.query((room_id, event_type))?
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                        .collect()
+                },
             )
             .await?)
     }
@@ -1080,15 +1070,23 @@ impl StateStore for SqliteStateStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
         let room_id = self.encode_key(keys::STATE_EVENT, room_id);
         let event_type = self.encode_key(keys::STATE_EVENT, event_type.to_string());
         let state_key = self.encode_key(keys::STATE_EVENT, state_key);
         self.acquire()
             .await?
-            .get_state_event(room_id, event_type, state_key, false)
+            .get_maybe_stripped_state_event(room_id, event_type, state_key)
             .await?
-            .map(|data| self.deserialize_json(&data))
+            .map(|(stripped, data)| {
+                let ev = if stripped {
+                    RawAnySyncOrStrippedState::Stripped(self.deserialize_json(&data)?)
+                } else {
+                    RawAnySyncOrStrippedState::Sync(self.deserialize_json(&data)?)
+                };
+
+                Ok(ev)
+            })
             .transpose()
     }
 
@@ -1096,15 +1094,23 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         let room_id = self.encode_key(keys::STATE_EVENT, room_id);
         let event_type = self.encode_key(keys::STATE_EVENT, event_type.to_string());
         self.acquire()
             .await?
-            .get_state_events(room_id, event_type)
+            .get_maybe_stripped_state_events(room_id, event_type)
             .await?
-            .iter()
-            .map(|data| self.deserialize_json(data))
+            .into_iter()
+            .map(|(stripped, data)| {
+                let ev = if stripped {
+                    RawAnySyncOrStrippedState::Stripped(self.deserialize_json(&data)?)
+                } else {
+                    RawAnySyncOrStrippedState::Sync(self.deserialize_json(&data)?)
+                };
+
+                Ok(ev)
+            })
             .collect()
     }
 

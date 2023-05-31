@@ -19,14 +19,17 @@ use ruma::{
         presence::PresenceEvent,
         room::{
             member::MembershipState,
-            power_levels::{PowerLevelAction, RoomPowerLevels, SyncRoomPowerLevelsEvent},
+            power_levels::{PowerLevelAction, RoomPowerLevels, RoomPowerLevelsEventContent},
         },
         MessageLikeEventType, StateEventType,
     },
     MxcUri, UserId,
 };
 
-use crate::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent};
+use crate::{
+    deserialized_responses::{MemberEvent, SyncOrStrippedState},
+    MinimalRoomMemberEvent,
+};
 
 /// A member of a room.
 #[derive(Clone, Debug)]
@@ -38,7 +41,7 @@ pub struct RoomMember {
     pub(crate) profile: Arc<Option<MinimalRoomMemberEvent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
-    pub(crate) power_levels: Arc<Option<SyncRoomPowerLevelsEvent>>,
+    pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
     pub(crate) display_name_ambiguous: bool,
