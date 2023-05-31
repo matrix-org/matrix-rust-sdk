@@ -175,7 +175,7 @@ impl AuthenticationService {
 
         // Create a new client to setup the store path now the user ID is known.
         let homeserver_url = client.homeserver();
-        let session = client.client.session().ok_or(AuthenticationError::SessionMissing)?;
+        let session = client.inner.session().ok_or(AuthenticationError::SessionMissing)?;
 
         let sliding_sync_proxy: Option<String>;
         if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
