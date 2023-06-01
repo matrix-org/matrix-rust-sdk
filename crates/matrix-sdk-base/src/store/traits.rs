@@ -117,6 +117,23 @@ pub trait StateStore: AsyncTraitDeps {
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error>;
 
+    /// Get a list of state events for a given room, `StateEventType`, and the
+    /// given state keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    ///
+    /// * `event_type` - The event type.
+    ///
+    /// * `state_keys` - The list of state keys to find.
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error>;
+
     /// Get the current profile for the given user in the given room.
     ///
     /// # Arguments
@@ -370,6 +387,15 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_state_events(room_id, event_type).await.map_err(Into::into)
     }
 
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        self.0.get_state_events_for_keys(room_id, event_type, state_keys).await.map_err(Into::into)
+    }
+
     async fn get_profile(
         &self,
         room_id: &RoomId,
@@ -557,6 +583,39 @@ pub trait StateStoreExt: StateStore {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self
             .get_state_events(room_id, C::TYPE.into())
+            .await?
+            .into_iter()
+            .map(|raw| raw.cast())
+            .collect())
+    }
+
+    /// Get a list of state events of a statically-known type for a given room
+    /// and given state keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    ///
+    /// * `state_keys` - The list of state keys to find.
+    async fn get_state_events_for_keys_static<'a, C, K, I>(
+        &self,
+        room_id: &RoomId,
+        state_keys: I,
+    ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
+    where
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C::StateKey: Borrow<K>,
+        C::Redacted: RedactedStateEventContent,
+        K: AsRef<str> + Sized + Sync + 'a,
+        I: IntoIterator<Item = &'a K> + Send,
+        I::IntoIter: Send,
+    {
+        Ok(self
+            .get_state_events_for_keys(
+                room_id,
+                C::TYPE.into(),
+                &state_keys.into_iter().map(|k| k.as_ref()).collect::<Vec<_>>(),
+            )
             .await?
             .into_iter()
             .map(|raw| raw.cast())

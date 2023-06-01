@@ -802,29 +802,11 @@ impl_state_store!({
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_ROOM_STATE)?
-            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, &event_type, state_key)))?
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
             .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
-        } else if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::ROOM_STATE)?
-            .get(&self.encode_key(keys::ROOM_STATE, (room_id, event_type, state_key)))?
-            .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
-        } else {
-            Ok(None)
-        }
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -860,6 +842,64 @@ impl_state_store!({
             .iter()
             .filter_map(|f| self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Sync))
             .collect::<Vec<_>>())
+    }
+
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        if state_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut events = Vec::with_capacity(state_keys.len());
+
+        {
+            let txn = self.inner.transaction_on_one_with_mode(
+                keys::STRIPPED_ROOM_STATE,
+                IdbTransactionMode::Readonly,
+            )?;
+            let store = txn.object_store(keys::STRIPPED_ROOM_STATE)?;
+
+            for state_key in state_keys {
+                if let Some(event) =
+                    store
+                        .get(&self.encode_key(
+                            keys::STRIPPED_ROOM_STATE,
+                            (room_id, &event_type, state_key),
+                        ))?
+                        .await?
+                        .map(|f| self.deserialize_event(&f))
+                        .transpose()?
+                {
+                    events.push(RawAnySyncOrStrippedState::Stripped(event));
+                }
+            }
+
+            if !events.is_empty() {
+                return Ok(events);
+            }
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::ROOM_STATE)?;
+
+        for state_key in state_keys {
+            if let Some(event) = store
+                .get(&self.encode_key(keys::ROOM_STATE, (room_id, &event_type, state_key)))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                events.push(RawAnySyncOrStrippedState::Sync(event));
+            }
+        }
+
+        Ok(events)
     }
 
     async fn get_profile(
