@@ -398,7 +398,7 @@ impl IndexeddbStateStore {
 // the wasm target (which would disable many other parts of the codebase).
 #[cfg(target_arch = "wasm32")]
 macro_rules! impl_state_store {
-    ( $($body:tt)* ) => {
+    ({ $($body:tt)* }) => {
         #[async_trait(?Send)]
         impl StateStore for IndexeddbStateStore {
             type Error = IndexeddbStateStoreError;
@@ -410,18 +410,15 @@ macro_rules! impl_state_store {
 
 #[cfg(not(target_arch = "wasm32"))]
 macro_rules! impl_state_store {
-    ( $($body:tt)* ) => {
+    ({ $($body:tt)* }) => {
         impl IndexeddbStateStore {
             $($body)*
         }
     };
 }
 
-impl_state_store! {
-    async fn get_kv_data(
-        &self,
-        key: StateStoreDataKey<'_>,
-    ) -> Result<Option<StateStoreDataValue>> {
+impl_state_store!({
+    async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
         let encoded_key = self.encode_kv_data_key(key);
 
         let value = self
@@ -453,17 +450,14 @@ impl_state_store! {
             StateStoreDataKey::SyncToken => {
                 value.into_sync_token().expect("Session data not a sync token")
             }
-            StateStoreDataKey::Filter(_) => {
-                value.into_filter().expect("Session data not a filter")
-            }
+            StateStoreDataKey::Filter(_) => value.into_filter().expect("Session data not a filter"),
             StateStoreDataKey::UserAvatarUrl(_) => {
                 value.into_user_avatar_url().expect("Session data not an user avatar url")
             }
         };
 
-        let tx = self
-            .inner
-            .transaction_on_one_with_mode(keys::KV, IdbTransactionMode::Readwrite)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::KV, IdbTransactionMode::Readwrite)?;
 
         let obj = tx.object_store(keys::KV)?;
 
@@ -477,9 +471,8 @@ impl_state_store! {
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
         let encoded_key = self.encode_kv_data_key(key);
 
-        let tx = self
-            .inner
-            .transaction_on_one_with_mode(keys::KV, IdbTransactionMode::Readwrite)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::KV, IdbTransactionMode::Readwrite)?;
         let obj = tx.object_store(keys::KV)?;
 
         obj.delete(&encoded_key)?;
@@ -522,10 +515,7 @@ impl_state_store! {
         }
 
         if !changes.stripped_state.is_empty() {
-            stores.extend([
-                keys::STRIPPED_ROOM_STATE,
-                keys::STRIPPED_USER_IDS,
-            ]);
+            stores.extend([keys::STRIPPED_ROOM_STATE, keys::STRIPPED_USER_IDS]);
         }
 
         if !changes.receipts.is_empty() {
@@ -612,11 +602,13 @@ impl_state_store! {
                                 .delete(&self.encode_key(keys::STRIPPED_USER_IDS, key))?;
 
                             user_ids.put_key_val_owned(
-                                        &self.encode_key(keys::USER_IDS, key),
-                                        &self.serialize_event(&RoomMember::from(&event))?,
-                                    )?;
+                                &self.encode_key(keys::USER_IDS, key),
+                                &self.serialize_event(&RoomMember::from(&event))?,
+                            )?;
 
-                            if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
+                            if let Some(profile) =
+                                profile_changes.and_then(|p| p.get(event.state_key()))
+                            {
                                 profiles.put_key_val_owned(
                                     &self.encode_key(keys::PROFILES, key),
                                     &self.serialize_event(&profile)?,
@@ -674,12 +666,16 @@ impl_state_store! {
                         store.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
 
                         if *event_type == StateEventType::RoomMember {
-                            let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>() {
+                            let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>()
+                            {
                                 Ok(ev) => ev,
                                 Err(e) => {
                                     let event_id: Option<String> =
                                         raw_event.get_field("event_id").ok().flatten();
-                                    debug!(event_id, "Failed to deserialize stripped member event: {e}");
+                                    debug!(
+                                        event_id,
+                                        "Failed to deserialize stripped member event: {e}"
+                                    );
                                     continue;
                                 }
                             };
@@ -805,7 +801,7 @@ impl_state_store! {
         tx.await.into_result().map_err(|e| e.into())
     }
 
-     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         self.inner
             .transaction_on_one_with_mode(keys::PRESENCE, IdbTransactionMode::Readonly)?
             .object_store(keys::PRESENCE)?
@@ -815,7 +811,7 @@ impl_state_store! {
             .transpose()
     }
 
-     async fn get_state_event(
+    async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
@@ -846,12 +842,13 @@ impl_state_store! {
         }
     }
 
-     async fn get_state_events(
+    async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        let stripped_range = self.encode_to_range(keys::STRIPPED_ROOM_STATE, (room_id, &event_type))?;
+        let stripped_range =
+            self.encode_to_range(keys::STRIPPED_ROOM_STATE, (room_id, &event_type))?;
         let stripped_events = self
             .inner
             .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
@@ -859,11 +856,13 @@ impl_state_store! {
             .get_all_with_key(&stripped_range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Stripped))
+            .filter_map(|f| {
+                self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Stripped)
+            })
             .collect::<Vec<_>>();
 
         if !stripped_events.is_empty() {
-            return Ok(stripped_events)
+            return Ok(stripped_events);
         }
 
         let range = self.encode_to_range(keys::ROOM_STATE, (room_id, event_type))?;
@@ -878,7 +877,7 @@ impl_state_store! {
             .collect::<Vec<_>>())
     }
 
-     async fn get_profile(
+    async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
@@ -892,7 +891,7 @@ impl_state_store! {
             .transpose()
     }
 
-     async fn get_member_event(
+    async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
@@ -901,7 +900,10 @@ impl_state_store! {
             .inner
             .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(keys::STRIPPED_ROOM_STATE)?
-            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
+            .get(&self.encode_key(
+                keys::STRIPPED_ROOM_STATE,
+                (room_id, StateEventType::RoomMember, state_key),
+            ))?
             .await?
             .map(|f| self.deserialize_event(&f))
             .transpose()?
@@ -911,7 +913,10 @@ impl_state_store! {
             .inner
             .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(keys::ROOM_STATE)?
-            .get(&self.encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)))?
+            .get(
+                &self
+                    .encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)),
+            )?
             .await?
             .map(|f| self.deserialize_event(&f))
             .transpose()?
@@ -922,7 +927,7 @@ impl_state_store! {
         }
     }
 
-     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries: Vec<_> = self
             .inner
             .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -936,7 +941,7 @@ impl_state_store! {
         Ok(entries)
     }
 
-     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries = self
             .inner
             .transaction_on_one_with_mode(keys::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -950,7 +955,7 @@ impl_state_store! {
         Ok(entries)
     }
 
-     async fn get_users_with_display_name(
+    async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
@@ -964,7 +969,7 @@ impl_state_store! {
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
-     async fn get_account_data_event(
+    async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
@@ -977,7 +982,7 @@ impl_state_store! {
             .transpose()
     }
 
-     async fn get_room_account_data_event(
+    async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
@@ -1162,7 +1167,11 @@ impl_state_store! {
         tx.await.into_result().map_err(|e| e.into())
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId, memberships: RoomMemberships) -> Result<Vec<OwnedUserId>> {
+    async fn get_user_ids(
+        &self,
+        room_id: &RoomId,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>> {
         let ids = self.get_user_ids_inner(room_id, memberships, true).await?;
         if !ids.is_empty() {
             return Ok(ids);
@@ -1177,7 +1186,7 @@ impl_state_store! {
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         self.get_user_ids(room_id, RoomMemberships::JOIN).await
     }
-}
+});
 
 /// A room member.
 #[derive(Debug, Serialize, Deserialize)]
