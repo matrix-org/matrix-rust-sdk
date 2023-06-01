@@ -3,7 +3,7 @@ use std::{pin::Pin, sync::Arc};
 use anyhow::{Context, Result};
 use assert_matches::assert_matches;
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
@@ -61,8 +61,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::PushBack { value }) => {
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::PushBack { value })) => {
                             assert_matches!(value.as_ref(), TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
                         }
                     );
@@ -81,8 +81,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::PushBack { value }) => {
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::PushBack { value })) => {
                             assert_matches!(
                                 value.as_ref(),
                                 TimelineItem::Event(event_timeline_item) => {
@@ -106,8 +106,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::Set { index: $index, value }) => {
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Set { index: $index, value })) => {
                             assert_matches!(
                                 value.as_ref(),
                                 TimelineItem::Event(event_timeline_item) => {
@@ -131,8 +131,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::Remove { index: $index })
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Remove { index: $index }))
                     );
                 }
             ]
