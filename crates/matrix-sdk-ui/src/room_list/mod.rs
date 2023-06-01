@@ -129,7 +129,7 @@ impl RoomList {
 
     pub fn entries_stream(
         &self,
-    ) -> RwLockWriteGuard<impl Stream<Item = VectorDiff<RoomListEntry>>> {
+    ) -> RwLockWriteGuard<'_, impl Stream<Item = VectorDiff<RoomListEntry>>> {
         self.entries_stream.write().unwrap()
     }
 
