@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use imbl::Vector;
 use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 use super::{
     super::{FrozenSlidingSyncRoom, SlidingSyncRoom},
@@ -30,10 +31,11 @@ impl FrozenSlidingSyncList {
         for room_list_entry in source_list.inner.room_list.read().unwrap().iter() {
             match room_list_entry {
                 RoomListEntry::Filled(room_id) | RoomListEntry::Invalidated(room_id) => {
-                    rooms.insert(
-                        room_id.clone(),
-                        rooms_map.get(room_id).expect("room doesn't exist").into(),
-                    );
+                    if let Some(room) = rooms_map.get(room_id) {
+                        rooms.insert(room_id.clone(), room.into());
+                    } else {
+                        error!(?room_id, "Room exists in the room list entry, but it has not been created; maybe because it was present in the response in a `list.$list.ops` object, but not in the `rooms` object");
+                    }
                 }
 
                 _ => {}
