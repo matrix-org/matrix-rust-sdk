@@ -16,19 +16,15 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    room,
+    deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
 };
-use ruma::{
-    events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
-    push::Action,
-};
-use tokio::sync::Mutex;
-use tracing::error;
+use ruma::events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent};
+use tokio::sync::{broadcast, Mutex};
+use tracing::{error, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
-use super::{inner::TimelineInner, Timeline, TimelineEventHandlerHandles};
+use super::{inner::TimelineInner, Timeline, TimelineDropHandle};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -124,12 +120,33 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
-        let timeline_event_handle = room.add_event_handler({
+        let mut room_update_rx = room.subscribe_to_updates();
+        let room_update_join_handle = spawn({
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>, push_actions: Vec<Action>| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_live_event(event, encryption_info, push_actions).await;
+            async move {
+                loop {
+                    let update = match room_update_rx.recv().await {
+                        Ok(up) => up,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            warn!("Lagged behind sync responses, resetting timeline");
+                            inner.clear().await;
+                            continue;
+                        }
+                    };
+
+                    let timeline = match update {
+                        RoomUpdate::Left { updates, .. } => updates.timeline,
+                        RoomUpdate::Joined { updates, .. } => updates.timeline,
+                        RoomUpdate::Invited { .. } => {
+                            warn!("Room is in invited state, can't build or update its timeline");
+                            continue;
+                        }
+                    };
+
+                    for event in timeline.events {
+                        inner.handle_live_event(event).await;
+                    }
                 }
             }
         });
@@ -147,7 +164,6 @@ impl TimelineBuilder {
         ));
 
         let mut handles = vec![
-            timeline_event_handle,
             #[cfg(feature = "e2e-encryption")]
             room_key_handle,
             #[cfg(feature = "e2e-encryption")]
@@ -184,7 +200,11 @@ impl TimelineBuilder {
             inner,
             start_token: Mutex::new(prev_token),
             _end_token: Mutex::new(None),
-            event_handler_handles: Arc::new(TimelineEventHandlerHandles { client, handles }),
+            drop_handle: Arc::new(TimelineDropHandle {
+                client,
+                event_handler_handles: handles,
+                room_update_join_handle,
+            }),
         };
 
         #[cfg(feature = "e2e-encryption")]

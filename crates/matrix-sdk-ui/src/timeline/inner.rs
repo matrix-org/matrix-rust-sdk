@@ -23,7 +23,7 @@ use indexmap::{IndexMap, IndexSet};
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::{SyncTimelineEvent, TimelineEvent},
     room, Error, Result,
 };
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -151,9 +151,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         for event in events {
             handle_remote_event(
-                event.event,
-                event.encryption_info,
-                event.push_actions,
+                event,
                 TimelineItemPosition::End { from_cache: true },
                 state,
                 &self.room_data_provider,
@@ -163,7 +161,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(super) async fn clear(&self) {
         trace!("Clearing timeline");
 
@@ -175,17 +172,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_live_event(
-        &self,
-        raw: Raw<AnySyncTimelineEvent>,
-        encryption_info: Option<EncryptionInfo>,
-        push_actions: Vec<Action>,
-    ) {
+    pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
         let mut state = self.state.lock().await;
         handle_remote_event(
-            raw,
-            encryption_info,
-            push_actions,
+            event,
             TimelineItemPosition::End { from_cache: false },
             &mut state,
             &self.room_data_provider,
@@ -304,9 +294,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> HandleEventResult {
         let mut state = self.state.lock().await;
         handle_remote_event(
-            event.event.cast(),
-            event.encryption_info,
-            event.push_actions,
+            event.into(),
             TimelineItemPosition::Start,
             &mut state,
             &self.room_data_provider,
@@ -464,12 +452,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         // another one.
         let mut idx = 0;
         while let Some(item) = state.items.get(idx) {
-            let Some(event) = retry_one(item.clone()).await else {
+            let Some(mut event) = retry_one(item.clone()).await else {
                 idx += 1;
                 continue;
             };
 
-            let push_actions = push_rules_context
+            event.push_actions = push_rules_context
                 .as_ref()
                 .map(|(push_rules, push_context)| {
                     push_rules.get_actions(&event.event, push_context).to_owned()
@@ -477,9 +465,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .unwrap_or_default();
 
             let result = handle_remote_event(
-                event.event.cast(),
-                event.encryption_info,
-                push_actions,
+                event.into(),
                 TimelineItemPosition::Update(idx),
                 &mut state,
                 &self.room_data_provider,
@@ -842,14 +828,13 @@ impl RoomDataProvider for room::Common {
 ///
 /// Returns the number of timeline updates that were made.
 async fn handle_remote_event<P: RoomDataProvider>(
-    raw: Raw<AnySyncTimelineEvent>,
-    encryption_info: Option<EncryptionInfo>,
-    push_actions: Vec<Action>,
+    event: SyncTimelineEvent,
     position: TimelineItemPosition,
     timeline_state: &mut TimelineInnerState,
     room_data_provider: &P,
     track_read_receipts: bool,
 ) -> HandleEventResult {
+    let raw = event.event;
     let (event_id, sender, timestamp, txn_id, event_kind) = match raw.deserialize() {
         Ok(event) => (
             event.event_id().to_owned(),
@@ -876,13 +861,14 @@ async fn handle_remote_event<P: RoomDataProvider>(
     };
 
     let is_own_event = sender == room_data_provider.own_user_id();
+    let encryption_info = event.encryption_info;
     let sender_profile = room_data_provider.profile(&sender).await;
     let read_receipts = if track_read_receipts {
         load_read_receipts_for_event(&event_id, timeline_state, room_data_provider).await
     } else {
         Default::default()
     };
-    let is_highlighted = push_actions.iter().any(Action::is_highlight);
+    let is_highlighted = event.push_actions.iter().any(Action::is_highlight);
     let event_meta = TimelineEventMetadata {
         sender,
         sender_profile,
