@@ -126,14 +126,12 @@ macro_rules! assert_entries_stream {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                {
-                    assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::Append { values })) => {
-                            assert_eq!(values, entries!( $( $entries )+ ));
-                        }
-                    );
-                }
+                assert_matches!(
+                    $stream.next().now_or_never(),
+                    Some(Some(VectorDiff::Append { values })) => {
+                        assert_eq!(values, entries!( $( $entries )+ ));
+                    }
+                );
             ]
         )
     };
@@ -146,17 +144,46 @@ macro_rules! assert_entries_stream {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                {
-                    assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::Set { index: $index, value })) => {
-                            assert_eq!(
-                                value,
-                                entries!( $( $entry )+ )[0],
-                            );
-                        }
-                    );
-                }
+                assert_matches!(
+                    $stream.next().now_or_never(),
+                    Some(Some(VectorDiff::Set { index: $index, value })) => {
+                        assert_eq!(value, entries!( $( $entry )+ )[0]);
+                    }
+                );
+            ]
+        )
+    };
+
+    // `remove [$nth]`
+    ( @_ [ $stream:ident ] [ remove [ $index:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_eq!(
+                    $stream.next().now_or_never(),
+                    Some(Some(VectorDiff::Remove { index: $index })),
+                );
+            ]
+        )
+    };
+
+    // `insert [$nth] [ $entry ]`
+    ( @_ [ $stream:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $stream.next().now_or_never(),
+                    Some(Some(VectorDiff::Insert { index: $index, value })) => {
+                        assert_eq!(value, entries!( $( $entry )+ )[0]);
+                    }
+                );
             ]
         )
     };
@@ -169,12 +196,7 @@ macro_rules! assert_entries_stream {
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                {
-                    assert_eq!(
-                        $stream.next().now_or_never(),
-                        None,
-                    );
-                }
+                assert_eq!($stream.next().now_or_never(), None);
             ]
         )
     };
@@ -318,6 +340,9 @@ async fn test_entries_stream() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
+    let entries = room_list.entries_stream();
+    pin_mut!(entries);
+
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init -> LoadFirstRooms -> LoadAllRooms,
@@ -341,10 +366,10 @@ async fn test_entries_stream() -> Result<(), Error> {
                                 "!r0:bar.org",
                                 "!r1:bar.org",
                                 "!r2:bar.org",
-                            ]
-                        }
-                    ]
-                }
+                            ],
+                        },
+                    ],
+                },
             },
             "rooms": {
                 "!r0:bar.org": {
@@ -366,15 +391,73 @@ async fn test_entries_stream() -> Result<(), Error> {
         },
     };
 
-    let entries = room_list.entries_stream();
-    pin_mut!(entries);
-
     assert_entries_stream! {
         [entries]
         append [ E, E, E, E, E, E, E, E, E, E ];
         set[0] [ F("!r0:bar.org") ];
         set[1] [ F("!r1:bar.org") ];
         set[2] [ F("!r2:bar.org") ];
+        pending;
+    }
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = LoadAllRooms -> Enjoy,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [
+                        [0, 9],
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                }
+            }
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 9,
+                    "ops": [
+                        {
+                            "op": "DELETE",
+                            "index": 1,
+                        },
+                        {
+                            "op": "DELETE",
+                            "index": 0,
+                        },
+                        {
+                            "op": "INSERT",
+                            "index": 0,
+                            "room_id": "!r3:bar.org"
+                        },
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [
+                        // let's ignore them for now
+                    ],
+                },
+            },
+            "rooms": {
+                "!r3:bar.org": {
+                    "name": "Room #3",
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    assert_entries_stream! {
+        [entries]
+        remove[1];
+        remove[0];
+        insert[0] [ F("!r3:bar.org") ];
         pending;
     }
 
