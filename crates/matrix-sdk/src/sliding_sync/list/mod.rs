@@ -17,6 +17,7 @@ use eyeball_im::{ObservableVector, VectorDiff};
 use eyeball_im_util::{FilteredVectorSubscriber, VectorExt};
 pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
+use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
@@ -48,6 +49,8 @@ pub type Bound = u32;
 pub struct SlidingSyncList {
     inner: Arc<SlidingSyncListInner>,
 }
+
+type BoxedRoomListEntryFilter = Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>;
 
 impl SlidingSyncList {
     /// Create a new [`SlidingSyncListBuilder`] with the given name.
@@ -125,8 +128,13 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
-    pub fn room_list_stream(&self) -> impl Stream<Item = VectorDiff<RoomListEntry>> {
-        ObservableVector::subscribe(&self.inner.room_list.read().unwrap())
+    pub fn room_list_stream(
+        &self,
+    ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>) {
+        let read_lock = self.inner.room_list.read().unwrap();
+        let values = (*read_lock).clone();
+        let subscriber = ObservableVector::subscribe(&read_lock);
+        (values, subscriber)
     }
 
     /// Get a stream of room list, but filtered.
@@ -135,13 +143,13 @@ impl SlidingSyncList {
     /// by `filter`.
     pub fn room_list_filtered_stream(
         &self,
-        filter: Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>,
-    ) -> FilteredVectorSubscriber<RoomListEntry, Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>>
+        filter: impl Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
+    ) -> (Vector<RoomListEntry>, FilteredVectorSubscriber<RoomListEntry, BoxedRoomListEntryFilter>)
     {
-        let (_, stream) =
-            ObservableVector::subscribe_filtered(&self.inner.room_list.read().unwrap(), filter);
-
-        stream
+        ObservableVector::subscribe_filtered(
+            &self.inner.room_list.read().unwrap(),
+            Box::new(filter),
+        )
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
