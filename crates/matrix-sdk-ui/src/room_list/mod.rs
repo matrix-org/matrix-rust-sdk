@@ -54,7 +54,7 @@ impl RoomList {
 
                         move |list| {
                             *entries.lock().unwrap() =
-                                Some(list.room_list_filtered_stream(Box::new(|_| true)));
+                                Some(list.room_list_filtered_stream(|_| true));
 
                             list
                         }
@@ -135,7 +135,7 @@ impl RoomList {
 
     pub async fn update_entries_stream_filter(
         &self,
-        filter: Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>,
+        filter: impl Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
     ) -> Result<(), Error> {
         let mut entries_stream =
             self.entries_stream.try_write().map_err(|_| Error::CannotUpdateEntriesFilter)?;

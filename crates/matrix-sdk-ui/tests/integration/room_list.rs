@@ -646,12 +646,12 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
 
     // Second, update the filter.
     room_list
-        .update_entries_stream_filter(Box::new(|room_list_entry| {
+        .update_entries_stream_filter(|room_list_entry| {
             matches!(
                 room_list_entry.as_room_id(),
                 Some(room_id) if room_id.server_name() == "bar.org"
             )
-        }))
+        })
         .await?;
 
     // Third, let's get a new entries stream.

@@ -135,7 +135,7 @@ impl SlidingSyncList {
     /// by `filter`.
     pub fn room_list_filtered_stream(
         &self,
-        filter: Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>,
+        filter: impl Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
     ) -> FilteredVectorSubscriber<RoomListEntry, Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>>
     {
         let (_, stream) =
