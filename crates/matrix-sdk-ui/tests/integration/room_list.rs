@@ -583,3 +583,154 @@ async fn test_entries_stream() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[async_test]
+async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // Drop the entries stream at the end of the block.
+    {
+        let entries = room_list.entries_stream();
+        pin_mut!(entries);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init -> FirstRooms,
+            assert request = {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                        "ops": [
+                            {
+                                "op": "SYNC",
+                                "range": [0, 0],
+                                "room_ids": [
+                                    "!r0:bar.org",
+                                ],
+                            },
+                        ],
+                    },
+                },
+                "rooms": {
+                    "!r0:bar.org": {
+                        "name": "Room #0",
+                        "initial": true,
+                        "timeline": [],
+                    },
+                },
+            },
+        };
+
+        assert_entries_stream! {
+            [entries]
+            append [ E, E, E, E, E, E, E, E, E, E ];
+            set[0] [ F("!r0:bar.org") ];
+            pending;
+        };
+    }
+
+    // Update the filter.
+    // First, we need to drop the entries stream.
+    // (already done)
+
+    // Second, update the filter.
+    room_list
+        .update_entries_stream_filter(Box::new(|room_list_entry| {
+            matches!(
+                room_list_entry.as_room_id(),
+                Some(room_id) if room_id.server_name() == "bar.org"
+            )
+        }))
+        .await?;
+
+    // Third, let's get a new entries stream.
+    {
+        let entries = room_list.entries_stream();
+        pin_mut!(entries);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = FirstRooms -> AllRooms,
+            assert request = {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [
+                            [0, 9],
+                        ],
+                    },
+                    VISIBLE_ROOMS: {
+                        "ranges": [],
+                    }
+                }
+            },
+            respond with = {
+                "pos": "1",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                        "ops": [
+                            {
+                                "op": "SYNC",
+                                "range": [1, 4],
+                                "room_ids": [
+                                    "!r1:bar.org",
+                                    "!r2:qux.org",
+                                    "!r3:qux.org",
+                                    "!r4:bar.org",
+                                ],
+                            },
+                        ],
+                    },
+                    VISIBLE_ROOMS: {
+                        "count": 0,
+                        "ops": [
+                            // let's ignore them for now
+                        ],
+                    },
+                },
+                "rooms": {
+                    "!r1:bar.org": {
+                        "name": "Room #1",
+                        "initial": true,
+                        "timeline": [],
+                    },
+                    "!r2:qux.org": {
+                        "name": "Room #2",
+                        "initial": true,
+                        "timeline": [],
+                    },
+                    "!r3:qux.org": {
+                        "name": "Room #3",
+                        "initial": true,
+                        "timeline": [],
+                    },
+                    "!r4:bar.org": {
+                        "name": "Room #4",
+                        "initial": true,
+                        "timeline": [],
+                    },
+                },
+            },
+        };
+
+        assert_entries_stream! {
+            [entries]
+            insert[1] [ F("!r1:bar.org") ];
+            insert[2] [ F("!r4:bar.org") ];
+            pending;
+        };
+    }
+
+    Ok(())
+}

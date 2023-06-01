@@ -133,6 +133,22 @@ impl RoomList {
         self.entries_stream.write().unwrap()
     }
 
+    pub async fn update_entries_stream_filter(
+        &self,
+        filter: Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>,
+    ) -> Result<(), Error> {
+        let mut entries_stream =
+            self.entries_stream.try_write().map_err(|_| Error::CannotUpdateEntriesFilter)?;
+
+        *entries_stream = self
+            .sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
+
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testing"))]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
