@@ -363,33 +363,6 @@ impl MemoryStore {
         Ok(self.presence.get(user_id).map(|p| p.clone()))
     }
 
-    async fn get_state_event(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_key: &str,
-    ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        if let Some(e) = self
-            .stripped_room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&event_type))
-            .and_then(|m| m.get(state_key).map(|m| m.clone()))
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
-        } else if let Some(e) = self
-            .room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&event_type))
-            .and_then(|m| m.get(state_key).map(|m| m.clone()))
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
-        } else {
-            Ok(None)
-        }
-    }
-
     async fn get_state_events(
         &self,
         room_id: &RoomId,
@@ -407,6 +380,40 @@ impl MemoryStore {
             })
         }) {
             Ok(v)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        if let Some(stripped_state_events) = self
+            .stripped_room_state
+            .get(room_id)
+            .as_ref()
+            .and_then(|events| events.get(&event_type))
+        {
+            Ok(state_keys
+                .iter()
+                .filter_map(|k| {
+                    stripped_state_events
+                        .get(*k)
+                        .map(|e| RawAnySyncOrStrippedState::Stripped(e.clone()))
+                })
+                .collect())
+        } else if let Some(sync_state_events) =
+            self.room_state.get(room_id).as_ref().and_then(|events| events.get(&event_type))
+        {
+            Ok(state_keys
+                .iter()
+                .filter_map(|k| {
+                    sync_state_events.get(*k).map(|e| RawAnySyncOrStrippedState::Sync(e.clone()))
+                })
+                .collect())
         } else {
             Ok(Vec::new())
         }
@@ -583,7 +590,11 @@ impl StateStore for MemoryStore {
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        self.get_state_event(room_id, event_type, state_key).await
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -592,6 +603,15 @@ impl StateStore for MemoryStore {
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         self.get_state_events(room_id, event_type).await
+    }
+
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        self.get_state_events_for_keys(room_id, event_type, state_keys).await
     }
 
     async fn get_profile(

@@ -577,21 +577,26 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
         }
     }
 
-    async fn get_maybe_stripped_state_event(
+    async fn get_maybe_stripped_state_events_for_keys(
         &self,
         room_id: Key,
         event_type: Key,
-        state_key: Key,
-    ) -> Result<Option<(bool, Vec<u8>)>> {
+        state_keys: Vec<Key>,
+    ) -> Result<Vec<(bool, Vec<u8>)>> {
+        let sql_params = vec!["?"; state_keys.len()].join(", ");
+        let sql = format!(
+            "SELECT stripped, data FROM state_event
+                 WHERE room_id = ? AND event_type = ? AND state_key IN ({sql_params})"
+        );
+        let params = [room_id, event_type].into_iter().chain(state_keys);
+
         Ok(self
-            .query_row(
-                "SELECT stripped, data FROM state_event
-                 WHERE room_id = ? AND event_type = ? AND state_key = ?",
-                (room_id, event_type, state_key),
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .await
-            .optional()?)
+            .prepare(sql, move |mut stmt| {
+                stmt.query(rusqlite::params_from_iter(params))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                    .collect()
+            })
+            .await?)
     }
 
     async fn get_maybe_stripped_state_events(
@@ -1102,23 +1107,11 @@ impl StateStore for SqliteStateStore {
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        let room_id = self.encode_key(keys::STATE_EVENT, room_id);
-        let event_type = self.encode_key(keys::STATE_EVENT, event_type.to_string());
-        let state_key = self.encode_key(keys::STATE_EVENT, state_key);
-        self.acquire()
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
             .await?
-            .get_maybe_stripped_state_event(room_id, event_type, state_key)
-            .await?
-            .map(|(stripped, data)| {
-                let ev = if stripped {
-                    RawAnySyncOrStrippedState::Stripped(self.deserialize_json(&data)?)
-                } else {
-                    RawAnySyncOrStrippedState::Sync(self.deserialize_json(&data)?)
-                };
-
-                Ok(ev)
-            })
-            .transpose()
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -1131,6 +1124,36 @@ impl StateStore for SqliteStateStore {
         self.acquire()
             .await?
             .get_maybe_stripped_state_events(room_id, event_type)
+            .await?
+            .into_iter()
+            .map(|(stripped, data)| {
+                let ev = if stripped {
+                    RawAnySyncOrStrippedState::Stripped(self.deserialize_json(&data)?)
+                } else {
+                    RawAnySyncOrStrippedState::Sync(self.deserialize_json(&data)?)
+                };
+
+                Ok(ev)
+            })
+            .collect()
+    }
+
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        if state_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let room_id = self.encode_key(keys::STATE_EVENT, room_id);
+        let event_type = self.encode_key(keys::STATE_EVENT, event_type.to_string());
+        let state_keys = state_keys.iter().map(|k| self.encode_key(keys::STATE_EVENT, k)).collect();
+        self.acquire()
+            .await?
+            .get_maybe_stripped_state_events_for_keys(room_id, event_type, state_keys)
             .await?
             .into_iter()
             .map(|(stripped, data)| {

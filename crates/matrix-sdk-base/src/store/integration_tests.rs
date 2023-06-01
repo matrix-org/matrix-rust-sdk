@@ -26,7 +26,7 @@ use ruma::{
     },
     mxc_uri, room_id,
     serde::Raw,
-    uint, user_id, EventId, OwnedEventId, RoomId, UserId,
+    uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use serde_json::{json, value::Value as JsonValue};
 
@@ -374,8 +374,21 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_member_saving(&self) {
         let room_id = room_id!("!test_member_saving:localhost");
         let user_id = user_id();
+        let second_user_id = user_id!("@second:localhost");
+        let third_user_id = user_id!("@third:localhost");
+        let unknown_user_id = user_id!("@unknown:localhost");
 
+        // No event in store.
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned()],
+            )
+            .await;
+        assert!(member_events.unwrap().is_empty());
+
+        // One event in store.
         let mut changes = StateChanges::default();
         changes
             .state
@@ -384,12 +397,71 @@ impl StateStoreIntegrationTests for DynStateStore {
             .entry(StateEventType::RoomMember)
             .or_default()
             .insert(user_id.into(), membership_event().cast());
-
         self.save_changes(&changes).await.unwrap();
-        assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
 
+        assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned()],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 1);
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
-        assert!(!members.is_empty(), "We expected to find members for the room")
+        assert_eq!(members.len(), 1, "We expected to find members for the room");
+
+        // Several events in store.
+        let mut changes = StateChanges::default();
+        let changes_members = changes
+            .state
+            .entry(room_id.to_owned())
+            .or_default()
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        changes_members.insert(
+            second_user_id.into(),
+            custom_membership_event(second_user_id, event_id!("$second_member_event")).cast(),
+        );
+        changes_members.insert(
+            third_user_id.into(),
+            custom_membership_event(third_user_id, event_id!("$third_member_event")).cast(),
+        );
+        self.save_changes(&changes).await.unwrap();
+
+        assert!(self.get_member_event(room_id, second_user_id).await.unwrap().is_some());
+        assert!(self.get_member_event(room_id, third_user_id).await.unwrap().is_some());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned(), second_user_id.to_owned(), third_user_id.to_owned()],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 3);
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
+        assert_eq!(members.len(), 3, "We expected to find members for the room");
+
+        // Several events in store with one unknown.
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[
+                    user_id.to_owned(),
+                    second_user_id.to_owned(),
+                    third_user_id.to_owned(),
+                    unknown_user_id.to_owned(),
+                ],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 3);
+
+        // Empty user IDs list.
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, OwnedUserId, _>(
+                room_id,
+                &[],
+            )
+            .await;
+        assert!(member_events.unwrap().is_empty());
     }
 
     async fn test_filter_saving(&self) {
@@ -446,8 +518,21 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_stripped_member_saving(&self) {
         let room_id = room_id!("!test_stripped_member_saving:localhost");
         let user_id = user_id();
+        let second_user_id = user_id!("@second:localhost");
+        let third_user_id = user_id!("@third:localhost");
+        let unknown_user_id = user_id!("@unknown:localhost");
 
+        // No event in store.
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned()],
+            )
+            .await;
+        assert!(member_events.unwrap().is_empty());
+
+        // One event in store.
         let mut changes = StateChanges::default();
         changes
             .stripped_state
@@ -456,12 +541,67 @@ impl StateStoreIntegrationTests for DynStateStore {
             .entry(StateEventType::RoomMember)
             .or_default()
             .insert(user_id.into(), stripped_membership_event().cast());
-
         self.save_changes(&changes).await.unwrap();
-        assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
 
+        assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned()],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 1);
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
-        assert!(!members.is_empty(), "We expected to find members for the room")
+        assert_eq!(members.len(), 1, "We expected to find members for the room");
+
+        // Several events in store.
+        let mut changes = StateChanges::default();
+        let changes_members = changes
+            .stripped_state
+            .entry(room_id.to_owned())
+            .or_default()
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        changes_members
+            .insert(second_user_id.into(), custom_stripped_membership_event(second_user_id).cast());
+        changes_members
+            .insert(third_user_id.into(), custom_stripped_membership_event(third_user_id).cast());
+        self.save_changes(&changes).await.unwrap();
+
+        assert!(self.get_member_event(room_id, second_user_id).await.unwrap().is_some());
+        assert!(self.get_member_event(room_id, third_user_id).await.unwrap().is_some());
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[user_id.to_owned(), second_user_id.to_owned(), third_user_id.to_owned()],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 3);
+        let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
+        assert_eq!(members.len(), 3, "We expected to find members for the room");
+
+        // Several events in store with one unknown.
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                room_id,
+                &[
+                    user_id.to_owned(),
+                    second_user_id.to_owned(),
+                    third_user_id.to_owned(),
+                    unknown_user_id.to_owned(),
+                ],
+            )
+            .await;
+        assert_eq!(member_events.unwrap().len(), 3);
+
+        // Empty user IDs list.
+        let member_events = self
+            .get_state_events_for_keys_static::<RoomMemberEventContent, OwnedUserId, _>(
+                room_id,
+                &[],
+            )
+            .await;
+        assert!(member_events.unwrap().is_empty());
     }
 
     async fn test_power_level_saving(&self) {
@@ -1044,10 +1184,10 @@ fn custom_stripped_membership_event(user_id: &UserId) -> Raw<StrippedRoomMemberE
 }
 
 fn membership_event() -> Raw<SyncRoomMemberEvent> {
-    custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
+    custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com"))
 }
 
-fn custom_membership_event(user_id: &UserId, event_id: OwnedEventId) -> Raw<SyncRoomMemberEvent> {
+fn custom_membership_event(user_id: &UserId, event_id: &EventId) -> Raw<SyncRoomMemberEvent> {
     let ev_json = json!({
         "type": "m.room.member",
         "content": RoomMemberEventContent::new(MembershipState::Join),
