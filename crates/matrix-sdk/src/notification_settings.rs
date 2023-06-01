@@ -270,13 +270,13 @@ impl NotificationSettings {
         // ContainsDisplayName (deprecated rules).
         _ = ruleset.set_enabled(
             RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
+            PredefinedContentRuleId::ContainsUserName,
             enabled,
         );
 
         _ = ruleset.set_enabled(
             RuleKind::Content,
-            PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
+            PredefinedOverrideRuleId::ContainsDisplayName,
             enabled,
         );
     }
@@ -312,11 +312,7 @@ impl NotificationSettings {
         _ = ruleset.set_enabled(RuleKind::Override, ".m.rule.is_room_mention", enabled);
 
         // For compatibility purpose, we still need to set RoomNotif (deprecated rule).
-        _ = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedOverrideRuleId::RoomNotif.to_string(),
-            enabled,
-        );
+        _ = ruleset.set_enabled(RuleKind::Content, PredefinedOverrideRuleId::RoomNotif, enabled);
     }
 
     /// Get whether the given ruleset contains some keywords rules
@@ -433,21 +429,18 @@ pub(crate) mod tests {
 
         let result = ruleset.set_enabled(
             RuleKind::Underride,
-            PredefinedUnderrideRuleId::EncryptedRoomOneToOne.to_string(),
+            PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
             false,
         );
         assert!(result.is_ok());
 
-        let result = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
-            true,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, true);
         assert!(result.is_ok());
 
         let result = ruleset.set_actions(
             RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
+            PredefinedContentRuleId::ContainsUserName,
             vec![Action::Notify],
         );
         assert!(result.is_ok());
@@ -486,21 +479,18 @@ pub(crate) mod tests {
 
         let result = ruleset.set_enabled(
             RuleKind::Underride,
-            PredefinedUnderrideRuleId::RoomOneToOne.to_string(),
+            PredefinedUnderrideRuleId::RoomOneToOne,
             false,
         );
         assert!(result.is_ok());
 
-        let result = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
-            true,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, true);
         assert!(result.is_ok());
 
         let result = ruleset.set_actions(
             RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
+            PredefinedContentRuleId::ContainsUserName,
             vec![Action::Notify],
         );
         assert!(result.is_ok());
@@ -537,23 +527,17 @@ pub(crate) mod tests {
             panic!("A default mode should be defined.")
         }
 
-        let result = ruleset.set_enabled(
-            RuleKind::Underride,
-            PredefinedUnderrideRuleId::Encrypted.to_string(),
-            false,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Encrypted, false);
         assert!(result.is_ok());
 
-        let result = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
-            true,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, true);
         assert!(result.is_ok());
 
         let result = ruleset.set_actions(
             RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
+            PredefinedContentRuleId::ContainsUserName,
             vec![Action::Notify],
         );
         assert!(result.is_ok());
@@ -590,23 +574,17 @@ pub(crate) mod tests {
             panic!("A default mode should be defined.")
         }
 
-        let result = ruleset.set_enabled(
-            RuleKind::Underride,
-            PredefinedUnderrideRuleId::Message.to_string(),
-            false,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Message, false);
         assert!(result.is_ok());
 
-        let result = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
-            true,
-        );
+        let result =
+            ruleset.set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, true);
         assert!(result.is_ok());
 
         let result = ruleset.set_actions(
             RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
+            PredefinedContentRuleId::ContainsUserName,
             vec![Action::Notify],
         );
         assert!(result.is_ok());
@@ -938,12 +916,12 @@ pub(crate) mod tests {
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
 
-        assert_eq!(notification_settings.contains_keyword_rules(&ruleset), false);
+        assert!(!notification_settings.contains_keyword_rules(&ruleset));
 
         let rule =
             NewPatternedPushRule::new("keyword".into(), "keyword".into(), vec![Action::Notify]);
 
         _ = ruleset.insert(NewPushRule::Content(rule), None, None);
-        assert_eq!(notification_settings.contains_keyword_rules(&ruleset), true);
+        assert!(notification_settings.contains_keyword_rules(&ruleset));
     }
 }
