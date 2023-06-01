@@ -193,7 +193,7 @@ macro_rules! assert_entries_stream {
 }
 
 #[async_test]
-async fn test_init_to_enjoy() -> Result<(), Error> {
+async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();
@@ -344,6 +344,111 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
             },
         },
     };
+
+    Ok(())
+}
+#[async_test]
+
+async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    // Start a sync, and drop it at the end of the block.
+    {
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init -> FirstRooms,
+            assert request = {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                        "ops": []
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
+
+    // Start a sync, and drop it at the end of the block.
+    {
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = FirstRooms -> AllRooms,
+            assert request = {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 9]],
+                    },
+                    VISIBLE_ROOMS: {
+                        "ranges": [],
+                    }
+                }
+            },
+            respond with = {
+                "pos": "1",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                        "ops": [],
+                    },
+                    VISIBLE_ROOMS: {
+                        "count": 0,
+                        "ops": [],
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
+
+    // Start a sync, and drop it at the end of the block.
+    {
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = AllRooms -> Enjoy,
+            assert request = {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 9]],
+                    },
+                    VISIBLE_ROOMS: {
+                        "ranges": [],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "2",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                        "ops": [],
+                    },
+                    VISIBLE_ROOMS: {
+                        "count": 0,
+                        "ops": [],
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
 
     Ok(())
 }
