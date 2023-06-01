@@ -132,9 +132,9 @@ impl Client {
         } = response;
 
         let now = Instant::now();
-        self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
-        self.handle_sync_events(HandlerKind::Presence, &None, presence).await?;
-        self.handle_sync_events(HandlerKind::ToDevice, &None, to_device).await?;
+        self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
+        self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
+        self.handle_sync_events(HandlerKind::ToDevice, None, to_device).await?;
 
         for (room_id, room_info) in &rooms.join {
             if room_info.timeline.limited {
@@ -150,12 +150,14 @@ impl Client {
             let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
                 room_info;
 
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
-            self.handle_sync_state_events(&room, state).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+            self.handle_sync_events(HandlerKind::RoomAccountData, room.as_ref(), account_data)
+                .await?;
+            self.handle_sync_state_events(room.as_ref(), state).await?;
+            self.handle_sync_timeline_events(room.as_ref(), &timeline.events).await?;
             // Handle ephemeral events after timeline, read receipts in here
             // could refer to timeline events from the same response.
-            self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, ephemeral).await?;
+            self.handle_sync_events(HandlerKind::EphemeralRoomData, room.as_ref(), ephemeral)
+                .await?;
         }
 
         for (room_id, room_info) in &rooms.leave {
@@ -171,9 +173,10 @@ impl Client {
 
             let LeftRoom { timeline, state, account_data } = room_info;
 
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
-            self.handle_sync_state_events(&room, state).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+            self.handle_sync_events(HandlerKind::RoomAccountData, room.as_ref(), account_data)
+                .await?;
+            self.handle_sync_state_events(room.as_ref(), state).await?;
+            self.handle_sync_timeline_events(room.as_ref(), &timeline.events).await?;
         }
 
         for (room_id, room_info) in &rooms.invite {
@@ -186,7 +189,7 @@ impl Client {
             // FIXME: Destructure room_info
             self.handle_sync_events(
                 HandlerKind::StrippedState,
-                &room,
+                room.as_ref(),
                 &room_info.invite_state.events,
             )
             .await?;
