@@ -15,7 +15,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
@@ -53,7 +53,7 @@ use ruma::{
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
             },
-            sync::sync_events,
+            sync::sync_events::{self},
             uiaa::{AuthData, UserIdentifier},
             user_directory::search_users,
         },
@@ -80,7 +80,7 @@ use crate::{
     },
     http_client::HttpClient,
     room,
-    sync::SyncResponse,
+    sync::{RoomUpdate, SyncResponse},
     Account, Error, Media, RefreshTokenError, Result, RumaApiError,
 };
 
@@ -164,6 +164,7 @@ pub(crate) struct ClientInner {
     pub(crate) event_handlers: EventHandlerStore,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+    pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
     pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
@@ -843,6 +844,21 @@ impl Client {
         ));
 
         self
+    }
+
+    /// Subscribe to all updates for the room with the given ID.
+    ///
+    /// The returned receiver will receive a new message for each sync response
+    /// that contains updates for that room.
+    pub fn subscribe_to_room_updates(&self, room_id: &RoomId) -> broadcast::Receiver<RoomUpdate> {
+        match self.inner.room_update_channels.lock().unwrap().entry(room_id.to_owned()) {
+            btree_map::Entry::Vacant(entry) => {
+                let (tx, rx) = broadcast::channel(8);
+                entry.insert(tx);
+                rx
+            }
+            btree_map::Entry::Occupied(entry) => entry.get().subscribe(),
+        }
     }
 
     pub(crate) async fn notification_handlers(

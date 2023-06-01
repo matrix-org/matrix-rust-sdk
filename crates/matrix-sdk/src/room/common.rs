@@ -48,7 +48,7 @@ use ruma::{
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, instrument};
 
 use super::Joined;
@@ -56,6 +56,7 @@ use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     room::{Left, RoomMember, RoomState},
+    sync::RoomUpdate,
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -267,6 +268,14 @@ impl Common {
         H: EventHandler<Ev, Ctx>,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
+    }
+
+    /// Subscribe to all updates for this room.
+    ///
+    /// The returned receiver will receive a new message for each sync response
+    /// that contains updates for this room.
+    pub fn subscribe_to_updates(&self) -> broadcast::Receiver<RoomUpdate> {
+        self.client.subscribe_to_room_updates(self.room_id())
     }
 
     /// Fetch the event with the given `EventId` in this room.
