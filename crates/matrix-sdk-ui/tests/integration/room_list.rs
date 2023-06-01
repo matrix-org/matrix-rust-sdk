@@ -1,7 +1,7 @@
-use std::ops::DerefMut;
-
+use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{pin_mut, FutureExt, StreamExt};
+use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
@@ -12,7 +12,6 @@ use matrix_sdk_ui::{
 };
 use ruma::room_id;
 use serde_json::json;
-use stream_assert::*;
 use tokio::{spawn, sync::mpsc::unbounded_channel};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -38,7 +37,6 @@ impl Match for SlidingSyncMatcher {
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $room_list_sync_stream:ident]
-        sync once,
         states = $state_0:ident $( -> $state_n:ident )+,
         assert request = { $( $request_json:tt )* },
         respond with = { $( $response_json:tt )* }
@@ -97,6 +95,99 @@ macro_rules! sync_then_assert_request_and_fake_response {
     };
 }
 
+macro_rules! entries {
+    ( @_ [ E $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Empty, ] )
+    };
+
+    ( @_ [ F( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Filled(room_id!( $room_id ).to_owned()), ] )
+    };
+
+    ( @_ [ I( $room_id:literal ) $( , $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
+        entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
+    };
+
+    ( @_ [] [ $( $accumulator:tt )+ ] ) => {
+        vector![ $( $accumulator )* ]
+    };
+
+    ( $( $all:tt )* ) => {
+        entries!( @_ [ $( $all )* ] [] )
+    };
+}
+
+macro_rules! assert_entries_stream {
+    // `append [$entries]`
+    ( @_ [ $stream:ident ] [ append [ $( $entries:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Append { values })) => {
+                            assert_eq!(values, entries!( $( $entries )+ ));
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
+    // `set [$nth] [$entry]`
+    ( @_ [ $stream:ident ] [ set [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Set { index: $index, value })) => {
+                            assert_eq!(
+                                value,
+                                entries!( $( $entry )+ )[0],
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
+    // `pending`
+    ( @_ [ $stream:ident ] [ pending ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_eq!(
+                        $stream.next().now_or_never(),
+                        None,
+                    );
+                }
+            ]
+        )
+    };
+
+    ( @_ [ $stream:ident ] [] [ $( $accumulator:tt )* ] ) => {
+        $( $accumulator )*
+    };
+
+    ( [ $stream:ident ] $( $all:tt )* ) => {
+        assert_entries_stream!( @_ [ $stream ] [ $( $all )* ] [] )
+    };
+}
+
 #[async_test]
 async fn test_init_to_enjoy() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
@@ -106,7 +197,6 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        sync once,
         states = Init -> LoadFirstRooms -> LoadAllRooms,
         assert request = {
             "lists": {
@@ -148,7 +238,6 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        sync once,
         states = LoadAllRooms -> Enjoy,
         assert request = {
             "lists": {
@@ -188,7 +277,6 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        sync once,
         states = Enjoy -> Enjoy,
         assert request = {
             "lists": {
@@ -232,7 +320,6 @@ async fn test_entries_stream() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        sync once,
         states = Init -> LoadFirstRooms -> LoadAllRooms,
         assert request = {
             "lists": {
@@ -279,30 +366,17 @@ async fn test_entries_stream() -> Result<(), Error> {
         },
     };
 
-    let mut entries = room_list.entries_stream();
-    let entries = entries.deref_mut();
+    let entries = room_list.entries_stream();
     pin_mut!(entries);
 
-    assert_next_matches!(entries, VectorDiff::Append { values: _ });
-    assert_next_matches!(
-        entries,
-        VectorDiff::Set { index: 0, value } => {
-            assert_eq!(value, RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned()));
-        }
-    );
-    assert_next_matches!(
-        entries,
-        VectorDiff::Set { index: 1, value } => {
-            assert_eq!(value, RoomListEntry::Filled(room_id!("!r1:bar.org").to_owned()));
-        }
-    );
-    assert_next_matches!(
-        entries,
-        VectorDiff::Set { index: 2, value } => {
-            assert_eq!(value, RoomListEntry::Filled(room_id!("!r2:bar.org").to_owned()));
-        }
-    );
-    assert_pending!(entries);
+    assert_entries_stream! {
+        [entries]
+        append [ E, E, E, E, E, E, E, E, E, E ];
+        set[0] [ F("!r0:bar.org") ];
+        set[1] [ F("!r1:bar.org") ];
+        set[2] [ F("!r2:bar.org") ];
+        pending;
+    }
 
     Ok(())
 }

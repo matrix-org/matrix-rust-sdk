@@ -45,7 +45,6 @@ assert-json-diff = "2.0"
 assert_matches = { workspace = true }
 ctor = { workspace = true }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
-stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 wiremock = "0.5.13"
 

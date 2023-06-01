@@ -1615,7 +1615,6 @@ mod tests {
         ( $( $all:tt )* ) => {
             entries!( @_ [ $( $all )* ] [] )
         };
-
     }
 
     macro_rules! assert_sync_operations {
