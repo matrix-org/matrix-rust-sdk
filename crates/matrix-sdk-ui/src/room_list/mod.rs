@@ -1,17 +1,13 @@
 //! `RoomList` API.
 
-use std::{
-    fmt,
-    future::ready,
-    sync::{Arc, Mutex, RwLock, RwLockWriteGuard},
-};
+use std::future::ready;
 
 use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
 use eyeball_im::VectorDiff;
-use eyeball_im_util::FilteredVectorSubscriber;
 use futures_util::{pin_mut, Stream, StreamExt};
+use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncMode,
@@ -22,43 +18,20 @@ use thiserror::Error;
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
+#[derive(Debug)]
 pub struct RoomList {
     sliding_sync: SlidingSync,
-    entries_stream: RwLock<
-        FilteredVectorSubscriber<RoomListEntry, Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>>,
-    >,
     state: Observable<State>,
-}
-
-impl fmt::Debug for RoomList {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("RoomList")
-            .field("sliding_sync", &self.sliding_sync)
-            .field("state", &self.state)
-            .finish_non_exhaustive()
-    }
 }
 
 impl RoomList {
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let entries = Arc::new(Mutex::new(None));
         let sliding_sync = client
             .sliding_sync()
             .storage_key(Some("matrix-sdk-ui-roomlist".to_string()))
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
-                    .once_built({
-                        let entries = entries.clone();
-
-                        move |list| {
-                            *entries.lock().unwrap() =
-                                Some(list.room_list_filtered_stream(|_| true));
-
-                            list
-                        }
-                    }),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19)),
             )
             .await
             .map_err(Error::SlidingSync)?
@@ -66,14 +39,7 @@ impl RoomList {
             .await
             .map_err(Error::SlidingSync)?;
 
-        let entries =
-            Arc::try_unwrap(entries).map_err(|_| Error::Entries)?.into_inner().unwrap().unwrap();
-
-        Ok(Self {
-            sliding_sync,
-            entries_stream: RwLock::new(entries),
-            state: Observable::new(State::Init),
-        })
+        Ok(Self { sliding_sync, state: Observable::new(State::Init) })
     }
 
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
@@ -127,26 +93,23 @@ impl RoomList {
         Observable::subscribe(&self.state)
     }
 
-    pub fn entries_stream(
+    pub async fn entries(
         &self,
-    ) -> RwLockWriteGuard<'_, impl Stream<Item = VectorDiff<RoomListEntry>>> {
-        self.entries_stream.write().unwrap()
+    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
+        self.sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_stream()))
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
-    pub async fn update_entries_stream_filter(
+    pub async fn entries_filtered(
         &self,
-        filter: impl Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
-    ) -> Result<(), Error> {
-        let mut entries_stream =
-            self.entries_stream.try_write().map_err(|_| Error::CannotUpdateEntriesFilter)?;
-
-        *entries_stream = self
-            .sliding_sync
+        filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
+    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
+        self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
-
-        Ok(())
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
     #[cfg(any(test, feature = "testing"))]
