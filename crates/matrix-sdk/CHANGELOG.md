@@ -12,6 +12,7 @@
   - The `sled` feature was removed. The `matrix-sdk-sled` crate is deprecated and no longer maintained.
 - The `Common` methods to retrieve state events can now return a sync or stripped event, so it can be used
   for invited rooms too.
+- Add `Client::subscribe_to_room_updates` and `room::Common::subscribe_to_updates`
 
 # 0.6.2
 

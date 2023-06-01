@@ -17,7 +17,11 @@
 use std::{collections::BTreeMap, fmt};
 
 pub use matrix_sdk_common::debug::*;
-use ruma::{api::client::push::get_notifications::v3::Notification, serde::Raw, OwnedRoomId};
+use ruma::{
+    api::client::{push::get_notifications::v3::Notification, sync::sync_events::v3::InvitedRoom},
+    serde::Raw,
+    OwnedRoomId,
+};
 
 /// A wrapper around a slice of `Raw` events that implements `Debug` in a way
 /// that only prints the event type of each item.
@@ -69,5 +73,30 @@ impl<'a> fmt::Debug for DebugNotification<'a> {
             .field("room_id", &self.0.room_id)
             .field("ts", &self.0.ts)
             .finish()
+    }
+}
+
+/// A wrapper around an invited room as found in `/sync` responses that
+/// implements `Debug` in a way that only prints the event ID and event type for
+/// the raw events contained in `invite_state`.
+pub struct DebugInvitedRoom<'a>(pub &'a InvitedRoom);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InvitedRoom")
+            .field("invite_state", &DebugListOfRawEvents(&self.0.invite_state.events))
+            .finish()
+    }
+}
+
+pub(crate) struct DebugListOfRawEvents<'a, T>(pub &'a [Raw<T>]);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a, T> fmt::Debug for DebugListOfRawEvents<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        list.entries(self.0.iter().map(DebugRawEvent));
+        list.finish()
     }
 }
