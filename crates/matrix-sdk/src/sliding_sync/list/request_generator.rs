@@ -29,13 +29,10 @@
 //! user-specified limit representing the maximum number of rooms the user
 //! actually wants to load.
 
-use std::{cmp::min, ops::RangeInclusive};
+use std::cmp::min;
 
-use super::{Bound, SlidingSyncMode};
+use super::{Range, Ranges, SlidingSyncMode};
 use crate::{sliding_sync::Error, SlidingSyncState};
-
-/// Range of rooms in a response from sliding sync.
-pub type Ranges = Vec<RangeInclusive<u32>>;
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
@@ -80,7 +77,7 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
     ///
     /// Note there's only one range in the `Growing` and `Paging` mode.
-    ranges: Vec<RangeInclusive<u32>>,
+    ranges: Ranges,
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
 }
@@ -122,7 +119,7 @@ impl SlidingSyncListRequestGenerator {
     /// For generators in the selective mode, this is the initial set of ranges.
     /// For growing and paginated generators, this is the range committed in the
     /// latest response received from the server.
-    pub(super) fn requested_ranges(&self) -> &[RangeInclusive<Bound>] {
+    pub(super) fn requested_ranges(&self) -> &[Range] {
         &self.ranges
     }
 
@@ -291,7 +288,7 @@ fn create_range(
     desired_size: u32,
     maximum_number_of_rooms_to_fetch: Option<u32>,
     maximum_number_of_rooms: Option<u32>,
-) -> Result<RangeInclusive<Bound>, Error> {
+) -> Result<Range, Error> {
     // Calculate the range.
     // The `start` bound is given. Let's calculate the `end` bound.
 
@@ -322,7 +319,7 @@ fn create_range(
         return Err(Error::InvalidRange { start, end });
     }
 
-    Ok(RangeInclusive::new(start, end))
+    Ok(Range::new(start, end))
 }
 
 #[cfg(test)]

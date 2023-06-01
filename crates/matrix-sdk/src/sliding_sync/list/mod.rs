@@ -39,8 +39,14 @@ pub(crate) enum SlidingSyncListCachePolicy {
 }
 
 /// The type used to express natural bounds (including but not limited to:
-/// ranges, timeline limit) in the sliding sync SDK.
+/// ranges, timeline limit) in the Sliding Sync.
 pub type Bound = u32;
+
+/// One range of rooms in a response from Sliding Sync.
+pub type Range = RangeInclusive<Bound>;
+
+/// Many ranges of rooms.
+pub type Ranges = Vec<Range>;
 
 /// Holding a specific filtered list within the concept of sliding sync.
 ///
@@ -764,8 +770,14 @@ impl SlidingSyncSelectiveModeBuilder {
     }
 
     /// Select a range to fetch.
-    pub fn add_range(mut self, range: RangeInclusive<Bound>) -> Self {
+    pub fn add_range(mut self, range: Range) -> Self {
         self.ranges.push(range);
+        self
+    }
+
+    /// Select many ranges to fetch.
+    pub fn add_ranges(mut self, ranges: Ranges) -> Self {
+        self.ranges.extend(ranges);
         self
     }
 }
