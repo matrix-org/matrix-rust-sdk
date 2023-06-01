@@ -1499,7 +1499,7 @@ mod tests {
             );
         }
 
-        let mut room_list_stream = list.room_list_stream();
+        let (_, mut room_list_stream) = list.room_list_stream();
         let (room_list_stream_sender, mut room_list_stream_receiver) = unbounded_channel();
 
         spawn(async move {

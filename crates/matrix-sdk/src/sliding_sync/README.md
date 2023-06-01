@@ -441,7 +441,7 @@ let sliding_sync = sliding_sync_builder
 
 // subscribe to the list APIs for updates
 
-let (list_state_stream, list_count_stream, list_stream) = sliding_sync.on_list(&active_list_name, |list| {
+let (list_state_stream, list_count_stream, (_, list_stream)) = sliding_sync.on_list(&active_list_name, |list| {
     ready((list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream()))
 }).await.unwrap();
 
