@@ -151,7 +151,7 @@ impl NotificationSettings {
     /// Get whether keyword rules exist.
     pub async fn contains_keywords_rules(&self) -> bool {
         let ruleset = &*self.push_rules.read().await;
-        self.sdk_client.notification_settings().contains_keywords_rules(ruleset)
+        self.sdk_client.notification_settings().contains_keyword_rules(ruleset)
     }
 
     /// Get whether @room mentions are enabled.

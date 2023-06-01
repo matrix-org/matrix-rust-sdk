@@ -136,7 +136,7 @@ impl NotificationSettings {
                 // check if mentions or keywords are enabled
                 if self.is_user_mention_enabled(ruleset)
                     || self.is_room_mention_enabled(ruleset)
-                    || self.contains_keywords_rules(ruleset)
+                    || self.contains_keyword_rules(ruleset)
                 {
                     return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
                 }
@@ -223,7 +223,7 @@ impl NotificationSettings {
 
         // If user mention is enabled, the mode is 'MentionsAndKeywordsOnly'
         if self.is_user_mention_enabled(ruleset)
-            || self.contains_keywords_rules(ruleset)
+            || self.contains_keyword_rules(ruleset)
             || self.is_room_mention_enabled(ruleset)
         {
             return Ok(RoomNotificationMode::MentionsAndKeywordsOnly);
@@ -320,7 +320,7 @@ impl NotificationSettings {
     }
 
     /// Get whether the given ruleset contains some keywords rules
-    pub fn contains_keywords_rules(&self, ruleset: &Ruleset) -> bool {
+    pub fn contains_keyword_rules(&self, ruleset: &Ruleset) -> bool {
         // Search for a user defined Content rule.
         ruleset.content.iter().any(|r| !r.default && r.enabled)
     }
@@ -361,7 +361,7 @@ impl NotificationSettings {
         // Check if mentions or keywords are enabled
         let mentions_or_keywords_enabled = self.is_user_mention_enabled(ruleset)
             || self.is_room_mention_enabled(ruleset)
-            || self.contains_keywords_rules(ruleset);
+            || self.contains_keyword_rules(ruleset);
         if !mentions_or_keywords_enabled {
             return Err(NotificationSettingsError::MentionsNotEnabled);
         }
@@ -399,7 +399,10 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::push::{Action, PredefinedContentRuleId, PredefinedUnderrideRuleId, RuleKind};
+    use ruma::push::{
+        Action, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
+        PredefinedUnderrideRuleId, RuleKind,
+    };
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
     use crate::{
@@ -691,6 +694,37 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn insert_mention_and_keywords_room_rule_with_mentions_disabled() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ruleset = client.account().push_rules().await.unwrap();
+        let notification_settings = client.notification_settings();
+        let room_id = "!test_room:matrix.org".to_string();
+
+        let mode =
+            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
+        assert!(mode.is_none());
+
+        // Disable users mentions and room mentions
+        notification_settings.set_user_mention_enabled(false, &mut ruleset);
+        notification_settings.set_room_mention_enabled(false, &mut ruleset);
+
+        // An error is expected
+        let result =
+            notification_settings.insert_mention_and_keywords_room_rule(&room_id, &mut ruleset);
+        assert!(result.is_err(), "An error is expected.");
+
+        // And the mode must remain at None
+        let mode =
+            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
+        assert!(
+            mode.is_none(),
+            "wrong mode, should be 'RoomNotificationMode::MentionsAndKeywordsOnly'"
+        );
+    }
+
+    #[async_test]
     async fn insert_mute_room_rule() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
@@ -894,5 +928,22 @@ pub(crate) mod tests {
             notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset),
             Some(RoomNotificationMode::Mute)
         );
+    }
+
+    #[async_test]
+    async fn contains_keyword_rules() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ruleset = client.account().push_rules().await.unwrap();
+        let notification_settings = client.notification_settings();
+
+        assert_eq!(notification_settings.contains_keyword_rules(&ruleset), false);
+
+        let rule =
+            NewPatternedPushRule::new("keyword".into(), "keyword".into(), vec![Action::Notify]);
+
+        _ = ruleset.insert(NewPushRule::Content(rule), None, None);
+        assert_eq!(notification_settings.contains_keyword_rules(&ruleset), true);
     }
 }
