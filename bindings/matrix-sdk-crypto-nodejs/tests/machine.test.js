@@ -25,8 +25,7 @@ const fs = require("fs/promises");
 
 describe("StoreType", () => {
     test("has the correct variant values", () => {
-        expect(StoreType.Sled).toStrictEqual(0);
-        expect(StoreType.Sqlite).toStrictEqual(1);
+        expect(StoreType.Sqlite).toStrictEqual(0);
     });
 });
 
@@ -53,7 +52,6 @@ describe(OlmMachine.name, () => {
 
     describe("can be instantiated with a store", () => {
         for (const [store_type, store_name] of [
-            [StoreType.Sled, "sled"],
             [StoreType.Sqlite, "sqlite"],
             [null, "default"],
         ]) {

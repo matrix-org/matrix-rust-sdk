@@ -59,11 +59,8 @@ impl Deref for OlmMachineInner {
 #[derive(Default)]
 #[napi]
 pub enum StoreType {
-    /// Use `matrix-sdk-sled`.
-    #[default]
-    Sled,
-
     /// Use `matrix-sdk-sqlite`.
+    #[default]
     Sqlite,
 }
 
@@ -123,21 +120,6 @@ impl OlmMachine {
             inner: OlmMachineInner::Opened(ManuallyDrop::new(match store_path {
                 Some(store_path) => {
                     let machine = match store_type.unwrap_or_default() {
-                        StoreType::Sled => {
-                            matrix_sdk_crypto::OlmMachine::with_store(
-                                user_id,
-                                device_id,
-                                matrix_sdk_sled::SledCryptoStore::open(
-                                    store_path,
-                                    store_passphrase.as_deref(),
-                                )
-                                .await
-                                .map(Arc::new)
-                                .map_err(into_err)?,
-                            )
-                            .await
-                        }
-
                         StoreType::Sqlite => {
                             matrix_sdk_crypto::OlmMachine::with_store(
                                 user_id,
