@@ -67,6 +67,163 @@ use crate::{config::RequestConfig, Client, Result};
 /// raising a proper error.
 const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
+/// TODO common parts of the two loops
+#[derive(Clone, Debug)]
+struct CommonLoopComponents {
+    /// The storage key to keep this cache at and load it from
+    storage_key: Option<String>,
+
+    /// The HTTP Matrix client.
+    client: Client,
+
+    /// Customize the homeserver for sliding sync only
+    homeserver: Option<Url>,
+
+    /// Internal channel used to pass messages between Sliding Sync and other
+    /// types.
+    internal_channel: Sender<SlidingSyncInternalMessage>,
+
+    /// Static configuration for extensions, passed in the slidinc sync
+    /// requests.
+    extensions: ExtensionsConfig,
+
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
+    /// one wants to receive updates.
+    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+
+    /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
+    room_unsubscriptions: BTreeSet<OwnedRoomId>,
+}
+
+impl CommonLoopComponents {
+    /// Send a message over the internal channel.
+    #[instrument]
+    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
+        self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
+    }
+
+    /// Send a message over the internal channel if there is a receiver, i.e. if
+    /// the sync-loop is running.
+    #[instrument]
+    fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
+        // If there is no receiver, the send will fail, but that's OK here.
+        let _ = self.internal_channel.send(message);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SlidingSyncListLoop {
+    /// The lists of this Sliding Sync instance.
+    lists: BTreeMap<String, SlidingSyncList>,
+
+    /// The rooms details
+    rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+
+    common: CommonLoopComponents,
+}
+
+impl SlidingSyncListLoop {
+    /// Lookup a specific room
+    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
+        self.rooms.get(room_id).cloned()
+    }
+
+    /// Check the number of rooms.
+    pub fn get_number_of_rooms(&self) -> usize {
+        self.rooms.len()
+    }
+
+    /// Find a list by its name, and do something on it if it exists.
+    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
+    where
+        F: FnOnce(&SlidingSyncList) -> R,
+    {
+        self.lists.get(list_name).map(f)
+    }
+
+    /// Lookup a set of rooms
+    pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
+        &self,
+        room_ids: I,
+    ) -> Vec<Option<SlidingSyncRoom>> {
+        room_ids.map(|room_id| self.rooms.get(&room_id).cloned()).collect()
+    }
+
+    /// Get all rooms.
+    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.rooms.values().cloned().collect()
+    }
+
+    /// Add the list to the list of lists.
+    ///
+    /// As lists need to have a unique `.name`, if a list with the same name
+    /// is found the new list will replace the old one and the return it or
+    /// `None`.
+    pub async fn add_list(
+        &mut self,
+        list_builder: SlidingSyncListBuilder,
+    ) -> Result<Option<SlidingSyncList>> {
+        let list = list_builder.build(self.common.internal_channel.clone());
+
+        let old_list = self.lists.insert(list.name().to_owned(), list);
+
+        self.common.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
+
+        Ok(old_list)
+    }
+
+    /// Add a list that will be cached and reloaded from the cache.
+    ///
+    /// This will raise an error if a storage key was not set, or if there
+    /// was a I/O error reading from the cache.
+    ///
+    /// The rest of the semantics is the same as [`Self::add_list`].
+    pub async fn add_cached_list(
+        &mut self,
+        mut list_builder: SlidingSyncListBuilder,
+    ) -> Result<Option<SlidingSyncList>> {
+        let Some(ref storage_key) = self.common.storage_key else {
+            return Err(error::Error::MissingStorageKeyForCaching.into());
+        };
+
+        let reloaded_rooms =
+            list_builder.set_cached_and_reload(&self.common.client, storage_key).await?;
+
+        if !reloaded_rooms.is_empty() {
+            for (key, frozen) in reloaded_rooms {
+                self.rooms.entry(key).or_insert_with(|| {
+                    SlidingSyncRoom::from_frozen(frozen, self.common.client.clone())
+                });
+            }
+        }
+
+        self.add_list(list_builder).await
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SlidingSyncNotificationLoop {
+    to_device_token: Option<String>,
+
+    common: CommonLoopComponents,
+}
+
+impl SlidingSyncNotificationLoop {
+    fn update_to_device_since(&mut self, since: String) {
+        self.to_device_token = Some(since);
+    }
+}
+
+/// What's the role of this sliding sync loop?
+#[derive(Clone, Debug)]
+pub enum SlidingSyncRole {
+    Lists(SlidingSyncListLoop),
+
+    Notifications(SlidingSyncNotificationLoop),
+}
+
 /// The Sliding Sync instance.
 ///
 /// It is OK to clone this type as much as you need: cloning it is cheap.
@@ -81,45 +238,18 @@ pub struct SlidingSync {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncInner {
-    /// Customize the homeserver for sliding sync only
-    homeserver: Option<Url>,
-
-    /// The HTTP Matrix client.
-    client: Client,
-
-    /// The storage key to keep this cache at and load it from
-    storage_key: Option<String>,
-
     /// Position markers
     position: StdRwLock<SlidingSyncPositionMarkers>,
-
-    /// The lists of this Sliding Sync instance.
-    lists: StdRwLock<BTreeMap<String, SlidingSyncList>>,
-
-    /// The rooms details
-    rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// The `bump_event_types` field. See
     /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
     bump_event_types: Vec<TimelineEventType>,
 
-    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
-    /// one wants to receive updates.
-    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
-
-    /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
-    room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
-
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
 
-    /// Static configuration for extensions, passed in the slidinc sync
-    /// requests.
-    extensions: ExtensionsConfig,
-
-    /// Internal channel used to pass messages between Sliding Sync and other
-    /// types.
-    internal_channel: Sender<SlidingSyncInternalMessage>,
+    /// TODO
+    role: StdRwLock<SlidingSyncRole>,
 }
 
 impl SlidingSync {
@@ -131,148 +261,123 @@ impl SlidingSync {
         cache::store_sliding_sync_state(self).await
     }
 
-    /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder(client: Client) -> SlidingSyncBuilder {
-        SlidingSyncBuilder::new(client)
+    pub fn new_list_loop(client: Client) -> SlidingSyncListLoopBuilder {
+        SlidingSyncListLoopBuilder::new(client)
+    }
+
+    pub fn new_notification_loop(client: Client) -> SlidingSyncNotificationLoopBuilder {
+        SlidingSyncNotificationLoopBuilder::new(client)
     }
 
     /// Subscribe to a given room.
     pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
-        self.inner
-            .room_subscriptions
-            .write()
-            .unwrap()
-            .insert(room_id, settings.unwrap_or_default());
+        let common = self.common_mut();
 
-        self.inner.internal_channel_send_if_possible(
+        common.room_subscriptions.insert(room_id, settings.unwrap_or_default());
+
+        common.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
         );
     }
 
     /// Unsubscribe from a given room.
     pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
-        // If removing the subscription was successful…
-        if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
-            // … then keep the unsubscription for the next request.
-            self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
+        let common = self.common_mut();
 
-            self.inner.internal_channel_send_if_possible(
+        // If removing the subscription was successful…
+        if common.room_subscriptions.remove(&room_id).is_some() {
+            // … then keep the unsubscription for the next request.
+            common.room_unsubscriptions.insert(room_id);
+
+            common.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
         }
     }
 
-    /// Lookup a specific room
-    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().get(room_id).cloned()
-    }
-
-    /// Check the number of rooms.
-    pub fn get_number_of_rooms(&self) -> usize {
-        self.inner.rooms.read().unwrap().len()
-    }
-
-    #[instrument(skip(self))]
-    fn update_to_device_since(&self, since: String) {
-        self.inner.position.write().unwrap().to_device_token = Some(since);
-    }
-
-    /// Find a list by its name, and do something on it if it exists.
-    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
-    where
-        F: FnOnce(&SlidingSyncList) -> R,
-    {
-        let lists = self.inner.lists.read().unwrap();
-
-        lists.get(list_name).map(f)
-    }
-
-    /// Add the list to the list of lists.
-    ///
-    /// As lists need to have a unique `.name`, if a list with the same name
-    /// is found the new list will replace the old one and the return it or
-    /// `None`.
-    pub async fn add_list(
-        &self,
-        list_builder: SlidingSyncListBuilder,
-    ) -> Result<Option<SlidingSyncList>> {
-        let list = list_builder.build(self.inner.internal_channel.clone());
-
-        let old_list = self.inner.lists.write().unwrap().insert(list.name().to_owned(), list);
-
-        self.inner.internal_channel_send_if_possible(
-            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-        );
-
-        Ok(old_list)
-    }
-
-    /// Add a list that will be cached and reloaded from the cache.
-    ///
-    /// This will raise an error if a storage key was not set, or if there
-    /// was a I/O error reading from the cache.
-    ///
-    /// The rest of the semantics is the same as [`Self::add_list`].
-    pub async fn add_cached_list(
-        &self,
-        mut list_builder: SlidingSyncListBuilder,
-    ) -> Result<Option<SlidingSyncList>> {
-        let Some(ref storage_key) = self.inner.storage_key else {
-            return Err(error::Error::MissingStorageKeyForCaching.into());
-        };
-
-        let reloaded_rooms =
-            list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
-
-        if !reloaded_rooms.is_empty() {
-            let mut rooms = self.inner.rooms.write().unwrap();
-
-            for (key, frozen) in reloaded_rooms {
-                rooms.entry(key).or_insert_with(|| {
-                    SlidingSyncRoom::from_frozen(frozen, self.inner.client.clone())
-                });
-            }
+    /// TODO
+    pub fn as_list_loop(&self) -> Option<&SlidingSyncListLoop> {
+        let role = self.inner.role.read().unwrap();
+        // TODO gnurf borrow checker
+        match &*role {
+            SlidingSyncRole::Lists(list) => Some(list),
+            SlidingSyncRole::Notifications(..) => None,
         }
-
-        self.add_list(list_builder).await
     }
 
-    /// Lookup a set of rooms
-    pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
-        &self,
-        room_ids: I,
-    ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.inner.rooms.read().unwrap();
-
-        room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
+    /// TODO
+    pub fn as_list_loop_mut(&self) -> Option<&mut SlidingSyncListLoop> {
+        let mut role = self.inner.role.write().unwrap();
+        match &mut *role {
+            SlidingSyncRole::Lists(list) => Some(list),
+            SlidingSyncRole::Notifications(..) => None,
+        }
     }
 
-    /// Get all rooms.
-    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().values().cloned().collect()
+    /// TODO
+    pub fn as_notification_loop(&self) -> Option<&SlidingSyncNotificationLoop> {
+        let role = self.inner.role.read().unwrap();
+        match &*role {
+            SlidingSyncRole::Lists(..) => None,
+            SlidingSyncRole::Notifications(notifications) => Some(notifications),
+        }
+    }
+
+    /// TODO
+    fn common(&self) -> &CommonLoopComponents {
+        let role = self.inner.role.read().unwrap();
+        match &*role {
+            SlidingSyncRole::Lists(l) => &l.common,
+            SlidingSyncRole::Notifications(n) => &n.common,
+        }
+    }
+
+    /// TODO
+    fn common_mut(&self) -> &mut CommonLoopComponents {
+        let mut role = self.inner.role.write().unwrap();
+        match &mut *role {
+            SlidingSyncRole::Lists(l) => &mut l.common,
+            SlidingSyncRole::Notifications(n) => &mut n.common,
+        }
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
-        let mut extensions = self.inner.extensions.clone();
+        let mut extensions = self.common().extensions.clone();
 
-        if pos.is_none() {
-            // The pos is `None`, it's either our initial sync or the proxy forgot about us
-            // and sent us an `UnknownPos` error. We need to send out the config for our
-            // extensions.
-            extensions.e2ee.enabled = Some(true);
-            extensions.to_device.enabled = Some(true);
+        // Note that applies to both arms: when the pos is `None`, it's either our initial sync or the proxy forgot about us
+        // and sent us an `UnknownPos` error. We need to send out the config for our
+        // extensions.
+        // TODO to be invalidated by the sticky parameters PR 🙃
+
+        let role = self.inner.role.read().unwrap();
+        match &*role {
+            SlidingSyncRole::Lists(_) => {
+                // We make sure to not enable the e2ee and to-device extensions for the list loop, so it doesn't conflict with the notification loop.
+                if pos.is_none() {
+                    extensions.e2ee.enabled = Some(false);
+                    extensions.to_device.enabled = Some(false);
+                }
+            }
+
+            SlidingSyncRole::Notifications(notification_loop) => {
+                // For the notification loop, force-enabling the e2ee extensions and to-device extension.
+                if pos.is_none() {
+                    extensions.e2ee.enabled = Some(true);
+                    extensions.to_device.enabled = Some(true);
+                }
+
+                // Try to chime in a to-device token that may be unset or restored from the
+                // cache.
+                let to_device_since = notification_loop.to_device_token.clone();
+                extensions.to_device.since = to_device_since;
+            }
         }
-
-        // Try to chime in a to-device token that may be unset or restored from the
-        // cache.
-        let to_device_since = self.inner.position.read().unwrap().to_device_token.clone();
-        extensions.to_device.since = to_device_since;
 
         extensions
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
+    #[instrument(skip_all, fields(lists))]
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
@@ -284,7 +389,7 @@ impl SlidingSync {
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
         let mut sync_response =
-            self.inner.client.process_sliding_sync(&sliding_sync_response).await?;
+            self.common().client.process_sliding_sync(&sliding_sync_response).await?;
 
         debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
@@ -301,98 +406,120 @@ impl SlidingSync {
         }
 
         let update_summary = {
-            // Update the rooms.
-            let updated_rooms = {
-                let mut rooms_map = self.inner.rooms.write().unwrap();
+            let mut role = self.inner.role.write().unwrap();
 
-                let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
+            match &mut *role {
+                SlidingSyncRole::Lists(list_loop) => {
+                    // Update the rooms.
+                    let updated_rooms = {
+                        let rooms_map = &mut list_loop.rooms;
 
-                for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
-                    // `sync_response` contains the rooms with decrypted events if any, so look at
-                    // the timeline events here first if the room exists.
-                    // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
-                    let timeline =
-                        if let Some(joined_room) = sync_response.rooms.join.remove(&room_id) {
-                            joined_room.timeline.events
-                        } else {
-                            room_data.timeline.drain(..).map(Into::into).collect()
-                        };
+                        let mut updated_rooms =
+                            Vec::with_capacity(sliding_sync_response.rooms.len());
 
-                    match rooms_map.get_mut(&room_id) {
-                        // The room existed before, let's update it.
-                        Some(room) => {
-                            room.update(room_data, timeline);
+                        for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
+                            // `sync_response` contains the rooms with decrypted events if any, so look at
+                            // the timeline events here first if the room exists.
+                            // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
+                            let timeline = if let Some(joined_room) =
+                                sync_response.rooms.join.remove(&room_id)
+                            {
+                                joined_room.timeline.events
+                            } else {
+                                room_data.timeline.drain(..).map(Into::into).collect()
+                            };
+
+                            match rooms_map.get_mut(&room_id) {
+                                // The room existed before, let's update it.
+                                Some(room) => {
+                                    room.update(room_data, timeline);
+                                }
+
+                                // First time we need this room, let's create it.
+                                None => {
+                                    rooms_map.insert(
+                                        room_id.clone(),
+                                        SlidingSyncRoom::new(
+                                            list_loop.common.client.clone(),
+                                            room_id.clone(),
+                                            room_data,
+                                            timeline,
+                                        ),
+                                    );
+                                }
+                            }
+
+                            updated_rooms.push(room_id);
                         }
 
-                        // First time we need this room, let's create it.
-                        None => {
-                            rooms_map.insert(
-                                room_id.clone(),
-                                SlidingSyncRoom::new(
-                                    self.inner.client.clone(),
-                                    room_id.clone(),
-                                    room_data,
-                                    timeline,
-                                ),
-                            );
-                        }
-                    }
+                        updated_rooms
+                    };
 
-                    updated_rooms.push(room_id);
-                }
+                    // Update the lists.
+                    let updated_lists = {
+                        let mut updated_lists =
+                            Vec::with_capacity(sliding_sync_response.lists.len());
+                        let lists = &mut list_loop.lists;
 
-                updated_rooms
-            };
-
-            // Update the lists.
-            let updated_lists = {
-                let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
-                let mut lists = self.inner.lists.write().unwrap();
-
-                for (name, updates) in sliding_sync_response.lists {
-                    let Some(list) = lists.get_mut(&name) else {
+                        for (name, updates) in sliding_sync_response.lists {
+                            let Some(list) = lists.get_mut(&name) else {
                         error!("Response for list `{name}` - unknown to us; skipping");
 
                         continue;
                     };
 
-                    let maximum_number_of_rooms: u32 =
-                        updates.count.try_into().expect("failed to convert `count` to `u32`");
+                            let maximum_number_of_rooms: u32 = updates
+                                .count
+                                .try_into()
+                                .expect("failed to convert `count` to `u32`");
 
-                    if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
-                        updated_lists.push(name.clone());
+                            if list.update(maximum_number_of_rooms, &updates.ops, &updated_rooms)? {
+                                updated_lists.push(name.clone());
+                            }
+                        }
+
+                        updated_lists
+                    };
+
+                    UpdateSummary { lists: updated_lists, rooms: updated_rooms }
+                }
+
+                SlidingSyncRole::Notifications(notification_loop) => {
+                    // Update the `to-device` next-batch if any.
+                    if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                        notification_loop.to_device_token = Some(to_device.next_batch);
                     }
+
+                    UpdateSummary::default()
                 }
-
-                // Update the `to-device` next-batch if any.
-                if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                    self.update_to_device_since(to_device.next_batch);
-                }
-
-                updated_lists
-            };
-
-            UpdateSummary { lists: updated_lists, rooms: updated_rooms }
+            }
         };
 
         Ok(update_summary)
     }
 
-    #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
         let (request, request_config, requested_room_unsubscriptions) = {
             // Collect requests for lists.
             let mut requests_lists = BTreeMap::new();
 
             {
-                let mut lists = self.inner.lists.write().unwrap();
+                let mut role = self.inner.role.write().unwrap();
 
-                if lists.is_empty() {
-                    return Ok(None);
-                }
+                match &mut *role {
+                    SlidingSyncRole::Lists(list_loop) => {
+                        if list_loop.lists.is_empty() {
+                            return Ok(None);
+                        }
 
-                for (name, list) in lists.iter_mut() {
-                    requests_lists.insert(name.clone(), list.next_request()?);
+                        for (name, list) in list_loop.lists.iter_mut() {
+                            requests_lists.insert(name.clone(), list.next_request()?);
+                        }
+                    }
+
+                    SlidingSyncRole::Notifications(notification_loop) => {
+                        // TODO ?
+                    }
                 }
             }
 
@@ -406,9 +533,10 @@ impl SlidingSync {
             Span::current().record("pos", &pos);
 
             // Collect other data.
-            let room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
-            let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
+            let room_subscriptions = self.common().room_subscriptions.clone();
+            let room_unsubscriptions = self.common().room_unsubscriptions.clone();
             let timeout = Duration::from_secs(30);
+
             let extensions = self.prepare_extension_config(pos.as_deref());
 
             (
@@ -433,10 +561,11 @@ impl SlidingSync {
         debug!("Sending the sliding sync request");
 
         // Prepare the request.
-        let request = self.inner.client.send_with_homeserver(
+        let common = self.common();
+        let request = common.client.send_with_homeserver(
             request,
             Some(request_config),
-            self.inner.homeserver.as_ref().map(ToString::to_string),
+            common.homeserver.as_ref().map(ToString::to_string),
         );
 
         // Send the request and get a response with end-to-end encryption support.
@@ -449,8 +578,7 @@ impl SlidingSync {
             debug!("Sliding Sync is sending the request along with  outgoing E2EE requests");
 
             let (e2ee_uploads, response) =
-                futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                    .await;
+                futures_util::future::join(common.client.send_outgoing_requests(), request).await;
 
             if let Err(error) = e2ee_uploads {
                 error!(?error, "Error while sending outgoing E2EE requests");
@@ -495,7 +623,7 @@ impl SlidingSync {
             // more unsubscriptions could have been inserted during the request/response
             // dance. So let's cherry-pick which unsubscriptions to remove.
             {
-                let room_unsubscriptions = &mut *this.inner.room_unsubscriptions.write().unwrap();
+                let room_unsubscriptions = &mut this.common_mut().room_unsubscriptions;
 
                 room_unsubscriptions
                     .retain(|room_id| !requested_room_unsubscriptions.contains(room_id));
@@ -524,16 +652,16 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
+        // debug!(?self.common().extensions, ?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
-        let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
+        let mut internal_channel_receiver = self.common().internal_channel.subscribe();
 
         stream! {
             loop {
-                sync_span.in_scope(|| {
-                    debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
-                });
+                // sync_span.in_scope(|| {
+                    // debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
+                // });
 
                 select! {
                     biased;
@@ -596,7 +724,7 @@ impl SlidingSync {
                                             position_lock.pos = None;
                                         }
 
-                                        debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
+                                        // debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
                                     });
                                 }
 
@@ -622,23 +750,7 @@ impl SlidingSync {
     /// immediately). Thus, calling this method will ensure that the sync-loop
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
-        Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
-    }
-}
-
-impl SlidingSyncInner {
-    /// Send a message over the internal channel.
-    #[instrument]
-    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
-        self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
-    }
-
-    /// Send a message over the internal channel if there is a receiver, i.e. if
-    /// the sync-loop is running.
-    #[instrument]
-    fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
-        // If there is no receiver, the send will fail, but that's OK here.
-        let _ = self.internal_channel.send(message);
+        Ok(self.common().internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
 }
 
@@ -671,13 +783,13 @@ impl SlidingSync {
 pub(super) struct SlidingSyncPositionMarkers {
     pos: Option<String>,
     delta_token: Option<String>,
-    to_device_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     delta_token: Option<String>,
 }
@@ -686,16 +798,17 @@ impl From<&SlidingSync> for FrozenSlidingSync {
     fn from(sliding_sync: &SlidingSync) -> Self {
         let position = sliding_sync.inner.position.read().unwrap();
 
-        FrozenSlidingSync {
-            delta_token: position.delta_token.clone(),
-            to_device_since: position.to_device_token.clone(),
-        }
+        let to_device_since = sliding_sync
+            .as_notification_loop()
+            .and_then(|notification_loop| notification_loop.to_device_token.clone());
+
+        FrozenSlidingSync { delta_token: position.delta_token.clone(), to_device_since }
     }
 }
 
 /// A summary of the updates received after a sync (like in
 /// [`SlidingSync::sync`]).
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct UpdateSummary {
     /// The names of the lists that have seen an update.
     pub lists: Vec<String>,
@@ -721,7 +834,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sync = client.sliding_sync().build().await?;
+        let sync = client.sliding_sync_list_loop().build().await?;
         let extensions = sync.prepare_extension_config(None);
 
         // If the user doesn't provide any extension config, we enable to-device and
@@ -733,7 +846,8 @@ mod tests {
         assert_matches!(extensions.e2ee, E2EEConfig { enabled: Some(true), .. });
 
         let some_since = "some_since".to_owned();
-        sync.update_to_device_since(some_since.to_owned());
+        todo!();
+        // sync.update_to_device_since(some_since.to_owned());
         let extensions = sync.prepare_extension_config(Some("foo"));
 
         // If there's a `pos` and to-device `since` token, we make sure we put the token
@@ -762,7 +876,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync();
+        let mut sliding_sync_builder = client.sliding_sync_list_loop();
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);
@@ -790,7 +904,7 @@ mod tests {
         sliding_sync.subscribe_to_room(room1.clone(), None);
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let room_subscriptions = &sliding_sync.common().room_subscriptions;
 
             assert!(room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -801,7 +915,7 @@ mod tests {
         sliding_sync.unsubscribe_from_room(room2.clone());
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let room_subscriptions = &sliding_sync.common().room_subscriptions;
 
             assert!(!room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -842,7 +956,8 @@ mod tests {
         // When a to-device token is present, `prepare_extensions_config` fills the
         // request with it.
         let since = String::from("my-to-device-since-token");
-        sliding_sync.update_to_device_since(since.clone());
+        // TODO
+        // sliding_sync.update_to_device_since(since.clone());
 
         let config = sliding_sync.prepare_extension_config(Some("pos"));
         assert_eq!(config.to_device.since.as_ref(), Some(&since));
@@ -866,13 +981,15 @@ mod tests {
         pin_mut!(_stream);
 
         sliding_sync
+            .as_list_loop_mut()
+            .unwrap()
             .add_list(
                 SlidingSyncList::builder("bar")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(50..=60)),
             )
             .await?;
 
-        let lists = sliding_sync.inner.lists.read().unwrap();
+        let lists = &sliding_sync.as_list_loop().unwrap().lists;
 
         assert!(lists.contains_key("foo"));
         assert!(lists.contains_key("bar"));

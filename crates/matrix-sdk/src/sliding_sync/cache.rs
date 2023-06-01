@@ -53,10 +53,10 @@ async fn clean_storage(
 
 /// Store the `SlidingSync`'s state in the storage.
 pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
-    let Some(storage_key) = sliding_sync.inner.storage_key.as_ref() else { return Ok(()) };
+    let Some(storage_key) = sliding_sync.common().storage_key.as_ref() else { return Ok(()) };
 
     trace!(storage_key, "Saving a `SlidingSync`");
-    let storage = sliding_sync.inner.client.store();
+    let storage = sliding_sync.common().client.store();
 
     // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
     // the store.
@@ -68,30 +68,29 @@ pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Resu
         .await?;
 
     // Write every `SlidingSyncList` that's configured for caching into the store.
-    let frozen_lists = {
-        let rooms_lock = sliding_sync.inner.rooms.read().unwrap();
+    if let Some(list_loop) = sliding_sync.as_list_loop() {
+        let frozen_lists = {
+            let rooms = &list_loop.rooms;
 
-        sliding_sync
-            .inner
-            .lists
-            .read()
-            .unwrap()
-            .iter()
-            .filter_map(|(list_name, list)| {
-                matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled).then(|| {
-                    Ok((
-                        format_storage_key_for_sliding_sync_list(storage_key, list_name),
-                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
-                    ))
+            list_loop
+                .lists
+                .iter()
+                .filter_map(|(list_name, list)| {
+                    matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled).then(|| {
+                        Ok((
+                            format_storage_key_for_sliding_sync_list(storage_key, list_name),
+                            serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms))?,
+                        ))
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, crate::Error>>()?
-    };
+                .collect::<Result<Vec<_>, crate::Error>>()?
+        };
 
-    for (storage_key_for_list, frozen_list) in frozen_lists {
-        trace!(storage_key_for_list, "Saving a `SlidingSyncList`");
+        for (storage_key_for_list, frozen_list) in frozen_lists {
+            trace!(storage_key_for_list, "Saving a `SlidingSyncList`");
 
-        storage.set_custom_value(storage_key_for_list.as_bytes(), frozen_list).await?;
+            storage.set_custom_value(storage_key_for_list.as_bytes(), frozen_list).await?;
+        }
     }
 
     Ok(())
@@ -179,7 +178,7 @@ pub(super) async fn restore_sliding_sync_state(
         // state.
         Some(Err(_)) => {
             warn!(
-                "failed to deserialize `SlidingSync` from the cache, it is obsolote; removing the cache entry!"
+                "failed to deserialize `SlidingSync` from the cache, it is obsolete; removing the cache entry!"
             );
 
             // Let's clear everything and stop here.
@@ -213,7 +212,7 @@ mod tests {
             let homeserver = Url::parse("https://foo.bar")?;
             let client = Client::new(homeserver).await?;
             let err = client
-                .sliding_sync()
+                .sliding_sync_list_loop()
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await
                 .unwrap_err();
@@ -259,7 +258,7 @@ mod tests {
             // Create a new `SlidingSync` instance, and store it.
             {
                 let sliding_sync = client
-                    .sliding_sync()
+                    .sliding_sync_list_loop()
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
@@ -269,7 +268,7 @@ mod tests {
 
                 // Modify both lists, so we can check expected caching behavior later.
                 {
-                    let lists = sliding_sync.inner.lists.write().unwrap();
+                    let lists = &mut sliding_sync.as_list_loop_mut().unwrap().lists;
 
                     let list_foo = lists.get("list_foo").unwrap();
                     list_foo.set_maximum_number_of_rooms(Some(42));
@@ -307,7 +306,7 @@ mod tests {
                 let max_number_of_room_stream = Arc::new(RwLock::new(None));
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
-                    .sliding_sync()
+                    .sliding_sync_list_loop()
                     .storage_key(Some("hello".to_owned()))
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.
@@ -324,7 +323,7 @@ mod tests {
 
                 // Check the list' state.
                 {
-                    let lists = sliding_sync.inner.lists.write().unwrap();
+                    let lists = &mut sliding_sync.as_list_loop_mut().unwrap().lists;
 
                     // This one was cached.
                     let list_foo = lists.get("list_foo").unwrap();
@@ -349,7 +348,8 @@ mod tests {
                 }
 
                 // Clean the cache.
-                clean_storage(&client, "hello", &sliding_sync.inner.lists.read().unwrap()).await;
+                let lists = &sliding_sync.as_list_loop().unwrap().lists;
+                clean_storage(&client, "hello", lists).await;
             }
 
             // Store entries don't exist.

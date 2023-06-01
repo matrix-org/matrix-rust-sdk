@@ -58,8 +58,8 @@ pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
-    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
-    SlidingSyncMode, SlidingSyncRoom, SlidingSyncState, UpdateSummary,
+    RoomListEntry, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+    SlidingSyncRoom, SlidingSyncState, UpdateSummary,
 };
 
 #[cfg(any(test, feature = "testing"))]
