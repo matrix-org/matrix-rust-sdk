@@ -133,13 +133,7 @@ impl NotificationSettings {
             }
             // if this rule does not contain a Notify action
             if !rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
-                // check if mentions or keywords are enabled
-                if self.is_user_mention_enabled(ruleset)
-                    || self.is_room_mention_enabled(ruleset)
-                    || self.contains_keyword_rules(ruleset)
-                {
-                    return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
-                }
+                return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
             }
             return Some(RoomNotificationMode::Mute);
         }
@@ -353,14 +347,6 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         // Try to remove any existing rule for this room
         _ = self.delete_user_defined_room_notification_mode(room_id, ruleset);
-
-        // Check if mentions or keywords are enabled
-        let mentions_or_keywords_enabled = self.is_user_mention_enabled(ruleset)
-            || self.is_room_mention_enabled(ruleset)
-            || self.contains_keyword_rules(ruleset);
-        if !mentions_or_keywords_enabled {
-            return Err(NotificationSettingsError::MentionsNotEnabled);
-        }
 
         // Insert a new Room push rule
         let new_rule = NewSimplePushRule::new(RoomId::parse(room_id)?, vec![]);
@@ -667,37 +653,6 @@ pub(crate) mod tests {
         assert_eq!(
             mode,
             Some(RoomNotificationMode::MentionsAndKeywordsOnly),
-            "wrong mode, should be 'RoomNotificationMode::MentionsAndKeywordsOnly'"
-        );
-    }
-
-    #[async_test]
-    async fn insert_mention_and_keywords_room_rule_with_mentions_disabled() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let mut ruleset = client.account().push_rules().await.unwrap();
-        let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
-
-        let mode =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
-        assert!(mode.is_none());
-
-        // Disable users mentions and room mentions
-        notification_settings.set_user_mention_enabled(false, &mut ruleset);
-        notification_settings.set_room_mention_enabled(false, &mut ruleset);
-
-        // An error is expected
-        let result =
-            notification_settings.insert_mention_and_keywords_room_rule(&room_id, &mut ruleset);
-        assert!(result.is_err(), "An error is expected.");
-
-        // And the mode must remain at None
-        let mode =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
-        assert!(
-            mode.is_none(),
             "wrong mode, should be 'RoomNotificationMode::MentionsAndKeywordsOnly'"
         );
     }
