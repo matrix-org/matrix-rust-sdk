@@ -102,10 +102,13 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
-    pub async fn entries_filtered(
+    pub async fn entries_filtered<F>(
         &self,
-        filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
-    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
+        filter: F,
+    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error>
+    where
+        F: Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
+    {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
             .await

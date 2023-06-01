@@ -132,19 +132,22 @@ impl SlidingSyncList {
         &self,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>) {
         let read_lock = self.inner.room_list.read().unwrap();
-        let values = (*read_lock).clone();
+        let previous_values = (*read_lock).clone();
         let subscriber = ObservableVector::subscribe(&read_lock);
-        (values, subscriber)
+
+        (previous_values, subscriber)
     }
 
     /// Get a stream of room list, but filtered.
     ///
     /// It's similar to [`Self::room_list_stream`] but the room list is filtered
     /// by `filter`.
-    pub fn room_list_filtered_stream(
+    pub fn room_list_filtered_stream<F>(
         &self,
-        filter: impl Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
+        filter: F,
     ) -> (Vector<RoomListEntry>, FilteredVectorSubscriber<RoomListEntry, BoxedRoomListEntryFilter>)
+    where
+        F: Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
     {
         ObservableVector::subscribe_filtered(
             &self.inner.room_list.read().unwrap(),
@@ -1616,7 +1619,7 @@ mod tests {
             entries!( @_ [ $( $( $rest )* )? ] [ $( $accumulator )* RoomListEntry::Invalidated(room_id!( $room_id ).to_owned()), ] )
         };
 
-        ( @_ [] [ $( $accumulator:tt )+ ] ) => {
+        ( @_ [] [ $( $accumulator:tt )* ] ) => {
             vector![ $( $accumulator )* ]
         };
 
