@@ -25,6 +25,7 @@ use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
+    executor::JoinHandle,
     room::{self, MessagesOptions, Receipts, Room},
     Client, Result,
 };
@@ -88,7 +89,7 @@ pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
     start_token: Mutex<Option<String>>,
     _end_token: Mutex<Option<String>>,
-    event_handler_handles: Arc<TimelineEventHandlerHandles>,
+    drop_handle: Arc<TimelineDropHandle>,
 }
 
 impl Timeline {
@@ -239,7 +240,7 @@ impl Timeline {
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
         let (items, stream) = self.inner.subscribe().await;
-        let stream = TimelineStream::new(stream, self.event_handler_handles.clone());
+        let stream = TimelineStream::new(stream, self.drop_handle.clone());
         (items, stream)
     }
 
@@ -474,16 +475,18 @@ impl Timeline {
 }
 
 #[derive(Debug)]
-struct TimelineEventHandlerHandles {
+struct TimelineDropHandle {
     client: Client,
-    handles: Vec<EventHandlerHandle>,
+    event_handler_handles: Vec<EventHandlerHandle>,
+    room_update_join_handle: JoinHandle<()>,
 }
 
-impl Drop for TimelineEventHandlerHandles {
+impl Drop for TimelineDropHandle {
     fn drop(&mut self) {
-        for handle in self.handles.drain(..) {
+        for handle in self.event_handler_handles.drain(..) {
             self.client.remove_event_handler(handle);
         }
+        self.room_update_join_handle.abort();
     }
 }
 
@@ -491,14 +494,14 @@ pin_project! {
     struct TimelineStream {
         #[pin]
         inner: VectorSubscriber<Arc<TimelineItem>>,
-        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+        event_handler_handles: Arc<TimelineDropHandle>,
     }
 }
 
 impl TimelineStream {
     fn new(
         inner: VectorSubscriber<Arc<TimelineItem>>,
-        event_handler_handles: Arc<TimelineEventHandlerHandles>,
+        event_handler_handles: Arc<TimelineDropHandle>,
     ) -> Self {
         Self { inner, event_handler_handles }
     }
