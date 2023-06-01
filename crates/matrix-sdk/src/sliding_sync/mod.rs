@@ -574,6 +574,7 @@ impl SlidingSync {
                             }
 
                             Ok(None) => {
+                                // Terminates the loop, and terminates the stream.
                                 break;
                             }
 
@@ -592,6 +593,7 @@ impl SlidingSync {
                                         // The session has expired too many times, let's raise an error!
                                         yield Err(error);
 
+                                        // Terminates the loop, and terminates the stream.
                                         break;
                                     }
 

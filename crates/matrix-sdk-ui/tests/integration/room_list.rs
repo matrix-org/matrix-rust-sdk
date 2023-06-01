@@ -12,7 +12,6 @@ use matrix_sdk_ui::{
 };
 use ruma::room_id;
 use serde_json::json;
-use tokio::{spawn, sync::mpsc::unbounded_channel};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
 use crate::logged_in_client;
@@ -37,7 +36,7 @@ impl Match for SlidingSyncMatcher {
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $room_list_sync_stream:ident]
-        states = $state_0:ident $( -> $state_n:ident )+,
+        states = $pre_state:ident -> $post_state:ident,
         assert request = { $( $request_json:tt )* },
         respond with = { $( $response_json:tt )* }
         $(,)?
@@ -50,16 +49,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            assert_eq!(State:: $state_0, $room_list.state(), "pre state");
-
-            let mut states = $room_list.state_stream();
-            let (state_sender, mut state_receiver) = unbounded_channel();
-
-            let state_listener = spawn(async move {
-                while let Some(state) = states.next().await {
-                    state_sender.send(state).expect("sending state failed");
-                }
-            });
+            assert_eq!(State:: $pre_state, $room_list.state(), "pre state");
 
             let next = $room_list_sync_stream.next().await.unwrap()?;
 
@@ -80,15 +70,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             }
 
-            $(
-                assert_eq!(
-                    State:: $state_n ,
-                    state_receiver.recv().await.expect("receiving state failed"),
-                    "next state",
-                );
-            )+
-
-            state_listener.abort();
+            assert_eq!(State:: $post_state, $room_list.state(), "post state");
 
             next
         }
@@ -219,7 +201,7 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Init -> LoadFirstRooms -> LoadAllRooms,
+        states = Init -> FirstRooms,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -260,7 +242,7 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = LoadAllRooms -> Enjoy,
+        states = FirstRooms -> AllRooms,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -299,11 +281,44 @@ async fn test_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Enjoy -> Enjoy,
+        states = AllRooms -> Enjoy,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 99]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 200,
+                    "ops": [
+                        // let's ignore them for now
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [],
+                },
+            },
+            "rooms": {
+                // let's ignore them for now
+            },
+        },
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Enjoy -> Enjoy,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 149]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
@@ -345,7 +360,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Init -> LoadFirstRooms -> LoadAllRooms,
+        states = Init -> FirstRooms,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -402,7 +417,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = LoadAllRooms -> Enjoy,
+        states = FirstRooms -> AllRooms,
         assert request = {
             "lists": {
                 ALL_ROOMS: {

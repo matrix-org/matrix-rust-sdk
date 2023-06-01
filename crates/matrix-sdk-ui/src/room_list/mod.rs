@@ -81,35 +81,41 @@ impl RoomList {
             let sync = self.sliding_sync.sync();
             pin_mut!(sync);
 
-            // Before doing the first sync, let's transition to the next state.
-            {
-                let next_state = self.state.read().next(&self.sliding_sync).await?;
+            // This is a state machine implementation.
+            // Things happen in this order:
+            //
+            // 1. The next state is calculated,
+            // 2. The actions associated to the next state are run,
+            // 3. The next state is stored,
+            // 4. A sync is done.
+            //
+            // So the sync is done after the machine _has entered_ into a new state.
+            loop {
+                {
+                    let next_state = self.state.read().next(&self.sliding_sync).await?;
 
-                Observable::set(&self.state, next_state);
-            }
+                    Observable::set(&self.state, next_state);
+                }
 
-            while let Some(update_summary) = sync.next().await {
-                match update_summary {
-                    Ok(_update_summary) => {
-                        {
-                            let next_state = self.state.read().next(&self.sliding_sync).await?;
-
-                            Observable::set(&self.state, next_state);
-                        }
-
+                match sync.next().await {
+                    Some(Ok(_update_summary)) => {
                         yield Ok(());
                     }
 
-                    Err(error) => {
+                    Some(Err(error)) => {
+                        // TODO: what to do when an error is raised?
                         yield Err(Error::SlidingSync(error));
                     }
+
+                    None => {
+                        let next_state = State::Terminated;
+
+                        Observable::set(&self.state, next_state);
+
+                        break;
+                    }
                 }
-
             }
-
-            let next_state = State::Terminated;
-
-            Observable::set(&self.state, next_state);
         }
     }
 
@@ -143,21 +149,23 @@ pub enum Error {
     #[error("Unknown list `{0}`")]
     UnknownList(String),
 
-    #[error("foo")]
+    #[error("Failed to set up the entries correctly")]
     Entries,
+
+    #[error("Failed to acquire a lock to update the entries filter")]
+    CannotUpdateEntriesFilter,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum State {
-    /// That's the first initial state. The next state is calculated before
-    /// doing the first sync.
+    /// That's the first initial state.
     Init,
 
     /// At this state, the first rooms starts to be synced.
-    LoadFirstRooms,
+    FirstRooms,
 
     /// At this state, all rooms starts to be synced.
-    LoadAllRooms,
+    AllRooms,
 
     /// This state is the cruising speed, i.e. the “normal” state, where nothing
     /// fancy happens: all rooms are syncing, and life is great.
@@ -173,9 +181,9 @@ impl State {
         use State::*;
 
         let (next_state, actions) = match self {
-            Init => (LoadFirstRooms, Actions::none()),
-            LoadFirstRooms => (LoadAllRooms, Actions::first_rooms_are_loaded()),
-            LoadAllRooms => (Enjoy, Actions::none()),
+            Init => (FirstRooms, Actions::none()),
+            FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
+            AllRooms => (Enjoy, Actions::none()),
             Enjoy => (Enjoy, Actions::none()),
             Terminated => (Terminated, Actions::none()),
         };
@@ -330,10 +338,10 @@ mod tests {
         let state = State::Init;
 
         let state = state.next(&sliding_sync).await?;
-        assert_eq!(state, State::LoadFirstRooms);
+        assert_eq!(state, State::FirstRooms);
 
         let state = state.next(&sliding_sync).await?;
-        assert_eq!(state, State::LoadAllRooms);
+        assert_eq!(state, State::AllRooms);
 
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
