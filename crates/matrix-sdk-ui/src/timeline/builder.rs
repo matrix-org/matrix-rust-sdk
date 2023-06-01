@@ -20,7 +20,7 @@ use matrix_sdk::{
 };
 use ruma::events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent};
 use tokio::sync::{broadcast, Mutex};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -143,6 +143,11 @@ impl TimelineBuilder {
                             continue;
                         }
                     };
+
+                    if timeline.limited {
+                        debug!("Got limited sync response, resetting timeline");
+                        inner.clear().await;
+                    }
 
                     for event in timeline.events {
                         inner.handle_live_event(event).await;

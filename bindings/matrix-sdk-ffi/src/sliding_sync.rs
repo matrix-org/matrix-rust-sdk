@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join4, pin_mut, StreamExt};
+use futures_util::{future::join3, pin_mut, StreamExt};
 pub use matrix_sdk::{
     ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
@@ -254,14 +254,6 @@ impl SlidingSyncRoom {
             }
         };
 
-        let handle_sync_gap = {
-            let gap_broadcast_rx = self.client.inner.subscribe_sync_gap(self.inner.room_id());
-            let timeline = timeline.to_owned();
-            async move {
-                gap_broadcast_rx.for_each(|_| timeline.clear()).await;
-            }
-        };
-
         // This in the future could be removed, and the rx handling could be moved
         // inside handle_sliding_sync_reset since we want to reset the sliding
         // sync for ignore user list events
@@ -276,13 +268,7 @@ impl SlidingSyncRoom {
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join4(
-                handle_events,
-                handle_sliding_sync_reset,
-                handle_sync_gap,
-                handle_ignore_user_list_changes,
-            )
-            .await;
+            join3(handle_events, handle_sliding_sync_reset, handle_ignore_user_list_changes).await;
         }));
 
         Ok((items, task_handle))
