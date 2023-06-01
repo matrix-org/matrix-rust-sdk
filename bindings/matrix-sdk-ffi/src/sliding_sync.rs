@@ -598,7 +598,7 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomListObserver>,
     ) -> Arc<TaskHandle> {
-        let mut room_list_stream = self.inner.room_list_stream();
+        let (_, mut room_list_stream) = self.inner.room_list_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
