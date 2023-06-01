@@ -167,3 +167,48 @@ impl BackupRecoveryKey {
         self.inner.decrypt_v1(&ephemeral_key, &mac, &ciphertext).map_err(|e| e.into())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use ruma::api::client::backup::KeyBackupData;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_decrypt_key() {
+        let recovery_key = BackupRecoveryKey::from_base64(
+            "Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw".to_owned(),
+        )
+        .unwrap();
+
+        let data = json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {
+                "ephemeral": "HlLi76oV6wxHz3PCqE/bxJi6yF1HnYz5Dq3T+d/KpRw",
+                "ciphertext": "MuM8E3Yc6TSAvhVGb77rQ++jE6p9dRepx63/3YPD2wACKAppkZHeFrnTH6wJ/HSyrmzo\
+                               7HfwqVl6tKNpfooSTHqUf6x1LHz+h4B/Id5ITO1WYt16AaI40LOnZqTkJZCfSPuE2oxa\
+                               lwEHnCS3biWybutcnrBFPR3LMtaeHvvkb+k3ny9l5ZpsU9G7vCm3XoeYkWfLekWXvDhb\
+                               qWrylXD0+CNUuaQJ/S527TzLd4XKctqVjjO/cCH7q+9utt9WJAfK8LGaWT/mZ3AeWjf5\
+                               kiqOpKKf5Cn4n5SSil5p/pvGYmjnURvZSEeQIzHgvunIBEPtzK/MYEPOXe/P5achNGlC\
+                               x+5N19Ftyp9TFaTFlTWCTi0mpD7ePfCNISrwpozAz9HZc0OhA8+1aSc7rhYFIeAYXFU3\
+                               26NuFIFHI5pvpSxjzPQlOA+mavIKmiRAtjlLw11IVKTxgrdT4N8lXeMr4ndCSmvIkAzF\
+                               Mo1uZA4fzjiAdQJE4/2WeXFNNpvdfoYmX8Zl9CAYjpSO5HvpwkAbk4/iLEH3hDfCVUwD\
+                               fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
+                               d8/S618",
+                "mac": "GtMrurhDTwo"
+            }
+        });
+
+        let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
+        let ephemeral = key_backup_data.session_data.ephemeral.encode();
+        let ciphertext = key_backup_data.session_data.ciphertext.encode();
+        let mac = key_backup_data.session_data.mac.encode();
+
+        let _ = recovery_key
+            .decrypt_v1(ephemeral, mac, ciphertext)
+            .expect("The backed up key should be decrypted successfully");
+    }
+}
