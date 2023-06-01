@@ -5,7 +5,7 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        Error, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     RoomList,
@@ -720,6 +720,82 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         insert[1] [ F("!r1:bar.org") ];
         insert[2] [ F("!r4:bar.org") ];
         pending;
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_input_viewport() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // The input cannot be applied because the `VISIBLE_ROOMS_LIST_NAME` list isn't
+    // present.
+    assert_matches!(
+        room_list.apply_input(Input::Viewport(vec![10..=15])).await,
+        Err(Error::InputHasNotBeenApplied(_))
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init -> FirstRooms,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = FirstRooms -> AllRooms,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 49]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                }
+            }
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    assert!(room_list.apply_input(Input::Viewport(vec![10..=15, 20..=25])).await.is_ok());
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = AllRooms -> Enjoy,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 49]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[10, 15], [20, 25]],
+                }
+            }
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
     };
 
     Ok(())

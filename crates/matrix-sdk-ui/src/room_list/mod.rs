@@ -10,7 +10,8 @@ use futures_util::{pin_mut, Stream, StreamExt};
 use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
-    Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncMode,
+    sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
+    SlidingSyncMode,
 };
 use once_cell::sync::Lazy;
 use thiserror::Error;
@@ -115,6 +116,25 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
+    pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
+        use Input::*;
+
+        match input {
+            Viewport(ranges) => {
+                self.sliding_sync
+                    .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
+                        ready(list.set_sync_mode(
+                            SlidingSyncMode::new_selective().add_ranges(ranges.clone()),
+                        ))
+                    })
+                    .await
+                    .ok_or_else(|| Error::InputHasNotBeenApplied(Viewport(ranges)))?;
+            }
+        }
+
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testing"))]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
@@ -136,6 +156,9 @@ pub enum Error {
 
     #[error("Failed to acquire a lock to update the entries filter")]
     CannotUpdateEntriesFilter,
+
+    #[error("The input has been not applied")]
+    InputHasNotBeenApplied(Input),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -255,6 +278,11 @@ impl Actions {
     fn iter(&self) -> &[OneAction] {
         self.actions.as_slice()
     }
+}
+
+#[derive(Debug)]
+pub enum Input {
+    Viewport(Ranges),
 }
 
 #[cfg(test)]
