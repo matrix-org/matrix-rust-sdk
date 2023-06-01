@@ -13,7 +13,6 @@ coverage:
           - "crates/matrix-sdk-common/"
           - "crates/matrix-sdk-crypto/"
           - "crates/matrix-sdk-qrcode/"
-          - "crates/matrix-sdk-sled/"
           - "crates/matrix-sdk-sqlite/"
           - "crates/matrix-sdk-store-encryption/"
           # Coverage of wasm tests isn't supported at the moment,

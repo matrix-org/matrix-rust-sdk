@@ -1,7 +1,6 @@
 use criterion::*;
 use matrix_sdk::{config::StoreConfig, Client, RoomInfo, RoomState, Session, StateChanges};
 use matrix_sdk_base::{store::MemoryStore, StateStore as _};
-use matrix_sdk_sled::SledStateStore;
 use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{device_id, user_id, RoomId};
 use tokio::runtime::Builder;
@@ -73,36 +72,6 @@ pub fn restore_session(c: &mut Criterion) {
 
     for encryption_password in [None, Some("hunter2")] {
         let encrypted_suffix = if encryption_password.is_some() { "encrypted" } else { "clear" };
-
-        // Sled
-        let sled_path = tempfile::tempdir().unwrap().path().to_path_buf();
-        let mut sled_store_builder = SledStateStore::builder().path(sled_path);
-        if let Some(password) = encryption_password {
-            sled_store_builder = sled_store_builder.passphrase(password.to_owned());
-        }
-        let sled_store = sled_store_builder.build().expect("Can't create sled store");
-        runtime
-            .block_on(sled_store.save_changes(&changes))
-            .expect("initial filling of sled failed");
-
-        group.bench_with_input(
-            BenchmarkId::new(format!("sled store {encrypted_suffix}"), NAME),
-            &sled_store,
-            |b, store| {
-                b.to_async(&runtime).iter(|| async {
-                    let client = Client::builder()
-                        .homeserver_url("https://matrix.example.com")
-                        .store_config(StoreConfig::new().state_store(store.clone()))
-                        .build()
-                        .await
-                        .expect("Can't build client");
-                    client
-                        .restore_session(session.clone())
-                        .await
-                        .expect("couldn't restore session");
-                })
-            },
-        );
 
         // Sqlite
         let sqlite_dir = tempfile::tempdir().unwrap();

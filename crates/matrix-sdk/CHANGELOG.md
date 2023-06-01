@@ -9,7 +9,7 @@
   results by any membership state.
   - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)` are deprecated.
 - `matrix-sdk-sqlite` is the new default store implementation outside of WASM, behind the `sqlite` feature.
-  - The `sled` feature was removed. It is still possible to use `matrix-sdk-sled` as a custom store.
+  - The `sled` feature was removed. The `matrix-sdk-sled` crate is deprecated and no longer maintained.
 - The `Common` methods to retrieve state events can now return a sync or stripped event, so it can be used
   for invited rooms too.
 
