@@ -25,7 +25,7 @@ use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::{store::RecoveryKey, utilities::encode};
+use crate::store::RecoveryKey;
 
 /// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
@@ -203,13 +203,19 @@ impl RecoveryKey {
         let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
         let pk = self.get_pk_decrytpion();
 
-        pk.decrypt(&message).map(encode)
+        let decrypted = pk.decrypt(&message)?;
+
+        Ok(String::from_utf8_lossy(&decrypted).to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ruma::api::client::backup::KeyBackupData;
+    use serde_json::json;
+
     use super::{DecodeError, RecoveryKey};
+    use crate::olm::BackedUpRoomKey;
 
     const TEST_KEY: [u8; 32] = [
         0x77, 0x07, 0x6D, 0x0A, 0x73, 0x18, 0xA5, 0x7D, 0x3C, 0x16, 0xC1, 0x72, 0x51, 0xB2, 0x66,
@@ -260,14 +266,6 @@ mod tests {
 
         Ok(())
     }
-}
-
-#[cfg(test)]
-mod test {
-    use ruma::api::client::backup::KeyBackupData;
-    use serde_json::json;
-
-    use super::*;
 
     #[test]
     fn test_decrypt_key() {
@@ -294,13 +292,16 @@ mod test {
             }
         });
 
-        let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
+        let key_backup_data: KeyBackupData = serde_json::from_value(data.to_owned()).unwrap();
         let ephemeral = key_backup_data.session_data.ephemeral.encode();
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
         let mac = key_backup_data.session_data.mac.encode();
 
-        let _ = recovery_key
+        let decrypted = recovery_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
             .expect("The backed up key should be decrypted successfully");
+
+        let _: BackedUpRoomKey = serde_json::from_str(&decrypted)
+            .expect("The decrypted payload should contain valid JSON");
     }
 }

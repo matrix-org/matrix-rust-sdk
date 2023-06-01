@@ -27,9 +27,9 @@ pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
-    EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
-    PickledInboundGroupSession, PickledOutboundGroupSession, SessionCreationError,
-    SessionExportError, SessionKey, ShareInfo,
+    BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
+    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
+    SessionCreationError, SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
