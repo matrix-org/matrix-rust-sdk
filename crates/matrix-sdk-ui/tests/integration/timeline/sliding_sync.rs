@@ -50,6 +50,8 @@ macro_rules! timeline_event {
     }
 }
 
+pub(crate) use timeline_event;
+
 macro_rules! assert_timeline_stream {
     // `--- day divider ---`
     ( @_ [ $stream:ident ] [ --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
@@ -63,7 +65,12 @@ macro_rules! assert_timeline_stream {
                     assert_matches!(
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::PushBack { value })) => {
-                            assert_matches!(value.as_ref(), TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+                            assert_matches!(
+                                value.as_ref(),
+                                TimelineItem::Virtual(
+                                    VirtualTimelineItem::DayDivider(_)
+                                )
+                            );
                         }
                     );
                 }
@@ -147,6 +154,8 @@ macro_rules! assert_timeline_stream {
         assert_timeline_stream!( @_ [ $stream ] [ $( $all )* ] [] )
     };
 }
+
+pub(crate) use assert_timeline_stream;
 
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client().await;

@@ -8,13 +8,17 @@ use matrix_sdk_ui::{
         Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
+    timeline::{TimelineItem, VirtualTimelineItem},
     RoomList,
 };
-use ruma::room_id;
+use ruma::{event_id, room_id};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-use crate::logged_in_client;
+use crate::{
+    logged_in_client,
+    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
+};
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
@@ -821,6 +825,181 @@ async fn test_room_not_found() -> Result<(), Error> {
         room_list.room(room_id).await,
         Err(Error::RoomNotFound(error_room_id)) => {
             assert_eq!(error_room_id, room_id.to_owned());
+        }
+    );
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_timeline() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [room_id],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "name": "Room #0",
+                    "initial": true,
+                    "timeline": [
+                        timeline_event!("$x0:bar.org" at 0 sec),
+                    ],
+                },
+            },
+        },
+    };
+
+    let room = room_list.room(room_id).await?;
+    let timeline = room.timeline();
+
+    let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "timeline": [
+                        timeline_event!("$x1:bar.org" at 1 sec),
+                        timeline_event!("$x2:bar.org" at 2 sec),
+                    ],
+                },
+            },
+        },
+    };
+
+    // Previous timeline items.
+    assert_matches!(
+        previous_timeline_items[0].as_ref(),
+        TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_))
+    );
+    assert_matches!(
+        previous_timeline_items[1].as_ref(),
+        TimelineItem::Event(item) => {
+            assert_eq!(item.event_id().unwrap().as_str(), "$x0:bar.org");
+        }
+    );
+
+    // Timeline items stream.
+    assert_timeline_stream! {
+        [timeline_items_stream]
+        update[1] "$x0:bar.org";
+        append    "$x1:bar.org";
+        update[2] "$x1:bar.org";
+        append    "$x2:bar.org";
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_latest_event() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [room_id],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "name": "Room #0",
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    let room = room_list.room(room_id).await?;
+
+    // The latest event does not exist.
+    assert!(room.latest_event().await.is_none());
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "timeline": [
+                        timeline_event!("$x0:bar.org" at 0 sec),
+                    ],
+                },
+            },
+        },
+    };
+
+    // The latest event exists.
+    assert_matches!(
+        room.latest_event().await,
+        Some(event) => {
+            assert_eq!(event.event_id(), Some(event_id!("$x0:bar.org")));
+        }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "timeline": [
+                        timeline_event!("$x1:bar.org" at 1 sec),
+                    ],
+                },
+            },
+        },
+    };
+
+    // The latest event has been updated.
+    assert_matches!(
+        room.latest_event().await,
+        Some(event) => {
+            assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
         }
     );
 

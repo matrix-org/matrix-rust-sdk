@@ -77,6 +77,8 @@ use once_cell::sync::Lazy;
 use ruma::{OwnedRoomId, RoomId};
 use thiserror::Error;
 
+use crate::{timeline::EventTimelineItem, Timeline};
+
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
@@ -222,12 +224,12 @@ impl RoomList {
         Ok(())
     }
 
+    /// Get a [`Room`] if it exists.
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        self.sliding_sync
-            .get_room(room_id)
-            .await
-            .map(Room::new)
-            .ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
+        match self.sliding_sync.get_room(room_id).await {
+            Some(room) => Room::new(room).await,
+            None => Err(Error::RoomNotFound(room_id.to_owned())),
+        }
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -246,16 +248,42 @@ pub struct Room {
 
 #[derive(Debug)]
 struct RoomInner {
+    /// The Sliding Sync room.
     sliding_sync_room: SlidingSyncRoom,
-    room: Option<matrix_sdk::room::Room>,
+
+    /// The underlying client room.
+    room: matrix_sdk::room::Room,
+
+    /// The timeline of the room.
+    timeline: Timeline,
+
+    /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
+    /// read marker nor the receipts.
+    sneaky_timeline: Timeline,
 }
 
 impl Room {
     /// Create a new `Room`.
-    fn new(sliding_sync_room: SlidingSyncRoom) -> Self {
-        let room = sliding_sync_room.client().get_room(sliding_sync_room.room_id());
+    async fn new(sliding_sync_room: SlidingSyncRoom) -> Result<Self, Error> {
+        let room = sliding_sync_room
+            .client()
+            .get_room(sliding_sync_room.room_id())
+            .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
 
-        Self { inner: Arc::new(RoomInner { sliding_sync_room, room }) }
+        let timeline = Timeline::builder(&room)
+            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
+            .track_read_marker_and_receipts()
+            .build()
+            .await;
+
+        let sneaky_timeline = Timeline::builder(&room)
+            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
+            .build()
+            .await;
+
+        Ok(Self {
+            inner: Arc::new(RoomInner { sliding_sync_room, room, timeline, sneaky_timeline }),
+        })
     }
 
     /// Get the best possible name for the room.
@@ -265,8 +293,21 @@ impl Room {
     pub async fn name(&self) -> Option<String> {
         Some(match self.inner.sliding_sync_room.name() {
             Some(name) => name,
-            None => self.inner.room.as_ref()?.display_name().await.ok()?.to_string(),
+            None => self.inner.room.display_name().await.ok()?.to_string(),
         })
+    }
+
+    /// Get the timeline of the room.
+    pub fn timeline(&self) -> &Timeline {
+        &self.inner.timeline
+    }
+
+    /// Get the latest event of the timeline.
+    ///
+    /// It's different from `Self::timeline().latest_event()` as it won't track
+    /// the read marker and receipts.
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.sneaky_timeline.latest_event().await
     }
 }
 
