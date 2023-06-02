@@ -187,7 +187,7 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let room = sliding_sync.get_room(room_id).context("`get_room`")?;
+    let room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
     assert_eq!(room.name(), Some(room_name.clone()));
 
     Ok(())
@@ -199,6 +199,7 @@ async fn timeline(
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
     Ok(sliding_sync
         .get_room(room_id)
+        .await
         .unwrap()
         .timeline()
         .await

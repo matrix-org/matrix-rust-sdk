@@ -164,8 +164,8 @@ impl SlidingSync {
     }
 
     /// Lookup a specific room
-    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.inner.rooms.blocking_read().get(room_id).cloned()
+    pub async fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
+        self.inner.rooms.read().await.get(room_id).cloned()
     }
 
     /// Check the number of rooms.
@@ -247,18 +247,18 @@ impl SlidingSync {
     }
 
     /// Lookup a set of rooms
-    pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
+    pub async fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
         &self,
         room_ids: I,
     ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.inner.rooms.blocking_read();
+        let rooms = self.inner.rooms.read().await;
 
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
     /// Get all rooms.
-    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.inner.rooms.blocking_read().values().cloned().collect()
+    pub async fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.inner.rooms.read().await.values().cloned().collect()
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {

@@ -60,7 +60,7 @@
 //! [`RoomList::state_stream`] provides a way to get a stream of the state
 //! machine's state, which can be pretty helpful for the client app.
 
-use std::future::ready;
+use std::{future::ready, sync::Arc};
 
 use async_stream::stream;
 use async_trait::async_trait;
@@ -71,9 +71,10 @@ use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode,
+    SlidingSyncMode, SlidingSyncRoom,
 };
 use once_cell::sync::Lazy;
+use ruma::RoomId;
 use thiserror::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
@@ -221,9 +222,32 @@ impl RoomList {
         Ok(())
     }
 
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.sliding_sync.get_room(room_id).map(Room::new)
+    }
+
     #[cfg(any(test, feature = "testing"))]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Room {
+    inner: Arc<RoomInner>,
+}
+
+#[derive(Debug)]
+struct RoomInner {
+    sliding_sync_room: SlidingSyncRoom,
+    room: Option<matrix_sdk::room::Room>,
+}
+
+impl Room {
+    fn new(sliding_sync_room: SlidingSyncRoom) -> Self {
+        let room = sliding_sync_room.client().get_room(sliding_sync_room.room_id());
+
+        Self { inner: Arc::new(RoomInner { sliding_sync_room, room }) }
     }
 }
 

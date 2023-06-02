@@ -701,12 +701,16 @@ impl SlidingSync {
     }
 
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<SlidingSyncRoom>>, ClientError> {
-        Ok(self.inner.get_room(<&RoomId>::try_from(room_id.as_str())?).map(|inner| {
-            Arc::new(SlidingSyncRoom {
-                inner,
-                sliding_sync: self.inner.clone(),
-                client: self.client.clone(),
-                timeline: Default::default(),
+        let room_id = <&RoomId>::try_from(room_id.as_str())?;
+
+        Ok(RUNTIME.block_on(async move {
+            self.inner.get_room(room_id).await.map(|inner| {
+                Arc::new(SlidingSyncRoom {
+                    inner,
+                    sliding_sync: self.inner.clone(),
+                    client: self.client.clone(),
+                    timeline: Default::default(),
+                })
             })
         }))
     }
@@ -719,21 +723,24 @@ impl SlidingSync {
             .into_iter()
             .map(OwnedRoomId::try_from)
             .collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
-        Ok(self
-            .inner
-            .get_rooms(actual_ids.into_iter())
-            .into_iter()
-            .map(|o| {
-                o.map(|inner| {
-                    Arc::new(SlidingSyncRoom {
-                        inner,
-                        sliding_sync: self.inner.clone(),
-                        client: self.client.clone(),
-                        timeline: Default::default(),
+
+        Ok(RUNTIME.block_on(async move {
+            self.inner
+                .get_rooms(actual_ids.into_iter())
+                .await
+                .into_iter()
+                .map(|o| {
+                    o.map(|inner| {
+                        Arc::new(SlidingSyncRoom {
+                            inner,
+                            sliding_sync: self.inner.clone(),
+                            client: self.client.clone(),
+                            timeline: Default::default(),
+                        })
                     })
                 })
-            })
-            .collect())
+                .collect()
+        }))
     }
 
     pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<TaskHandle> {
