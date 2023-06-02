@@ -74,7 +74,7 @@ use matrix_sdk::{
     SlidingSyncMode, SlidingSyncRoom,
 };
 use once_cell::sync::Lazy;
-use ruma::RoomId;
+use ruma::{OwnedRoomId, RoomId};
 use thiserror::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
@@ -222,8 +222,12 @@ impl RoomList {
         Ok(())
     }
 
-    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.sliding_sync.get_room(room_id).map(Room::new)
+    pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
+        self.sliding_sync
+            .get_room(room_id)
+            .await
+            .map(Room::new)
+            .ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -232,6 +236,9 @@ impl RoomList {
     }
 }
 
+/// A room in the room list.
+///
+/// It's cheap to clone this type.
 #[derive(Clone, Debug)]
 pub struct Room {
     inner: Arc<RoomInner>,
@@ -244,10 +251,22 @@ struct RoomInner {
 }
 
 impl Room {
+    /// Create a new `Room`.
     fn new(sliding_sync_room: SlidingSyncRoom) -> Self {
         let room = sliding_sync_room.client().get_room(sliding_sync_room.room_id());
 
         Self { inner: Arc::new(RoomInner { sliding_sync_room, room }) }
+    }
+
+    /// Get the best possible name for the room.
+    ///
+    /// If the sliding sync room has received a name from the server, then use
+    /// it, otherwise, let's calculate a name.
+    pub async fn name(&self) -> Option<String> {
+        Some(match self.inner.sliding_sync_room.name() {
+            Some(name) => name,
+            None => self.inner.room.as_ref()?.display_name().await.ok()?.to_string(),
+        })
     }
 }
 
@@ -265,6 +284,10 @@ pub enum Error {
     /// An input was asked to be applied but it wasn't possible to apply it.
     #[error("The input has been not applied")]
     InputHasNotBeenApplied(Input),
+
+    /// The requested room doesn't exist.
+    #[error("Room `{0}` not found")]
+    RoomNotFound(OwnedRoomId),
 }
 
 /// The state of the [`RoomList`]' state machine.

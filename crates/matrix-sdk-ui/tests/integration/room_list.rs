@@ -36,7 +36,7 @@ impl Match for SlidingSyncMatcher {
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $room_list_sync_stream:ident]
-        states = $pre_state:ident -> $post_state:ident,
+        $( states = $pre_state:ident -> $post_state:ident, )?
         assert request = { $( $request_json:tt )* },
         respond with = { $( $response_json:tt )* }
         $(,)?
@@ -49,7 +49,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            assert_eq!(State:: $pre_state, $room_list.state(), "pre state");
+            $( assert_eq!(State:: $pre_state, $room_list.state(), "pre state"); )?
 
             let next = $room_list_sync_stream.next().await.unwrap()?;
 
@@ -70,7 +70,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             }
 
-            assert_eq!(State:: $post_state, $room_list.state(), "post state");
+            $( assert_eq!(State:: $post_state, $room_list.state(), "post state"); )?
 
             next
         }
@@ -724,6 +724,105 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         insert[2] [ F("!r4:bar.org") ];
         pending;
     };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id_0 = room_id!("!r0:bar.org");
+    let room_id_1 = room_id!("!r1:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 1],
+                            "room_ids": [
+                                room_id_0,
+                                room_id_1,
+                            ],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id_0: {
+                    "name": "Room #0",
+                    "initial": true,
+                },
+                room_id_1: {
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    // Room has received a name from sliding sync.
+    let room0 = room_list.room(room_id_0).await?;
+    assert_eq!(room0.name().await, Some("Room #0".to_string()));
+
+    // Room has not received a name from sliding sync, then it's calculated.
+    let room1 = room_list.room(room_id_1).await?;
+    assert_eq!(room1.name().await, Some("Empty Room".to_string()));
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {},
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [1, 1],
+                            "room_ids": [
+                                room_id_1,
+                            ],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id_1: {
+                    "name": "Room #1",
+                },
+            },
+        },
+    };
+
+    // Room has _now_ received a name from sliding sync!
+    assert_eq!(room1.name().await, Some("Room #1".to_string()));
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_not_found() -> Result<(), Error> {
+    let (_server, room_list) = new_room_list().await?;
+
+    let room_id = room_id!("!foo:bar.org");
+
+    assert_matches!(
+        room_list.room(room_id).await,
+        Err(Error::RoomNotFound(error_room_id)) => {
+            assert_eq!(error_room_id, room_id.to_owned());
+        }
+    );
 
     Ok(())
 }
