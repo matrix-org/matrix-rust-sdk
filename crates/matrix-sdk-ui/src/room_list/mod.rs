@@ -97,7 +97,8 @@ impl RoomList {
             .storage_key(Some("matrix-sdk-ui-roomlist".to_string()))
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19)),
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
+                    .timeline_limit(1),
             )
             .await
             .map_err(Error::SlidingSync)?
@@ -299,7 +300,8 @@ impl Action for AddVisibleRoomsList {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective()),
+                    .sync_mode(SlidingSyncMode::new_selective())
+                    .timeline_limit(20),
             )
             .await
             .map_err(Error::SlidingSync)?;

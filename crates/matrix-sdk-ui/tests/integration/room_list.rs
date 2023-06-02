@@ -212,6 +212,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                         ["m.room.encryption", ""],
                     ],
                     "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 1,
                 },
             },
             "extensions": {
@@ -249,6 +250,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "ranges": [
                         [0, 49],
                     ],
+                    "timeline_limit": 1,
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
@@ -256,6 +258,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                         ["m.room.encryption", ""],
                     ],
                     "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 20,
                 }
             }
         },
