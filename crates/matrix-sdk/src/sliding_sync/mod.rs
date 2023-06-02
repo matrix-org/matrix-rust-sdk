@@ -81,6 +81,11 @@ pub struct SlidingSync {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncInner {
+    /// A unique identifier for this instance of sliding sync.
+    ///
+    /// Used to distinguish different connections to the sliding sync proxy.
+    _loop_id: Option<String>,
+
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
 
@@ -132,8 +137,8 @@ impl SlidingSync {
     }
 
     /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder(client: Client) -> SlidingSyncBuilder {
-        SlidingSyncBuilder::new(client)
+    pub fn builder(loop_id: String, client: Client) -> SlidingSyncBuilder {
+        SlidingSyncBuilder::new(loop_id, client)
     }
 
     /// Subscribe to a given room.
@@ -218,7 +223,7 @@ impl SlidingSync {
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let Some(ref storage_key) = self.inner.storage_key else {
-            return Err(error::Error::MissingStorageKeyForCaching.into());
+            return Err(error::Error::CacheDisabled.into());
         };
 
         let reloaded_rooms =
@@ -414,6 +419,7 @@ impl SlidingSync {
             (
                 // Build the request itself.
                 assign!(v4::Request::new(), {
+                    // conn_id: self.inner.loop_id.clone(),
                     pos,
                     delta_token,
                     timeout: Some(timeout),
@@ -721,7 +727,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sync = client.sliding_sync().build().await?;
+        let sync = client.sliding_sync("test-sliding-sync").build().await?;
         let extensions = sync.prepare_extension_config(None);
 
         // If the user doesn't provide any extension config, we enable to-device and
@@ -762,7 +768,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync();
+        let mut sliding_sync_builder = client.sliding_sync("test-sliding-sync");
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);

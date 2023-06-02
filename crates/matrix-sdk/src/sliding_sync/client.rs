@@ -7,8 +7,8 @@ use crate::{Client, Result};
 
 impl Client {
     /// Create a [`SlidingSyncBuilder`] tied to this client.
-    pub fn sliding_sync(&self) -> SlidingSyncBuilder {
-        SlidingSync::builder(self.clone())
+    pub fn sliding_sync(&self, loop_id: impl Into<String>) -> SlidingSyncBuilder {
+        SlidingSync::builder(loop_id.into(), self.clone())
     }
 
     #[instrument(skip(self, response))]
