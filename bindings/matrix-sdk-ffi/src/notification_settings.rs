@@ -122,7 +122,7 @@ impl NotificationSettings {
         room_id: String,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let ruleset = &mut *self.push_rules.write().await;
+        let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
         let mode = match mode {
             RoomNotificationMode::AllMessages => SdkRoomNotificationMode::AllMessages,
@@ -131,7 +131,9 @@ impl NotificationSettings {
             }
             RoomNotificationMode::Mute => SdkRoomNotificationMode::Mute,
         };
-        notification_settings.set_room_notification_mode(&room_id, mode, ruleset).await?;
+        notification_settings.set_room_notification_mode(&room_id, mode, &mut ruleset)?;
+        notification_settings.save_push_rules(&ruleset).await?;
+        *self.push_rules.write().await = ruleset;
         Ok(())
     }
 
@@ -140,11 +142,11 @@ impl NotificationSettings {
         &self,
         room_id: String,
     ) -> Result<(), NotificationSettingsError> {
-        let ruleset = &mut *self.push_rules.write().await;
-        self.sdk_client
-            .notification_settings()
-            .restore_room_default_push_rule(&room_id, ruleset)
-            .await?;
+        let mut ruleset = self.push_rules.read().await.clone();
+        let notification_settings = self.sdk_client.notification_settings();
+        notification_settings.restore_room_default_push_rule(&room_id, &mut ruleset)?;
+        notification_settings.save_push_rules(&ruleset).await?;
+        *self.push_rules.write().await = ruleset;
         Ok(())
     }
 
@@ -161,9 +163,16 @@ impl NotificationSettings {
     }
 
     /// Set whether @room mentions are enabled.
-    pub async fn set_room_mention_enabled(&self, enabled: bool) {
-        let ruleset = &mut *self.push_rules.write().await;
-        self.sdk_client.notification_settings().set_room_mention_enabled(enabled, ruleset)
+    pub async fn set_room_mention_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        let mut ruleset = self.push_rules.read().await.clone();
+        let notification_settings = self.sdk_client.notification_settings();
+        notification_settings.set_room_mention_enabled(enabled, &mut ruleset);
+        notification_settings.save_push_rules(&ruleset).await?;
+        *self.push_rules.write().await = ruleset;
+        Ok(())
     }
 
     /// Get whether user mentions are enabled.
@@ -173,8 +182,15 @@ impl NotificationSettings {
     }
 
     /// Set whether user mentions are enabled.
-    pub async fn set_user_mention_enabled(&self, enabled: bool) {
-        let ruleset = &mut *self.push_rules.write().await;
-        self.sdk_client.notification_settings().set_user_mention_enabled(enabled, ruleset)
+    pub async fn set_user_mention_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        let mut ruleset = self.push_rules.read().await.clone();
+        let notification_settings = self.sdk_client.notification_settings();
+        notification_settings.set_user_mention_enabled(enabled, &mut ruleset);
+        notification_settings.save_push_rules(&ruleset).await?;
+        *self.push_rules.write().await = ruleset;
+        Ok(())
     }
 }

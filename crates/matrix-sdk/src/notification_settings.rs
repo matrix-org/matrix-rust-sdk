@@ -36,7 +36,10 @@ impl NotificationSettings {
     }
 
     /// Save a given ruleset to the client's owner account data
-    async fn save_push_rules(&self, ruleset: &Ruleset) -> Result<(), NotificationSettingsError> {
+    pub async fn save_push_rules(
+        &self,
+        ruleset: &Ruleset,
+    ) -> Result<(), NotificationSettingsError> {
         let content = PushRulesEventContent::new(ruleset.clone());
         self.client
             .account()
@@ -48,56 +51,34 @@ impl NotificationSettings {
 
     /// Restore the default push rule for a given room
     ///
-    /// The owner's account data will be updated.
-    /// If an error occurs, the ruleset will not be modified.
-    pub async fn restore_room_default_push_rule(
+    /// Owner's account data will not be updated
+    pub fn restore_room_default_push_rule(
         &self,
         room_id: &String,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
         // Only if we have a custom mode for this room
         if self.get_user_defined_room_notification_mode(room_id, ruleset).is_some() {
-            let updated_ruleset = &mut ruleset.clone();
-            // get a new ruleset without the custom rules
-            self.delete_user_defined_room_notification_mode(room_id, updated_ruleset)?;
-            // save the updated ruleset
-            if self.save_push_rules(updated_ruleset).await.is_ok() {
-                *ruleset = updated_ruleset.clone();
-            } else {
-                return Err(NotificationSettingsError::UnableToSavePushRules);
-            }
+            self.delete_user_defined_room_notification_mode(room_id, ruleset)?;
         }
         Ok(())
     }
 
     /// Sets a notification mode for a given room
     ///
-    /// The owner's account data will be updated.
-    /// If an error occurs, the ruleset will not be modified.
-    pub async fn set_room_notification_mode(
+    /// Owner's account data will not be updated
+    pub fn set_room_notification_mode(
         &self,
         room_id: &String,
         mode: RoomNotificationMode,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
-        let updated_ruleset = &mut ruleset.clone();
         match mode {
-            RoomNotificationMode::AllMessages => {
-                self.insert_notify_room_rule(room_id, updated_ruleset)?;
-            }
+            RoomNotificationMode::AllMessages => self.insert_notify_room_rule(room_id, ruleset),
             RoomNotificationMode::MentionsAndKeywordsOnly => {
-                self.insert_mention_and_keywords_room_rule(room_id, updated_ruleset)?;
+                self.insert_mention_and_keywords_room_rule(room_id, ruleset)
             }
-            RoomNotificationMode::Mute => {
-                self.insert_mute_room_rule(room_id, updated_ruleset)?;
-            }
-        }
-        // Save the updated ruleset
-        if self.save_push_rules(updated_ruleset).await.is_ok() {
-            *ruleset = updated_ruleset.clone();
-            Ok(())
-        } else {
-            Err(NotificationSettingsError::UnableToSavePushRules)
+            RoomNotificationMode::Mute => self.insert_mute_room_rule(room_id, ruleset),
         }
     }
 
@@ -108,9 +89,7 @@ impl NotificationSettings {
         ruleset: &Ruleset,
     ) -> Option<RoomNotificationMode> {
         // Search for an enabled Override rule where rule_id is the room_id
-        if let Some(rule) =
-            ruleset.override_.iter().find(|x| x.enabled /* && x.rule_id == *room_id */)
-        {
+        if let Some(rule) = ruleset.override_.iter().find(|x| x.enabled) {
             // without a Notify action
             if !rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
                 // with a condition of type `EventMatch` for this room_id
@@ -252,6 +231,8 @@ impl NotificationSettings {
     }
 
     /// Set whether the IsUserMention rule is enabled.
+    ///
+    /// Owner's account data will not be updated
     #[allow(deprecated)]
     pub fn set_user_mention_enabled(&self, enabled: bool, ruleset: &mut Ruleset) {
         // Sets the IsUserMention Override rule (MSC3952).
@@ -297,6 +278,8 @@ impl NotificationSettings {
     }
 
     /// Set whether the IsRoomMention rule is enabled.
+    ///
+    /// Owner's account data will not be updated
     #[allow(deprecated)]
     pub fn set_room_mention_enabled(&self, enabled: bool, ruleset: &mut Ruleset) {
         // Sets the IsRoomMention Override rule (MSC3952).
@@ -337,9 +320,6 @@ impl NotificationSettings {
 
     /// Insert a mention and keywords rule for a given room in the given
     /// ruleset
-    ///
-    /// Returns an error if mention rules are disabled and no keyword rules
-    /// exists.
     fn insert_mention_and_keywords_room_rule(
         &self,
         room_id: &String,
@@ -728,10 +708,6 @@ pub(crate) mod tests {
             notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
         assert!(mode.is_none());
 
-        // Calling set_room_notification_mode will perform an API call
-        let mock = Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200));
-        server.register(mock).await;
-
         // Test to set each modes
         for expected_mode in [
             RoomNotificationMode::AllMessages,
@@ -740,9 +716,11 @@ pub(crate) mod tests {
         ]
         .iter()
         {
-            let result = notification_settings
-                .set_room_notification_mode(&room_id, expected_mode.clone(), &mut ruleset)
-                .await;
+            let result = notification_settings.set_room_notification_mode(
+                &room_id,
+                expected_mode.clone(),
+                &mut ruleset,
+            );
             assert!(result.is_ok());
 
             match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset)
@@ -754,45 +732,6 @@ pub(crate) mod tests {
                     panic!("mode {:?} is expected.", expected_mode)
                 }
             }
-        }
-    }
-
-    #[async_test]
-    async fn set_room_notification_mode_unable_to_save() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let mut ruleset = client.account().push_rules().await.unwrap();
-        let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
-
-        let mode =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
-        assert!(mode.is_none());
-
-        // Calling set_room_notification_mode will perform an API call
-        let mock = Mock::given(method("PUT")).respond_with(ResponseTemplate::new(500));
-        server.register(mock).await;
-
-        // Test to set each modes
-        for expected_mode in [
-            RoomNotificationMode::AllMessages,
-            RoomNotificationMode::MentionsAndKeywordsOnly,
-            RoomNotificationMode::Mute,
-        ]
-        .iter()
-        {
-            let result = notification_settings
-                .set_room_notification_mode(&room_id, expected_mode.clone(), &mut ruleset)
-                .await;
-            assert!(result.is_err());
-
-            assert!(
-                notification_settings
-                    .get_user_defined_room_notification_mode(&room_id, &ruleset)
-                    .is_none(),
-                "ruleset should not have been updated."
-            );
         }
     }
 
@@ -814,53 +753,21 @@ pub(crate) mod tests {
         server.register(mock).await;
 
         // Mute the room
-        let result = notification_settings
-            .set_room_notification_mode(&room_id, RoomNotificationMode::Mute, &mut ruleset)
-            .await;
+        let result = notification_settings.set_room_notification_mode(
+            &room_id,
+            RoomNotificationMode::Mute,
+            &mut ruleset,
+        );
         assert!(result.is_ok());
 
         // Restore to default mode
-        let result =
-            notification_settings.restore_room_default_push_rule(&room_id, &mut ruleset).await;
+        let result = notification_settings.restore_room_default_push_rule(&room_id, &mut ruleset);
         assert!(result.is_ok());
 
         // All user defined rules should have be deleted
         assert!(notification_settings
             .get_user_defined_room_notification_mode(&room_id, &ruleset)
             .is_none());
-    }
-
-    #[async_test]
-    async fn restore_room_default_push_rule_unable_to_save() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let mut ruleset = client.account().push_rules().await.unwrap();
-        let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
-
-        let mode =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
-        assert!(mode.is_none());
-
-        // Calling set_room_notification_mode will perform an API call
-        let mock = Mock::given(method("PUT")).respond_with(ResponseTemplate::new(500));
-        server.register(mock).await;
-
-        // Mute the room
-        let result = notification_settings.insert_mute_room_rule(&room_id, &mut ruleset);
-        assert!(result.is_ok());
-
-        // Restore to default mode
-        let result =
-            notification_settings.restore_room_default_push_rule(&room_id, &mut ruleset).await;
-        assert!(result.is_err());
-
-        // Ruleset should not have been modified
-        assert_eq!(
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset),
-            Some(RoomNotificationMode::Mute)
-        );
     }
 
     #[async_test]
