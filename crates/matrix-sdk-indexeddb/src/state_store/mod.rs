@@ -796,6 +796,35 @@ impl_state_store!({
             .transpose()
     }
 
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::PRESENCE, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::PRESENCE)?;
+
+        let mut events = Vec::with_capacity(user_ids.len());
+
+        for user_id in user_ids {
+            if let Some(event) = store
+                .get(&self.encode_key(keys::PRESENCE, user_id))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                events.push(event)
+            }
+        }
+
+        Ok(events)
+    }
+
     async fn get_state_event(
         &self,
         room_id: &RoomId,

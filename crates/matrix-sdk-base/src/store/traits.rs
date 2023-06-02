@@ -95,6 +95,16 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<Raw<PresenceEvent>>, Self::Error>;
 
+    /// Get the stored presence events for the given users.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_ids` - The IDs of the users to fetch the presence events for.
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error>;
+
     /// Get a state event out of the state store.
     ///
     /// # Arguments
@@ -386,6 +396,13 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         user_id: &UserId,
     ) -> Result<Option<Raw<PresenceEvent>>, Self::Error> {
         self.0.get_presence_event(user_id).await.map_err(Into::into)
+    }
+
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error> {
+        self.0.get_presence_events(user_ids).await.map_err(Into::into)
     }
 
     async fn get_state_event(
