@@ -5,7 +5,6 @@ use ruma::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
-    events::TimelineEventType,
     OwnedRoomId,
 };
 use tokio::sync::broadcast::channel;
@@ -27,7 +26,6 @@ pub struct SlidingSyncBuilder {
     homeserver: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
-    bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
@@ -40,7 +38,6 @@ impl SlidingSyncBuilder {
             homeserver: None,
             client,
             lists: Vec::new(),
-            bump_event_types: Vec::new(),
             extensions: None,
             subscriptions: BTreeMap::new(),
             rooms: BTreeMap::new(),
@@ -205,17 +202,6 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Allowlist of event types which should be considered recent activity
-    /// when sorting `by_recency`. By omitting event types, clients can ensure
-    /// that uninteresting events (e.g. a profile rename) do not cause a
-    /// room to jump to the top of its list(s). Empty or
-    /// omitted `bump_event_types` have no effect: all events in a room will
-    /// be considered recent activity.
-    pub fn bump_event_types(mut self, bump_event_types: &[TimelineEventType]) -> Self {
-        self.bump_event_types = bump_event_types.to_vec();
-        self
-    }
-
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -258,7 +244,6 @@ impl SlidingSyncBuilder {
 
             lists,
             rooms,
-            bump_event_types: self.bump_event_types,
 
             extensions: self.extensions.unwrap_or_default(),
             reset_counter: Default::default(),

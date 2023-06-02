@@ -44,9 +44,7 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign,
-    events::TimelineEventType,
-    OwnedRoomId, RoomId,
+    assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -98,10 +96,6 @@ pub(super) struct SlidingSyncInner {
 
     /// The rooms details
     rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
     /// one wants to receive updates.
@@ -418,7 +412,6 @@ impl SlidingSync {
                     delta_token,
                     timeout: Some(timeout),
                     lists: requests_lists,
-                    bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
                     unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
                     extensions,
