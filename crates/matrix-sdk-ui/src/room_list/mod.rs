@@ -1,4 +1,64 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for that specific language governing permissions and
+// limitations under the License.
+
 //! `RoomList` API.
+//!
+//! The `RoomList` is a UI API dedicated to present a list of Matrix rooms to
+//! the user. The syncing is handled by
+//! [`SlidingSync`][matrix_sdk::SlidingSync]. The idea is to expose a simple API
+//! to handle most of the client app use cases, like: Showing and updating a
+//! list of rooms, filtering a list of rooms, handling particular updates of a
+//! range of rooms (the ones the client app is showing to the view, i.e. the
+//! rooms present in the viewport) etc.
+//!
+//! As such, the `RoomList` works as an opinionated state machine. The states
+//! are defined by [`State`]. Actions are attached to the each state transition.
+//! Apart from that, one can apply [`Input`]s on the state machine, like
+//! notifying that the client app viewport of the room list has changed (if the
+//! user of the client app has scrolled in the room list for example) etc.
+//!
+//! The API is purposely small. Sliding Sync is versatile. `RoomList` is _one_
+//! specific usage of Sliding Sync.
+//!
+//! # Basic principle
+//!
+//! `RoomList` works with 2 Sliding Sync List:
+//!
+//! * `all_rooms` (refered by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
+//!   list. It's goal is to load all the user' rooms. It starts with a
+//!   [`SlidingSyncMode::Selective`] sync-mode with a small range (i.e. a small
+//!   set of rooms) to load the first rooms quickly, and then updates to a
+//!   [`SlidingSyncMode::Growing`] sync-mode to load the remaining rooms “in the
+//!   background”: it will sync the existing rooms and will fetch new rooms, by
+//!   a certain batch size.
+//! * `visible_rooms` (refered by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
+//!   the “reactive” list. It's goal is to react to the client app user actions.
+//!   If the user scrolls in the room list, the `visible_rooms` will be
+//!   configured to sync for the particular range of rooms the user is actually
+//!   seeing (the rooms in the current viewport). `visible_rooms` has a
+//!   different configuration than `all_rooms` as it loads more timeline events:
+//!   it means that the room will already have a “history”, a timeline, ready to
+//!   be presented when the user enters the room.
+//!
+//! This behavior has proven to be empirically satisfying to provide a fast and
+//! fluid user experience for a Matrix client.
+//!
+//! [`RoomList::entries`] provides a way to get a stream of room list entry.
+//! This stream can be filtered, and the filter can be changed over time.
+//!
+//! [`RoomList::state_stream`] provides a way to get a stream of the state
+//! machine's state, which can be pretty helpful for the client app.
 
 use std::future::ready;
 
@@ -19,6 +79,7 @@ use thiserror::Error;
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
+/// The [`RoomList`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync: SlidingSync,
@@ -26,6 +87,10 @@ pub struct RoomList {
 }
 
 impl RoomList {
+    /// Create a new `RoomList`.
+    ///
+    /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
+    /// already pre-configured.
     pub async fn new(client: Client) -> Result<Self, Error> {
         let sliding_sync = client
             .sliding_sync()
@@ -43,6 +108,19 @@ impl RoomList {
         Ok(Self { sliding_sync, state: Observable::new(State::Init) })
     }
 
+    /// Start to sync the room list.
+    ///
+    /// It's the main method of this entire API. Calling `sync` allows to
+    /// receive updates on the room list: new rooms, rooms updates etc. Those
+    /// updates can be read with [`Self::entries`]. This method returns a
+    /// [`Stream`] where produced items only hold an empty value in case of a
+    /// sync success, otherwise an error.
+    ///
+    /// The `RoomList`' state machine is run by this method.
+    ///
+    /// Stopping the [`Stream`] (i.e. stop polling it) and calling
+    /// [`Self::sync`] again will resume from the previous state of the state
+    /// machine.
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
             let sync = self.sliding_sync.sync();
@@ -86,14 +164,18 @@ impl RoomList {
         }
     }
 
+    /// Get the actual state of the state machine.
     pub fn state(&self) -> State {
         self.state.get()
     }
 
+    /// Get a [`Stream`] of [`State`]s.
     pub fn state_stream(&self) -> impl Stream<Item = State> {
         Observable::subscribe(&self.state)
     }
 
+    /// Get all previous room list entries, in addition to a [`Stream`] to room
+    /// list entry's updates.
     pub async fn entries(
         &self,
     ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
@@ -103,6 +185,8 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
+    /// Similar to [`Self::entries`] except that it's possible to provide a
+    /// filter that will filter out room list entries.
     pub async fn entries_filtered<F>(
         &self,
         filter: F,
@@ -116,6 +200,7 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
     }
 
+    /// Pass an [`Input`] onto the state machine.
     pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
         use Input::*;
 
@@ -141,6 +226,7 @@ impl RoomList {
     }
 }
 
+/// [`RoomList`]'s errors.
 #[derive(Debug, Error)]
 pub enum Error {
     /// Error from [`matrix_sdk::SlidingSync`].
@@ -151,16 +237,12 @@ pub enum Error {
     #[error("Unknown list `{0}`")]
     UnknownList(String),
 
-    #[error("Failed to set up the entries correctly")]
-    Entries,
-
-    #[error("Failed to acquire a lock to update the entries filter")]
-    CannotUpdateEntriesFilter,
-
+    /// An input was asked to be applied but it wasn't possible to apply it.
     #[error("The input has been not applied")]
     InputHasNotBeenApplied(Input),
 }
 
+/// The state of the [`RoomList`]' state machine.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum State {
     /// That's the first initial state.
@@ -182,6 +264,8 @@ pub enum State {
 }
 
 impl State {
+    /// Transition to the next state, and execute the associated transition's
+    /// [`Actions`].
     async fn next(&self, sliding_sync: &SlidingSync) -> Result<Self, Error> {
         use State::*;
 
@@ -201,6 +285,7 @@ impl State {
     }
 }
 
+/// A trait to define what an `Action` is.
 #[async_trait]
 trait Action {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
@@ -239,9 +324,15 @@ impl Action for ChangeAllRoomsListToGrowingSyncMode {
     }
 }
 
+/// Type alias to represent one action.
 type OneAction = Box<dyn Action + Send + Sync>;
+
+/// Type alias to represent many actions.
 type ManyActions = Vec<OneAction>;
 
+/// A type to represent multiple actions.
+///
+/// It contains helper methods to create pre-configured set of actions.
 struct Actions {
     actions: &'static Lazy<ManyActions>,
 }
@@ -280,8 +371,17 @@ impl Actions {
     }
 }
 
+/// An input for the [`RoomList`]' state machine.
+///
+/// An input is something that has happened or is happening or is requested by
+/// the client app using this [`RoomList`].
 #[derive(Debug)]
 pub enum Input {
+    /// The client app's viewport of the room list has changed.
+    ///
+    /// Use this input when the user of the client app is scrolling inside the
+    /// room list, and the viewport has changed. The viewport is defined as the
+    /// range of visible rooms in the room list.
     Viewport(Ranges),
 }
 
