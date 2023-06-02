@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
+    iter,
     sync::{Arc, RwLock},
 };
 
@@ -419,12 +420,27 @@ impl MemoryStore {
         }
     }
 
-    async fn get_profile(
+    async fn get_profiles<'a, I>(
         &self,
         room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<Option<MinimalRoomMemberEvent>> {
-        Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
+        user_ids: I,
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>>
+    where
+        I: IntoIterator<Item = &'a UserId>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let user_ids = user_ids.into_iter();
+        if user_ids.len() == 0 {
+            return Ok(BTreeMap::new());
+        }
+
+        let Some(room_profiles) = self.profiles.get(room_id) else {
+            return Ok(BTreeMap::new());
+        };
+
+        Ok(user_ids
+            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (user_id, p.clone())))
+            .collect())
     }
 
     /// Get the user IDs for the given room with the given memberships and
@@ -619,7 +635,15 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>> {
-        self.get_profile(room_id, user_id).await
+        Ok(self.get_profiles(room_id, iter::once(user_id)).await?.into_values().next())
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        self.get_profiles(room_id, user_ids.iter().map(AsRef::as_ref)).await
     }
 
     async fn get_user_ids(

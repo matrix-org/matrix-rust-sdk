@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 
@@ -25,7 +25,7 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
@@ -906,7 +906,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MinimalStateEvent<RoomMemberEventContent>>> {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         self.inner
             .transaction_on_one_with_mode(keys::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(keys::PROFILES)?
@@ -914,6 +914,35 @@ impl_state_store!({
             .await?
             .map(|f| self.deserialize_event(&f))
             .transpose()
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        if user_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::PROFILES, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::PROFILES)?;
+
+        let mut profiles = BTreeMap::new();
+        for user_id in user_ids {
+            if let Some(profile) = store
+                .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                profiles.insert(user_id.as_ref(), profile);
+            }
+        }
+
+        Ok(profiles)
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {

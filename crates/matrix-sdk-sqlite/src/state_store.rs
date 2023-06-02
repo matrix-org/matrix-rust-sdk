@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fmt, iter,
     path::{Path, PathBuf},
     sync::Arc,
@@ -11,8 +11,8 @@ use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
-    RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey,
-    StateStoreDataValue,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
+    StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -617,15 +617,24 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             .await?)
     }
 
-    async fn get_profile(&self, room_id: Key, user_id: Key) -> Result<Option<Vec<u8>>> {
+    async fn get_profiles(
+        &self,
+        room_id: Key,
+        user_ids: Vec<Key>,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let sql_params = vec!["?"; user_ids.len()].join(", ");
+        let sql = format!(
+            "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
+        );
+        let params = iter::once(room_id).chain(user_ids);
+
         Ok(self
-            .query_row(
-                "SELECT data FROM profile WHERE room_id = ? AND user_id = ?",
-                (room_id, user_id),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?)
+            .prepare(sql, move |mut stmt| {
+                stmt.query(rusqlite::params_from_iter(params))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                    .collect()
+            })
+            .await?)
     }
 
     async fn get_user_ids(&self, room_id: Key, memberships: Vec<Key>) -> Result<Vec<Vec<u8>>> {
@@ -1172,15 +1181,50 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<matrix_sdk_base::MinimalRoomMemberEvent>> {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         let room_id = self.encode_key(keys::PROFILE, room_id);
-        let user_id = self.encode_key(keys::PROFILE, user_id);
+        let user_ids = vec![self.encode_key(keys::PROFILE, user_id)];
+
         self.acquire()
             .await?
-            .get_profile(room_id, user_id)
+            .get_profiles(room_id, user_ids)
             .await?
-            .map(|data| self.deserialize_json(&data))
+            .into_iter()
+            .next()
+            .map(|(_, data)| self.deserialize_json(&data))
             .transpose()
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        if user_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let room_id = self.encode_key(keys::PROFILE, room_id);
+        let mut user_ids_map = user_ids
+            .iter()
+            .map(|u| (self.encode_key(keys::PROFILE, u), u.as_ref()))
+            .collect::<BTreeMap<_, _>>();
+        let user_ids = user_ids_map.keys().cloned().collect();
+
+        self.acquire()
+            .await?
+            .get_profiles(room_id, user_ids)
+            .await?
+            .into_iter()
+            .map(|(user_id, data)| {
+                Ok((
+                    user_ids_map
+                        .remove(user_id.as_slice())
+                        .expect("returned user IDs were requested"),
+                    self.deserialize_json(&data)?,
+                ))
+            })
+            .collect()
     }
 
     async fn get_user_ids(

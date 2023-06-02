@@ -379,36 +379,40 @@ impl StateStoreIntegrationTests for DynStateStore {
         let unknown_user_id = user_id!("@unknown:localhost");
 
         // No event in store.
+        let mut user_ids = vec![user_id.to_owned()];
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                room_id,
-                &[user_id.to_owned()],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(room_id, &user_ids)
             .await;
         assert!(member_events.unwrap().is_empty());
+        assert!(self.get_profile(room_id, user_id).await.unwrap().is_none());
+        let profiles = self.get_profiles(room_id, &user_ids).await;
+        assert!(profiles.unwrap().is_empty());
 
         // One event in store.
         let mut changes = StateChanges::default();
+        let raw_member_event = membership_event();
+        let profile = raw_member_event.deserialize().unwrap().into();
         changes
             .state
             .entry(room_id.to_owned())
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default()
-            .insert(user_id.into(), membership_event().cast());
+            .insert(user_id.into(), raw_member_event.cast());
+        changes.profiles.entry(room_id.to_owned()).or_default().insert(user_id.to_owned(), profile);
         self.save_changes(&changes).await.unwrap();
 
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_some());
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                room_id,
-                &[user_id.to_owned()],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(room_id, &user_ids)
             .await;
         assert_eq!(member_events.unwrap().len(), 1);
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members.len(), 1, "We expected to find members for the room");
+        assert!(self.get_profile(room_id, user_id).await.unwrap().is_some());
+        let profiles = self.get_profiles(room_id, &user_ids).await;
+        assert_eq!(profiles.unwrap().len(), 1);
 
         // Several events in store.
         let mut changes = StateChanges::default();
@@ -418,41 +422,41 @@ impl StateStoreIntegrationTests for DynStateStore {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        changes_members.insert(
-            second_user_id.into(),
-            custom_membership_event(second_user_id, event_id!("$second_member_event")).cast(),
-        );
-        changes_members.insert(
-            third_user_id.into(),
-            custom_membership_event(third_user_id, event_id!("$third_member_event")).cast(),
-        );
+        let changes_profiles = changes.profiles.entry(room_id.to_owned()).or_default();
+        let raw_second_member_event =
+            custom_membership_event(second_user_id, event_id!("$second_member_event"));
+        let second_profile = raw_second_member_event.deserialize().unwrap().into();
+        changes_members.insert(second_user_id.into(), raw_second_member_event.cast());
+        changes_profiles.insert(second_user_id.to_owned(), second_profile);
+        let raw_third_member_event =
+            custom_membership_event(third_user_id, event_id!("$third_member_event"));
+        let third_profile = raw_third_member_event.deserialize().unwrap().into();
+        changes_members.insert(third_user_id.into(), raw_third_member_event.cast());
+        changes_profiles.insert(third_user_id.to_owned(), third_profile);
         self.save_changes(&changes).await.unwrap();
 
+        user_ids.extend([second_user_id.to_owned(), third_user_id.to_owned()]);
         assert!(self.get_member_event(room_id, second_user_id).await.unwrap().is_some());
         assert!(self.get_member_event(room_id, third_user_id).await.unwrap().is_some());
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                room_id,
-                &[user_id.to_owned(), second_user_id.to_owned(), third_user_id.to_owned()],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(room_id, &user_ids)
             .await;
         assert_eq!(member_events.unwrap().len(), 3);
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members.len(), 3, "We expected to find members for the room");
+        assert!(self.get_profile(room_id, second_user_id).await.unwrap().is_some());
+        assert!(self.get_profile(room_id, third_user_id).await.unwrap().is_some());
+        let profiles = self.get_profiles(room_id, &user_ids).await;
+        assert_eq!(profiles.unwrap().len(), 3);
 
         // Several events in store with one unknown.
+        user_ids.push(unknown_user_id.to_owned());
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                room_id,
-                &[
-                    user_id.to_owned(),
-                    second_user_id.to_owned(),
-                    third_user_id.to_owned(),
-                    unknown_user_id.to_owned(),
-                ],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(room_id, &user_ids)
             .await;
         assert_eq!(member_events.unwrap().len(), 3);
+        let profiles = self.get_profiles(room_id, &user_ids).await;
+        assert_eq!(profiles.unwrap().len(), 3);
 
         // Empty user IDs list.
         let member_events = self
@@ -462,6 +466,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await;
         assert!(member_events.unwrap().is_empty());
+        let profiles = self.get_profiles(room_id, &[]).await;
+        assert!(profiles.unwrap().is_empty());
     }
 
     async fn test_filter_saving(&self) {
