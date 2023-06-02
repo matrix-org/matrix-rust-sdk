@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
@@ -146,6 +151,19 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>, Self::Error>;
+
+    /// Get the current profiles for the given users in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room the profiles are used in.
+    ///
+    /// * `user_ids` - The IDs of the users the profiles belong to.
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error>;
 
     /// Get the user ids of members for a given room with the given memberships,
     /// for stripped and regular rooms alike.
@@ -402,6 +420,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>, Self::Error> {
         self.0.get_profile(room_id, user_id).await.map_err(Into::into)
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error> {
+        self.0.get_profiles(room_id, user_ids).await.map_err(Into::into)
     }
 
     async fn get_user_ids(
