@@ -73,6 +73,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_stripped_non_stripped(&self) -> Result<()>;
     /// Test room removal.
     async fn test_room_removal(&self) -> Result<()>;
+    /// Test presence saving.
+    async fn test_presence_saving(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1012,6 +1014,53 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(stripped_rooms.is_empty(), "still stripped room info found");
         Ok(())
     }
+
+    async fn test_presence_saving(&self) {
+        let user_id = user_id();
+        let second_user_id = user_id!("@second:localhost");
+        let third_user_id = user_id!("@third:localhost");
+        let unknown_user_id = user_id!("@unknown:localhost");
+
+        // No event in store.
+        let mut user_ids = vec![user_id.to_owned()];
+        let presence_event = self.get_presence_event(user_id).await;
+        assert!(presence_event.unwrap().is_none());
+        let presence_events = self.get_presence_events(&user_ids).await;
+        assert!(presence_events.unwrap().is_empty());
+
+        // One event in store.
+        let mut changes = StateChanges::default();
+        changes.presence.insert(user_id.to_owned(), custom_presence_event(user_id));
+        self.save_changes(&changes).await.unwrap();
+
+        let presence_event = self.get_presence_event(user_id).await;
+        assert!(presence_event.unwrap().is_some());
+        let presence_events = self.get_presence_events(&user_ids).await;
+        assert_eq!(presence_events.unwrap().len(), 1);
+
+        // Several events in store.
+        let mut changes = StateChanges::default();
+        changes.presence.insert(second_user_id.to_owned(), custom_presence_event(second_user_id));
+        changes.presence.insert(third_user_id.to_owned(), custom_presence_event(third_user_id));
+        self.save_changes(&changes).await.unwrap();
+
+        user_ids.extend([second_user_id.to_owned(), third_user_id.to_owned()]);
+        let presence_event = self.get_presence_event(second_user_id).await;
+        assert!(presence_event.unwrap().is_some());
+        let presence_event = self.get_presence_event(third_user_id).await;
+        assert!(presence_event.unwrap().is_some());
+        let presence_events = self.get_presence_events(&user_ids).await;
+        assert_eq!(presence_events.unwrap().len(), 3);
+
+        // Several events in store with one unknown.
+        user_ids.push(unknown_user_id.to_owned());
+        let member_events = self.get_presence_events(&user_ids).await;
+        assert_eq!(member_events.unwrap().len(), 3);
+
+        // Empty user IDs list.
+        let presence_events = self.get_presence_events(&[]).await;
+        assert!(presence_events.unwrap().is_empty());
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1136,6 +1185,12 @@ macro_rules! statestore_integration_tests {
             let store = get_store().await?.into_state_store();
             store.test_room_removal().await
         }
+
+        #[async_test]
+        async fn test_presence_saving() {
+            let store = get_store().await.expect("creating store failed").into_state_store();
+            store.test_presence_saving().await;
+        }
     };
 }
 
@@ -1201,6 +1256,17 @@ fn custom_membership_event(user_id: &UserId, event_id: &EventId) -> Raw<SyncRoom
         "origin_server_ts": 198,
         "sender": user_id,
         "state_key": user_id,
+    });
+
+    Raw::new(&ev_json).unwrap().cast()
+}
+
+fn custom_presence_event(user_id: &UserId) -> Raw<PresenceEvent> {
+    let ev_json = json!({
+        "content": {
+            "presence": "online"
+        },
+        "sender": user_id,
     });
 
     Raw::new(&ev_json).unwrap().cast()

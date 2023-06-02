@@ -360,8 +360,17 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self.presence.get(user_id).map(|p| p.clone()))
+    async fn get_presence_events<'a, I>(&self, user_ids: I) -> Result<Vec<Raw<PresenceEvent>>>
+    where
+        I: IntoIterator<Item = &'a UserId>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let user_ids = user_ids.into_iter();
+        if user_ids.len() == 0 {
+            return Ok(Vec::new());
+        }
+
+        Ok(user_ids.filter_map(|user_id| self.presence.get(user_id).map(|p| p.clone())).collect())
     }
 
     async fn get_state_events(
@@ -597,7 +606,14 @@ impl StateStore for MemoryStore {
     }
 
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        self.get_presence_event(user_id).await
+        Ok(self.get_presence_events(iter::once(user_id)).await?.into_iter().next())
+    }
+
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        self.get_presence_events(user_ids.iter().map(AsRef::as_ref)).await
     }
 
     async fn get_state_event(

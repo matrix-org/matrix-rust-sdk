@@ -549,6 +549,17 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             .optional()?)
     }
 
+    async fn get_kv_blobs(&self, keys: Vec<Key>) -> Result<Vec<Vec<u8>>> {
+        let sql_params = vec!["?"; keys.len()].join(", ");
+        let sql = format!("SELECT value FROM kv_blob WHERE key IN ({sql_params})");
+
+        Ok(self
+            .prepare(sql, move |mut stmt| {
+                stmt.query(rusqlite::params_from_iter(keys))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()>;
 
     async fn delete_kv_blob(&self, key: Key) -> Result<()> {
@@ -1108,6 +1119,24 @@ impl StateStore for SqliteStateStore {
             .await?
             .map(|data| self.deserialize_json(&data))
             .transpose()
+    }
+
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let user_ids = user_ids.iter().map(|u| self.encode_presence_key(u)).collect();
+        self.acquire()
+            .await?
+            .get_kv_blobs(user_ids)
+            .await?
+            .into_iter()
+            .map(|data| self.deserialize_json(&data))
+            .collect()
     }
 
     async fn get_state_event(
