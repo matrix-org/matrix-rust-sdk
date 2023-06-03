@@ -25,6 +25,11 @@
   `get_room_infos`.
 - `BaseClient::get_stripped_rooms` is deprecated. Use `get_rooms_filtered` with
   `RoomStateFilter::INVITED` instead.
+- Add methods to `StateStore` to be able to retrieve data in batch
+  - `get_state_events_for_keys`
+  - `get_profiles`
+  - `get_presence_events`
+  - `get_users_with_display_names`
 
 ## 0.5.1
 

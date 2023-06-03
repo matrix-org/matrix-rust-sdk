@@ -696,15 +696,24 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             .optional()?)
     }
 
-    async fn get_display_name(&self, room_id: Key, name: Key) -> Result<Option<Vec<u8>>> {
+    async fn get_display_names(
+        &self,
+        room_id: Key,
+        names: Vec<Key>,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let sql_params = vec!["?"; names.len()].join(", ");
+        let sql = format!(
+            "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params})"
+        );
+        let params = iter::once(room_id).chain(names);
+
         Ok(self
-            .query_row(
-                "SELECT data FROM display_name WHERE room_id = ? AND name = ?",
-                (room_id, name),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?)
+            .prepare(sql, move |mut stmt| {
+                stmt.query(rusqlite::params_from_iter(params))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                    .collect()
+            })
+            .await?)
     }
 
     async fn get_user_receipt(
@@ -1312,15 +1321,50 @@ impl StateStore for SqliteStateStore {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>> {
         let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
-        let name = self.encode_key(keys::DISPLAY_NAME, display_name);
+        let names = vec![self.encode_key(keys::DISPLAY_NAME, display_name)];
+
         Ok(self
             .acquire()
             .await?
-            .get_display_name(room_id, name)
+            .get_display_names(room_id, names)
             .await?
-            .map(|data| self.deserialize_json(&data))
+            .into_iter()
+            .next()
+            .map(|(_, data)| self.deserialize_json(&data))
             .transpose()?
             .unwrap_or_default())
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        if display_names.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
+        let mut names_map = display_names
+            .iter()
+            .map(|n| (self.encode_key(keys::DISPLAY_NAME, n), n.as_ref()))
+            .collect::<BTreeMap<_, _>>();
+        let names = names_map.keys().cloned().collect();
+
+        self.acquire()
+            .await?
+            .get_display_names(room_id, names)
+            .await?
+            .into_iter()
+            .map(|(name, data)| {
+                Ok((
+                    names_map
+                        .remove(name.as_slice())
+                        .expect("returned display names were requested"),
+                    self.deserialize_json(&data)?,
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()
     }
 
     async fn get_account_data_event(

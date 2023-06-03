@@ -215,6 +215,19 @@ pub trait StateStore: AsyncTraitDeps {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
 
+    /// Get all the users that use the given display names in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to fetch the display names for.
+    ///
+    /// * `display_names` - The display names that the users use.
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error>;
+
     /// Get an event out of the account data store.
     ///
     /// # Arguments
@@ -481,6 +494,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error> {
         self.0.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error> {
+        self.0.get_users_with_display_names(room_id, display_names).await.map_err(Into::into)
     }
 
     async fn get_account_data_event(

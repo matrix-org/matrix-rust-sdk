@@ -488,6 +488,27 @@ impl MemoryStore {
             .collect()
     }
 
+    async fn get_users_with_display_names<'a, I>(
+        &self,
+        room_id: &RoomId,
+        display_names: I,
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>>
+    where
+        I: IntoIterator<Item = &'a str>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let display_names = display_names.into_iter();
+        if display_names.len() == 0 {
+            return Ok(BTreeMap::new());
+        }
+
+        let Some(room_names) = self.display_names.get(room_id) else {
+            return Ok(BTreeMap::new());
+        };
+
+        Ok(display_names.filter_map(|n| room_names.get(n).map(|d| (n, d.clone()))).collect())
+    }
+
     async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
@@ -696,10 +717,21 @@ impl StateStore for MemoryStore {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>> {
         Ok(self
-            .display_names
-            .get(room_id)
-            .and_then(|d| d.get(display_name).map(|d| d.clone()))
+            .get_users_with_display_names(room_id, iter::once(display_name))
+            .await?
+            .into_values()
+            .next()
             .unwrap_or_default())
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        Ok(self
+            .get_users_with_display_names(room_id, display_names.iter().map(AsRef::as_ref))
+            .await?)
     }
 
     async fn get_account_data_event(

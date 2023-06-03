@@ -1029,6 +1029,35 @@ impl_state_store!({
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        if display_names.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::DISPLAY_NAMES, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::DISPLAY_NAMES)?;
+
+        let mut map = BTreeMap::new();
+        for display_name in display_names {
+            if let Some(user_ids) = store
+                .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
+                .await?
+                .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
+                .transpose()?
+            {
+                map.insert(display_name.as_ref(), user_ids);
+            }
+        }
+
+        Ok(map)
+    }
+
     async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
