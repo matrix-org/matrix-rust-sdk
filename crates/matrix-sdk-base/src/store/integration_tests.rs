@@ -75,6 +75,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_room_removal(&self) -> Result<()>;
     /// Test presence saving.
     async fn test_presence_saving(&self);
+    /// Test display names saving.
+    async fn test_display_names_saving(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1061,6 +1063,65 @@ impl StateStoreIntegrationTests for DynStateStore {
         let presence_events = self.get_presence_events(&[]).await;
         assert!(presence_events.unwrap().is_empty());
     }
+
+    async fn test_display_names_saving(&self) {
+        let room_id = room_id!("!test_display_names_saving:localhost");
+        let user_id = user_id();
+        let user_display_name = "User";
+        let second_user_id = user_id!("@second:localhost");
+        let third_user_id = user_id!("@third:localhost");
+        let other_display_name = "Raoul";
+        let unknown_display_name = "Unknown";
+
+        // No event in store.
+        let mut display_names = vec![user_display_name.to_owned()];
+        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        assert!(users.is_empty());
+        let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
+        assert!(names.is_empty());
+
+        // One event in store.
+        let mut changes = StateChanges::default();
+        changes
+            .ambiguity_maps
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(user_display_name.to_owned(), [user_id.to_owned()].into());
+        self.save_changes(&changes).await.unwrap();
+
+        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        assert_eq!(users.len(), 1);
+        let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names.get(&user_display_name).unwrap().len(), 1);
+
+        // Several events in store.
+        let mut changes = StateChanges::default();
+        changes.ambiguity_maps.entry(room_id.to_owned()).or_default().insert(
+            other_display_name.to_owned(),
+            [second_user_id.to_owned(), third_user_id.to_owned()].into(),
+        );
+        self.save_changes(&changes).await.unwrap();
+
+        display_names.push(other_display_name.to_owned());
+        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        assert_eq!(users.len(), 1);
+        let users = self.get_users_with_display_name(room_id, other_display_name).await.unwrap();
+        assert_eq!(users.len(), 2);
+        let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
+        assert_eq!(names.len(), 2);
+        assert_eq!(names.get(&user_display_name).unwrap().len(), 1);
+        assert_eq!(names.get(&other_display_name).unwrap().len(), 2);
+
+        // Several events in store with one unknown.
+        display_names.push(unknown_display_name.to_owned());
+        let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
+        assert_eq!(names.len(), 2);
+
+        // Empty user IDs list.
+        let names = self.get_users_with_display_names(room_id, &[]).await;
+        assert!(names.unwrap().is_empty());
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1190,6 +1251,12 @@ macro_rules! statestore_integration_tests {
         async fn test_presence_saving() {
             let store = get_store().await.expect("creating store failed").into_state_store();
             store.test_presence_saving().await;
+        }
+
+        #[async_test]
+        async fn test_display_names_saving() {
+            let store = get_store().await.expect("creating store failed").into_state_store();
+            store.test_display_names_saving().await;
         }
     };
 }
