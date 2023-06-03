@@ -107,9 +107,6 @@ pub enum NotificationSettingsError {
     /// Invalid room id.
     #[error("Invalid room id")]
     InvalidRoomId,
-    /// Mentions not enabled.
-    #[error("Mentions not enabled")]
-    MentionsNotEnabled,
     /// Room not found
     #[error("Room not found")]
     RoomNotFound,
@@ -131,7 +128,6 @@ impl From<SdkNotificationSettingsError> for NotificationSettingsError {
     fn from(value: SdkNotificationSettingsError) -> Self {
         match value {
             SdkNotificationSettingsError::InvalidRoomId => Self::InvalidRoomId,
-            SdkNotificationSettingsError::MentionsNotEnabled => Self::MentionsNotEnabled,
             SdkNotificationSettingsError::RuleNotFound => Self::RuleNotFound,
             SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
             SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,

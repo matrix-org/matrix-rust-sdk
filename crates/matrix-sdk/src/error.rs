@@ -430,9 +430,6 @@ pub enum NotificationSettingsError {
     /// Invalid room id.
     #[error("Invalid room id")]
     InvalidRoomId,
-    /// Mentions not enabled.
-    #[error("Mentions not enabled")]
-    MentionsNotEnabled,
     /// Unable to add push rule.
     #[error("Unable to add push rule")]
     UnableToAddPushRule,

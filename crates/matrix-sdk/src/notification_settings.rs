@@ -88,7 +88,7 @@ impl NotificationSettings {
         room_id: &String,
         ruleset: &Ruleset,
     ) -> Option<RoomNotificationMode> {
-        // Search for an enabled Override rule where rule_id is the room_id
+        // Search for an enabled Override
         if let Some(rule) = ruleset.override_.iter().find(|x| x.enabled) {
             // without a Notify action
             if !rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
@@ -191,18 +191,11 @@ impl NotificationSettings {
                 && r.rule_id == rule_id.to_string()
                 && r.actions.iter().any(|a| a.should_notify())
         }) {
-            return Ok(RoomNotificationMode::AllMessages);
+            Ok(RoomNotificationMode::AllMessages)
+        } else {
+            // Otherwise, the mode is 'MentionsAndKeywordsOnly'
+            Ok(RoomNotificationMode::MentionsAndKeywordsOnly)
         }
-
-        // If user mention is enabled, the mode is 'MentionsAndKeywordsOnly'
-        if self.is_user_mention_enabled(ruleset)
-            || self.contains_keyword_rules(ruleset)
-            || self.is_room_mention_enabled(ruleset)
-        {
-            return Ok(RoomNotificationMode::MentionsAndKeywordsOnly);
-        }
-
-        Ok(RoomNotificationMode::Mute)
     }
 
     /// Get whether the IsUserMention rule is enabled.
