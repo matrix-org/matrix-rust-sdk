@@ -36,7 +36,7 @@
 //! `RoomList` works with 2 Sliding Sync List:
 //!
 //! * `all_rooms` (refered by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
-//!   list. It's goal is to load all the user' rooms. It starts with a
+//!   list. Its goal is to load all the user' rooms. It starts with a
 //!   [`SlidingSyncMode::Selective`] sync-mode with a small range (i.e. a small
 //!   set of rooms) to load the first rooms quickly, and then updates to a
 //!   [`SlidingSyncMode::Growing`] sync-mode to load the remaining rooms “in the
@@ -173,7 +173,7 @@ impl RoomList {
         }
     }
 
-    /// Get the actual state of the state machine.
+    /// Get the current state of the state machine.
     pub fn state(&self) -> State {
         self.state.get()
     }
@@ -348,10 +348,10 @@ pub enum State {
     /// That's the first initial state.
     Init,
 
-    /// At this state, the first rooms starts to be synced.
+    /// At this state, the first rooms start to be synced.
     FirstRooms,
 
-    /// At this state, all rooms starts to be synced.
+    /// At this state, all rooms start to be synced.
     AllRooms,
 
     /// This state is the cruising speed, i.e. the “normal” state, where nothing
@@ -653,9 +653,6 @@ mod tests {
     async fn test_action_set_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
-
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
 
         // List is present, in Selective mode.
         assert_eq!(

@@ -134,6 +134,10 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
+    ///
+    /// The first part of the returned tuple is the actual room list entries,
+    /// and the second part is the `Stream` to receive updates on the room list
+    /// entries.
     pub fn room_list_stream(
         &self,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>) {
