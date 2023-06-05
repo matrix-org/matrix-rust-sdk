@@ -21,6 +21,8 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+#[cfg(feature = "experimental-room-list")]
+mod room_list;
 mod timeline;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

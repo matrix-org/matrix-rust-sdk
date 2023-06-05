@@ -42,7 +42,7 @@ macro_rules! receive_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            let next = $sliding_sync_stream.next().await.context("`stream` trip")??;
+            let next = $sliding_sync_stream.next().await.context("`sync` trip")??;
 
             next
         }
@@ -64,6 +64,8 @@ macro_rules! timeline_event {
     }
 }
 
+pub(crate) use timeline_event;
+
 macro_rules! assert_timeline_stream {
     // `--- day divider ---`
     ( @_ [ $stream:ident ] [ --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
@@ -77,7 +79,12 @@ macro_rules! assert_timeline_stream {
                     assert_matches!(
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::PushBack { value })) => {
-                            assert_matches!(value.as_ref(), TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+                            assert_matches!(
+                                value.as_ref(),
+                                TimelineItem::Virtual(
+                                    VirtualTimelineItem::DayDivider(_)
+                                )
+                            );
                         }
                     );
                 }
@@ -162,6 +169,8 @@ macro_rules! assert_timeline_stream {
     };
 }
 
+pub(crate) use assert_timeline_stream;
+
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client().await;
 
@@ -201,7 +210,7 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let room = sliding_sync.get_room(room_id).context("`get_room`")?;
+    let room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
     assert_eq!(room.name(), Some(room_name.clone()));
 
     Ok(())
@@ -213,6 +222,7 @@ async fn timeline(
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
     Ok(sliding_sync
         .get_room(room_id)
+        .await
         .unwrap()
         .timeline()
         .await

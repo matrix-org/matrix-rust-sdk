@@ -1520,6 +1520,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eyeball-im-util"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "988b102aa389565187ccb138e51339c72258deb8af8e459180a582af40ca323b"
+dependencies = [
+ "eyeball-im",
+ "futures-core",
+ "imbl",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "eyre"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2532,6 +2544,7 @@ dependencies = [
  "event-listener",
  "eyeball",
  "eyeball-im",
+ "eyeball-im-util",
  "eyre",
  "futures-core",
  "futures-executor",
@@ -2924,16 +2937,21 @@ name = "matrix-sdk-ui"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "assert-json-diff",
  "assert_matches",
+ "async-stream",
  "async-trait",
  "chrono",
  "ctor",
+ "eyeball",
  "eyeball-im",
+ "eyeball-im-util",
  "futures-core",
  "futures-util",
  "imbl",
  "indexmap",
  "matrix-sdk",
+ "matrix-sdk-base",
  "matrix-sdk-test",
  "mime",
  "once_cell",

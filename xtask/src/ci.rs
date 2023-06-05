@@ -169,12 +169,13 @@ fn check_typos() -> Result<()> {
 }
 
 fn check_clippy() -> Result<()> {
-    cmd!("rustup run {NIGHTLY} cargo clippy --all-targets -- -D warnings").run()?;
+    cmd!("rustup run {NIGHTLY} cargo clippy --all-targets --features testing -- -D warnings")
+        .run()?;
     cmd!(
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features native-tls,experimental-sliding-sync,sso-login
+            --features native-tls,experimental-sliding-sync,sso-login,testing
             -- -D warnings"
     )
     .run()?;
