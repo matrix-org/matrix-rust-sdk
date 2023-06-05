@@ -13,20 +13,22 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
-pub(super) fn format_base_storage_key_for_sliding_sync(id: &str, user_id: &UserId) -> String {
-    format!("{}::{}", id, user_id.to_string())
+/// Be careful: as this is used as a storage key; changing it requires migrating
+/// data!
+pub(super) fn format_storage_key_prefix(id: &str, user_id: &UserId) -> String {
+    format!("sliding_sync_store::{}::{}", id, user_id.to_string())
 }
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
 fn format_storage_key_for_sliding_sync(storage_key: &str) -> String {
-    format!("sliding_sync_store::{storage_key}")
+    format!("{storage_key}::instance")
 }
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
 fn format_storage_key_for_sliding_sync_list(storage_key: &str, list_name: &str) -> String {
-    format!("sliding_sync_store::{storage_key}::{list_name}")
+    format!("{storage_key}::list::{list_name}")
 }
 
 /// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the
@@ -259,8 +261,7 @@ mod tests {
             // Create a new `SlidingSync` instance, and store it.
             let storage_key = {
                 let sync_id = "test-sync-id";
-                let storage_key =
-                    format_base_storage_key_for_sliding_sync(sync_id, client.user_id().unwrap());
+                let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
                 let sliding_sync = client
                     .sliding_sync(sync_id)?
                     .enable_caching()?
@@ -309,8 +310,7 @@ mod tests {
             // Create a new `SlidingSync`, and it should be read from the cache.
             let storage_key = {
                 let sync_id = "test-sync-id";
-                let storage_key =
-                    format_base_storage_key_for_sliding_sync(sync_id, client.user_id().unwrap());
+                let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
                 let max_number_of_room_stream = Arc::new(RwLock::new(None));
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client

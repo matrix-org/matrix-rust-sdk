@@ -12,7 +12,7 @@ use tokio::sync::broadcast::channel;
 use url::Url;
 
 use super::{
-    cache::{format_base_storage_key_for_sliding_sync, restore_sliding_sync_state},
+    cache::{format_storage_key_prefix, restore_sliding_sync_state},
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     SlidingSyncRoom,
 };
@@ -60,7 +60,7 @@ impl SlidingSyncBuilder {
     /// restored from the cache.
     pub fn enable_caching(mut self) -> Result<Self> {
         // Compute the final storage key now.
-        self.storage_key = Some(format_base_storage_key_for_sliding_sync(
+        self.storage_key = Some(format_storage_key_prefix(
             &self.id,
             self.client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
         ));
