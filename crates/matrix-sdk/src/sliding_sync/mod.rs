@@ -388,17 +388,13 @@ impl SlidingSync {
     }
 
     #[instrument(skip_all, fields(pos))]
-    async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
+    async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) = {
             // Collect requests for lists.
             let mut requests_lists = BTreeMap::new();
 
             {
                 let mut lists = self.inner.lists.write().await;
-
-                if lists.is_empty() {
-                    return Ok(None);
-                }
 
                 for (name, list) in lists.iter_mut() {
                     requests_lists.insert(name.clone(), list.next_request()?);
@@ -520,7 +516,7 @@ impl SlidingSync {
 
             debug!("Sliding Sync response has been fully handled");
 
-            Ok(Some(updates))
+            Ok(updates)
         };
 
         spawn(future.instrument(Span::current())).await.unwrap()
@@ -530,6 +526,10 @@ impl SlidingSync {
     ///
     /// This method returns a `Stream`, which will send requests and will handle
     /// responses automatically. Lists and rooms are updated automatically.
+    ///
+    /// This function returns `Ok(…)` if everything went well, otherwise it will
+    /// return `Err(…)`. An `Err` will _always_ lead to the `Stream`
+    /// termination.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
@@ -567,15 +567,10 @@ impl SlidingSync {
 
                     update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
-                            Ok(Some(updates)) => {
+                            Ok(updates) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
 
                                 yield Ok(updates);
-                            }
-
-                            Ok(None) => {
-                                // Terminates the loop, and terminates the stream.
-                                break;
                             }
 
                             Err(error) => {
@@ -609,11 +604,13 @@ impl SlidingSync {
 
                                         debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
                                     });
+
+                                    continue;
                                 }
 
                                 yield Err(error);
 
-                                continue;
+                                break;
                             }
                         }
                     }
