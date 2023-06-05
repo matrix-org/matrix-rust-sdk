@@ -261,15 +261,16 @@ impl SlidingSync {
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
-        let mut extensions = self.inner.extensions.clone();
+        // When the pos is `None`, it's either our initial sync or the proxy forgot about us
+        // and sent us an `UnknownPos` error. In that case, we'll follow the internal configuration
+        // for extensions, and re-send it altogether.
+        //
+        // Otherwise, i.e. we have a set position, the server must have recorded what we sent it
+        // beforehand, per the MSC's sticky parameters explanation. In this case, we don't need to
+        // send anything, so we just clear the extension configuration.
 
-        if pos.is_none() {
-            // The pos is `None`, it's either our initial sync or the proxy forgot about us
-            // and sent us an `UnknownPos` error. We need to send out the config for our
-            // extensions.
-            extensions.e2ee.enabled = Some(true);
-            extensions.to_device.enabled = Some(true);
-        }
+        let mut extensions =
+            if pos.is_some() { Default::default() } else { self.inner.extensions.clone() };
 
         // Try to chime in a to-device token that may be unset or restored from the
         // cache.
@@ -731,13 +732,9 @@ mod tests {
         let sync = client.sliding_sync("test-slidingsync")?.build().await?;
         let extensions = sync.prepare_extension_config(None);
 
-        // If the user doesn't provide any extension config, we enable to-device and
-        // e2ee anyways.
-        assert_matches!(
-            extensions.to_device,
-            ToDeviceConfig { enabled: Some(true), since: None, .. }
-        );
-        assert_matches!(extensions.e2ee, E2EEConfig { enabled: Some(true), .. });
+        // If the user doesn't provide any extension config, we respect their consent.
+        assert_eq!(extensions.to_device.enabled, None);
+        assert_eq!(extensions.e2ee.enabled, None);
 
         let some_since = "some_since".to_owned();
         sync.update_to_device_since(some_since.to_owned());
@@ -757,7 +754,7 @@ mod tests {
         // into the request.
         assert_matches!(
             extensions.to_device,
-            ToDeviceConfig { enabled: Some(true), since: Some(since), .. } if since == some_since
+            ToDeviceConfig { enabled: None, since: Some(since), .. } if since == some_since
         );
 
         Ok(())
@@ -914,6 +911,60 @@ mod tests {
 
         // The sync-loop is actually running.
         assert!(stream.next().await.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_extensions_not_automatically_enabled() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If we don't explicitly enable extensions, none should get enabled for us automatically.
+        let sliding_sync = client.sliding_sync("test-slidingsync")?.build().await?;
+
+        let extensions = sliding_sync.prepare_extension_config(None);
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None);
+        assert_eq!(extensions.account_data.enabled, None);
+        assert_eq!(extensions.receipts.enabled, None);
+        assert_eq!(extensions.typing.enabled, None);
+
+        let extensions = sliding_sync.prepare_extension_config(Some("pos"));
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None);
+        assert_eq!(extensions.account_data.enabled, None);
+        assert_eq!(extensions.receipts.enabled, None);
+        assert_eq!(extensions.typing.enabled, None);
+
+        // If we explicitly enable a subset of extensions, only those should be enabled.
+        let sliding_sync = client
+            .sliding_sync("test-slidingsync")?
+            .with_extensions(ExtensionsSetter {
+                to_device: true,
+                e2ee: true,
+                account_data: false,
+                receipts: false,
+                typing: false,
+            })
+            .build()
+            .await?;
+
+        let extensions = sliding_sync.prepare_extension_config(None);
+        assert_eq!(extensions.e2ee.enabled, Some(true));
+        assert_eq!(extensions.to_device.enabled, Some(true));
+        assert_eq!(extensions.account_data.enabled, None);
+        assert_eq!(extensions.receipts.enabled, None);
+        assert_eq!(extensions.typing.enabled, None);
+
+        // The extensions "enabled" fields are sticky: they're not reset if we have a valid
+        // position.
+        let extensions = sliding_sync.prepare_extension_config(Some("pos"));
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None);
+        assert_eq!(extensions.account_data.enabled, None);
+        assert_eq!(extensions.receipts.enabled, None);
+        assert_eq!(extensions.typing.enabled, None);
 
         Ok(())
     }
