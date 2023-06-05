@@ -578,6 +578,54 @@ impl Common {
         Ok(self.client.store().get_state_events_static(self.room_id()).await?)
     }
 
+    /// Get the state events of a given type with the given state keys in this
+    /// room.
+    pub async fn get_state_events_for_keys(
+        &self,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        self.client
+            .store()
+            .get_state_events_for_keys(self.room_id(), event_type, state_keys)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get the state events of a given statically-known type with the given
+    /// state keys in this room.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let user_ids: &[matrix_sdk::ruma::OwnedUserId] = &[];
+    /// use matrix_sdk::ruma::events::room::member::RoomMemberEventContent;
+    ///
+    /// let room_members = room
+    ///     .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+    ///         user_ids,
+    ///     )
+    ///     .await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_events_for_keys_static<'a, C, K, I>(
+        &self,
+        state_keys: I,
+    ) -> Result<Vec<RawSyncOrStrippedState<C>>>
+    where
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C::StateKey: Borrow<K>,
+        C::Redacted: RedactedStateEventContent,
+        K: AsRef<str> + Sized + Sync + 'a,
+        I: IntoIterator<Item = &'a K> + Send,
+        I::IntoIter: Send,
+    {
+        Ok(self.client.store().get_state_events_for_keys_static(self.room_id(), state_keys).await?)
+    }
+
     /// Get a specific state event in this room.
     pub async fn get_state_event(
         &self,
