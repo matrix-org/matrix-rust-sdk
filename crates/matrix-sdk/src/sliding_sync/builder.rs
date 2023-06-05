@@ -24,7 +24,7 @@ use crate::{Client, Result};
 /// [`crate::SlidingSync::builder`].
 #[derive(Debug, Clone)]
 pub struct SlidingSyncBuilder {
-    loop_id: String,
+    id: String,
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Client,
@@ -36,9 +36,9 @@ pub struct SlidingSyncBuilder {
 }
 
 impl SlidingSyncBuilder {
-    pub(super) fn new(loop_id: String, client: Client) -> Self {
+    pub(super) fn new(id: String, client: Client) -> Self {
         Self {
-            loop_id,
+            id,
             storage_key: None,
             homeserver: None,
             client,
@@ -57,7 +57,7 @@ impl SlidingSyncBuilder {
     pub fn enable_caching(mut self) -> Result<Self> {
         // Compute the final storage key now.
         self.storage_key = Some(format_base_storage_key_for_sliding_sync(
-            &self.loop_id,
+            &self.id,
             self.client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
         ));
         Ok(self)
@@ -263,7 +263,7 @@ impl SlidingSyncBuilder {
         let lists = StdRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
-            _loop_id: Some(self.loop_id),
+            _id: Some(self.id),
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,

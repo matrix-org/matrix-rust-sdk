@@ -13,8 +13,8 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
-pub(super) fn format_base_storage_key_for_sliding_sync(loop_id: &str, user_id: &UserId) -> String {
-    format!("{}::{}", loop_id, user_id.to_string())
+pub(super) fn format_base_storage_key_for_sliding_sync(id: &str, user_id: &UserId) -> String {
+    format!("{}::{}", id, user_id.to_string())
 }
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
@@ -258,11 +258,11 @@ mod tests {
 
             // Create a new `SlidingSync` instance, and store it.
             let storage_key = {
-                let loop_id = "test-loop-id";
+                let sync_id = "test-sync-id";
                 let storage_key =
-                    format_base_storage_key_for_sliding_sync(loop_id, client.user_id().unwrap());
+                    format_base_storage_key_for_sliding_sync(sync_id, client.user_id().unwrap());
                 let sliding_sync = client
-                    .sliding_sync(loop_id)
+                    .sliding_sync(sync_id)
                     .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
@@ -308,13 +308,13 @@ mod tests {
 
             // Create a new `SlidingSync`, and it should be read from the cache.
             let storage_key = {
-                let loop_id = "test-loop-id";
+                let sync_id = "test-sync-id";
                 let storage_key =
-                    format_base_storage_key_for_sliding_sync(loop_id, client.user_id().unwrap());
+                    format_base_storage_key_for_sliding_sync(sync_id, client.user_id().unwrap());
                 let max_number_of_room_stream = Arc::new(RwLock::new(None));
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
-                    .sliding_sync(loop_id)
+                    .sliding_sync(sync_id)
                     .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.

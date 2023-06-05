@@ -894,8 +894,8 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl Client {
-    pub fn sliding_sync(&self, loop_id: String) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.inner.sliding_sync(loop_id);
+    pub fn sliding_sync(&self, id: String) -> Arc<SlidingSyncBuilder> {
+        let mut inner = self.inner.sliding_sync(id);
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
