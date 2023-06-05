@@ -272,7 +272,7 @@ mod tests {
 
             // Modify both lists, so we can check expected caching behavior later.
             {
-                let lists = sliding_sync.inner.lists.write().unwrap();
+                let lists = sliding_sync.inner.lists.write().await;
 
                 let list_foo = lists.get("list_foo").unwrap();
                 list_foo.set_maximum_number_of_rooms(Some(42));
@@ -330,7 +330,7 @@ mod tests {
 
             // Check the list' state.
             {
-                let lists = sliding_sync.inner.lists.write().unwrap();
+                let lists = sliding_sync.inner.lists.write().await;
 
                 // This one was cached.
                 let list_foo = lists.get("list_foo").unwrap();
@@ -352,7 +352,8 @@ mod tests {
             }
 
             // Clean the cache.
-            clean_storage(&client, &storage_key, &sliding_sync.inner.lists.read().unwrap()).await;
+            let lists = sliding_sync.inner.lists.read().await;
+            clean_storage(&client, &storage_key, &lists).await;
             storage_key
         };
 
