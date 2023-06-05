@@ -137,7 +137,7 @@ impl SlidingSync {
     }
 
     /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder(id: String, client: Client) -> SlidingSyncBuilder {
+    pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
         SlidingSyncBuilder::new(id, client)
     }
 
@@ -727,7 +727,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sync = client.sliding_sync("test-sliding-sync").build().await?;
+        let sync = client.sliding_sync("test-slidingsync")?.build().await?;
         let extensions = sync.prepare_extension_config(None);
 
         // If the user doesn't provide any extension config, we enable to-device and
@@ -768,7 +768,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync("test-sliding-sync");
+        let mut sliding_sync_builder = client.sliding_sync("test-slidingsync")?;
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);

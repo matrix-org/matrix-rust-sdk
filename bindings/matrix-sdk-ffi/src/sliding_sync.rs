@@ -894,8 +894,11 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl Client {
-    pub fn sliding_sync(&self, id: String) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.inner.sliding_sync(id);
+    /// Creates a new Sliding Sync instance with the given identifier.
+    ///
+    /// Note: the identifier must be less than 16 chars long.
+    pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
+        let mut inner = self.inner.sliding_sync(id)?;
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
@@ -905,6 +908,6 @@ impl Client {
         {
             inner = inner.homeserver(sliding_sync_proxy);
         }
-        Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
+        Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

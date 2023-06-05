@@ -216,7 +216,7 @@ mod tests {
         block_on(async {
             let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
             let err = client
-                .sliding_sync("test")
+                .sliding_sync("test")?
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await
                 .unwrap_err();
@@ -262,7 +262,7 @@ mod tests {
                 let storage_key =
                     format_base_storage_key_for_sliding_sync(sync_id, client.user_id().unwrap());
                 let sliding_sync = client
-                    .sliding_sync(sync_id)
+                    .sliding_sync(sync_id)?
                     .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
@@ -314,7 +314,7 @@ mod tests {
                 let max_number_of_room_stream = Arc::new(RwLock::new(None));
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
-                    .sliding_sync(sync_id)
+                    .sliding_sync(sync_id)?
                     .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.

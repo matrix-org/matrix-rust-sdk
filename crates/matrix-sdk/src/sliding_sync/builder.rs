@@ -13,7 +13,7 @@ use url::Url;
 
 use super::{
     cache::{format_base_storage_key_for_sliding_sync, restore_sliding_sync_state},
-    SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     SlidingSyncRoom,
 };
 use crate::{Client, Result};
@@ -36,17 +36,21 @@ pub struct SlidingSyncBuilder {
 }
 
 impl SlidingSyncBuilder {
-    pub(super) fn new(id: String, client: Client) -> Self {
-        Self {
-            id,
-            storage_key: None,
-            homeserver: None,
-            client,
-            lists: Vec::new(),
-            bump_event_types: Vec::new(),
-            extensions: None,
-            subscriptions: BTreeMap::new(),
-            rooms: BTreeMap::new(),
+    pub(super) fn new(id: String, client: Client) -> Result<Self, Error> {
+        if id.len() > 16 {
+            Err(Error::InvalidSlidingSyncIdentifier)
+        } else {
+            Ok(Self {
+                id,
+                storage_key: None,
+                homeserver: None,
+                client,
+                lists: Vec::new(),
+                bump_event_types: Vec::new(),
+                extensions: None,
+                subscriptions: BTreeMap::new(),
+                rooms: BTreeMap::new(),
+            })
         }
     }
 

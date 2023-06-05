@@ -42,4 +42,8 @@ pub enum Error {
     /// The internal channel of `SlidingSync` seems to be broken.
     #[error("SlidingSync's internal channel is broken")]
     InternalChannelIsBroken,
+
+    /// The name of the Sliding Sync instance is too long.
+    #[error("The Sliding Sync instance's identifier must be less than 16 chars long")]
+    InvalidSlidingSyncIdentifier,
 }
