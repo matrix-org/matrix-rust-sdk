@@ -21,8 +21,10 @@ pub use bytes;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
-    deserialized_responses, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember,
-    RoomMemberships, RoomState, Session, StateChanges, StoreError,
+    deserialized_responses,
+    store::{DynStateStore, StateStoreExt},
+    DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomMemberships,
+    RoomState, Session, StateChanges, StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
