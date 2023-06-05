@@ -37,8 +37,9 @@ use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::RawMemberEvent, media::MediaRequest, MinimalRoomMemberEvent,
-    RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
+    media::MediaRequest,
+    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -376,25 +377,48 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        Ok(self
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
+        if let Some(e) = self
+            .stripped_room_state
+            .get(room_id)
+            .as_ref()
+            .and_then(|events| events.get(&event_type))
+            .and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
+        } else if let Some(e) = self
             .room_state
             .get(room_id)
-            .and_then(|e| e.get(&event_type).and_then(|s| s.get(state_key).map(|e| e.clone()))))
+            .as_ref()
+            .and_then(|events| events.get(&event_type))
+            .and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        Ok(self
-            .room_state
-            .get(room_id)
-            .and_then(|e| {
-                e.get(&event_type).map(|s| s.iter().map(|e| e.clone()).collect::<Vec<_>>())
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        if let Some(v) = self.stripped_room_state.get(room_id).as_ref().and_then(|events| {
+            events.get(&event_type).map(|s| {
+                s.iter().map(|e| RawAnySyncOrStrippedState::Stripped(e.clone())).collect::<Vec<_>>()
             })
-            .unwrap_or_default())
+        }) {
+            Ok(v)
+        } else if let Some(v) = self.room_state.get(room_id).as_ref().and_then(|events| {
+            events.get(&event_type).map(|s| {
+                s.iter().map(|e| RawAnySyncOrStrippedState::Sync(e.clone())).collect::<Vec<_>>()
+            })
+        }) {
+            Ok(v)
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     async fn get_profile(
@@ -410,25 +434,9 @@ impl MemoryStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<RawMemberEvent>> {
-        if let Some(e) = self
-            .stripped_room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&StateEventType::RoomMember))
-            .and_then(|m| m.get(state_key.as_str()).map(|m| m.clone().cast()))
-        {
-            Ok(Some(RawMemberEvent::Stripped(e)))
-        } else if let Some(e) = self
-            .room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&StateEventType::RoomMember))
-            .and_then(|m| m.get(state_key.as_str()).map(|m| m.clone().cast()))
-        {
-            Ok(Some(RawMemberEvent::Sync(e)))
-        } else {
-            Ok(None)
-        }
+        self.get_state_event(room_id, StateEventType::RoomMember, state_key.as_str())
+            .await
+            .map(|opt| opt.map(|raw| raw.cast()))
     }
 
     /// Get the user IDs for the given room with the given memberships and
@@ -588,7 +596,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
         self.get_state_event(room_id, event_type, state_key).await
     }
 
@@ -596,7 +604,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         self.get_state_events(room_id, event_type).await
     }
 

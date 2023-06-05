@@ -1,7 +1,10 @@
 use std::{borrow::Borrow, collections::BTreeMap, fmt, ops::Deref, sync::Arc};
 
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, TimelineEvent},
+    deserialized_responses::{
+        MembersResponse, RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
+        TimelineEvent,
+    },
     store::StateStoreExt,
     RoomMemberships, StateChanges,
 };
@@ -35,10 +38,9 @@ use ruma::{
             MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, RedactContent,
         RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
@@ -46,7 +48,7 @@ use ruma::{
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, instrument};
 
 use super::Joined;
@@ -54,6 +56,7 @@ use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     room::{Left, RoomMember, RoomState},
+    sync::RoomUpdate,
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
 
@@ -265,6 +268,14 @@ impl Common {
         H: EventHandler<Ev, Ctx>,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
+    }
+
+    /// Subscribe to all updates for this room.
+    ///
+    /// The returned receiver will receive a new message for each sync response
+    /// that contains updates for this room.
+    pub fn subscribe_to_updates(&self) -> broadcast::Receiver<RoomUpdate> {
+        self.client.subscribe_to_room_updates(self.room_id())
     }
 
     /// Fetch the event with the given `EventId` in this room.
@@ -539,7 +550,7 @@ impl Common {
     pub async fn get_state_events(
         &self,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
     }
 
@@ -551,15 +562,15 @@ impl Common {
     /// # async {
     /// # let room: matrix_sdk::room::Common = todo!();
     /// use matrix_sdk::ruma::{
-    ///     events::room::member::SyncRoomMemberEvent, serde::Raw,
+    ///     events::room::member::RoomMemberEventContent, serde::Raw,
     /// };
     ///
-    /// let room_members: Vec<Raw<SyncRoomMemberEvent>> =
-    ///     room.get_state_events_static().await?;
+    /// let room_members =
+    ///     room.get_state_events_static::<RoomMemberEventContent>().await?;
     /// # anyhow::Ok(())
     /// # };
     /// ```
-    pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
+    pub async fn get_state_events_static<C>(&self) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
@@ -572,7 +583,7 @@ impl Common {
         &self,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
+    ) -> Result<Option<RawAnySyncOrStrippedState>> {
         self.client
             .store()
             .get_state_event(self.room_id(), event_type, state_key)
@@ -588,17 +599,17 @@ impl Common {
     /// ```no_run
     /// # async {
     /// # let room: matrix_sdk::room::Common = todo!();
-    /// use matrix_sdk::ruma::events::room::power_levels::SyncRoomPowerLevelsEvent;
+    /// use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsEventContent;
     ///
-    /// let power_levels: SyncRoomPowerLevelsEvent = room
-    ///     .get_state_event_static()
+    /// let power_levels = room
+    ///     .get_state_event_static::<RoomPowerLevelsEventContent>()
     ///     .await?
     ///     .expect("every room has a power_levels event")
     ///     .deserialize()?;
     /// # anyhow::Ok(())
     /// # };
     /// ```
-    pub async fn get_state_event_static<C>(&self) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    pub async fn get_state_event_static<C>(&self) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
         C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
         C::Redacted: RedactedStateEventContent,
@@ -614,11 +625,13 @@ impl Common {
     /// # async {
     /// # let room: matrix_sdk::room::Common = todo!();
     /// use matrix_sdk::ruma::{
-    ///     events::room::member::SyncRoomMemberEvent, serde::Raw, user_id,
+    ///     events::room::member::RoomMemberEventContent, serde::Raw, user_id,
     /// };
     ///
-    /// let member_event: Option<Raw<SyncRoomMemberEvent>> = room
-    ///     .get_state_event_static_for_key(user_id!("@alice:example.org"))
+    /// let member_event = room
+    ///     .get_state_event_static_for_key::<RoomMemberEventContent, _>(user_id!(
+    ///         "@alice:example.org"
+    ///     ))
     ///     .await?;
     /// # anyhow::Ok(())
     /// # };
@@ -626,7 +639,7 @@ impl Common {
     pub async fn get_state_event_static_for_key<C, K>(
         &self,
         state_key: &K,
-    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    ) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::StateKey: Borrow<K>,
@@ -839,7 +852,10 @@ impl Common {
             .get_state_event_static::<RoomServerAclEventContent>()
             .await?
             .and_then(|ev| ev.deserialize().ok());
-        let acl = acl_ev.as_ref().and_then(|ev| ev.as_original()).map(|ev| &ev.content);
+        let acl = acl_ev.as_ref().and_then(|ev| match ev {
+            SyncOrStrippedState::Sync(ev) => ev.as_original().map(|ev| &ev.content),
+            SyncOrStrippedState::Stripped(ev) => Some(&ev.content),
+        });
 
         // Filter out server names that:
         // - Are blocked due to server ACLs

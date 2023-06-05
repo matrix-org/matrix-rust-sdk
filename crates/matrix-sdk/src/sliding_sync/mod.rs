@@ -45,9 +45,7 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign,
-    events::TimelineEventType,
-    OwnedRoomId, RoomId,
+    assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -82,6 +80,11 @@ pub struct SlidingSync {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncInner {
+    /// A unique identifier for this instance of sliding sync.
+    ///
+    /// Used to distinguish different connections to the sliding sync proxy.
+    _id: Option<String>,
+
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
 
@@ -99,10 +102,6 @@ pub(super) struct SlidingSyncInner {
 
     /// The rooms details
     rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
     /// one wants to receive updates.
@@ -133,8 +132,8 @@ impl SlidingSync {
     }
 
     /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder(client: Client) -> SlidingSyncBuilder {
-        SlidingSyncBuilder::new(client)
+    pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
+        SlidingSyncBuilder::new(id, client)
     }
 
     /// Subscribe to a given room.
@@ -227,7 +226,7 @@ impl SlidingSync {
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let Some(ref storage_key) = self.inner.storage_key else {
-            return Err(error::Error::MissingStorageKeyForCaching.into());
+            return Err(error::Error::CacheDisabled.into());
         };
 
         let reloaded_rooms =
@@ -419,11 +418,11 @@ impl SlidingSync {
             (
                 // Build the request itself.
                 assign!(v4::Request::new(), {
+                    // conn_id: self.inner.id.clone(),
                     pos,
                     delta_token,
                     timeout: Some(timeout),
                     lists: requests_lists,
-                    bump_event_types: self.inner.bump_event_types.clone(),
                     room_subscriptions,
                     unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
                     extensions,
@@ -729,7 +728,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sync = client.sliding_sync().build().await?;
+        let sync = client.sliding_sync("test-slidingsync")?.build().await?;
         let extensions = sync.prepare_extension_config(None);
 
         // If the user doesn't provide any extension config, we enable to-device and
@@ -770,7 +769,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync();
+        let mut sliding_sync_builder = client.sliding_sync("test-slidingsync")?;
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);

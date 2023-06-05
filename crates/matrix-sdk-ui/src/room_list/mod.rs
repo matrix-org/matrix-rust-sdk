@@ -96,8 +96,10 @@ impl RoomList {
     /// already pre-configured.
     pub async fn new(client: Client) -> Result<Self, Error> {
         let sliding_sync = client
-            .sliding_sync()
-            .storage_key(Some("matrix-sdk-ui-roomlist".to_string()))
+            .sliding_sync("room-list")
+            .map_err(Error::SlidingSync)?
+            .enable_caching()
+            .map_err(Error::SlidingSync)?
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))

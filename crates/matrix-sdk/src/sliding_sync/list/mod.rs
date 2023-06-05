@@ -20,7 +20,12 @@ use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{api::client::sync::sync_events::v4, assign, events::StateEventType, OwnedRoomId};
+use ruma::{
+    api::client::sync::sync_events::v4,
+    assign,
+    events::{StateEventType, TimelineEventType},
+    OwnedRoomId,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
@@ -299,6 +304,10 @@ pub(super) struct SlidingSyncListInner {
     /// [`SlidingSyncInner::internal_channel`] to learn more.
     sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
 
+    /// The `bump_event_types` field. See
+    /// [`SlidingSyncListBuilder::bump_event_types`] to learn more.
+    bump_event_types: Vec<TimelineEventType>,
+
     #[cfg(any(test, feature = "testing"))]
     sync_mode: StdRwLock<SlidingSyncMode>,
 }
@@ -369,6 +378,7 @@ impl SlidingSyncListInner {
             }),
             sort,
             filters,
+            bump_event_types: self.bump_event_types.clone(),
         })
     }
 

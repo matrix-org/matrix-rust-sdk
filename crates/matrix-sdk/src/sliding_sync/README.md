@@ -27,12 +27,16 @@ To create a new Sliding Sync session, one must query an existing
 [`Client::sliding_sync`](`super::Client::sliding_sync`). The
 [`SlidingSyncBuilder`] is the baseline configuration to create a
 [`SlidingSync`] session by calling `.build()` once everything is ready.
-Typically one configures the custom homeserver endpoint.
+Typically one configures the custom homeserver endpoint, although it's
+automatically detected using the `.well-known` endpoint, if configured.
 
 At the time of writing, no Matrix server natively supports Sliding Sync;
 a sidecar called the [Sliding Sync Proxy][proxy] is needed. As that
 typically runs on a separate domain, it can be configured on the
-[`SlidingSyncBuilder`]:
+[`SlidingSyncBuilder`].
+
+A unique identifier, less than 16 chars long, is required for each instance
+of Sliding Sync, and must be provided when getting a builder:
 
 ```rust,no_run
 # use matrix_sdk::Client;
@@ -41,7 +45,7 @@ typically runs on a separate domain, it can be configured on the
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
-    .sliding_sync()
+    .sliding_sync("main-sync")?
     .homeserver(Url::parse("http://sliding-sync.example.org")?);
 
 # anyhow::Ok(())
@@ -268,7 +272,7 @@ In full, this typically looks like this:
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let sliding_sync = client
-    .sliding_sync()
+    .sliding_sync("main-sync")?
     // any lists you want are added here.
     .build()
     .await?;
@@ -351,22 +355,25 @@ timeline events as well as all list `room_lists` and
 out).
 
 This is a purely in-memory cache layer though. If one wants Sliding Sync to
-persist and load from cold (storage) cache, one needs to set its key with
-[`storage_key(name)`][`SlidingSyncBuilder::storage_key`] and for each list
-present at `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt
-to load their latest cached version from storage, as well as some overall
-information of Sliding Sync. If that succeeded the lists `state` has been
-set to [`Preloaded`][SlidingSyncState::Preloaded]. Only room data of rooms
-present in one of the lists is loaded from storage.
+persist and load from cold (storage) cache, one needs to explicitly
+[`enable_caching()`][`SlidingSyncBuilder::enable_caching`]. This will reload the
+Sliding Sync state from the storage, namely since tokens.
 
-Notice that lists added after Sliding Sync has been built **will not be
-loaded from cache** regardless of their settings (as this could lead to
-inconsistencies between lists). The same goes for any extension: some
-extension data (like the to-device-message position) are stored to storage,
-but only retrieved upon `build()` of the `SlidingSyncBuilder`. So if one
-only adds them later, they will not be reading the data from storage (to
-avoid inconsistencies) and might require more data to be sent in their first
-request than if they were loaded form cold-cache.
+Caching for lists can be enabled independently, using the
+[`add_cached_list`][`SlidingSyncBuilder::add_cached_list`] method, assuming
+caching has been enabled before. In this case, during
+`.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt to load their
+latest cached version from storage, as well as some overall information of
+Sliding Sync. If that succeeded the lists `state` has been set to
+[`Preloaded`][SlidingSyncState::Preloaded]. Only room data of rooms present in
+one of the lists is loaded from storage.
+
+Any extension data will not be loaded from the cache, if added after Sliding
+Sync has been built: some extension data (like the to-device-message position)
+are stored to storage, but only retrieved upon `build()` of the
+`SlidingSyncBuilder`. So if one only adds them later, they will not be reading
+the data from storage (to avoid inconsistencies) and might require more data to
+be sent in their first request than if they were loaded from a cold cache.
 
 When loading from storage `room_list` entries found are set to
 `Invalidated` — the initial setting here is communicated as a single
@@ -411,10 +418,10 @@ use std::future::ready;
 let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
-    .sliding_sync()
+    .sliding_sync("main-sync")?
     .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
-    .storage_key(Some("example-cache".to_owned())); // we want these to be loaded from and stored into the persistent storage
+    .enable_caching()?; // we want these to be loaded from and stored into the persistent storage
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window

@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use indexmap::IndexMap;
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
@@ -156,8 +156,9 @@ impl TestTimeline {
         self.handle_live_event(raw).await;
     }
 
-    async fn handle_live_event(&self, raw: Raw<AnySyncTimelineEvent>) {
-        self.inner.handle_live_event(raw, None, vec![]).await
+    async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
+        let event = SyncTimelineEvent { event, encryption_info: None, push_actions: vec![] };
+        self.inner.handle_live_event(event).await
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {

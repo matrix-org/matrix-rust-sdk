@@ -142,8 +142,8 @@ impl OlmMachine {
     /// * `path` - The path where the state of the machine should be persisted.
     ///
     /// * `passphrase` - The passphrase that should be used to encrypt the data
-    ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
-    ///   store and all its data will remain unencrypted.
+    ///   at rest in the crypto store. **Warning**, if no passphrase is given,
+    ///   the store and all its data will remain unencrypted.
     #[uniffi::constructor]
     pub fn new(
         user_id: String,

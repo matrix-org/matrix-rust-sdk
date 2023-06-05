@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join4, pin_mut, StreamExt};
+use futures_util::{future::join3, pin_mut, StreamExt};
 pub use matrix_sdk::{
     ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
@@ -254,14 +254,6 @@ impl SlidingSyncRoom {
             }
         };
 
-        let handle_sync_gap = {
-            let gap_broadcast_rx = self.client.inner.subscribe_sync_gap(self.inner.room_id());
-            let timeline = timeline.to_owned();
-            async move {
-                gap_broadcast_rx.for_each(|_| timeline.clear()).await;
-            }
-        };
-
         // This in the future could be removed, and the rx handling could be moved
         // inside handle_sliding_sync_reset since we want to reset the sliding
         // sync for ignore user list events
@@ -276,13 +268,7 @@ impl SlidingSyncRoom {
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join4(
-                handle_events,
-                handle_sliding_sync_reset,
-                handle_sync_gap,
-                handle_ignore_user_list_changes,
-            )
-            .await;
+            join3(handle_events, handle_sliding_sync_reset, handle_ignore_user_list_changes).await;
         }));
 
         Ok((items, task_handle))
@@ -560,6 +546,14 @@ impl SlidingSyncListBuilder {
         );
         Arc::new(builder)
     }
+
+    pub fn bump_event_types(self: Arc<Self>, bump_event_types: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.bump_event_types(
+            bump_event_types.into_iter().map(Into::into).collect::<Vec<_>>().as_slice(),
+        );
+        Arc::new(builder)
+    }
 }
 
 pub trait SlidingSyncListOnceBuilt: Sync + Send {
@@ -818,10 +812,10 @@ impl SlidingSyncBuilder {
         Ok(Arc::new(builder))
     }
 
-    pub fn storage_key(self: Arc<Self>, name: Option<String>) -> Arc<Self> {
+    pub fn enable_caching(self: Arc<Self>) -> Result<Arc<Self>, ClientError> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.storage_key(name);
-        Arc::new(builder)
+        builder.inner = builder.inner.enable_caching()?;
+        Ok(Arc::new(builder))
     }
 
     pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
@@ -883,14 +877,6 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn bump_event_types(self: Arc<Self>, bump_event_types: Vec<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.bump_event_types(
-            bump_event_types.into_iter().map(Into::into).collect::<Vec<_>>().as_slice(),
-        );
-        Arc::new(builder)
-    }
-
     pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSync>, ClientError> {
         let builder = unwrap_or_clone_arc(self);
         RUNTIME.block_on(async move {
@@ -901,8 +887,11 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl Client {
-    pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.inner.sliding_sync();
+    /// Creates a new Sliding Sync instance with the given identifier.
+    ///
+    /// Note: the identifier must be less than 16 chars long.
+    pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
+        let mut inner = self.inner.sliding_sync(id)?;
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
@@ -912,6 +901,6 @@ impl Client {
         {
             inner = inner.homeserver(sliding_sync_proxy);
         }
-        Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
+        Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

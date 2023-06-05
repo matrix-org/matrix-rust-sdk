@@ -1,8 +1,11 @@
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
+use assert_matches::assert_matches;
+use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+    sync::RoomUpdate,
     RumaApiError, Session,
 };
 use matrix_sdk_test::{async_test, test_json};
@@ -629,4 +632,29 @@ fn serialize_session() {
             "device_id": "EFGHIJ",
         })
     );
+}
+
+#[async_test]
+async fn room_update_channel() {
+    let (client, server) = logged_in_client().await;
+
+    let mut rx = client.subscribe_to_room_updates(room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    client.sync_once(sync_settings).await.unwrap();
+
+    let update = rx.recv().now_or_never().unwrap().unwrap();
+    let updates = assert_matches!(update, RoomUpdate::Joined { updates, .. } => updates);
+
+    assert_eq!(updates.account_data.len(), 1);
+    assert_eq!(updates.ephemeral.len(), 1);
+    assert_eq!(updates.state.len(), 9);
+
+    assert!(updates.timeline.limited);
+    assert_eq!(updates.timeline.events.len(), 1);
+    assert_eq!(updates.timeline.prev_batch, Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned()));
+
+    assert_eq!(updates.unread_notifications.highlight_count, 0);
+    assert_eq!(updates.unread_notifications.notification_count, 11);
 }
