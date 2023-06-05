@@ -152,12 +152,17 @@ impl RoomList {
                     }
 
                     Some(Err(error)) => {
-                        // TODO: what to do when an error is raised?
+                        let next_state = State::Terminated { from: Box::new(self.state.get()) };
+
+                        Observable::set(&self.state, next_state);
+
                         yield Err(Error::SlidingSync(error));
+
+                        break;
                     }
 
                     None => {
-                        let next_state = State::Terminated;
+                        let next_state = State::Terminated { from: Box::new(self.state.get()) };
 
                         Observable::set(&self.state, next_state);
 
@@ -210,16 +215,22 @@ impl RoomList {
 
         match input {
             Viewport(ranges) => {
-                self.sliding_sync
-                    .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
-                        ready(list.set_sync_mode(
-                            SlidingSyncMode::new_selective().add_ranges(ranges.clone()),
-                        ))
-                    })
-                    .await
-                    .ok_or_else(|| Error::InputHasNotBeenApplied(Viewport(ranges)))?;
+                self.update_viewport(ranges).await?;
             }
         }
+
+        Ok(())
+    }
+
+    async fn update_viewport(&self, ranges: Ranges) -> Result<(), Error> {
+        self.sliding_sync
+            .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
+                ready(
+                    list.set_sync_mode(SlidingSyncMode::new_selective().add_ranges(ranges.clone())),
+                )
+            })
+            .await
+            .ok_or_else(|| Error::InputHasNotBeenApplied(Input::Viewport(ranges)))?;
 
         Ok(())
     }
@@ -332,7 +343,7 @@ pub enum Error {
 }
 
 /// The state of the [`RoomList`]' state machine.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum State {
     /// That's the first initial state.
     Init,
@@ -349,7 +360,7 @@ pub enum State {
 
     /// At this state, the sync has been stopped (because it was requested, or
     /// because it has errored too many times previously).
-    Terminated,
+    Terminated { from: Box<State> },
 }
 
 impl State {
@@ -363,7 +374,27 @@ impl State {
             FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
             AllRooms => (Enjoy, Actions::none()),
             Enjoy => (Enjoy, Actions::none()),
-            Terminated => (Terminated, Actions::none()),
+            // If the state was `Terminated` but the next state is calculated again, it means the
+            // sync has been restarted. In this case, let's jump back on the previous state that led
+            // to the termination. No action is required in this scenario.
+            Terminated { from: previous_state } => {
+                match previous_state.as_ref() {
+                    state @ Init | state @ FirstRooms => {
+                        // Do nothing.
+                        (state.to_owned(), Actions::none())
+                    }
+
+                    state @ AllRooms | state @ Enjoy => {
+                        // Refresh the lists.
+                        (state.to_owned(), Actions::refresh_lists())
+                    }
+
+                    Terminated { .. } => {
+                        // Having `Terminated { from: Terminated { … } }` is not allowed.
+                        unreachable!("It's impossible to reach `Terminated` from `Terminated`");
+                    }
+                }
+            }
         };
 
         for action in actions.iter() {
@@ -398,10 +429,10 @@ impl Action for AddVisibleRoomsList {
     }
 }
 
-struct ChangeAllRoomsListToGrowingSyncMode;
+struct SetAllRoomsListToGrowingSyncMode;
 
 #[async_trait]
-impl Action for ChangeAllRoomsListToGrowingSyncMode {
+impl Action for SetAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
@@ -453,7 +484,8 @@ macro_rules! actions {
 impl Actions {
     actions! {
         none => [],
-        first_rooms_are_loaded => [ChangeAllRoomsListToGrowingSyncMode, AddVisibleRoomsList],
+        first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList],
+        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -535,24 +567,59 @@ mod tests {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
+        // First state.
         let state = State::Init;
 
+        // Hypothetical termination.
+        {
+            let state =
+                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+            assert_eq!(state, State::Init);
+        }
+
+        // Next state.
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::FirstRooms);
 
+        // Hypothetical termination.
+        {
+            let state =
+                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+            assert_eq!(state, State::FirstRooms);
+        }
+
+        // Next state.
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::AllRooms);
 
+        // Hypothetical termination.
+        {
+            let state =
+                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+            assert_eq!(state, State::AllRooms);
+        }
+
+        // Next state.
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
 
+        // Hypothetical termination.
+        {
+            let state =
+                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+            assert_eq!(state, State::Enjoy);
+        }
+
+        // Next state.
         let state = state.next(&sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
 
-        let state = State::Terminated;
-
-        let state = state.next(&sliding_sync).await?;
-        assert_eq!(state, State::Terminated);
+        // Hypothetical termination.
+        {
+            let state =
+                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+            assert_eq!(state, State::Enjoy);
+        }
 
         Ok(())
     }
@@ -583,7 +650,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_action_change_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
+    async fn test_action_set_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
@@ -602,7 +669,7 @@ mod tests {
         );
 
         // Run the action!
-        ChangeAllRoomsListToGrowingSyncMode.run(sliding_sync).await.unwrap();
+        SetAllRoomsListToGrowingSyncMode.run(sliding_sync).await.unwrap();
 
         // List is still present, in Growing mode.
         assert_eq!(
