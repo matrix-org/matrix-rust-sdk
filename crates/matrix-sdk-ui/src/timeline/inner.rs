@@ -254,6 +254,32 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let Some(local_item) = item.as_local() else {
             // Remote echo already received. This is very unlikely.
             trace!("Remote echo received before send-event response");
+
+            let local_echo = rfind_event_item(&state.items, |it| {
+                it.transaction_id() == Some(txn_id)
+            });
+            // If there's both the remote echo and a local echo, that means the
+            // remote echo was received before the response *and* contained no
+            // transaction ID (and thus duplicated the local echo).
+            if let Some((idx, _)) = local_echo {
+                warn!("Message echo got duplicated, removing the local one");
+                state.items.remove(idx);
+
+                if idx == 0 {
+                    error!("Inconsistent state: Local echo was not preceded by day divider");
+                    return;
+                }
+                if idx == state.items.len() {
+                    error!("Inconsistent state: Echo was duplicated but local echo was last");
+                    return;
+                }
+
+                if state.items[idx - 1].is_day_divider() && state.items[idx].is_day_divider() {
+                    // If local echo was the only event from that day, remove day divider.
+                    state.items.remove(idx - 1);
+                }
+            }
+
             return;
         };
 
