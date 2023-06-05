@@ -35,14 +35,14 @@
 //!
 //! `RoomList` works with 2 Sliding Sync List:
 //!
-//! * `all_rooms` (refered by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
+//! * `all_rooms` (referred by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
 //!   list. Its goal is to load all the user' rooms. It starts with a
 //!   [`SlidingSyncMode::Selective`] sync-mode with a small range (i.e. a small
 //!   set of rooms) to load the first rooms quickly, and then updates to a
 //!   [`SlidingSyncMode::Growing`] sync-mode to load the remaining rooms “in the
 //!   background”: it will sync the existing rooms and will fetch new rooms, by
 //!   a certain batch size.
-//! * `visible_rooms` (refered by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
+//! * `visible_rooms` (referred by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
 //!   the “reactive” list. It's goal is to react to the client app user actions.
 //!   If the user scrolls in the room list, the `visible_rooms` will be
 //!   configured to sync for the particular range of rooms the user is actually

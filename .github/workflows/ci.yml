@@ -185,7 +185,7 @@ jobs:
       - name: Test
         run: |
           cargo nextest run --workspace \
-            --exclude matrix-sdk-integration-testing --exclude sliding-sync-integration-test
+            --exclude matrix-sdk-integration-testing --exclude sliding-sync-integration-test --features testing
 
       - name: Test documentation
         run: |
