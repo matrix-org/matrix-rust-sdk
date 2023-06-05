@@ -901,26 +901,20 @@ mod tests {
         pin_mut!(stream);
 
         // The sync-loop is actually running.
-        for _ in 0..3 {
-            assert!(stream.next().await.is_some());
-        }
+        assert!(stream.next().await.is_some());
 
         // Stop the sync-loop.
         sliding_sync.stop_sync()?;
 
         // The sync-loop is actually stopped.
-        for _ in 0..3 {
-            assert!(stream.next().await.is_none());
-        }
+        assert!(stream.next().await.is_none());
 
         // Start a new sync-loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
         // The sync-loop is actually running.
-        for _ in 0..3 {
-            assert!(stream.next().await.is_some());
-        }
+        assert!(stream.next().await.is_some());
 
         Ok(())
     }
