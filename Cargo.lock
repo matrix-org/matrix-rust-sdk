@@ -2941,6 +2941,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "stream_assert",
  "thiserror",
  "tokio",
  "tracing",
@@ -4772,6 +4773,15 @@ name = "str_stack"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
+
+[[package]]
+name = "stream_assert"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58491272dc90918dba713fd9e3556a67a09e067621143f3616754788286489f1"
+dependencies = [
+ "futures-util",
+]
 
 [[package]]
 name = "string_cache"
