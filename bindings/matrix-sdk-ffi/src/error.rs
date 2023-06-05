@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError,
+    self, encryption::CryptoStoreError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 
@@ -104,6 +104,8 @@ pub enum TimelineError {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum NotificationSettingsError {
+    #[error("client error: {msg}")]
+    Generic { msg: String },
     /// Invalid room id.
     #[error("Invalid room id")]
     InvalidRoomId,
@@ -133,5 +135,11 @@ impl From<SdkNotificationSettingsError> for NotificationSettingsError {
             SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,
             SdkNotificationSettingsError::UnableToSavePushRules => Self::UnableToSavePushRules,
         }
+    }
+}
+
+impl From<matrix_sdk::Error> for NotificationSettingsError {
+    fn from(e: matrix_sdk::Error) -> Self {
+        Self::Generic { msg: e.to_string() }
     }
 }

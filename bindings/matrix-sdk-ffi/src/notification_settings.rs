@@ -131,8 +131,7 @@ impl NotificationSettings {
             }
             RoomNotificationMode::Mute => SdkRoomNotificationMode::Mute,
         };
-        notification_settings.set_room_notification_mode(&room_id, mode, &mut ruleset)?;
-        notification_settings.save_push_rules(&ruleset).await?;
+        notification_settings.set_room_notification_mode(&room_id, mode, &mut ruleset).await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
@@ -144,13 +143,14 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
-        notification_settings.restore_room_default_push_rule(&room_id, &mut ruleset)?;
-        notification_settings.save_push_rules(&ruleset).await?;
+        notification_settings
+            .delete_user_defined_room_notification_mode(&room_id, &mut ruleset)
+            .await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
 
-    /// Get whether keyword rules exist.
+    /// Get whether some enabled keyword rules exist.
     pub async fn contains_keywords_rules(&self) -> bool {
         let ruleset = &*self.push_rules.read().await;
         self.sdk_client.notification_settings().contains_keyword_rules(ruleset)
@@ -169,8 +169,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
-        notification_settings.set_room_mention_enabled(enabled, &mut ruleset);
-        notification_settings.save_push_rules(&ruleset).await?;
+        notification_settings.set_room_mention_enabled(enabled, &mut ruleset).await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
@@ -188,8 +187,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
-        notification_settings.set_user_mention_enabled(enabled, &mut ruleset);
-        notification_settings.save_push_rules(&ruleset).await?;
+        notification_settings.set_user_mention_enabled(enabled, &mut ruleset).await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
