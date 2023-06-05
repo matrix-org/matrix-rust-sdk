@@ -20,7 +20,7 @@ use matrix_sdk::{
 };
 use ruma::events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent};
 use tokio::sync::{broadcast, Mutex};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -135,22 +135,16 @@ impl TimelineBuilder {
                         }
                     };
 
-                    let timeline = match update {
-                        RoomUpdate::Left { updates, .. } => updates.timeline,
-                        RoomUpdate::Joined { updates, .. } => updates.timeline,
+                    match update {
+                        RoomUpdate::Left { updates, .. } => {
+                            inner.handle_sync_timeline(updates.timeline).await;
+                        }
+                        RoomUpdate::Joined { updates, .. } => {
+                            inner.handle_sync_timeline(updates.timeline).await;
+                        }
                         RoomUpdate::Invited { .. } => {
                             warn!("Room is in invited state, can't build or update its timeline");
-                            continue;
                         }
-                    };
-
-                    if timeline.limited {
-                        debug!("Got limited sync response, resetting timeline");
-                        inner.clear().await;
-                    }
-
-                    for event in timeline.events {
-                        inner.handle_live_event(event).await;
                     }
                 }
             }
