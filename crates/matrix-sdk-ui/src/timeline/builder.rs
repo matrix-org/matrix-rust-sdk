@@ -18,7 +18,7 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
 };
-use ruma::events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent};
+use ruma::events::receipt::{ReceiptThread, ReceiptType};
 use tokio::sync::{broadcast, Mutex};
 use tracing::{error, warn};
 
@@ -115,6 +115,9 @@ impl TimelineBuilder {
         if has_events {
             inner.add_initial_events(events).await;
         }
+        if track_read_marker_and_receipts {
+            inner.load_fully_read_event().await;
+        }
 
         let inner = Arc::new(inner);
         let room = inner.room();
@@ -140,7 +143,7 @@ impl TimelineBuilder {
                             inner.handle_sync_timeline(updates.timeline).await;
                         }
                         RoomUpdate::Joined { updates, .. } => {
-                            inner.handle_sync_timeline(updates.timeline).await;
+                            inner.handle_joined_room_update(updates).await;
                         }
                         RoomUpdate::Invited { .. } => {
                             warn!("Room is in invited state, can't build or update its timeline");
@@ -162,38 +165,12 @@ impl TimelineBuilder {
             room.room_id().to_owned(),
         ));
 
-        let mut handles = vec![
+        let handles = vec![
             #[cfg(feature = "e2e-encryption")]
             room_key_handle,
             #[cfg(feature = "e2e-encryption")]
             forwarded_room_key_handle,
         ];
-
-        if track_read_marker_and_receipts {
-            inner.load_fully_read_event().await;
-
-            let fully_read_handle = room.add_event_handler({
-                let inner = inner.clone();
-                move |event| {
-                    let inner = inner.clone();
-                    async move {
-                        inner.handle_fully_read(event).await;
-                    }
-                }
-            });
-            handles.push(fully_read_handle);
-
-            let read_receipts_handle = room.add_event_handler({
-                let inner = inner.clone();
-                move |read_receipts: SyncReceiptEvent| {
-                    let inner = inner.clone();
-                    async move {
-                        inner.handle_read_receipts(read_receipts.content).await;
-                    }
-                }
-            });
-            handles.push(read_receipts_handle);
-        }
 
         let timeline = Timeline {
             inner,
