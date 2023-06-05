@@ -819,10 +819,10 @@ impl SlidingSyncBuilder {
         Ok(Arc::new(builder))
     }
 
-    pub fn storage_key(self: Arc<Self>, name: Option<String>) -> Arc<Self> {
+    pub fn enable_caching(self: Arc<Self>) -> Result<Arc<Self>, ClientError> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.storage_key(name);
-        Arc::new(builder)
+        builder.inner = builder.inner.enable_caching()?;
+        Ok(Arc::new(builder))
     }
 
     pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
@@ -894,8 +894,11 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl Client {
-    pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.inner.sliding_sync();
+    /// Creates a new Sliding Sync instance with the given identifier.
+    ///
+    /// Note: the identifier must be less than 16 chars long.
+    pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
+        let mut inner = self.inner.sliding_sync(id)?;
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
@@ -905,6 +908,6 @@ impl Client {
         {
             inner = inner.homeserver(sliding_sync_proxy);
         }
-        Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
+        Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

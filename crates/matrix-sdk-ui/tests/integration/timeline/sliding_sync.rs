@@ -151,7 +151,7 @@ macro_rules! assert_timeline_stream {
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client().await;
 
-    let mut sliding_sync_builder = client.sliding_sync();
+    let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 
     for list in lists {
         sliding_sync_builder = sliding_sync_builder.add_list(list);

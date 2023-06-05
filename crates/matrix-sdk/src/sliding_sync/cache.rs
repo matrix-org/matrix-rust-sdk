@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
+use ruma::UserId;
 use tracing::{trace, warn};
 
 use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
@@ -14,14 +15,20 @@ use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
+pub(super) fn format_storage_key_prefix(id: &str, user_id: &UserId) -> String {
+    format!("sliding_sync_store::{}::{}", id, user_id)
+}
+
+/// Be careful: as this is used as a storage key; changing it requires migrating
+/// data!
 fn format_storage_key_for_sliding_sync(storage_key: &str) -> String {
-    format!("sliding_sync_store::{storage_key}")
+    format!("{storage_key}::instance")
 }
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
 fn format_storage_key_for_sliding_sync_list(storage_key: &str, list_name: &str) -> String {
-    format!("sliding_sync_store::{storage_key}::{list_name}")
+    format!("{storage_key}::list::{list_name}")
 }
 
 /// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the
@@ -202,26 +209,22 @@ mod tests {
 
     use futures_executor::block_on;
     use futures_util::StreamExt;
-    use url::Url;
 
     use super::*;
-    use crate::{Client, Result};
+    use crate::{test_utils::logged_in_client, Result};
 
     #[test]
     fn test_cannot_cache_without_a_storage_key() -> Result<()> {
         block_on(async {
-            let homeserver = Url::parse("https://foo.bar")?;
-            let client = Client::new(homeserver).await?;
+            let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
             let err = client
-                .sliding_sync()
+                .sliding_sync("test")?
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await
                 .unwrap_err();
             assert!(matches!(
                 err,
-                crate::Error::SlidingSync(
-                    crate::sliding_sync::error::Error::MissingStorageKeyForCaching
-                )
+                crate::Error::SlidingSync(crate::sliding_sync::error::Error::CacheDisabled)
             ));
             Ok(())
         })
@@ -231,8 +234,7 @@ mod tests {
     #[test]
     fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
         block_on(async {
-            let homeserver = Url::parse("https://foo.bar")?;
-            let client = Client::new(homeserver).await?;
+            let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
 
             let store = client.store();
 
@@ -257,10 +259,12 @@ mod tests {
                 .is_none());
 
             // Create a new `SlidingSync` instance, and store it.
-            {
+            let storage_key = {
+                let sync_id = "test-sync-id";
+                let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
                 let sliding_sync = client
-                    .sliding_sync()
-                    .storage_key(Some("hello".to_owned()))
+                    .sliding_sync(sync_id)?
+                    .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo"))
                     .await?
                     .add_list(SlidingSyncList::builder("list_bar"))
@@ -279,17 +283,18 @@ mod tests {
                 }
 
                 assert!(sliding_sync.cache_to_storage().await.is_ok());
-            }
+                storage_key
+            };
 
             // Store entries now exist for the sliding sync object and list_foo.
             assert!(store
-                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+                .get_custom_value(format_storage_key_for_sliding_sync(&storage_key).as_bytes())
                 .await?
                 .is_some());
 
             assert!(store
                 .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
                 )
                 .await?
                 .is_some());
@@ -297,18 +302,20 @@ mod tests {
             // But not for list_bar.
             assert!(store
                 .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
                 )
                 .await?
                 .is_none());
 
             // Create a new `SlidingSync`, and it should be read from the cache.
-            {
+            let storage_key = {
+                let sync_id = "test-sync-id";
+                let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
                 let max_number_of_room_stream = Arc::new(RwLock::new(None));
                 let cloned_stream = max_number_of_room_stream.clone();
                 let sliding_sync = client
-                    .sliding_sync()
-                    .storage_key(Some("hello".to_owned()))
+                    .sliding_sync(sync_id)?
+                    .enable_caching()?
                     .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                         // In the `once_built()` handler, nothing has been read from the cache yet.
                         assert_eq!(list.maximum_number_of_rooms(), None);
@@ -349,25 +356,27 @@ mod tests {
                 }
 
                 // Clean the cache.
-                clean_storage(&client, "hello", &sliding_sync.inner.lists.read().unwrap()).await;
-            }
+                clean_storage(&client, &storage_key, &sliding_sync.inner.lists.read().unwrap())
+                    .await;
+                storage_key
+            };
 
             // Store entries don't exist.
             assert!(store
-                .get_custom_value(format_storage_key_for_sliding_sync("hello").as_bytes())
+                .get_custom_value(format_storage_key_for_sliding_sync(&storage_key).as_bytes())
                 .await?
                 .is_none());
 
             assert!(store
                 .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_foo").as_bytes()
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
                 )
                 .await?
                 .is_none());
 
             assert!(store
                 .get_custom_value(
-                    format_storage_key_for_sliding_sync_list("hello", "list_bar").as_bytes()
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
                 )
                 .await?
                 .is_none());
