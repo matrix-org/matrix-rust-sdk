@@ -25,18 +25,21 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
     room,
-    sync::Timeline,
+    sync::{JoinedRoom, Timeline},
     Error, Result,
 };
+#[cfg(test)]
+use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use ruma::RoomId;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         fully_read::FullyReadEvent,
-        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncTimelineEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -163,7 +166,44 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.lock().await.clear();
     }
 
-    #[instrument(skip_all)]
+    pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
+        let mut state = self.state.lock().await;
+        state
+            .handle_sync_timeline(
+                update.timeline,
+                &self.room_data_provider,
+                self.track_read_receipts,
+            )
+            .await;
+
+        for raw_event in update.account_data {
+            match raw_event.deserialize() {
+                Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
+                    state.set_fully_read_event(ev.content.event_id)
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Failed to deserialize account data: {e}");
+                }
+            }
+        }
+
+        if !update.ephemeral.is_empty() {
+            let own_user_id = self.room_data_provider.own_user_id();
+            for raw_event in update.ephemeral {
+                match raw_event.deserialize() {
+                    Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
+                        state.handle_explicit_read_receipts(ev.content, own_user_id);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("Failed to deserialize ephemeral event: {e}");
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) async fn handle_sync_timeline(&self, timeline: Timeline) {
         self.state
             .lock()
@@ -329,36 +369,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    #[instrument(skip_all)]
-    pub(super) async fn handle_fully_read(&self, raw: Raw<FullyReadEvent>) {
-        let fully_read_event_id = match raw.deserialize() {
-            Ok(ev) => ev.content.event_id,
-            Err(e) => {
-                error!("Failed to deserialize fully-read account data: {e}");
-                return;
-            }
-        };
-
-        self.set_fully_read_event(fully_read_event_id).await;
-    }
-
-    #[instrument(skip_all)]
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        let mut state = self.state.lock().await;
-
-        // A similar event has been handled already. We can ignore it.
-        if state.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
-            return;
-        }
-
-        state.fully_read_event = Some(fully_read_event_id);
-
-        let state = &mut *state;
-        update_read_marker(
-            &mut state.items,
-            state.fully_read_event.as_deref(),
-            &mut state.event_should_update_fully_read_marker,
-        );
+        self.state.lock().await.set_fully_read_event(fully_read_event_id)
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -535,11 +547,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
+    #[cfg(test)]
     pub(super) async fn handle_read_receipts(&self, receipt_event_content: ReceiptEventContent) {
-        let mut state = self.state.lock().await;
         let own_user_id = self.room_data_provider.own_user_id();
-
-        state.handle_explicit_read_receipts(receipt_event_content, own_user_id);
+        self.state.lock().await.handle_explicit_read_receipts(receipt_event_content, own_user_id);
     }
 }
 
@@ -713,6 +724,7 @@ impl TimelineInner {
 }
 
 impl TimelineInnerState {
+    #[instrument(skip_all)]
     pub(super) async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         timeline: Timeline,
@@ -813,6 +825,22 @@ impl TimelineInnerState {
         self.reaction_map.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
+    }
+
+    #[instrument(skip_all)]
+    fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
+        // A similar event has been handled already. We can ignore it.
+        if self.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
+            return;
+        }
+
+        self.fully_read_event = Some(fully_read_event_id);
+
+        update_read_marker(
+            &mut self.items,
+            self.fully_read_event.as_deref(),
+            &mut self.event_should_update_fully_read_marker,
+        );
     }
 }
 
