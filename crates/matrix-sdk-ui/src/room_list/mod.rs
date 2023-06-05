@@ -227,9 +227,9 @@ impl RoomList {
     async fn update_viewport(&self, ranges: Ranges) -> Result<(), Error> {
         self.sliding_sync
             .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
-                ready(
-                    list.set_sync_mode(SlidingSyncMode::new_selective().add_ranges(ranges.clone())),
-                )
+                list.set_sync_mode(SlidingSyncMode::new_selective().add_ranges(ranges.clone()));
+
+                ready(())
             })
             .await
             .ok_or_else(|| Error::InputHasNotBeenApplied(Input::Viewport(ranges)))?;
@@ -438,7 +438,9 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                ready(list.set_sync_mode(SlidingSyncMode::new_growing(50)))
+                list.set_sync_mode(SlidingSyncMode::new_growing(50));
+
+                ready(())
             })
             .await
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
@@ -575,51 +577,51 @@ mod tests {
         // Hypothetical termination.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
             assert_eq!(state, State::Init);
         }
 
         // Next state.
-        let state = state.next(&sliding_sync).await?;
+        let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::FirstRooms);
 
         // Hypothetical termination.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
             assert_eq!(state, State::FirstRooms);
         }
 
         // Next state.
-        let state = state.next(&sliding_sync).await?;
+        let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::AllRooms);
 
         // Hypothetical termination.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
             assert_eq!(state, State::AllRooms);
         }
 
         // Next state.
-        let state = state.next(&sliding_sync).await?;
+        let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
 
         // Hypothetical termination.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
             assert_eq!(state, State::Enjoy);
         }
 
         // Next state.
-        let state = state.next(&sliding_sync).await?;
+        let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::Enjoy);
 
         // Hypothetical termination.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(&sliding_sync).await?;
+                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
             assert_eq!(state, State::Enjoy);
         }
 
