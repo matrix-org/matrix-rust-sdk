@@ -24,7 +24,9 @@ use indexmap::{IndexMap, IndexSet};
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
-    room, Error, Result,
+    room,
+    sync::Timeline,
+    Error, Result,
 };
 #[cfg(all(test, feature = "e2e-encryption"))]
 use ruma::RoomId;
@@ -163,25 +165,33 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn clear(&self) {
         trace!("Clearing timeline");
-
-        let mut state = self.state.lock().await;
-        state.items.clear();
-        state.reaction_map.clear();
-        state.fully_read_event = None;
-        state.event_should_update_fully_read_marker = false;
+        self.state.lock().await.clear();
     }
 
     #[instrument(skip_all)]
+    pub(super) async fn handle_sync_timeline(&self, timeline: Timeline) {
+        let mut state = self.state.lock().await;
+        if timeline.limited {
+            debug!("Got limited sync response, resetting timeline");
+            state.clear();
+        }
+
+        for event in timeline.events {
+            handle_live_event(
+                event,
+                &mut state,
+                &self.room_data_provider,
+                self.track_read_receipts,
+            )
+            .await;
+        }
+    }
+
+    #[cfg(test)]
     pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
         let mut state = self.state.lock().await;
-        handle_remote_event(
-            event,
-            TimelineItemPosition::End { from_cache: false },
-            &mut state,
-            &self.room_data_provider,
-            self.track_read_receipts,
-        )
-        .await;
+        handle_live_event(event, &mut state, &self.room_data_provider, self.track_read_receipts)
+            .await;
     }
 
     /// Handle the creation of a new local event.
@@ -714,6 +724,15 @@ impl TimelineInner {
     }
 }
 
+impl TimelineInnerState {
+    pub(super) fn clear(&mut self) {
+        self.items.clear();
+        self.reaction_map.clear();
+        self.fully_read_event = None;
+        self.event_should_update_fully_read_marker = false;
+    }
+}
+
 async fn fetch_replied_to_event(
     mut state: MutexGuard<'_, TimelineInnerState>,
     index: usize,
@@ -822,6 +841,26 @@ impl RoomDataProvider for room::Common {
             }
         }
     }
+}
+
+/// Handle a live remote event.
+///
+/// Shorthand for `handle_remote_event` with a `positon` of
+/// `TimelineItemPosition::End { from_cache: false }`.
+async fn handle_live_event<P: RoomDataProvider>(
+    event: SyncTimelineEvent,
+    timeline_state: &mut TimelineInnerState,
+    room_data_provider: &P,
+    track_read_receipts: bool,
+) -> HandleEventResult {
+    handle_remote_event(
+        event,
+        TimelineItemPosition::End { from_cache: false },
+        timeline_state,
+        room_data_provider,
+        track_read_receipts,
+    )
+    .await
 }
 
 /// Handle a remote event.
