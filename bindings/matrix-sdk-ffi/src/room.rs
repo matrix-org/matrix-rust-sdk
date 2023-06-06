@@ -764,6 +764,22 @@ impl Room {
 
         self.send_attachment(url, mime_type, attachment_config)
     }
+
+    pub fn retry_send(&self, txn_id: String) {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't retry sending message");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            if let Err(e) = timeline.retry_send(txn_id.as_str().into()).await {
+                error!(txn_id, "Failed to retry sending: {e}");
+            }
+        });
+    }
 }
 
 impl Room {
