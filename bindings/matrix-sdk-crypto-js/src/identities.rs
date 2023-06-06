@@ -85,6 +85,28 @@ impl OwnUserIdentity {
 
         future_to_promise(async move { Ok(me.trusts_our_own_device().await?) })
     }
+
+    /// Get the master key of the identity.
+    #[wasm_bindgen(getter, js_name = "masterKey")]
+    pub fn master_key(&self) -> Option<String> {
+        let master_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&master_key).ok()
+    }
+
+    /// Get the self-signing key of the identity.
+    #[wasm_bindgen(getter, js_name = "selfSigningKey")]
+    pub fn self_signing_key(&self) -> Option<String> {
+        let self_signing_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&self_signing_key).ok()
+    }
+
+    /// Get the user-signing key of the identity, this is only present for our
+    /// own user identity..
+    #[wasm_bindgen(getter, js_name = "userSigningKey")]
+    pub fn user_signing_key(&self) -> Option<String> {
+        let user_signing_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&user_signing_key).ok()
+    }
 }
 
 /// Struct representing a cross signing identity of a user.
@@ -168,5 +190,27 @@ impl UserIdentity {
         Ok(future_to_promise(async move {
             Ok(serde_json::to_string(&me.verification_request_content(methods).await)?)
         }))
+    }
+
+    /// Get the master key of the identity.
+    #[wasm_bindgen(getter, js_name = "masterKey")]
+    pub fn master_key(&self) -> Option<String> {
+        let master_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&master_key).ok()
+    }
+
+    /// Get the self-signing key of the identity.
+    #[wasm_bindgen(getter, js_name = "selfSigningKey")]
+    pub fn self_signing_key(&self) -> Option<String> {
+        let self_signing_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&self_signing_key).ok()
+    }
+
+    /// Get the user-signing key of the identity, this is only present for our
+    /// own user identity..
+    #[wasm_bindgen(getter, js_name = "userSigningKey")]
+    pub fn user_signing_key(&self) -> Option<String> {
+        let user_signing_key = self.inner.master_key().as_ref().to_owned();
+        serde_json::to_string(&user_signing_key).ok()
     }
 }
