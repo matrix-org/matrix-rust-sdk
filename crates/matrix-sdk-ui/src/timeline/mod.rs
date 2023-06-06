@@ -18,6 +18,7 @@
 
 use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
 
+use async_std::sync::{Condvar, Mutex};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::TryFutureExt;
@@ -42,8 +43,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
-use tracing::{error, instrument, warn};
+use tracing::{error, info, instrument, warn};
 
 mod builder;
 mod event_handler;
@@ -87,7 +87,8 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 #[derive(Debug)]
 pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
-    start_token: Mutex<Option<String>>,
+    start_token: Arc<Mutex<Option<String>>>,
+    start_token_condvar: Arc<Condvar>,
     _end_token: Mutex<Option<String>>,
     drop_handle: Arc<TimelineDropHandle>,
 }
@@ -117,11 +118,17 @@ impl Timeline {
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
-        if start_lock.is_none()
-            && self.inner.items().await.front().map_or(false, |item| item.is_timeline_start())
-        {
-            warn!("Start of timeline reached, ignoring backwards-pagination request");
-            return Ok(());
+        if start_lock.is_none() {
+            if self.inner.items().await.front().map_or(false, |item| item.is_timeline_start()) {
+                warn!("Start of timeline reached, ignoring backwards-pagination request");
+                return Ok(());
+            }
+
+            if options.wait_for_token {
+                info!("No prev_batch token, waiting");
+                start_lock =
+                    self.start_token_condvar.wait_until(start_lock, |tok| tok.is_some()).await;
+            }
         }
 
         self.inner.add_loading_indicator().await;
