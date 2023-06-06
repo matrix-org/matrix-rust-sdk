@@ -449,19 +449,22 @@ impl SlidingSync {
         // Sending the `/sync` request out when end-to-end encryption is enabled means
         // that we need to also send out any outgoing e2ee related request out
         // coming from the `OlmMachine::outgoing_requests()` method.
+
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
-
-            let (e2ee_uploads, response) =
-                futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                    .await;
-
-            if let Err(error) = e2ee_uploads {
-                error!(?error, "Error while sending outgoing E2EE requests");
+            if self.inner.extensions.e2ee.enabled == Some(true) {
+                debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
+                let (e2ee_uploads, response) =
+                    futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
+                        .await;
+                if let Err(error) = e2ee_uploads {
+                    error!(?error, "Error while sending outgoing E2EE requests");
+                }
+                response
+            } else {
+                debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
+                request.await
             }
-
-            response
         }?;
 
         // Send the request and get a response _without_ end-to-end encryption support.
