@@ -601,6 +601,28 @@ describe(OlmMachine.name, () => {
         const identity = await m.getIdentity(user);
 
         expect(identity).toBeInstanceOf(OwnUserIdentity);
+        const masterKey = JSON.parse(identity.masterKey);
+        const selfSigningKey = JSON.parse(identity.selfSigningKey);
+        const userSigningKey = JSON.parse(identity.userSigningKey);
+
+        const masterObjKeys = Object.keys(masterKey.keys);
+        const keyFromMasterKey = masterKey.keys[masterObjKeys[0]];
+
+        // self signing key exists
+        expect(Object.keys(selfSigningKey.keys).length).toBe(1)
+        // self signing key is different from the master key
+        expect(selfSigningKey.keys[keyFromMasterKey]).not.toBeDefined();
+
+        const selfSigningObjKeys = Object.keys(selfSigningKey.keys);
+        const keyFromSelfSigningKey = masterKey.keys[selfSigningObjKeys[0]];
+
+        // user signing key exists
+        expect(Object.keys(userSigningKey.keys).length).toBe(1)
+        // user signing key is different from the master key
+        expect(userSigningKey.keys[keyFromMasterKey]).not.toBeDefined();
+        // user signing key is different from the self signing key
+        expect(userSigningKey.keys[keyFromSelfSigningKey]).not.toBeDefined();
+
 
         const signatureUploadRequest = await identity.verify();
         expect(signatureUploadRequest).toBeInstanceOf(SignatureUploadRequest);
