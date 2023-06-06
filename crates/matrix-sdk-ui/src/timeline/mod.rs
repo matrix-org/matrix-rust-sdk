@@ -58,6 +58,7 @@ mod sliding_sync_ext;
 mod tests;
 #[cfg(feature = "e2e-encryption")]
 mod to_device;
+mod traits;
 mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;

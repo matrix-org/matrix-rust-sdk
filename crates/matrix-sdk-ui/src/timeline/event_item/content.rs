@@ -60,7 +60,7 @@ use tracing::{debug, error};
 
 use super::{EventTimelineItem, Profile, TimelineDetails};
 use crate::timeline::{
-    inner::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
+    traits::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
 };
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
