@@ -85,8 +85,8 @@ pub(super) struct SlidingSyncInner {
     /// Used to distinguish different connections to the sliding sync proxy.
     _id: Option<String>,
 
-    /// Customize the homeserver for sliding sync only
-    homeserver: Option<Url>,
+    /// Customize the sliding sync proxy URL.
+    sliding_sync_proxy: Option<Url>,
 
     /// The HTTP Matrix client.
     client: Client,
@@ -440,7 +440,7 @@ impl SlidingSync {
         let request = self.inner.client.send_with_homeserver(
             request,
             Some(request_config),
-            self.inner.homeserver.as_ref().map(ToString::to_string),
+            self.inner.sliding_sync_proxy.as_ref().map(ToString::to_string),
         );
 
         // Send the request and get a response with end-to-end encryption support.

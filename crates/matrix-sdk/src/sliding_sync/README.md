@@ -46,7 +46,7 @@ of Sliding Sync, and must be provided when getting a builder:
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .homeserver(Url::parse("http://sliding-sync.example.org")?);
+    .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?);
 
 # anyhow::Ok(())
 # };
@@ -419,7 +419,7 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .homeserver(Url::parse("http://sliding-sync.example.org")?) // our proxy server
+    .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_common_extensions() // we want the e2ee and to-device enabled, please
     .enable_caching()?; // we want these to be loaded from and stored into the persistent storage
 

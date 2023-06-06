@@ -25,7 +25,7 @@ use crate::{Client, Result};
 pub struct SlidingSyncBuilder {
     id: String,
     storage_key: Option<String>,
-    homeserver: Option<Url>,
+    sliding_sync_proxy: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<ExtensionsConfig>,
@@ -41,7 +41,7 @@ impl SlidingSyncBuilder {
             Ok(Self {
                 id,
                 storage_key: None,
-                homeserver: None,
+                sliding_sync_proxy: None,
                 client,
                 lists: Vec::new(),
                 extensions: None,
@@ -64,9 +64,14 @@ impl SlidingSyncBuilder {
         Ok(self)
     }
 
-    /// Set the homeserver for sliding sync only.
-    pub fn homeserver(mut self, value: Url) -> Self {
-        self.homeserver = Some(value);
+    /// Set the sliding sync proxy URL.
+    ///
+    /// Note you might not need that in general, since the client uses the
+    /// `.well-known` endpoint to automatically find the sliding sync proxy
+    /// URL. This method should only be called if the proxy is at a
+    /// different URL than the one publicized in the `.well-known` endpoint.
+    pub fn sliding_sync_proxy(mut self, value: Url) -> Self {
+        self.sliding_sync_proxy = Some(value);
         self
     }
 
@@ -258,7 +263,7 @@ impl SlidingSyncBuilder {
 
         Ok(SlidingSync::new(SlidingSyncInner {
             _id: Some(self.id),
-            homeserver: self.homeserver,
+            sliding_sync_proxy: self.sliding_sync_proxy,
             client,
             storage_key: self.storage_key,
 

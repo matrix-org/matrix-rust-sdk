@@ -53,7 +53,7 @@ use ruma::{
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
             },
-            sync::sync_events::{self},
+            sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
             user_directory::search_users,
         },
@@ -1845,13 +1845,14 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver: Option<String>,
+        sliding_sync_proxy: Option<String>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = Box::pin(self.send_inner(request.clone(), config, homeserver.clone())).await;
+        let res =
+            Box::pin(self.send_inner(request.clone(), config, sliding_sync_proxy.clone())).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1870,7 +1871,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return Box::pin(self.send_inner(request, config, homeserver)).await;
+                    return Box::pin(self.send_inner(request, config, sliding_sync_proxy)).await;
                 }
             }
         }
