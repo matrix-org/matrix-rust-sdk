@@ -81,7 +81,7 @@ pub struct SlidingSync {
 }
 
 #[derive(Debug)]
-pub(super) struct StickyParameters {
+pub(super) struct SlidingSyncStickyParameters {
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
     room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
@@ -91,7 +91,7 @@ pub(super) struct StickyParameters {
     extensions: ExtensionsConfig,
 }
 
-impl StickyParameters {
+impl SlidingSyncStickyParameters {
     /// Create a new set of sticky parameters.
     pub fn new(
         room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
@@ -101,7 +101,7 @@ impl StickyParameters {
     }
 }
 
-impl StickyData for StickyParameters {
+impl StickyData for SlidingSyncStickyParameters {
     type Request = v4::Request;
 
     fn apply(&self, req: &mut Self::Request) {
@@ -138,7 +138,7 @@ pub(super) struct SlidingSyncInner {
     rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// Request parameters that are sticky.
-    sticky: StdRwLock<sticky_parameters::StickyManager<StickyParameters>>,
+    sticky: StdRwLock<sticky_parameters::SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
@@ -768,7 +768,9 @@ mod tests {
     use wiremock::MockServer;
 
     use super::*;
-    use crate::{sliding_sync::sticky_parameters::StickyManager, test_utils::logged_in_client};
+    use crate::{
+        sliding_sync::sticky_parameters::SlidingSyncStickyManager, test_utils::logged_in_client,
+    };
 
     async fn new_sliding_sync(
         lists: Vec<SlidingSyncListBuilder>,
@@ -892,8 +894,10 @@ mod tests {
         room_subscriptions.insert(r0.to_owned(), Default::default());
 
         // At first it's invalidated.
-        let mut sticky =
-            StickyManager::new(StickyParameters::new(room_subscriptions, Default::default()));
+        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
+            room_subscriptions,
+            Default::default(),
+        ));
         assert!(sticky.is_invalidated());
 
         // Then when we create a request, the sticky parameters are applied.
@@ -957,7 +961,10 @@ mod tests {
         extensions.account_data.enabled = Some(true);
 
         // At first it's invalidated.
-        let mut sticky = StickyManager::new(StickyParameters::new(Default::default(), extensions));
+        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
+            Default::default(),
+            extensions,
+        ));
 
         assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
 

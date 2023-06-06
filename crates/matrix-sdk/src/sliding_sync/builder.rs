@@ -12,11 +12,11 @@ use url::Url;
 
 use super::{
     cache::{format_storage_key_prefix, restore_sliding_sync_state},
-    sticky_parameters::StickyManager,
+    sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     SlidingSyncRoom,
 };
-use crate::{sliding_sync::StickyParameters, Client, Result};
+use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -276,10 +276,9 @@ impl SlidingSyncBuilder {
                 to_device_token,
             }),
 
-            sticky: StdRwLock::new(StickyManager::new(StickyParameters::new(
-                self.subscriptions,
-                extensions,
-            ))),
+            sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+            )),
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,

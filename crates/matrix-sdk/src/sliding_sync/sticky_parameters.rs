@@ -29,7 +29,7 @@ pub trait StickyData {
 /// anymore (we say it's "committed" in that case) if the response's transaction
 /// id match what we expect.
 #[derive(Debug)]
-pub struct StickyManager<D: StickyData> {
+pub struct SlidingSyncStickyManager<D: StickyData> {
     /// The data managed by this sticky manager.
     data: D,
 
@@ -42,7 +42,7 @@ pub struct StickyManager<D: StickyData> {
     txn_id: Option<OwnedTransactionId>,
 }
 
-impl<D: StickyData> StickyManager<D> {
+impl<D: StickyData> SlidingSyncStickyManager<D> {
     /// Create a new `StickyManager` for the given data.
     ///
     /// Always assume the initial data invalidates the request, at first.
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_sticky_parameters_api_non_invalidated_no_effect() {
-        let mut sticky = StickyManager::new(EmptyStickyData);
+        let mut sticky = SlidingSyncStickyManager::new(EmptyStickyData);
 
         // At first, it's always invalidated.
         assert!(sticky.is_invalidated());

@@ -31,7 +31,7 @@ use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
 use super::{
-    sticky_parameters::{StickyData, StickyManager},
+    sticky_parameters::{SlidingSyncStickyManager, StickyData},
     Error, SlidingSyncInternalMessage,
 };
 use crate::Result;
@@ -334,7 +334,7 @@ pub(super) struct SlidingSyncListInner {
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
     /// knows).
-    sticky: StdRwLock<StickyManager<ListStickyParameters>>,
+    sticky: StdRwLock<SlidingSyncStickyManager<ListStickyParameters>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.

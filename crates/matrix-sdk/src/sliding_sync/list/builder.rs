@@ -24,7 +24,8 @@ use super::{
 };
 use crate::{
     sliding_sync::{
-        cache::restore_sliding_sync_list, sticky_parameters::StickyManager, FrozenSlidingSyncRoom,
+        cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager,
+        FrozenSlidingSyncRoom,
     },
     Client, RoomListEntry,
 };
@@ -201,7 +202,7 @@ impl SlidingSyncListBuilder {
                 sync_mode: StdRwLock::new(self.sync_mode.clone()),
 
                 // From the builder
-                sticky: StdRwLock::new(StickyManager::new(ListStickyParameters::new(
+                sticky: StdRwLock::new(SlidingSyncStickyManager::new(ListStickyParameters::new(
                     self.sort,
                     self.required_state,
                     self.filters,
