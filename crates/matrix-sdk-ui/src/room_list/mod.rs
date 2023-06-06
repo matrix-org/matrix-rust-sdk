@@ -104,13 +104,13 @@ impl RoomList {
             .with_account_data_extension(
                 assign! { AccountDataConfig::default(), { enabled: Some(true) }},
             )
-            .add_cached_list(
+            // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
+            // fast
+            .add_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
                     .timeline_limit(1),
             )
-            .await
-            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map_err(Error::SlidingSync)?;
