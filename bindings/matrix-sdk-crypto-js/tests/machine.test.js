@@ -609,7 +609,7 @@ describe(OlmMachine.name, () => {
         const keyFromMasterKey = masterKey.keys[masterObjKeys[0]];
 
         // self signing key exists
-        expect(Object.keys(selfSigningKey.keys).length).toBe(1)
+        expect(Object.keys(selfSigningKey.keys).length).toBe(1);
         // self signing key is different from the master key
         expect(selfSigningKey.keys[keyFromMasterKey]).not.toBeDefined();
 
@@ -617,12 +617,11 @@ describe(OlmMachine.name, () => {
         const keyFromSelfSigningKey = masterKey.keys[selfSigningObjKeys[0]];
 
         // user signing key exists
-        expect(Object.keys(userSigningKey.keys).length).toBe(1)
+        expect(Object.keys(userSigningKey.keys).length).toBe(1);
         // user signing key is different from the master key
         expect(userSigningKey.keys[keyFromMasterKey]).not.toBeDefined();
         // user signing key is different from the self signing key
         expect(userSigningKey.keys[keyFromSelfSigningKey]).not.toBeDefined();
-
 
         const signatureUploadRequest = await identity.verify();
         expect(signatureUploadRequest).toBeInstanceOf(SignatureUploadRequest);
