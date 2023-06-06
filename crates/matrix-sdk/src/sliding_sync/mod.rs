@@ -83,7 +83,7 @@ pub(super) struct SlidingSyncInner {
     /// A unique identifier for this instance of sliding sync.
     ///
     /// Used to distinguish different connections to the sliding sync proxy.
-    _id: Option<String>,
+    id: Option<String>,
 
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
@@ -421,7 +421,7 @@ impl SlidingSync {
             (
                 // Build the request itself.
                 assign!(v4::Request::new(), {
-                    // conn_id: self.inner.id.clone(),
+                    conn_id: self.inner.id.clone(),
                     pos,
                     delta_token,
                     timeout: Some(timeout),

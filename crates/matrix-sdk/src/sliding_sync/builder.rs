@@ -253,7 +253,7 @@ impl SlidingSyncBuilder {
         let lists = AsyncRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
-            _id: Some(self.id),
+            id: Some(self.id),
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,

@@ -17,6 +17,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
+            "conn_id": "notifs",
             "extensions": {
                 "e2ee": {
                     "enabled": true
@@ -37,6 +38,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
+            "conn_id": "notifs",
         },
         respond with = {
             "pos": "1",
@@ -54,6 +56,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
+            "conn_id": "notifs",
             "extensions": {
                 "to_device": {
                     "since": "nb0"
@@ -77,6 +80,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
         [server, notification_stream]
         sync matches Some(Err(_)),
         assert request = {
+            "conn_id": "notifs",
             "extensions": {
                 "to_device": {
                     "since": "nb1"
@@ -100,6 +104,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
+            "conn_id": "notifs",
             "extensions": {
                 "e2ee": {
                     "enabled": true
