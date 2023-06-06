@@ -121,6 +121,10 @@ impl SlidingSyncBuilder {
             if cfg.account_data.enabled.is_none() {
                 cfg.account_data.enabled = Some(true);
             }
+
+            if cfg.receipts.enabled.is_none() {
+                cfg.receipts.enabled = Some(true);
+            }
         }
         self
     }
