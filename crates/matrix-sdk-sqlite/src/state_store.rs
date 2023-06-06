@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
+    deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey,
     StateStoreDataValue,
@@ -1126,29 +1126,6 @@ impl StateStore for SqliteStateStore {
             .get_profile(room_id, user_id)
             .await?
             .map(|data| self.deserialize_json(&data))
-            .transpose()
-    }
-
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>> {
-        let room_id = self.encode_key(keys::STATE_EVENT, room_id);
-        let event_type = self.encode_key(keys::STATE_EVENT, StateEventType::RoomMember.to_string());
-        let state_key = self.encode_key(keys::STATE_EVENT, state_key);
-
-        self.acquire()
-            .await?
-            .get_maybe_stripped_state_event(room_id, event_type, state_key)
-            .await?
-            .map(|(stripped, data)| {
-                Ok(if stripped {
-                    RawMemberEvent::Stripped(self.deserialize_json(&data)?)
-                } else {
-                    RawMemberEvent::Sync(self.deserialize_json(&data)?)
-                })
-            })
             .transpose()
     }
 
