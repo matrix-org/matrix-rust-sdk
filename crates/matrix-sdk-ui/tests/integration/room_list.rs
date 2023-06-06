@@ -1,3 +1,4 @@
+use crate::{timeline::sliding_sync::timeline_event, SlidingSyncMatcher};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
@@ -13,12 +14,9 @@ use matrix_sdk_ui::{
 };
 use ruma::{event_id, room_id};
 use serde_json::json;
-use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+use wiremock::MockServer;
 
-use crate::{
-    logged_in_client,
-    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
-};
+use crate::{logged_in_client, timeline::sliding_sync::assert_timeline_stream};
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
@@ -27,26 +25,18 @@ async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     Ok((server, room_list))
 }
 
-#[derive(Copy, Clone)]
-struct SlidingSyncMatcher;
-
-impl Match for SlidingSyncMatcher {
-    fn matches(&self, request: &Request) -> bool {
-        request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-            && request.method == Method::Post
-    }
-}
-
+// Same macro as in the main, with additional checking that the state before/after the sync loop
+// match those we expect.
 macro_rules! sync_then_assert_request_and_fake_response {
     (
-        [$server:ident, $room_list:ident, $room_list_sync_stream:ident]
+        [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
         assert request = { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $(,)?
     ) => {
         sync_then_assert_request_and_fake_response! {
-            [$server, $room_list, $room_list_sync_stream]
+            [$server, $room_list, $stream]
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
             assert request = { $( $request_json )* },
@@ -55,7 +45,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
     };
 
     (
-        [$server:ident, $room_list:ident, $room_list_sync_stream:ident]
+        [$server:ident, $room_list:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
         assert request = { $( $request_json:tt )* },
@@ -63,42 +53,18 @@ macro_rules! sync_then_assert_request_and_fake_response {
         $(,)?
     ) => {
         {
-            let _code = 200;
-            $( let _code = $code; )?
-
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(ResponseTemplate::new(_code).set_body_json(
-                    json!({ $( $response_json )* })
-                ))
-                .mount_as_scoped(&$server)
-                .await;
-
             $(
                 use State::*;
 
                 assert_matches!($room_list.state(), $pre_state, "pre state");
             )?
 
-            let next = $room_list_sync_stream.next().await;
-
-            assert_matches!(next, $sync_result, "sync's result");
-
-            for request in $server.received_requests().await.expect("Request recording has been disabled").iter().rev() {
-                if SlidingSyncMatcher.matches(request) {
-                    let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
-
-                    if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
-                        &json_value,
-                        &json!({ $( $request_json )* }),
-                        assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
-                    ) {
-                        dbg!(json_value);
-                        panic!("{}", error);
-                    }
-
-                    break;
-                }
-            }
+            let next = super::sync_then_assert_request_and_fake_response! {
+                [$server, $stream]
+                sync matches $sync_result,
+                assert request = { $( $request_json )* },
+                respond with = $( ( code $code ) )? { $( $response_json )* },
+            };
 
             $( assert_matches!($room_list.state(), $post_state, "post state"); )?
 
@@ -372,8 +338,8 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
 
     Ok(())
 }
-#[async_test]
 
+#[async_test]
 async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
