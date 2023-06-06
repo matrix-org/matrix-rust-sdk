@@ -41,7 +41,10 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 
-use super::{BaseRoomInfo, DisplayName, RoomMember};
+use super::{
+    members::{MemberInfo, MemberRoomInfo},
+    BaseRoomInfo, DisplayName, RoomMember,
+};
 use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
@@ -457,51 +460,52 @@ impl Room {
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
             return Ok(None);
         };
-        let member_event = raw_event.deserialize()?;
+        let event = raw_event.deserialize()?;
 
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
-        let max_power_level = self.max_power_level();
-        let is_room_creator = self.inner.read().unwrap().creator() == Some(user_id);
 
-        let power = self
+        let display_names = [event.display_name().to_owned()];
+        let room_info = self.member_room_info(&display_names).await?;
+
+        let member_info = MemberInfo { event, profile, presence };
+
+        Ok(Some(RoomMember::from_parts(member_info, &room_info)))
+    }
+
+    /// The current `MemberRoomInfo` for this room.
+    async fn member_room_info<'a>(
+        &self,
+        display_names: &'a [String],
+    ) -> StoreResult<MemberRoomInfo<'a>> {
+        let max_power_level = self.max_power_level();
+        let room_creator = self.inner.read().unwrap().creator().map(ToOwned::to_owned);
+
+        let power_levels = self
             .store
             .get_state_event_static(self.room_id())
             .await?
             .and_then(|e| e.deserialize().ok());
 
-        let ambiguous = self
-            .store
-            .get_users_with_display_name(
-                self.room_id(),
-                member_event
-                    .original_content()
-                    .and_then(|c| c.displayname.as_deref())
-                    .unwrap_or_else(|| user_id.localpart()),
-            )
-            .await?
-            .len()
-            > 1;
+        let users_display_names =
+            self.store.get_users_with_display_names(self.room_id(), display_names).await?;
 
-        let is_ignored = self
+        let ignored_users = self
             .store
             .get_account_data_event_static::<IgnoredUserListEventContent>()
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .is_some_and(|e| e.content.ignored_users.contains_key(member_event.user_id()));
+            .map(|e| e.content.ignored_users.into_keys().collect());
 
-        Ok(Some(RoomMember {
-            event: Arc::new(member_event),
-            profile: profile.into(),
-            presence: presence.into(),
-            power_levels: power.into(),
+        Ok(MemberRoomInfo {
+            power_levels: power_levels.into(),
             max_power_level,
-            is_room_creator,
-            display_name_ambiguous: ambiguous,
-            is_ignored,
-        }))
+            room_creator,
+            users_display_names,
+            ignored_users,
+        })
     }
 
     /// Get the `Tags` for this room.

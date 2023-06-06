@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use ruma::{
     events::{
@@ -23,7 +26,7 @@ use ruma::{
         },
         MessageLikeEventType, StateEventType,
     },
-    MxcUri, UserId,
+    MxcUri, OwnedUserId, UserId,
 };
 
 use crate::{
@@ -49,6 +52,33 @@ pub struct RoomMember {
 }
 
 impl RoomMember {
+    pub(crate) fn from_parts(member_info: MemberInfo, room_info: &MemberRoomInfo<'_>) -> Self {
+        let MemberInfo { event, profile, presence } = member_info;
+        let MemberRoomInfo {
+            power_levels,
+            max_power_level,
+            room_creator,
+            users_display_names,
+            ignored_users,
+        } = room_info;
+
+        let is_room_creator = room_creator.as_deref() == Some(event.user_id());
+        let display_name_ambiguous =
+            users_display_names.get(event.display_name()).is_some_and(|s| s.len() > 1);
+        let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
+
+        Self {
+            event: event.into(),
+            profile: profile.into(),
+            presence: presence.into(),
+            power_levels: power_levels.clone(),
+            max_power_level: *max_power_level,
+            is_room_creator,
+            display_name_ambiguous,
+            is_ignored,
+        }
+    }
+
     /// Get the unique user id of this member.
     pub fn user_id(&self) -> &UserId {
         self.event.user_id()
@@ -190,4 +220,20 @@ impl RoomMember {
     pub fn is_ignored(&self) -> bool {
         self.is_ignored
     }
+}
+
+// Information about a room member.
+pub(crate) struct MemberInfo {
+    pub event: MemberEvent,
+    pub(crate) profile: Option<MinimalRoomMemberEvent>,
+    pub(crate) presence: Option<PresenceEvent>,
+}
+
+// Information about a the room a member is in.
+pub(crate) struct MemberRoomInfo<'a> {
+    pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
+    pub(crate) max_power_level: i64,
+    pub(crate) room_creator: Option<OwnedUserId>,
+    pub(crate) users_display_names: BTreeMap<&'a str, BTreeSet<OwnedUserId>>,
+    pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
 }
