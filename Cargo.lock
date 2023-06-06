@@ -2946,6 +2946,7 @@ dependencies = [
  "assert-json-diff",
  "assert_matches",
  "async-once-cell",
+ "async-std",
  "async-stream",
  "async-trait",
  "chrono",
