@@ -47,7 +47,7 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-sliding-sync = ["matrix-sdk-base/experimental-sliding-sync", "reqwest/gzip"]
+experimental-sliding-sync = ["matrix-sdk-base/experimental-sliding-sync", "reqwest/gzip", "dep:eyeball-im-util"]
 
 docsrs = [
     "e2e-encryption",
@@ -68,6 +68,7 @@ dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
+eyeball-im-util = { workspace = true, optional = true }
 eyre = { version = "0.6.8", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }

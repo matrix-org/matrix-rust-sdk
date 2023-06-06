@@ -26,6 +26,7 @@ mod sticky_parameters;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, RwLock as StdRwLock,
@@ -45,17 +46,12 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign,
-    events::TimelineEventType,
-    OwnedRoomId, RoomId, TransactionId,
+    assign, OwnedRoomId, RoomId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
     select, spawn,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Mutex as AsyncMutex, RwLock as AsyncRwLock,
-    },
+    sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
@@ -90,10 +86,6 @@ pub(super) struct StickyParameters {
     /// but one wants to receive updates.
     room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
 
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
-
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
     extensions: ExtensionsConfig,
@@ -102,11 +94,10 @@ pub(super) struct StickyParameters {
 impl StickyParameters {
     /// Create a new set of sticky parameters.
     pub fn new(
-        bump_event_types: Vec<TimelineEventType>,
         room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
         extensions: ExtensionsConfig,
     ) -> Self {
-        Self { room_subscriptions, bump_event_types, extensions }
+        Self { room_subscriptions, extensions }
     }
 }
 
@@ -116,7 +107,6 @@ impl StickyData for StickyParameters {
     fn apply(&self, req: &mut Self::Request) {
         assign!(req, {
             room_subscriptions: self.room_subscriptions.clone(),
-            bump_event_types: self.bump_event_types.clone(),
             extensions: self.extensions.clone(),
         });
     }
@@ -124,6 +114,11 @@ impl StickyData for StickyParameters {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncInner {
+    /// A unique identifier for this instance of sliding sync.
+    ///
+    /// Used to distinguish different connections to the sliding sync proxy.
+    _id: Option<String>,
+
     /// Customize the homeserver for sliding sync only
     homeserver: Option<Url>,
 
@@ -137,10 +132,10 @@ pub(super) struct SlidingSyncInner {
     position: StdRwLock<SlidingSyncPositionMarkers>,
 
     /// The lists of this Sliding Sync instance.
-    lists: StdRwLock<BTreeMap<String, SlidingSyncList>>,
+    lists: AsyncRwLock<BTreeMap<String, SlidingSyncList>>,
 
     /// The rooms details
-    rooms: StdRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
+    rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// Request parameters that are sticky.
     sticky: StdRwLock<sticky_parameters::StickyManager<StickyParameters>>,
@@ -153,8 +148,7 @@ pub(super) struct SlidingSyncInner {
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
-    internal_channel:
-        (Sender<SlidingSyncInternalMessage>, AsyncRwLock<Receiver<SlidingSyncInternalMessage>>),
+    internal_channel: Sender<SlidingSyncInternalMessage>,
 }
 
 impl SlidingSync {
@@ -162,21 +156,17 @@ impl SlidingSync {
         Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
     }
 
-    async fn cache_to_storage(&self) -> Result<(), crate::Error> {
+    async fn cache_to_storage(&self) -> Result<()> {
         cache::store_sliding_sync_state(self).await
     }
 
     /// Create a new [`SlidingSyncBuilder`].
-    pub fn builder(client: Client) -> SlidingSyncBuilder {
-        SlidingSyncBuilder::new(client)
+    pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
+        SlidingSyncBuilder::new(id, client)
     }
 
     /// Subscribe to a given room.
-    pub async fn subscribe_to_room(
-        &self,
-        room_id: OwnedRoomId,
-        settings: Option<v4::RoomSubscription>,
-    ) -> Result<()> {
+    pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
         self.inner
             .sticky
             .write()
@@ -184,47 +174,53 @@ impl SlidingSync {
             .data_mut()
             .room_subscriptions
             .insert(room_id, settings.unwrap_or_default());
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-            .await?;
 
-        Ok(())
+        self.inner.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
     }
 
     /// Unsubscribe from a given room.
-    pub async fn unsubscribe_from_room(&self, room_id: OwnedRoomId) -> Result<()> {
+    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
         // If there's a subscription…
         if self.inner.sticky.read().unwrap().data().room_subscriptions.contains_key(&room_id) {
             // Remove it…
             self.inner.sticky.write().unwrap().data_mut().room_subscriptions.remove(&room_id);
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-            self.inner
-                .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-                .await?;
-        }
 
-        Ok(())
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
     }
 
     /// Lookup a specific room
-    pub fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().get(room_id).cloned()
+    pub async fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
+        self.inner.rooms.read().await.get(room_id).cloned()
     }
 
     /// Check the number of rooms.
     pub fn get_number_of_rooms(&self) -> usize {
-        self.inner.rooms.read().unwrap().len()
+        self.inner.rooms.blocking_read().len()
     }
 
     /// Find a list by its name, and do something on it if it exists.
-    pub fn on_list<F, R>(&self, list_name: &str, f: F) -> Option<R>
+    pub async fn on_list<Function, FunctionOutput, R>(
+        &self,
+        list_name: &str,
+        function: Function,
+    ) -> Option<R>
     where
-        F: FnOnce(&SlidingSyncList) -> R,
+        Function: FnOnce(&SlidingSyncList) -> FunctionOutput,
+        FunctionOutput: Future<Output = R>,
     {
-        let lists = self.inner.lists.read().unwrap();
+        let lists = self.inner.lists.read().await;
 
-        lists.get(list_name).map(f)
+        match lists.get(list_name) {
+            Some(list) => Some(function(list).await),
+            None => None,
+        }
     }
 
     /// Add the list to the list of lists.
@@ -236,12 +232,15 @@ impl SlidingSync {
         &self,
         list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
-        let list = list_builder.build(self.inner.internal_channel.0.clone());
-        self.inner
-            .internal_channel_send(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
-            .await?;
+        let list = list_builder.build(self.inner.internal_channel.clone());
 
-        Ok(self.inner.lists.write().unwrap().insert(list.name().to_owned(), list))
+        let old_list = self.inner.lists.write().await.insert(list.name().to_owned(), list);
+
+        self.inner.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
+
+        Ok(old_list)
     }
 
     /// Add a list that will be cached and reloaded from the cache.
@@ -255,14 +254,14 @@ impl SlidingSync {
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
         let Some(ref storage_key) = self.inner.storage_key else {
-            return Err(error::Error::MissingStorageKeyForCaching.into());
+            return Err(error::Error::CacheDisabled.into());
         };
 
         let reloaded_rooms =
             list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
 
         if !reloaded_rooms.is_empty() {
-            let mut rooms = self.inner.rooms.write().unwrap();
+            let mut rooms = self.inner.rooms.write().await;
 
             for (key, frozen) in reloaded_rooms {
                 rooms.entry(key).or_insert_with(|| {
@@ -275,22 +274,22 @@ impl SlidingSync {
     }
 
     /// Lookup a set of rooms
-    pub fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
+    pub async fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
         &self,
         room_ids: I,
     ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.inner.rooms.read().unwrap();
+        let rooms = self.inner.rooms.read().await;
 
         room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
     }
 
     /// Get all rooms.
-    pub fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.inner.rooms.read().unwrap().values().cloned().collect()
+    pub async fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
+        self.inner.rooms.read().await.values().cloned().collect()
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all, fields(lists = self.inner.lists.read().unwrap().len()))]
+    #[instrument(skip_all)]
     async fn handle_response(
         &self,
         sliding_sync_response: v4::Response,
@@ -325,14 +324,14 @@ impl SlidingSync {
         if let Some(ref txn_id) = sliding_sync_response.txn_id {
             let txn_id = txn_id.as_str().into();
             self.inner.sticky.write().unwrap().maybe_commit(txn_id);
-            let mut lists = self.inner.lists.write().unwrap();
+            let mut lists = self.inner.lists.write().await;
             lists.values_mut().for_each(|list| list.maybe_commit_sticky(txn_id));
         }
 
         let update_summary = {
             // Update the rooms.
             let updated_rooms = {
-                let mut rooms_map = self.inner.rooms.write().unwrap();
+                let mut rooms_map = self.inner.rooms.write().await;
 
                 let mut updated_rooms = Vec::with_capacity(sliding_sync_response.rooms.len());
 
@@ -376,7 +375,7 @@ impl SlidingSync {
             // Update the lists.
             let updated_lists = {
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
-                let mut lists = self.inner.lists.write().unwrap();
+                let mut lists = self.inner.lists.write().await;
 
                 for (name, updates) in sliding_sync_response.lists {
                     let Some(list) = lists.get_mut(&name) else {
@@ -402,20 +401,16 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
-    fn generate_sync_request(
+    async fn generate_sync_request(
         &self,
-    ) -> Result<Option<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)>> {
+    ) -> Result<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)> {
         let txn_id = TransactionId::new();
 
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
         {
-            let mut lists = self.inner.lists.write().unwrap();
-
-            if lists.is_empty() {
-                return Ok(None);
-            }
+            let mut lists = self.inner.lists.write().await;
 
             for (name, list) in lists.iter_mut() {
                 requests_lists.insert(name.clone(), list.next_request(&txn_id)?);
@@ -456,23 +451,20 @@ impl SlidingSync {
             }
         }
 
-        Ok(Some((
+        Ok((
             // Build the request itself.
             request,
             // Configure long-polling. We need 30 seconds for the long-poll itself, in
             // addition to 30 more extra seconds for the network delays.
             RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
             room_unsubscriptions,
-        )))
+        ))
     }
 
     #[instrument(skip_all, fields(pos))]
-    async fn sync_once(&self) -> Result<Option<UpdateSummary>> {
+    async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
-            match self.generate_sync_request()? {
-                Some(v) => v,
-                None => return Ok(None),
-            };
+            self.generate_sync_request().await?;
 
         debug!("Sending the sliding sync request");
 
@@ -490,7 +482,7 @@ impl SlidingSync {
         // coming from the `OlmMachine::outgoing_requests()` method.
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request along with  outgoing E2EE requests");
+            debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
             let (e2ee_uploads, response) =
                 futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
@@ -555,7 +547,7 @@ impl SlidingSync {
 
             debug!("Sliding Sync response has been fully handled");
 
-            Ok(Some(updates))
+            Ok(updates)
         };
 
         spawn(future.instrument(Span::current())).await.unwrap()
@@ -565,12 +557,17 @@ impl SlidingSync {
     ///
     /// This method returns a `Stream`, which will send requests and will handle
     /// responses automatically. Lists and rooms are updated automatically.
+    ///
+    /// This function returns `Ok(…)` if everything went well, otherwise it will
+    /// return `Err(…)`. An `Err` will _always_ lead to the `Stream`
+    /// termination.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         debug!(?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
+        let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
 
         stream! {
             loop {
@@ -578,12 +575,10 @@ impl SlidingSync {
                     debug!(?self.inner.position,"Sync-loop is running");
                 });
 
-                let mut internal_channel_receiver_lock = self.inner.internal_channel.1.write().await;
-
                 select! {
                     biased;
 
-                    internal_message = internal_channel_receiver_lock.recv() => {
+                    internal_message = internal_channel_receiver.recv() => {
                         use SlidingSyncInternalMessage::*;
 
                         sync_span.in_scope(|| {
@@ -591,11 +586,11 @@ impl SlidingSync {
                         });
 
                         match internal_message {
-                            None | Some(SyncLoopStop) => {
+                            Err(_) | Ok(SyncLoopStop) => {
                                 break;
                             }
 
-                            Some(SyncLoopSkipOverCurrentIteration) => {
+                            Ok(SyncLoopSkipOverCurrentIteration) => {
                                 continue;
                             }
                         }
@@ -603,14 +598,10 @@ impl SlidingSync {
 
                     update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
-                            Ok(Some(updates)) => {
+                            Ok(updates) => {
                                 self.inner.reset_counter.store(0, Ordering::SeqCst);
 
                                 yield Ok(updates);
-                            }
-
-                            Ok(None) => {
-                                break;
                             }
 
                             Err(error) => {
@@ -628,6 +619,7 @@ impl SlidingSync {
                                         // The session has expired too many times, let's raise an error!
                                         yield Err(error);
 
+                                        // Terminates the loop, and terminates the stream.
                                         break;
                                     }
 
@@ -643,15 +635,21 @@ impl SlidingSync {
 
                                         // Force invalidation of all the sticky parameters.
                                         let _ = self.inner.sticky.write().unwrap().data_mut();
-                                        self.inner.lists.write().unwrap().values_mut().for_each(|list| list.invalidate_sticky_data());
+
+                                        let handle = tokio::runtime::Handle::current();
+                                        handle.block_on(async {
+                                            self.inner.lists.write().await.values_mut().for_each(|list| list.invalidate_sticky_data());
+                                        });
 
                                         debug!(?self.inner.position, "Sliding Sync has been reset");
                                     });
+
+                                    continue;
                                 }
 
                                 yield Err(error);
 
-                                continue;
+                                break;
                             }
                         }
                     }
@@ -670,23 +668,28 @@ impl SlidingSync {
     /// over FFI; the foreign-language might not be able to drop a value
     /// immediately). Thus, calling this method will ensure that the sync-loop
     /// stops gracefully and as soon as it returns.
-    pub async fn stop_sync(&self) -> Result<(), Error> {
-        self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop).await
+    pub fn stop_sync(&self) -> Result<()> {
+        Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
 }
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
     #[instrument]
-    async fn internal_channel_send(
-        &self,
-        message: SlidingSyncInternalMessage,
-    ) -> Result<(), Error> {
-        self.internal_channel.0.send(message).await.map_err(|_| Error::InternalChannelIsBroken)
+    fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
+        self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
+    }
+
+    /// Send a message over the internal channel if there is a receiver, i.e. if
+    /// the sync-loop is running.
+    #[instrument]
+    fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
+        // If there is no receiver, the send will fail, but that's OK here.
+        let _ = self.internal_channel.send(message);
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum SlidingSyncInternalMessage {
     /// Instruct the sync loop to stop.
     SyncLoopStop,
@@ -773,7 +776,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut sliding_sync_builder = client.sliding_sync();
+        let mut sliding_sync_builder = client.sliding_sync("test-slidingsync")?;
 
         for list in lists {
             sliding_sync_builder = sliding_sync_builder.add_list(list);
@@ -797,8 +800,8 @@ mod tests {
         let room1 = room_id!("!r1:bar.org").to_owned();
         let room2 = room_id!("!r2:bar.org").to_owned();
 
-        sliding_sync.subscribe_to_room(room0.clone(), None).await?;
-        sliding_sync.subscribe_to_room(room1.clone(), None).await?;
+        sliding_sync.subscribe_to_room(room0.clone(), None);
+        sliding_sync.subscribe_to_room(room1.clone(), None);
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
@@ -809,8 +812,8 @@ mod tests {
             assert!(!room_subscriptions.contains_key(&room2));
         }
 
-        sliding_sync.unsubscribe_from_room(room0.clone()).await?;
-        sliding_sync.unsubscribe_from_room(room2.clone()).await?;
+        sliding_sync.unsubscribe_from_room(room0.clone());
+        sliding_sync.unsubscribe_from_room(room2.clone());
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
@@ -871,7 +874,7 @@ mod tests {
             )
             .await?;
 
-        let lists = sliding_sync.inner.lists.read().unwrap();
+        let lists = sliding_sync.inner.lists.read().await;
 
         assert!(lists.contains_key("foo"));
         assert!(lists.contains_key("bar"));
@@ -889,11 +892,8 @@ mod tests {
         room_subscriptions.insert(r0.to_owned(), Default::default());
 
         // At first it's invalidated.
-        let mut sticky = StickyManager::new(StickyParameters::new(
-            Default::default(),
-            room_subscriptions,
-            Default::default(),
-        ));
+        let mut sticky =
+            StickyManager::new(StickyParameters::new(room_subscriptions, Default::default()));
         assert!(sticky.is_invalidated());
 
         // Then when we create a request, the sticky parameters are applied.
@@ -957,11 +957,7 @@ mod tests {
         extensions.account_data.enabled = Some(true);
 
         // At first it's invalidated.
-        let mut sticky = StickyManager::new(StickyParameters::new(
-            Default::default(),
-            Default::default(),
-            extensions,
-        ));
+        let mut sticky = StickyManager::new(StickyParameters::new(Default::default(), extensions));
 
         assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
 
@@ -991,7 +987,7 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut ss_builder = client.sliding_sync();
+        let mut ss_builder = client.sliding_sync("test-slidingsync")?;
         ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
 
         let sync = ss_builder.build().await?;
@@ -1007,9 +1003,7 @@ mod tests {
 
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
-        let (request, _, _) = sync
-            .generate_sync_request()?
-            .expect("must have generated a request because there's one list");
+        let (request, _, _) = sync.generate_sync_request().await?;
 
         let txn_id = request.txn_id.unwrap();
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
@@ -1027,9 +1021,7 @@ mod tests {
         }
 
         // Regenerating a request will yield the same one.
-        let (request, _, _) = sync
-            .generate_sync_request()?
-            .expect("must have generated a request because there's one list");
+        let (request, _, _) = sync.generate_sync_request().await?;
 
         let txn_id2 = request.txn_id.unwrap();
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
@@ -1047,9 +1039,7 @@ mod tests {
         }
 
         // The next request should contain no sticky parameters.
-        let (request, _, _) = sync
-            .generate_sync_request()?
-            .expect("must have generated a request because there's one list");
+        let (request, _, _) = sync.generate_sync_request().await?;
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert!(request.extensions.to_device.since.is_none());
@@ -1060,9 +1050,7 @@ mod tests {
         let since_token = "since";
         sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
 
-        let (request, _, _) = sync
-            .generate_sync_request()?
-            .expect("must have generated a request because there's one list");
+        let (request, _, _) = sync.generate_sync_request().await?;
 
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
@@ -1077,18 +1065,25 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
+        // Start the sync-loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
-        for _ in 0..3 {
-            assert!(stream.next().await.is_some());
-        }
+        // The sync-loop is actually running.
+        assert!(stream.next().await.is_some());
 
-        sliding_sync.stop_sync().await?;
+        // Stop the sync-loop.
+        sliding_sync.stop_sync()?;
 
-        for _ in 0..3 {
-            assert!(stream.next().await.is_none());
-        }
+        // The sync-loop is actually stopped.
+        assert!(stream.next().await.is_none());
+
+        // Start a new sync-loop.
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        // The sync-loop is actually running.
+        assert!(stream.next().await.is_some());
 
         Ok(())
     }

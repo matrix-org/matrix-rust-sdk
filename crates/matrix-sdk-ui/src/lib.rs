@@ -13,6 +13,11 @@
 // limitations under the License.
 
 mod events;
+
+#[cfg(feature = "experimental-room-list")]
+pub mod room_list;
 pub mod timeline;
 
+#[cfg(feature = "experimental-room-list")]
+pub use self::room_list::RoomList;
 pub use self::timeline::Timeline;

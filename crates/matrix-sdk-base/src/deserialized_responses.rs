@@ -14,13 +14,18 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use ruma::{
-    events::room::member::{
-        MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
-        SyncRoomMemberEvent,
+    events::{
+        room::{
+            member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+        },
+        AnyStrippedStateEvent, AnySyncStateEvent, EventContentFromType,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
+        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
@@ -61,69 +66,196 @@ pub struct MembersResponse {
     pub ambiguity_changes: AmbiguityChanges,
 }
 
-/// Raw version of [`MemberEvent`].
-#[derive(Debug, Serialize)]
+/// Wrapper around both versions of any raw state event.
+#[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
-pub enum RawMemberEvent {
-    /// A member event from a room in joined or left state.
-    Sync(Raw<SyncRoomMemberEvent>),
-    /// A member event from a room in invited state.
-    Stripped(Raw<StrippedRoomMemberEvent>),
+pub enum RawAnySyncOrStrippedState {
+    /// An event from a room in joined or left state.
+    Sync(Raw<AnySyncStateEvent>),
+    /// An event from a room in invited state.
+    Stripped(Raw<AnyStrippedStateEvent>),
 }
 
-impl RawMemberEvent {
+impl RawAnySyncOrStrippedState {
     /// Try to deserialize the inner JSON as the expected type.
-    pub fn deserialize(&self) -> serde_json::Result<MemberEvent> {
+    pub fn deserialize(&self) -> serde_json::Result<AnySyncOrStrippedState> {
         match self {
-            Self::Sync(e) => Ok(MemberEvent::Sync(e.deserialize()?)),
-            Self::Stripped(e) => Ok(MemberEvent::Stripped(e.deserialize()?)),
+            Self::Sync(raw) => Ok(AnySyncOrStrippedState::Sync(raw.deserialize()?)),
+            Self::Stripped(raw) => Ok(AnySyncOrStrippedState::Stripped(raw.deserialize()?)),
+        }
+    }
+
+    /// Turns this `RawAnySyncOrStrippedState` into `RawSyncOrStrippedState<C>`
+    /// without changing the underlying JSON.
+    pub fn cast<C>(self) -> RawSyncOrStrippedState<C>
+    where
+        C: StaticStateEventContent + RedactContent,
+        C::Redacted: RedactedStateEventContent,
+    {
+        match self {
+            Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast()),
+            Self::Stripped(raw) => RawSyncOrStrippedState::Stripped(raw.cast()),
         }
     }
 }
 
-/// Wrapper around both MemberEvent-Types
+/// Wrapper around both versions of any state event.
 #[derive(Clone, Debug)]
-pub enum MemberEvent {
-    /// A member event from a room in joined or left state.
-    Sync(SyncRoomMemberEvent),
-    /// A member event from a room in invited state.
-    Stripped(StrippedRoomMemberEvent),
+pub enum AnySyncOrStrippedState {
+    /// An event from a room in joined or left state.
+    Sync(AnySyncStateEvent),
+    /// An event from a room in invited state.
+    Stripped(AnyStrippedStateEvent),
 }
 
-impl MemberEvent {
-    /// The inner Content of the wrapped Event
-    pub fn original_content(&self) -> Option<&RoomMemberEventContent> {
+impl AnySyncOrStrippedState {
+    /// If this is an `AnySyncStateEvent`, return a reference to the inner
+    /// event.
+    pub fn as_sync(&self) -> Option<&AnySyncStateEvent> {
         match self {
-            MemberEvent::Sync(e) => e.as_original().map(|e| &e.content),
-            MemberEvent::Stripped(e) => Some(&e.content),
+            Self::Sync(ev) => Some(ev),
+            Self::Stripped(_) => None,
+        }
+    }
+
+    /// If this is an `AnyStrippedStateEvent`, return a reference to the inner
+    /// event.
+    pub fn as_stripped(&self) -> Option<&AnyStrippedStateEvent> {
+        match self {
+            Self::Sync(_) => None,
+            Self::Stripped(ev) => Some(ev),
+        }
+    }
+}
+
+/// Wrapper around both versions of a raw state event.
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum RawSyncOrStrippedState<C>
+where
+    C: StaticStateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent,
+{
+    /// An event from a room in joined or left state.
+    Sync(Raw<SyncStateEvent<C>>),
+    /// An event from a room in invited state.
+    Stripped(Raw<StrippedStateEvent<C::PossiblyRedacted>>),
+}
+
+impl<C> RawSyncOrStrippedState<C>
+where
+    C: StaticStateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+{
+    /// Try to deserialize the inner JSON as the expected type.
+    pub fn deserialize(&self) -> serde_json::Result<SyncOrStrippedState<C>>
+    where
+        C: StaticStateEventContent + EventContentFromType + RedactContent,
+        C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + EventContentFromType,
+        C::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+    {
+        match self {
+            Self::Sync(ev) => Ok(SyncOrStrippedState::Sync(ev.deserialize()?)),
+            Self::Stripped(ev) => Ok(SyncOrStrippedState::Stripped(ev.deserialize()?)),
+        }
+    }
+}
+
+/// Raw version of [`MemberEvent`].
+pub type RawMemberEvent = RawSyncOrStrippedState<RoomMemberEventContent>;
+
+/// Wrapper around both versions of a state event.
+#[derive(Clone, Debug)]
+pub enum SyncOrStrippedState<C>
+where
+    C: StaticStateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+{
+    /// An event from a room in joined or left state.
+    Sync(SyncStateEvent<C>),
+    /// An event from a room in invited state.
+    Stripped(StrippedStateEvent<C::PossiblyRedacted>),
+}
+
+impl<C> SyncOrStrippedState<C>
+where
+    C: StaticStateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + fmt::Debug + Clone,
+    C::PossiblyRedacted: PossiblyRedactedStateEventContent<StateKey = C::StateKey>,
+{
+    /// If this is a `SyncStateEvent`, return a reference to the inner event.
+    pub fn as_sync(&self) -> Option<&SyncStateEvent<C>> {
+        match self {
+            Self::Sync(ev) => Some(ev),
+            Self::Stripped(_) => None,
+        }
+    }
+
+    /// If this is a `StrippedStateEvent`, return a reference to the inner
+    /// event.
+    pub fn as_stripped(&self) -> Option<&StrippedStateEvent<C::PossiblyRedacted>> {
+        match self {
+            Self::Sync(_) => None,
+            Self::Stripped(ev) => Some(ev),
         }
     }
 
     /// The sender of this event.
     pub fn sender(&self) -> &UserId {
         match self {
-            MemberEvent::Sync(e) => e.sender(),
-            MemberEvent::Stripped(e) => &e.sender,
+            Self::Sync(e) => e.sender(),
+            Self::Stripped(e) => &e.sender,
         }
     }
 
     /// The ID of this event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            MemberEvent::Sync(e) => Some(e.event_id()),
-            MemberEvent::Stripped(_) => None,
+            Self::Sync(e) => Some(e.event_id()),
+            Self::Stripped(_) => None,
         }
     }
 
-    /// The Server Timestamp of this event.
+    /// The server timestamp of this event.
     pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
-            MemberEvent::Sync(e) => Some(e.origin_server_ts()),
-            MemberEvent::Stripped(_) => None,
+            Self::Sync(e) => Some(e.origin_server_ts()),
+            Self::Stripped(_) => None,
         }
     }
 
-    /// The membership state of the user
+    /// The state key associated to this state event.
+    pub fn state_key(&self) -> &C::StateKey {
+        match self {
+            Self::Sync(e) => e.state_key(),
+            Self::Stripped(e) => &e.state_key,
+        }
+    }
+}
+
+impl<C> SyncOrStrippedState<C>
+where
+    C: StaticStateEventContent<PossiblyRedacted = C>
+        + RedactContent
+        + PossiblyRedactedStateEventContent,
+    C::Redacted: RedactedStateEventContent<StateKey = <C as StateEventContent>::StateKey>
+        + fmt::Debug
+        + Clone,
+{
+    /// The inner content of the wrapped event.
+    pub fn original_content(&self) -> Option<&C> {
+        match self {
+            Self::Sync(e) => e.as_original().map(|e| &e.content),
+            Self::Stripped(e) => Some(&e.content),
+        }
+    }
+}
+
+/// Wrapper around both MemberEvent-Types
+pub type MemberEvent = SyncOrStrippedState<RoomMemberEventContent>;
+
+impl MemberEvent {
+    /// The membership state of the user.
     pub fn membership(&self) -> &MembershipState {
         match self {
             MemberEvent::Sync(e) => e.membership(),
@@ -131,11 +263,18 @@ impl MemberEvent {
         }
     }
 
-    /// The user id associated to this member event
+    /// The user id associated to this member event.
     pub fn user_id(&self) -> &UserId {
+        self.state_key()
+    }
+}
+
+impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
+    /// The power levels of the event.
+    pub fn power_levels(&self) -> RoomPowerLevels {
         match self {
-            MemberEvent::Sync(e) => e.state_key(),
-            MemberEvent::Stripped(e) => &e.state_key,
+            Self::Sync(e) => e.power_levels(),
+            Self::Stripped(e) => e.power_levels(),
         }
     }
 }

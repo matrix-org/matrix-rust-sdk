@@ -16,19 +16,15 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    room,
+    deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
 };
-use ruma::{
-    events::receipt::{ReceiptThread, ReceiptType, SyncReceiptEvent},
-    push::Action,
-};
-use tokio::sync::Mutex;
-use tracing::error;
+use ruma::events::receipt::{ReceiptThread, ReceiptType};
+use tokio::sync::{broadcast, Mutex};
+use tracing::{error, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
-use super::{inner::TimelineInner, Timeline, TimelineEventHandlerHandles};
+use super::{inner::TimelineInner, Timeline, TimelineDropHandle};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -119,17 +115,40 @@ impl TimelineBuilder {
         if has_events {
             inner.add_initial_events(events).await;
         }
+        if track_read_marker_and_receipts {
+            inner.load_fully_read_event().await;
+        }
 
         let inner = Arc::new(inner);
         let room = inner.room();
         let client = room.client();
 
-        let timeline_event_handle = room.add_event_handler({
+        let mut room_update_rx = room.subscribe_to_updates();
+        let room_update_join_handle = spawn({
             let inner = inner.clone();
-            move |event, encryption_info: Option<EncryptionInfo>, push_actions: Vec<Action>| {
-                let inner = inner.clone();
-                async move {
-                    inner.handle_live_event(event, encryption_info, push_actions).await;
+            async move {
+                loop {
+                    let update = match room_update_rx.recv().await {
+                        Ok(up) => up,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            warn!("Lagged behind sync responses, resetting timeline");
+                            inner.clear().await;
+                            continue;
+                        }
+                    };
+
+                    match update {
+                        RoomUpdate::Left { updates, .. } => {
+                            inner.handle_sync_timeline(updates.timeline).await;
+                        }
+                        RoomUpdate::Joined { updates, .. } => {
+                            inner.handle_joined_room_update(updates).await;
+                        }
+                        RoomUpdate::Invited { .. } => {
+                            warn!("Room is in invited state, can't build or update its timeline");
+                        }
+                    }
                 }
             }
         });
@@ -146,45 +165,22 @@ impl TimelineBuilder {
             room.room_id().to_owned(),
         ));
 
-        let mut handles = vec![
-            timeline_event_handle,
+        let handles = vec![
             #[cfg(feature = "e2e-encryption")]
             room_key_handle,
             #[cfg(feature = "e2e-encryption")]
             forwarded_room_key_handle,
         ];
 
-        if track_read_marker_and_receipts {
-            inner.load_fully_read_event().await;
-
-            let fully_read_handle = room.add_event_handler({
-                let inner = inner.clone();
-                move |event| {
-                    let inner = inner.clone();
-                    async move {
-                        inner.handle_fully_read(event).await;
-                    }
-                }
-            });
-            handles.push(fully_read_handle);
-
-            let read_receipts_handle = room.add_event_handler({
-                let inner = inner.clone();
-                move |read_receipts: SyncReceiptEvent| {
-                    let inner = inner.clone();
-                    async move {
-                        inner.handle_read_receipts(read_receipts.content).await;
-                    }
-                }
-            });
-            handles.push(read_receipts_handle);
-        }
-
         let timeline = Timeline {
             inner,
             start_token: Mutex::new(prev_token),
             _end_token: Mutex::new(None),
-            event_handler_handles: Arc::new(TimelineEventHandlerHandles { client, handles }),
+            drop_handle: Arc::new(TimelineDropHandle {
+                client,
+                event_handler_handles: handles,
+                room_update_join_handle,
+            }),
         };
 
         #[cfg(feature = "e2e-encryption")]

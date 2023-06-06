@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
@@ -34,7 +34,9 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    debug::{DebugListOfRawEventsNoId, DebugNotificationMap},
+    debug::{
+        DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId, DebugNotificationMap,
+    },
     deserialized_responses::AmbiguityChanges,
 };
 
@@ -226,27 +228,5 @@ struct DebugInvitedRooms<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoom>);
 impl<'a> fmt::Debug for DebugInvitedRooms<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugInvitedRoom(v)))).finish()
-    }
-}
-
-struct DebugInvitedRoom<'a>(&'a InvitedRoom);
-
-#[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InvitedRoom")
-            .field("invite_state", &DebugListOfRawEvents(&self.0.invite_state.events))
-            .finish()
-    }
-}
-
-struct DebugListOfRawEvents<'a, T>(&'a [Raw<T>]);
-
-#[cfg(not(tarpaulin_include))]
-impl<'a, T> fmt::Debug for DebugListOfRawEvents<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut list = f.debug_list();
-        list.entries(self.0.iter().map(DebugRawEvent));
-        list.finish()
     }
 }

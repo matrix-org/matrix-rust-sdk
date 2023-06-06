@@ -10,8 +10,12 @@ use std::{
 use eyeball::unique::Observable;
 use eyeball_im::ObservableVector;
 use imbl::Vector;
-use ruma::{api::client::sync::sync_events::v4, events::StateEventType, OwnedRoomId};
-use tokio::sync::mpsc::Sender;
+use ruma::{
+    api::client::sync::sync_events::v4,
+    events::{StateEventType, TimelineEventType},
+    OwnedRoomId,
+};
+use tokio::sync::broadcast::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, ListStickyParameters, SlidingSyncList,
@@ -56,6 +60,8 @@ pub struct SlidingSyncListBuilder {
     reloaded_cached_data: Option<SlidingSyncListCachedData>,
 
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
+
+    bump_event_types: Vec<TimelineEventType>,
 }
 
 // Print debug values for the builder, except `once_built` which is ignored.
@@ -69,6 +75,7 @@ impl fmt::Debug for SlidingSyncListBuilder {
             .field("filters", &self.filters)
             .field("timeline_limit", &self.timeline_limit)
             .field("name", &self.name)
+            .field("bump_event_types", &self.bump_event_types)
             .finish_non_exhaustive()
     }
 }
@@ -88,6 +95,7 @@ impl SlidingSyncListBuilder {
             reloaded_cached_data: None,
             cache_policy: SlidingSyncListCachePolicy::Disabled,
             once_built: Arc::new(Box::new(identity)),
+            bump_event_types: Vec::new(),
         }
     }
 
@@ -169,6 +177,19 @@ impl SlidingSyncListBuilder {
         }
     }
 
+    /// Allowlist of event types which should be considered recent activity
+    /// when sorting `by_recency`.
+    ///
+    /// By omitting event types, clients can ensure
+    /// that uninteresting events (e.g. a profile rename) do not cause a
+    /// room to jump to the top of its list(s). Empty or
+    /// omitted `bump_event_types` have no effect: all events in a room will
+    /// be considered recent activity.
+    pub fn bump_event_types(mut self, bump_event_types: &[TimelineEventType]) -> Self {
+        self.bump_event_types = bump_event_types.to_vec();
+        self
+    }
+
     /// Build the list.
     pub(in super::super) fn build(
         self,
@@ -176,12 +197,16 @@ impl SlidingSyncListBuilder {
     ) -> SlidingSyncList {
         let list = SlidingSyncList {
             inner: Arc::new(SlidingSyncListInner {
+                #[cfg(any(test, feature = "testing"))]
+                sync_mode: StdRwLock::new(self.sync_mode.clone()),
+
                 // From the builder
                 sticky: StdRwLock::new(StickyManager::new(ListStickyParameters::new(
                     self.sort,
                     self.required_state,
                     self.filters,
                     self.timeline_limit,
+                    self.bump_event_types,
                 ))),
                 name: self.name,
                 cache_policy: self.cache_policy,

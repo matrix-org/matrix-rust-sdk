@@ -5,15 +5,16 @@ use ruma::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
         TypingConfig,
     },
-    events::TimelineEventType,
     OwnedRoomId,
 };
-use tokio::sync::{mpsc::channel, RwLock as AsyncRwLock};
+use tokio::sync::{broadcast::channel, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
-    cache::restore_sliding_sync_state, sticky_parameters::StickyManager, SlidingSync,
-    SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers, SlidingSyncRoom,
+    cache::{format_storage_key_prefix, restore_sliding_sync_state},
+    sticky_parameters::StickyManager,
+    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    SlidingSyncRoom,
 };
 use crate::{sliding_sync::StickyParameters, Client, Result};
 
@@ -23,34 +24,45 @@ use crate::{sliding_sync::StickyParameters, Client, Result};
 /// [`crate::SlidingSync::builder`].
 #[derive(Debug, Clone)]
 pub struct SlidingSyncBuilder {
+    id: String,
     storage_key: Option<String>,
     homeserver: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
-    bump_event_types: Vec<TimelineEventType>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
 impl SlidingSyncBuilder {
-    pub(super) fn new(client: Client) -> Self {
-        Self {
-            storage_key: None,
-            homeserver: None,
-            client,
-            lists: Vec::new(),
-            bump_event_types: Vec::new(),
-            extensions: None,
-            subscriptions: BTreeMap::new(),
-            rooms: BTreeMap::new(),
+    pub(super) fn new(id: String, client: Client) -> Result<Self, Error> {
+        if id.len() > 16 {
+            Err(Error::InvalidSlidingSyncIdentifier)
+        } else {
+            Ok(Self {
+                id,
+                storage_key: None,
+                homeserver: None,
+                client,
+                lists: Vec::new(),
+                extensions: None,
+                subscriptions: BTreeMap::new(),
+                rooms: BTreeMap::new(),
+            })
         }
     }
 
-    /// Set the storage key to keep this cache at and load it from.
-    pub fn storage_key(mut self, value: Option<String>) -> Self {
-        self.storage_key = value;
-        self
+    /// Enable caching for the given sliding sync.
+    ///
+    /// This will cause lists and the sliding sync tokens to be saved into and
+    /// restored from the cache.
+    pub fn enable_caching(mut self) -> Result<Self> {
+        // Compute the final storage key now.
+        self.storage_key = Some(format_storage_key_prefix(
+            &self.id,
+            self.client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
+        ));
+        Ok(self)
     }
 
     /// Set the homeserver for sliding sync only.
@@ -70,13 +82,14 @@ impl SlidingSyncBuilder {
     /// Enroll the list in caching, reloads it from the cache if possible, and
     /// adds it to the list of lists.
     ///
-    /// This will raise an error if a [`storage_key()`][Self::storage_key] was
-    /// not set, or if there was a I/O error reading from the cache.
+    /// This will raise an error if caching wasn't enabled with
+    /// [`enable_caching`][Self::enable_caching], or if there was a I/O error
+    /// reading from the cache.
     ///
     /// Replace any list with the same name.
     pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
         let Some(ref storage_key) = self.storage_key else {
-            return Err(super::error::Error::MissingStorageKeyForCaching.into());
+            return Err(super::error::Error::CacheDisabled.into());
         };
 
         let reloaded_rooms = list.set_cached_and_reload(&self.client, storage_key).await?;
@@ -205,17 +218,6 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Allowlist of event types which should be considered recent activity
-    /// when sorting `by_recency`. By omitting event types, clients can ensure
-    /// that uninteresting events (e.g. a profile rename) do not cause a
-    /// room to jump to the top of its list(s). Empty or
-    /// omitted `bump_event_types` have no effect: all events in a room will
-    /// be considered recent activity.
-    pub fn bump_event_types(mut self, bump_event_types: &[TimelineEventType]) -> Self {
-        self.bump_event_types = bump_event_types.to_vec();
-        self
-    }
-
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -226,7 +228,7 @@ impl SlidingSyncBuilder {
         let mut delta_token = None;
         let mut to_device_token = None;
 
-        let (internal_channel_sender, internal_channel_receiver) = channel(8);
+        let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
         let mut lists = BTreeMap::new();
 
@@ -248,8 +250,8 @@ impl SlidingSyncBuilder {
             .await?;
         }
 
-        let rooms = StdRwLock::new(self.rooms);
-        let lists = StdRwLock::new(lists);
+        let rooms = AsyncRwLock::new(self.rooms);
+        let lists = AsyncRwLock::new(lists);
 
         // Always enable to-device events and the e2ee-extension on the initial request,
         // no matter what the caller wants.
@@ -258,6 +260,7 @@ impl SlidingSyncBuilder {
         extensions.e2ee.enabled = Some(true);
 
         Ok(SlidingSync::new(SlidingSyncInner {
+            _id: Some(self.id),
             homeserver: self.homeserver,
             client,
             storage_key: self.storage_key,
@@ -274,16 +277,12 @@ impl SlidingSyncBuilder {
             }),
 
             sticky: StdRwLock::new(StickyManager::new(StickyParameters::new(
-                self.bump_event_types,
                 self.subscriptions,
                 extensions,
             ))),
             room_unsubscriptions: Default::default(),
 
-            internal_channel: (
-                internal_channel_sender,
-                AsyncRwLock::new(internal_channel_receiver),
-            ),
+            internal_channel: internal_channel_sender,
         }))
     }
 }

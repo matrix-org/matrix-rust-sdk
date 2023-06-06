@@ -14,12 +14,16 @@
 
 //! The SDK's representation of the result of a `/sync` request.
 
-use std::{collections::BTreeMap, fmt, time::Duration};
+use std::{
+    collections::{btree_map, BTreeMap},
+    fmt,
+    time::Duration,
+};
 
 use eyeball::unique::Observable;
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
-    debug::{DebugListOfRawEventsNoId, DebugNotificationMap},
+    debug::{DebugInvitedRoom, DebugListOfRawEventsNoId, DebugNotificationMap},
     deserialized_responses::AmbiguityChanges,
     instant::Instant,
     sync::SyncResponse as BaseSyncResponse,
@@ -27,7 +31,7 @@ use matrix_sdk_base::{
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
-        sync::sync_events::{self, DeviceLists},
+        sync::sync_events::{self, v3::InvitedRoom, DeviceLists},
     },
     events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
@@ -35,7 +39,7 @@ use ruma::{
 };
 use tracing::{debug, error, warn};
 
-use crate::{event_handler::HandlerKind, Client, Result};
+use crate::{event_handler::HandlerKind, room, Client, Result};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]
@@ -106,6 +110,50 @@ impl fmt::Debug for SyncResponse {
     }
 }
 
+/// A batch of updates to a room.
+#[derive(Clone)]
+pub enum RoomUpdate {
+    /// Updates to a room the user is no longer in.
+    Left {
+        /// Room object with general information on the room.
+        room: room::Left,
+        /// Updates to the room.
+        updates: LeftRoom,
+    },
+    /// Updates to a room the user is currently in.
+    Joined {
+        /// Room object with general information on the room.
+        room: room::Joined,
+        /// Updates to the room.
+        updates: JoinedRoom,
+    },
+    /// Updates to a room the user is invited to.
+    Invited {
+        /// Room object with general information on the room.
+        room: room::Invited,
+        /// Updates to the room.
+        updates: InvitedRoom,
+    },
+}
+
+impl fmt::Debug for RoomUpdate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Left { room, updates } => {
+                f.debug_struct("Left").field("room", room).field("updates", updates).finish()
+            }
+            Self::Joined { room, updates } => {
+                f.debug_struct("Joined").field("room", room).field("updates", updates).finish()
+            }
+            Self::Invited { room, updates } => f
+                .debug_struct("Invited")
+                .field("room", room)
+                .field("updates", &DebugInvitedRoom(updates))
+                .finish(),
+        }
+    }
+}
+
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
 impl Client {
@@ -132,30 +180,36 @@ impl Client {
         } = response;
 
         let now = Instant::now();
-        self.handle_sync_events(HandlerKind::GlobalAccountData, &None, account_data).await?;
-        self.handle_sync_events(HandlerKind::Presence, &None, presence).await?;
-        self.handle_sync_events(HandlerKind::ToDevice, &None, to_device).await?;
+        self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
+        self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
+        self.handle_sync_events(HandlerKind::ToDevice, None, to_device).await?;
 
         for (room_id, room_info) in &rooms.join {
             if room_info.timeline.limited {
                 self.notify_sync_gap(room_id);
             }
 
-            let room = self.get_room(room_id);
-            if room.is_none() {
+            let Some(room) = self.get_joined_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
-            }
+            };
+
+            self.send_room_update(room_id, || RoomUpdate::Joined {
+                room: room.clone(),
+                updates: room_info.clone(),
+            });
 
             let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
                 room_info;
 
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
-            self.handle_sync_state_events(&room, state).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+            let room = room::Room::Joined(room);
+            let room = Some(&room);
+            self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
+            self.handle_sync_state_events(room, state).await?;
+            self.handle_sync_timeline_events(room, &timeline.events).await?;
             // Handle ephemeral events after timeline, read receipts in here
             // could refer to timeline events from the same response.
-            self.handle_sync_events(HandlerKind::EphemeralRoomData, &room, ephemeral).await?;
+            self.handle_sync_events(HandlerKind::EphemeralRoomData, room, ephemeral).await?;
         }
 
         for (room_id, room_info) in &rooms.leave {
@@ -163,33 +217,41 @@ impl Client {
                 self.notify_sync_gap(room_id);
             }
 
-            let room = self.get_room(room_id);
-            if room.is_none() {
+            let Some(room) = self.get_left_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
-            }
+            };
+
+            self.send_room_update(room_id, || RoomUpdate::Left {
+                room: room.clone(),
+                updates: room_info.clone(),
+            });
 
             let LeftRoom { timeline, state, account_data } = room_info;
 
-            self.handle_sync_events(HandlerKind::RoomAccountData, &room, account_data).await?;
-            self.handle_sync_state_events(&room, state).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+            let left = room::Room::Left(room);
+            let room = Some(&left);
+            self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
+            self.handle_sync_state_events(room, state).await?;
+            self.handle_sync_timeline_events(room, &timeline.events).await?;
         }
 
         for (room_id, room_info) in &rooms.invite {
-            let room = self.get_room(room_id);
-            if room.is_none() {
+            let Some(room) = self.get_invited_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
-            }
+            };
+
+            self.send_room_update(room_id, || RoomUpdate::Invited {
+                room: room.clone(),
+                updates: room_info.clone(),
+            });
 
             // FIXME: Destructure room_info
-            self.handle_sync_events(
-                HandlerKind::StrippedState,
-                &room,
-                &room_info.invite_state.events,
-            )
-            .await?;
+            let invited = room::Room::Invited(room);
+            let room = Some(&invited);
+            let invite_state = &room_info.invite_state.events;
+            self.handle_sync_events(HandlerKind::StrippedState, room, invite_state).await?;
         }
 
         debug!("Ran event handlers in {:?}", now.elapsed());
@@ -220,6 +282,19 @@ impl Client {
         debug!("Ran notification handlers in {:?}", now.elapsed());
 
         Ok(())
+    }
+
+    fn send_room_update(&self, room_id: &RoomId, make_msg: impl FnOnce() -> RoomUpdate) {
+        if let btree_map::Entry::Occupied(entry) =
+            self.inner.room_update_channels.lock().unwrap().entry(room_id.to_owned())
+        {
+            let tx = entry.get();
+            if tx.receiver_count() == 0 {
+                entry.remove();
+            } else {
+                _ = tx.send(make_msg());
+            }
+        }
     }
 
     async fn sleep() {

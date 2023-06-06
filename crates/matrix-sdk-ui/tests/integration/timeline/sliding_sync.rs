@@ -1,9 +1,23 @@
+// Copyright 2023 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Context, Result};
 use assert_matches::assert_matches;
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
@@ -28,7 +42,7 @@ macro_rules! receive_response {
                 .mount_as_scoped(&$server)
                 .await;
 
-            let next = $sliding_sync_stream.next().await.context("`stream` trip")??;
+            let next = $sliding_sync_stream.next().await.context("`sync` trip")??;
 
             next
         }
@@ -50,6 +64,8 @@ macro_rules! timeline_event {
     }
 }
 
+pub(crate) use timeline_event;
+
 macro_rules! assert_timeline_stream {
     // `--- day divider ---`
     ( @_ [ $stream:ident ] [ --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
@@ -61,9 +77,14 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::PushBack { value }) => {
-                            assert_matches!(value.as_ref(), TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::PushBack { value })) => {
+                            assert_matches!(
+                                value.as_ref(),
+                                TimelineItem::Virtual(
+                                    VirtualTimelineItem::DayDivider(_)
+                                )
+                            );
                         }
                     );
                 }
@@ -81,8 +102,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::PushBack { value }) => {
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::PushBack { value })) => {
                             assert_matches!(
                                 value.as_ref(),
                                 TimelineItem::Event(event_timeline_item) => {
@@ -106,8 +127,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::Set { index: $index, value }) => {
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Set { index: $index, value })) => {
                             assert_matches!(
                                 value.as_ref(),
                                 TimelineItem::Event(event_timeline_item) => {
@@ -131,8 +152,8 @@ macro_rules! assert_timeline_stream {
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().await,
-                        Some(VectorDiff::Remove { index: $index })
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Remove { index: $index }))
                     );
                 }
             ]
@@ -148,10 +169,12 @@ macro_rules! assert_timeline_stream {
     };
 }
 
+pub(crate) use assert_timeline_stream;
+
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client().await;
 
-    let mut sliding_sync_builder = client.sliding_sync();
+    let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 
     for list in lists {
         sliding_sync_builder = sliding_sync_builder.add_list(list);
@@ -187,7 +210,7 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let room = sliding_sync.get_room(room_id).context("`get_room`")?;
+    let room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
     assert_eq!(room.name(), Some(room_name.clone()));
 
     Ok(())
@@ -199,6 +222,7 @@ async fn timeline(
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
     Ok(sliding_sync
         .get_room(room_id)
+        .await
         .unwrap()
         .timeline()
         .await

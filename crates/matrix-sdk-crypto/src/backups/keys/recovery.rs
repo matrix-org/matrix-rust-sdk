@@ -25,7 +25,7 @@ use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::{store::RecoveryKey, utilities::encode};
+use crate::store::RecoveryKey;
 
 /// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
@@ -196,20 +196,26 @@ impl RecoveryKey {
     /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
     pub fn decrypt_v1(
         &self,
-        mac: &str,
         ephemeral_key: &str,
+        mac: &str,
         ciphertext: &str,
     ) -> Result<String, DecryptionError> {
-        let message = Message::from_base64(mac, ephemeral_key, ciphertext)?;
+        let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
         let pk = self.get_pk_decrytpion();
 
-        pk.decrypt(&message).map(encode)
+        let decrypted = pk.decrypt(&message)?;
+
+        Ok(String::from_utf8_lossy(&decrypted).to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ruma::api::client::backup::KeyBackupData;
+    use serde_json::json;
+
     use super::{DecodeError, RecoveryKey};
+    use crate::olm::BackedUpRoomKey;
 
     const TEST_KEY: [u8; 32] = [
         0x77, 0x07, 0x6D, 0x0A, 0x73, 0x18, 0xA5, 0x7D, 0x3C, 0x16, 0xC1, 0x72, 0x51, 0xB2, 0x66,
@@ -259,5 +265,43 @@ mod tests {
             .expect_err("Can't create a recovery key if the parity byte is invalid");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_decrypt_key() {
+        let recovery_key =
+            RecoveryKey::from_base64("Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw").unwrap();
+
+        let data = json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {
+                "ephemeral": "HlLi76oV6wxHz3PCqE/bxJi6yF1HnYz5Dq3T+d/KpRw",
+                "ciphertext": "MuM8E3Yc6TSAvhVGb77rQ++jE6p9dRepx63/3YPD2wACKAppkZHeFrnTH6wJ/HSyrmzo\
+                               7HfwqVl6tKNpfooSTHqUf6x1LHz+h4B/Id5ITO1WYt16AaI40LOnZqTkJZCfSPuE2oxa\
+                               lwEHnCS3biWybutcnrBFPR3LMtaeHvvkb+k3ny9l5ZpsU9G7vCm3XoeYkWfLekWXvDhb\
+                               qWrylXD0+CNUuaQJ/S527TzLd4XKctqVjjO/cCH7q+9utt9WJAfK8LGaWT/mZ3AeWjf5\
+                               kiqOpKKf5Cn4n5SSil5p/pvGYmjnURvZSEeQIzHgvunIBEPtzK/MYEPOXe/P5achNGlC\
+                               x+5N19Ftyp9TFaTFlTWCTi0mpD7ePfCNISrwpozAz9HZc0OhA8+1aSc7rhYFIeAYXFU3\
+                               26NuFIFHI5pvpSxjzPQlOA+mavIKmiRAtjlLw11IVKTxgrdT4N8lXeMr4ndCSmvIkAzF\
+                               Mo1uZA4fzjiAdQJE4/2WeXFNNpvdfoYmX8Zl9CAYjpSO5HvpwkAbk4/iLEH3hDfCVUwD\
+                               fMh05PdGLnxeRpiEFWSMSsJNp+OWAA+5JsF41BoRGrxoXXT+VKqlUDONd+O296Psu8Q+\
+                               d8/S618",
+                "mac": "GtMrurhDTwo"
+            }
+        });
+
+        let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
+        let ephemeral = key_backup_data.session_data.ephemeral.encode();
+        let ciphertext = key_backup_data.session_data.ciphertext.encode();
+        let mac = key_backup_data.session_data.mac.encode();
+
+        let decrypted = recovery_key
+            .decrypt_v1(&ephemeral, &mac, &ciphertext)
+            .expect("The backed up key should be decrypted successfully");
+
+        let _: BackedUpRoomKey = serde_json::from_str(&decrypted)
+            .expect("The decrypted payload should contain valid JSON");
     }
 }

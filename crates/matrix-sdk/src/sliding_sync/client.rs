@@ -6,9 +6,12 @@ use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result};
 
 impl Client {
-    /// Create a [`SlidingSyncBuilder`] tied to this client.
-    pub fn sliding_sync(&self) -> SlidingSyncBuilder {
-        SlidingSync::builder(self.clone())
+    /// Create a [`SlidingSyncBuilder`] tied to this client, with the given
+    /// identifier.
+    ///
+    /// Note: the identifier must not be more than 16 chars long!
+    pub fn sliding_sync(&self, id: impl Into<String>) -> Result<SlidingSyncBuilder> {
+        Ok(SlidingSync::builder(id.into(), self.clone())?)
     }
 
     #[instrument(skip(self, response))]

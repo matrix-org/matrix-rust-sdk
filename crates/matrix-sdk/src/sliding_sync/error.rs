@@ -30,10 +30,20 @@ pub enum Error {
 
     /// Missing storage key when asking to deserialize some sub-state of sliding
     /// sync.
-    #[error("A caching request was made but a storage key is missing in sliding sync")]
-    MissingStorageKeyForCaching,
+    #[error(
+        "A caching request was made but caching was not enabled in this instance of sliding sync"
+    )]
+    CacheDisabled,
+
+    /// We tried to read the user id of a client but it was missing.
+    #[error("Unauthenticated user in sliding sync")]
+    UnauthenticatedUser,
 
     /// The internal channel of `SlidingSync` seems to be broken.
     #[error("SlidingSync's internal channel is broken")]
     InternalChannelIsBroken,
+
+    /// The name of the Sliding Sync instance is too long.
+    #[error("The Sliding Sync instance's identifier must be less than 16 chars long")]
+    InvalidSlidingSyncIdentifier,
 }

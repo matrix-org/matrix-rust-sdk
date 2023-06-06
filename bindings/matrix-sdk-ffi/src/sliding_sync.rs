@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
 use eyeball_im::VectorDiff;
-use futures_util::{future::join4, pin_mut, StreamExt};
+use futures_util::{future::join3, pin_mut, StreamExt};
 pub use matrix_sdk::{
     ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
@@ -172,12 +172,13 @@ impl SlidingSyncRoom {
 
     pub fn full_room(&self) -> Option<Arc<Room>> {
         self.client
+            .inner
             .get_room(self.inner.room_id())
             .map(|room| Arc::new(Room::with_timeline(room, self.timeline.clone())))
     }
 
     pub fn avatar_url(&self) -> Option<String> {
-        Some(self.client.get_room(self.inner.room_id())?.avatar_url()?.into())
+        Some(self.client.inner.get_room(self.inner.room_id())?.avatar_url()?.into())
     }
 
     #[allow(clippy::significant_drop_in_scrutinee)]
@@ -195,22 +196,16 @@ impl SlidingSyncRoom {
         Ok(SlidingSyncAddTimelineListenerResult { items, task_handle: Arc::new(stoppable_spawn) })
     }
 
-    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) -> Arc<TaskHandle> {
+    pub fn subscribe_to_room(&self, settings: Option<RoomSubscription>) {
         let room_id = self.inner.room_id().to_owned();
-        let sliding_sync = self.sliding_sync.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            sliding_sync.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
-        })))
+        self.sliding_sync.subscribe_to_room(room_id, settings.map(Into::into));
     }
 
-    pub fn unsubscribe_from_room(&self) -> Arc<TaskHandle> {
+    pub fn unsubscribe_from_room(&self) {
         let room_id = self.inner.room_id().to_owned();
-        let sliding_sync = self.sliding_sync.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            sliding_sync.unsubscribe_from_room(room_id).await.unwrap();
-        })))
+        self.sliding_sync.unsubscribe_from_room(room_id);
     }
 }
 
@@ -259,19 +254,12 @@ impl SlidingSyncRoom {
             }
         };
 
-        let handle_sync_gap = {
-            let gap_broadcast_rx = self.client.client.subscribe_sync_gap(self.inner.room_id());
-            let timeline = timeline.to_owned();
-            async move {
-                gap_broadcast_rx.for_each(|_| timeline.clear()).await;
-            }
-        };
-
         // This in the future could be removed, and the rx handling could be moved
         // inside handle_sliding_sync_reset since we want to reset the sliding
         // sync for ignore user list events
         let handle_ignore_user_list_changes = {
-            let ignore_user_list_change_rx = self.client.subscribe_to_ignore_user_list_changes();
+            let ignore_user_list_change_rx =
+                self.client.inner.subscribe_to_ignore_user_list_changes();
             let timeline = timeline.to_owned();
             async move {
                 ignore_user_list_change_rx.for_each(|_| timeline.clear()).await;
@@ -280,13 +268,7 @@ impl SlidingSyncRoom {
 
         let items = timeline_items.into_iter().map(TimelineItem::from_arc).collect();
         let task_handle = TaskHandle::new(RUNTIME.spawn(async move {
-            join4(
-                handle_events,
-                handle_sliding_sync_reset,
-                handle_sync_gap,
-                handle_ignore_user_list_changes,
-            )
-            .await;
+            join3(handle_events, handle_sliding_sync_reset, handle_ignore_user_list_changes).await;
         }));
 
         Ok((items, task_handle))
@@ -564,6 +546,14 @@ impl SlidingSyncListBuilder {
         );
         Arc::new(builder)
     }
+
+    pub fn bump_event_types(self: Arc<Self>, bump_event_types: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner = builder.inner.bump_event_types(
+            bump_event_types.into_iter().map(Into::into).collect::<Vec<_>>().as_slice(),
+        );
+        Arc::new(builder)
+    }
 }
 
 pub trait SlidingSyncListOnceBuilt: Sync + Send {
@@ -602,7 +592,7 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListRoomListObserver>,
     ) -> Arc<TaskHandle> {
-        let mut room_list_stream = self.inner.room_list_stream();
+        let (_, mut room_list_stream) = self.inner.room_list_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
@@ -652,6 +642,13 @@ impl SlidingSyncList {
     pub fn unset_timeline_limit(&self) {
         self.inner.set_timeline_limit(None)
     }
+
+    /// Changes the sync mode, and automatically restarts the sliding sync
+    /// internally.
+    pub fn set_sync_mode(&self, builder: Arc<SlidingSyncSelectiveModeBuilder>) {
+        let builder = unwrap_or_clone_arc(builder);
+        self.inner.set_sync_mode(builder.inner);
+    }
 }
 
 pub trait SlidingSyncObserver: Sync + Send {
@@ -681,31 +678,33 @@ impl SlidingSync {
         &self,
         room_id: String,
         settings: Option<RoomSubscription>,
-    ) -> Result<Arc<TaskHandle>, ClientError> {
+    ) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
-        let this = self.inner.clone();
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            this.subscribe_to_room(room_id, settings.map(Into::into)).await.unwrap();
-        }))))
+        self.inner.subscribe_to_room(room_id, settings.map(Into::into));
+
+        Ok(())
     }
 
-    pub fn unsubscribe_from_room(&self, room_id: String) -> Result<Arc<TaskHandle>, ClientError> {
+    pub fn unsubscribe_from_room(&self, room_id: String) -> Result<(), ClientError> {
         let room_id = room_id.try_into()?;
-        let this = self.inner.clone();
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            this.unsubscribe_from_room(room_id).await.unwrap();
-        }))))
+        self.inner.unsubscribe_from_room(room_id);
+
+        Ok(())
     }
 
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<SlidingSyncRoom>>, ClientError> {
-        Ok(self.inner.get_room(<&RoomId>::try_from(room_id.as_str())?).map(|inner| {
-            Arc::new(SlidingSyncRoom {
-                inner,
-                sliding_sync: self.inner.clone(),
-                client: self.client.clone(),
-                timeline: Default::default(),
+        let room_id = <&RoomId>::try_from(room_id.as_str())?;
+
+        Ok(RUNTIME.block_on(async move {
+            self.inner.get_room(room_id).await.map(|inner| {
+                Arc::new(SlidingSyncRoom {
+                    inner,
+                    sliding_sync: self.inner.clone(),
+                    client: self.client.clone(),
+                    timeline: Default::default(),
+                })
             })
         }))
     }
@@ -718,21 +717,24 @@ impl SlidingSync {
             .into_iter()
             .map(OwnedRoomId::try_from)
             .collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
-        Ok(self
-            .inner
-            .get_rooms(actual_ids.into_iter())
-            .into_iter()
-            .map(|o| {
-                o.map(|inner| {
-                    Arc::new(SlidingSyncRoom {
-                        inner,
-                        sliding_sync: self.inner.clone(),
-                        client: self.client.clone(),
-                        timeline: Default::default(),
+
+        Ok(RUNTIME.block_on(async move {
+            self.inner
+                .get_rooms(actual_ids.into_iter())
+                .await
+                .into_iter()
+                .map(|o| {
+                    o.map(|inner| {
+                        Arc::new(SlidingSyncRoom {
+                            inner,
+                            sliding_sync: self.inner.clone(),
+                            client: self.client.clone(),
+                            timeline: Default::default(),
+                        })
                     })
                 })
-            })
-            .collect())
+                .collect()
+        }))
     }
 
     pub fn add_list(&self, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<TaskHandle> {
@@ -791,8 +793,8 @@ impl SlidingSync {
         })))
     }
 
-    pub fn stop_sync(&self) {
-        RUNTIME.block_on(async move { self.inner.stop_sync().await.unwrap() });
+    pub fn stop_sync(&self) -> Result<(), ClientError> {
+        self.inner.stop_sync().map_err(Into::into)
     }
 }
 
@@ -810,10 +812,10 @@ impl SlidingSyncBuilder {
         Ok(Arc::new(builder))
     }
 
-    pub fn storage_key(self: Arc<Self>, name: Option<String>) -> Arc<Self> {
+    pub fn enable_caching(self: Arc<Self>) -> Result<Arc<Self>, ClientError> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.storage_key(name);
-        Arc::new(builder)
+        builder.inner = builder.inner.enable_caching()?;
+        Ok(Arc::new(builder))
     }
 
     pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
@@ -875,14 +877,6 @@ impl SlidingSyncBuilder {
         Arc::new(builder)
     }
 
-    pub fn bump_event_types(self: Arc<Self>, bump_event_types: Vec<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.bump_event_types(
-            bump_event_types.into_iter().map(Into::into).collect::<Vec<_>>().as_slice(),
-        );
-        Arc::new(builder)
-    }
-
     pub fn build(self: Arc<Self>) -> Result<Arc<SlidingSync>, ClientError> {
         let builder = unwrap_or_clone_arc(self);
         RUNTIME.block_on(async move {
@@ -893,8 +887,11 @@ impl SlidingSyncBuilder {
 
 #[uniffi::export]
 impl Client {
-    pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
-        let mut inner = self.client.sliding_sync();
+    /// Creates a new Sliding Sync instance with the given identifier.
+    ///
+    /// Note: the identifier must be less than 16 chars long.
+    pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
+        let mut inner = self.inner.sliding_sync(id)?;
         if let Some(sliding_sync_proxy) = self
             .sliding_sync_proxy
             .read()
@@ -904,6 +901,6 @@ impl Client {
         {
             inner = inner.homeserver(sliding_sync_proxy);
         }
-        Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
+        Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

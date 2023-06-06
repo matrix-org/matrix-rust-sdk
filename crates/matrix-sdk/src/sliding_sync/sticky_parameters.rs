@@ -6,7 +6,7 @@
 
 use ruma::{OwnedTransactionId, TransactionId};
 
-/// A trait to implement for data that can be sticky, given a context.
+/// A trait to implement for data that can be sticky, given a context.
 pub trait StickyData {
     /// Request type that will be applied to, if the sticky parameters have been
     /// invalidated before.

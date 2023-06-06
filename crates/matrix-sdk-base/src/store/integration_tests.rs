@@ -17,12 +17,12 @@ use ruma::{
                 SyncRoomMemberEvent,
             },
             power_levels::RoomPowerLevelsEventContent,
-            topic::{OriginalRoomTopicEvent, RedactedRoomTopicEvent, RoomTopicEventContent},
+            topic::RoomTopicEventContent,
             MediaSource,
         },
         AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     mxc_uri, room_id,
     serde::Raw,
@@ -266,8 +266,12 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_state_event_static::<RoomTopicEventContent>(room_id)
                 .await?
                 .expect("room topic found before redaction")
-                .deserialize_as::<OriginalRoomTopicEvent>()
+                .deserialize()
                 .expect("can deserialize room topic before redaction")
+                .as_sync()
+                .expect("room topic is a sync state event")
+                .as_original()
+                .expect("room topic is not redacted yet")
                 .content
                 .topic,
             "😀"
@@ -283,22 +287,14 @@ impl StateStoreIntegrationTests for DynStateStore {
         changes.add_redaction(room_id, &redacted_event_id, redaction_evt);
         self.save_changes(&changes).await?;
 
-        match self
-            .get_state_event_static::<RoomTopicEventContent>(room_id)
-            .await?
-            .expect("room topic found before redaction")
-            .deserialize_as::<OriginalRoomTopicEvent>()
-        {
-            Err(_) => {} // as expected
-            Ok(_) => panic!("Topic has not been redacted"),
-        }
-
-        let _ = self
+        let redacted_event = self
             .get_state_event_static::<RoomTopicEventContent>(room_id)
             .await?
             .expect("room topic found after redaction")
-            .deserialize_as::<RedactedRoomTopicEvent>()
+            .deserialize()
             .expect("can deserialize room topic after redaction");
+
+        assert_matches!(redacted_event.as_sync(), Some(SyncStateEvent::Redacted(_)));
 
         Ok(())
     }

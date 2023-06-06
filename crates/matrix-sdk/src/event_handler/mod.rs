@@ -328,7 +328,7 @@ impl Client {
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: HandlerKind,
-        room: &Option<room::Room>,
+        room: Option<&room::Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -347,7 +347,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_state_events(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&room::Room>,
         state_events: &[Raw<AnySyncStateEvent>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -375,7 +375,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_timeline_events(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&room::Room>,
         timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -441,14 +441,14 @@ impl Client {
     #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
-        room: &Option<room::Room>,
+        room: Option<&room::Room>,
         raw: &RawJsonValue,
         event_kind: HandlerKind,
         event_type: &str,
         encryption_info: Option<&EncryptionInfo>,
         push_actions: &[Action],
     ) {
-        let room_id = room.as_ref().map(|r| r.room_id());
+        let room_id = room.map(|r| r.room_id());
         if let Some(room_id) = room_id {
             tracing::Span::current().record("room_id", debug(room_id));
         }
@@ -464,7 +464,7 @@ impl Client {
             .map(|(handle, handler_fn)| {
                 let data = EventHandlerData {
                     client: self.clone(),
-                    room: room.clone(),
+                    room: room.cloned(),
                     raw,
                     encryption_info,
                     push_actions,

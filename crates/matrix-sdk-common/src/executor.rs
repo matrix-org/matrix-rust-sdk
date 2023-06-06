@@ -25,7 +25,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::spawn;
+pub use tokio::task::{spawn, JoinHandle};
 
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
