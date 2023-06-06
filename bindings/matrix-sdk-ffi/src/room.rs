@@ -826,18 +826,26 @@ impl Room {
 }
 
 pub enum PaginationOptions {
-    SingleRequest { event_limit: u16 },
-    UntilNumItems { event_limit: u16, items: u16 },
+    SingleRequest { event_limit: u16, wait_for_token: bool },
+    UntilNumItems { event_limit: u16, items: u16, wait_for_token: bool },
 }
 
 impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'static> {
     fn from(value: PaginationOptions) -> Self {
         use matrix_sdk_ui::timeline::PaginationOptions as Opts;
-        match value {
-            PaginationOptions::SingleRequest { event_limit } => Opts::single_request(event_limit),
-            PaginationOptions::UntilNumItems { event_limit, items } => {
-                Opts::until_num_items(event_limit, items)
+        let (wait_for_token, mut opts) = match value {
+            PaginationOptions::SingleRequest { event_limit, wait_for_token } => {
+                (wait_for_token, Opts::single_request(event_limit))
             }
+            PaginationOptions::UntilNumItems { event_limit, items, wait_for_token } => {
+                (wait_for_token, Opts::until_num_items(event_limit, items))
+            }
+        };
+
+        if wait_for_token {
+            opts = opts.wait_for_token();
         }
+
+        opts
     }
 }
