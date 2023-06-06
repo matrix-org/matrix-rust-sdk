@@ -331,7 +331,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let local_item = item.as_local()?;
 
         if !matches!(&local_item.send_state, EventSendState::SendingFailed { .. }) {
-            debug!("Attempted to retry sending of an item that is not in failed state");
+            debug!("Attempted to retry the sending of an item that is not in failed state");
             return None;
         }
 
