@@ -27,7 +27,10 @@ use ruma::{
 use tracing::trace;
 
 use super::{DynStateStore, Result, StateChanges};
-use crate::deserialized_responses::{AmbiguityChange, RawMemberEvent};
+use crate::{
+    deserialized_responses::{AmbiguityChange, RawMemberEvent},
+    store::StateStoreExt,
+};
 
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {

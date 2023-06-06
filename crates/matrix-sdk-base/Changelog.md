@@ -20,6 +20,7 @@
   - `can_send_message`
   - `can_send_state`
   - `can_trigger_room_notification`
+- Move `StateStore::get_member_event` to `StateStoreExt`
 
 ## 0.5.1
 

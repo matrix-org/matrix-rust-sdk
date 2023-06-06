@@ -604,8 +604,8 @@ mod tests {
     use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
-        deserialized_responses::RawMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStore,
-        StateStoreDataKey, StoreError,
+        deserialized_responses::RawMemberEvent, store::StateStoreExt, RoomInfo, RoomMemberships,
+        RoomState, StateStore, StateStoreDataKey, StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{

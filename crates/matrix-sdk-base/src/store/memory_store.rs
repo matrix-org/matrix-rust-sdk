@@ -37,9 +37,8 @@ use tracing::{debug, warn};
 
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
-    media::MediaRequest,
-    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::RawAnySyncOrStrippedState, media::MediaRequest, MinimalRoomMemberEvent,
+    RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -429,16 +428,6 @@ impl MemoryStore {
         Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>> {
-        self.get_state_event(room_id, StateEventType::RoomMember, state_key.as_str())
-            .await
-            .map(|opt| opt.map(|raw| raw.cast()))
-    }
-
     /// Get the user IDs for the given room with the given memberships and
     /// stripped state.
     ///
@@ -614,14 +603,6 @@ impl StateStore for MemoryStore {
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>> {
         self.get_profile(room_id, user_id).await
-    }
-
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>> {
-        self.get_member_event(room_id, state_key).await
     }
 
     async fn get_user_ids(
