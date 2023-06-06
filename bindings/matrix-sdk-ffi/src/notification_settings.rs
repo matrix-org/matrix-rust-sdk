@@ -143,9 +143,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
-        notification_settings
-            .delete_user_defined_room_notification_mode(&room_id, &mut ruleset)
-            .await?;
+        notification_settings.delete_user_defined_room_rules(&room_id, &mut ruleset).await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
