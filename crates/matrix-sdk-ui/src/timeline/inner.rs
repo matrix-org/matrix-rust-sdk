@@ -321,6 +321,30 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.set(idx, Arc::new(new_item));
     }
 
+    pub(super) async fn prepare_retry(
+        &self,
+        txn_id: &TransactionId,
+    ) -> Option<TimelineItemContent> {
+        let mut state = self.state.lock().await;
+
+        let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
+        let local_item = item.as_local()?;
+
+        if !matches!(&local_item.send_state, EventSendState::SendingFailed { .. }) {
+            debug!("Attempted to retry sending of an item that is not in failed state");
+            return None;
+        }
+
+        let new_item = TimelineItem::Event(
+            item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
+        );
+
+        let content = item.content.clone();
+        state.items.set(idx, Arc::new(new_item));
+
+        Some(content)
+    }
+
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.

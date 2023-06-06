@@ -334,6 +334,67 @@ impl Timeline {
         Ok(())
     }
 
+    /// Retry sending a message that previously failed to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
+    ///   `send_state()` of `SendState::FailedToSend { .. }`
+    pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
+        macro_rules! error_return {
+            ($msg:literal) => {{
+                error!($msg);
+                return Ok(());
+            }};
+        }
+
+        let item = self.inner.prepare_retry(txn_id).await.ok_or(Error::RetryEventNotInTimeline)?;
+        let content = match item {
+            TimelineItemContent::Message(msg) => {
+                AnyMessageLikeEventContent::RoomMessage(msg.into())
+            }
+            TimelineItemContent::RedactedMessage => {
+                error_return!("Invalid state: attempting to retry a redacted message");
+            }
+            TimelineItemContent::Sticker(sticker) => {
+                AnyMessageLikeEventContent::Sticker(sticker.content)
+            }
+            TimelineItemContent::UnableToDecrypt(_) => {
+                error_return!("Invalid state: attempting to retry a UTD item");
+            }
+            TimelineItemContent::MembershipChange(_)
+            | TimelineItemContent::ProfileChange(_)
+            | TimelineItemContent::OtherState(_) => {
+                error_return!("Retrying state events is not currently supported");
+            }
+            TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. } => {
+                error_return!("Invalid state: attempting to retry a failed-to-parse item");
+            }
+        };
+
+        let send_state = match Room::from(self.room().clone()) {
+            Room::Joined(room) => {
+                let response = room.send(content, Some(txn_id)).await;
+
+                match response {
+                    Ok(response) => EventSendState::Sent { event_id: response.event_id },
+                    Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+                }
+            }
+            _ => {
+                EventSendState::SendingFailed {
+                    // FIXME: Probably not exactly right
+                    error: Arc::new(matrix_sdk::Error::InconsistentState),
+                }
+            }
+        };
+
+        self.inner.update_event_send_state(txn_id, send_state).await;
+
+        Ok(())
+    }
+
     /// Fetch unavailable details about the event with the given ID.
     ///
     /// This method only works for IDs of remote [`EventTimelineItem`]s,
@@ -628,6 +689,10 @@ pub enum Error {
     /// The requested event with a remote echo is not in the timeline.
     #[error("Event with remote echo not found in timeline")]
     RemoteEventNotInTimeline,
+
+    /// Can't find an event with the given transaction ID, can't retry.
+    #[error("Event not found, can't retry sending")]
+    RetryEventNotInTimeline,
 
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]
