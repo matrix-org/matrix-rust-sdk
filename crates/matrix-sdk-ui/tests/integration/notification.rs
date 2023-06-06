@@ -31,8 +31,9 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
         },
     };
 
-    // The request then passes the `pos`ition marker to the next request, as usual in sliding sync.
-    // The extensions haven't changed, so they're not updated (sticky parameters ftw).
+    // The request then passes the `pos`ition marker to the next request, as usual
+    // in sliding sync. The extensions haven't changed, so they're not updated
+    // (sticky parameters ftw).
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
@@ -48,7 +49,8 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     };
 
     // The to-device since token is passed from the previous request.
-    // The extensions haven't changed, so they're not updated (sticky parameters ftw).
+    // The extensions haven't changed, so they're not updated (sticky parameters
+    // ftw).
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         assert request = {
@@ -69,7 +71,8 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     };
 
     // The to-device since token is passed from the previous request.
-    // The extensions haven't changed, so they're not updated (sticky parameters ftw).
+    // The extensions haven't changed, so they're not updated (sticky parameters
+    // ftw).
     sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         sync matches Some(Err(_)),

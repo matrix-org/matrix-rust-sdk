@@ -261,13 +261,15 @@ impl SlidingSync {
     }
 
     fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
-        // When the pos is `None`, it's either our initial sync or the proxy forgot about us
-        // and sent us an `UnknownPos` error. In that case, we'll follow the internal configuration
-        // for extensions, and re-send it altogether.
+        // When the pos is `None`, it's either our initial sync or the proxy forgot
+        // about us and sent us an `UnknownPos` error. In that case, we'll
+        // follow the internal configuration for extensions, and re-send it
+        // altogether.
         //
-        // Otherwise, i.e. we have a set position, the server must have recorded what we sent it
-        // beforehand, per the MSC's sticky parameters explanation. In this case, we don't need to
-        // send anything, so we just clear the extension configuration.
+        // Otherwise, i.e. we have a set position, the server must have recorded what we
+        // sent it beforehand, per the MSC's sticky parameters explanation. In
+        // this case, we don't need to send anything, so we just clear the
+        // extension configuration.
 
         let mut extensions =
             if pos.is_some() { Default::default() } else { self.inner.extensions.clone() };
@@ -923,7 +925,8 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        // If we don't explicitly enable extensions, none should get enabled for us automatically.
+        // If we don't explicitly enable extensions, none should get enabled for us
+        // automatically.
         let sliding_sync = client.sliding_sync("test-slidingsync")?.build().await?;
 
         let extensions = sliding_sync.prepare_extension_config(None);
@@ -960,8 +963,8 @@ mod tests {
         assert_eq!(extensions.receipts.enabled, None);
         assert_eq!(extensions.typing.enabled, None);
 
-        // The extensions "enabled" fields are sticky: they're not reset if we have a valid
-        // position.
+        // The extensions "enabled" fields are sticky: they're not reset if we have a
+        // valid position.
         let extensions = sliding_sync.prepare_extension_config(Some("pos"));
         assert_eq!(extensions.e2ee.enabled, None);
         assert_eq!(extensions.to_device.enabled, None);

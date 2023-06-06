@@ -1,4 +1,3 @@
-use crate::{timeline::sliding_sync::timeline_event, SlidingSyncMatcher};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
@@ -16,7 +15,11 @@ use ruma::{event_id, room_id};
 use serde_json::json;
 use wiremock::MockServer;
 
-use crate::{logged_in_client, timeline::sliding_sync::assert_timeline_stream};
+use crate::{
+    logged_in_client,
+    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
+    SlidingSyncMatcher,
+};
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
@@ -25,8 +28,8 @@ async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     Ok((server, room_list))
 }
 
-// Same macro as in the main, with additional checking that the state before/after the sync loop
-// match those we expect.
+// Same macro as in the main, with additional checking that the state
+// before/after the sync loop match those we expect.
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]

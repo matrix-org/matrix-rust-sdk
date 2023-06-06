@@ -15,16 +15,18 @@
 //! Notification API.
 //!
 //! The notification API is a high-level helper that is designed to take care of
-//! handling the synchronization of notifications, be they received within the app or
-//! within a dedicated notification process (e.g. the NSE process on iOS devices).
+//! handling the synchronization of notifications, be they received within the
+//! app or within a dedicated notification process (e.g. the NSE process on iOS
+//! devices).
 //!
-//! Under the hood, this uses a sliding sync instance configured with no lists, but that enables
-//! the e2ee and to-device extensions, so that it can both handle encryption et manage encryption
-//! keys; that's sufficient to decrypt messages received in the notification processes.
+//! Under the hood, this uses a sliding sync instance configured with no lists,
+//! but that enables the e2ee and to-device extensions, so that it can both
+//! handle encryption et manage encryption keys; that's sufficient to decrypt
+//! messages received in the notification processes.
 //!
-//! As this may be used across different processes, this also makes sure that there's only one
-//! process writing to the databases holding encryption information.
-//! TODO as of 2023-06-06, this hasn't been done yet.
+//! As this may be used across different processes, this also makes sure that
+//! there's only one process writing to the databases holding encryption
+//! information. TODO as of 2023-06-06, this hasn't been done yet.
 
 use async_stream::stream;
 use futures_core::stream::Stream;
@@ -42,9 +44,10 @@ pub struct NotificationApi {
 impl NotificationApi {
     /// Creates a new instance of a `NotificationApi`.
     ///
-    /// This will create and manage an instance of [`matrix_sdk::SlidingSync`]. The `id` is used as
-    /// the identifier of that instance, as such make sure to not reuse a name used
-    /// by another Sliding Sync instance, at the risk of causing problems.
+    /// This will create and manage an instance of [`matrix_sdk::SlidingSync`].
+    /// The `id` is used as the identifier of that instance, as such make
+    /// sure to not reuse a name used by another Sliding Sync instance, at
+    /// the risk of causing problems.
     pub async fn new(id: impl Into<String>, client: Client) -> Result<Self, Error> {
         let sliding_sync = client
             .sliding_sync(id)
@@ -65,7 +68,8 @@ impl NotificationApi {
 
     /// Start synchronization of notifications.
     ///
-    /// This should be regularly polled, so as to ensure that the notifications are sync'd.
+    /// This should be regularly polled, so as to ensure that the notifications
+    /// are sync'd.
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream!({
             let sync = self.sliding_sync.sync();
