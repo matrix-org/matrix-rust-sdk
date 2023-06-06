@@ -245,14 +245,6 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "timeline_limit": 1,
                 },
             },
-            "extensions": {
-                "e2ee": {
-                    "enabled": true,
-                },
-                "to_device": {
-                    "enabled": true,
-                },
-            },
         },
         respond with = {
             "pos": "0",
