@@ -18,11 +18,13 @@ use imbl::{vector, Vector};
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use ruma::{
+    assign,
     events::{
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        relation::InReplyTo,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -229,6 +231,15 @@ impl Message {
 
     pub(in crate::timeline) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
+    }
+}
+
+impl From<Message> for RoomMessageEventContent {
+    fn from(msg: Message) -> Self {
+        let relates_to = msg.in_reply_to.map(|details| message::Relation::Reply {
+            in_reply_to: InReplyTo::new(details.event_id),
+        });
+        assign!(Self::new(msg.msgtype), { relates_to })
     }
 }
 
