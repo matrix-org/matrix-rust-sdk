@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     sync::{Arc, RwLock as SyncRwLock},
 };
 
@@ -27,8 +27,8 @@ use ruma::{
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
-            tombstone::RoomTombstoneEventContent,
+            member::RoomMemberEventContent, name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -330,14 +330,47 @@ impl Room {
     /// given memberships.
     pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
         let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
+
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let member_events = self
+            .store
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                self.room_id(),
+                &user_ids,
+            )
+            .await?
+            .into_iter()
+            .map(|raw_event| raw_event.deserialize())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
+
+        let mut presences = self
+            .store
+            .get_presence_events(&user_ids)
+            .await?
+            .into_iter()
+            .filter_map(|e| {
+                e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let display_names =
+            member_events.iter().map(|e| e.display_name().to_owned()).collect::<Vec<_>>();
+        let room_info = self.member_room_info(&display_names).await?;
+
         let mut members = Vec::new();
 
-        for u in user_ids {
-            let m = self.get_member(&u).await?;
+        for event in member_events {
+            let profile = profiles.remove(event.user_id());
+            let presence = presences.remove(event.user_id());
 
-            if let Some(member) = m {
-                members.push(member);
-            }
+            let member_info = MemberInfo { event, profile, presence };
+
+            members.push(RoomMember::from_parts(member_info, &room_info))
         }
 
         Ok(members)
