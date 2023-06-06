@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
+use matrix_sdk_ui::notifications;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -64,6 +65,12 @@ impl From<url::ParseError> for ClientError {
 
 impl From<mime::FromStrError> for ClientError {
     fn from(e: mime::FromStrError) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<notifications::Error> for ClientError {
+    fn from(e: notifications::Error) -> Self {
         Self::new(e)
     }
 }

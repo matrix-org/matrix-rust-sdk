@@ -37,6 +37,7 @@ use tracing::warn;
 /// High-level helper for synchronizing notifications using sliding sync.
 ///
 /// See the module's documentation for more details.
+#[derive(Clone)]
 pub struct NotificationApi {
     sliding_sync: SlidingSync,
 }

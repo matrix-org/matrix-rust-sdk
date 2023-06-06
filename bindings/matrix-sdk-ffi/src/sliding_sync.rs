@@ -18,7 +18,9 @@ use matrix_sdk::{
     },
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
-use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
+use matrix_sdk_ui::{
+    notifications::NotificationApi as MatrixNotificationApi, timeline::SlidingSyncRoomExt,
+};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 use url::Url;
@@ -885,6 +887,46 @@ impl SlidingSyncBuilder {
     }
 }
 
+#[derive(uniffi::Object)]
+pub struct NotificationApi {
+    inner: MatrixNotificationApi,
+}
+
+impl NotificationApi {
+    pub fn start(&self) -> Arc<TaskHandle> {
+        let inner = self.inner.clone();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let stream = inner.sync();
+            pin_mut!(stream);
+
+            loop {
+                match stream.next().await {
+                    Some(Ok(())) => {
+                        // Yay.
+                    }
+
+                    None => {
+                        warn!("Notification sliding sync ended");
+                        break;
+                    }
+
+                    Some(Err(err)) => {
+                        // The internal sliding sync instance already handles retries for us, so if
+                        // we get an error here, it means the maximum number of retries has been
+                        // reached, and there's not much we can do anymore.
+                        //
+                        // TODO(bnjbvr) signal that with a new observer that indicates whenever
+                        // there's an error?
+                        warn!("Error when handling notifications: {err}");
+                        break;
+                    }
+                }
+            }
+        })))
+    }
+}
+
 #[uniffi::export]
 impl Client {
     /// Creates a new Sliding Sync instance with the given identifier.
@@ -902,5 +944,17 @@ impl Client {
             inner = inner.homeserver(sliding_sync_proxy);
         }
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
+    }
+
+    pub fn notification_sliding_sync(
+        &self,
+        id: String,
+    ) -> Result<Arc<NotificationApi>, ClientError> {
+        RUNTIME.block_on(async move {
+            let inner = MatrixNotificationApi::new(id, self.inner.clone()).await?;
+            let notification_api = NotificationApi { inner };
+            notification_api.start();
+            Ok(Arc::new(notification_api))
+        })
     }
 }
