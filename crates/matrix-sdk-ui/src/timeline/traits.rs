@@ -27,6 +27,24 @@ use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use tracing::{debug, error};
 
 use super::Profile;
+use crate::timeline::Timeline;
+
+#[async_trait]
+pub trait RoomExt {
+    /// Get a [`Timeline`] for this room.
+    ///
+    /// This offers a higher-level API than event handlers, in treating things
+    /// like edits and reactions as updates of existing items rather than new
+    /// independent events.
+    async fn timeline(&self) -> Timeline;
+}
+
+#[async_trait]
+impl RoomExt for room::Common {
+    async fn timeline(&self) -> Timeline {
+        Timeline::builder(self).track_read_marker_and_receipts().build().await
+    }
+}
 
 #[async_trait]
 pub(super) trait RoomDataProvider {

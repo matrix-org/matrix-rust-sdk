@@ -51,7 +51,6 @@ mod event_item;
 mod inner;
 mod pagination;
 mod read_receipts;
-mod room_ext;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
 #[cfg(test)]
@@ -73,7 +72,7 @@ pub use self::{
         TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
-    room_ext::RoomExt,
+    traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
 
