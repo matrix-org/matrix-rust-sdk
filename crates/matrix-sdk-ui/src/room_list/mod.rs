@@ -74,7 +74,7 @@ use matrix_sdk::{
     SlidingSyncMode, SlidingSyncRoom,
 };
 use once_cell::sync::Lazy;
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{api::client::sync::sync_events::v4::AccountDataConfig, assign, OwnedRoomId, RoomId};
 use thiserror::Error;
 
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -100,6 +100,10 @@ impl RoomList {
             .map_err(Error::SlidingSync)?
             .enable_caching()
             .map_err(Error::SlidingSync)?
+            // Enable the account data extension.
+            .with_account_data_extension(
+                assign! { AccountDataConfig::default(), { enabled: Some(true) }},
+            )
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))

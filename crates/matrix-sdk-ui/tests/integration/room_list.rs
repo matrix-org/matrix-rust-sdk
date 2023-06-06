@@ -252,6 +252,9 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 "to_device": {
                     "enabled": true,
                 },
+                "account_data": {
+                    "enabled": true
+                }
             },
         },
         respond with = {
