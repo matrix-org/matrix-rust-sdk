@@ -45,7 +45,7 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{inner::RoomDataProvider, Profile, TimelineInner, TimelineItem};
+use super::{traits::RoomDataProvider, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
