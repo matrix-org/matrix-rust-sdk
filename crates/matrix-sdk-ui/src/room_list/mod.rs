@@ -196,7 +196,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_stream()))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -211,7 +211,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Pass an [`Input`] onto the state machine.
@@ -465,7 +465,7 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
                 ready(())
             })
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
 
         Ok(())
     }
