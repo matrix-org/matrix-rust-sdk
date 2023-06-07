@@ -14,7 +14,7 @@ use std::{
 pub use builder::*;
 use eyeball::unique::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
-use eyeball_im_util::{FilteredVectorSubscriber, VectorExt};
+use eyeball_im_util::{FilterVectorSubscriber, VectorExt};
 pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 use imbl::Vector;
@@ -160,14 +160,11 @@ impl SlidingSyncList {
     pub fn room_list_filtered_stream<F>(
         &self,
         filter: F,
-    ) -> (Vector<RoomListEntry>, FilteredVectorSubscriber<RoomListEntry, BoxedRoomListEntryFilter>)
+    ) -> (Vector<RoomListEntry>, FilterVectorSubscriber<RoomListEntry, BoxedRoomListEntryFilter>)
     where
         F: Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
     {
-        ObservableVector::subscribe_filtered(
-            &self.inner.room_list.read().unwrap(),
-            Box::new(filter),
-        )
+        ObservableVector::subscribe_filter(&self.inner.room_list.read().unwrap(), Box::new(filter))
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
