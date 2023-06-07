@@ -502,15 +502,10 @@ pub(crate) mod tests {
         let encrypted: bool = true;
         let members_count = 2;
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::AllMessages)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result = ruleset.set_enabled(
             RuleKind::Underride,
@@ -530,15 +525,10 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
     }
 
     #[async_test]
@@ -552,15 +542,10 @@ pub(crate) mod tests {
         let encrypted = false;
         let members_count = 2;
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::AllMessages)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result = ruleset.set_enabled(
             RuleKind::Underride,
@@ -577,15 +562,10 @@ pub(crate) mod tests {
             ruleset.set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true);
         assert!(result.is_ok());
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -601,15 +581,10 @@ pub(crate) mod tests {
         let encrypted: bool = true;
         let members_count = 3;
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::AllMessages)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result =
             ruleset.set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Encrypted, false);
@@ -626,15 +601,10 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -648,15 +618,10 @@ pub(crate) mod tests {
         let encrypted: bool = false;
         let members_count = 3;
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::AllMessages)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result =
             ruleset.set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Message, false);
@@ -673,15 +638,10 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        if let Ok(mode) = notification_settings.get_default_room_notification_mode(
-            encrypted,
-            members_count,
-            &ruleset,
-        ) {
-            assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
-        } else {
-            panic!("A default mode should be defined.")
-        }
+        let mode = notification_settings
+            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
+            .expect("A default mode should be defined.");
+        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -769,11 +729,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::AllMessages;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -809,11 +765,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::AllMessages;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -850,11 +802,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::AllMessages;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -891,11 +839,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -935,11 +879,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -980,11 +920,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -1017,11 +953,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::Mute;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -1057,11 +989,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::Mute;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
@@ -1097,11 +1025,7 @@ pub(crate) mod tests {
         let expected_mode = &RoomNotificationMode::Mute;
         match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
             Some(new_mode) => {
-                assert_eq!(
-                    &new_mode, expected_mode,
-                    "mode {:?} is expected (got {:?})",
-                    expected_mode, &new_mode
-                )
+                assert_eq!(&new_mode, expected_mode)
             }
             None => {
                 panic!("mode {:?} is expected.", expected_mode)
