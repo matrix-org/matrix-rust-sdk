@@ -249,7 +249,7 @@ where
     C::Redacted: RedactedStateEventContent,
 {
     fn has_event_id(&self, ev_id: &EventId) -> bool {
-        self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)
+        self.as_ref().is_some_and(|ev| ev.event_id() == Some(ev_id))
     }
 }
 

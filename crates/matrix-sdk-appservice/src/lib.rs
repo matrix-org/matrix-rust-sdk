@@ -376,8 +376,7 @@ impl AppService {
         let client = self.user(None).await?;
         let key = [USER_KEY, localpart.as_ref().as_bytes()].concat();
         let store = client.store().get_custom_value(&key).await?;
-        let registered =
-            store.and_then(|vec| vec.first().copied()).map_or(false, |b| b == u8::from(true));
+        let registered = store.is_some_and(|vec| vec.first().copied() == Some(u8::from(true)));
         Ok(registered)
     }
 

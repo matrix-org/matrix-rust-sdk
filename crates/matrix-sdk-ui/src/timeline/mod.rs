@@ -119,7 +119,7 @@ impl Timeline {
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none() {
-            if self.inner.items().await.front().map_or(false, |item| item.is_timeline_start()) {
+            if self.inner.items().await.front().is_some_and(|item| item.is_timeline_start()) {
                 warn!("Start of timeline reached, ignoring backwards-pagination request");
                 return Ok(());
             }
