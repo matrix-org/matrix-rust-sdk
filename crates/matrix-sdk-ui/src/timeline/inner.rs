@@ -385,7 +385,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn add_loading_indicator(&self) {
         let mut state = self.state.lock().await;
 
-        if state.items.front().map_or(false, |item| item.is_loading_indicator()) {
+        if state.items.front().is_some_and(|item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
             return;
         }
@@ -397,7 +397,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
         let mut state = self.state.lock().await;
 
-        if !state.items.front().map_or(false, |item| item.is_loading_indicator()) {
+        if !state.items.front().is_some_and(|item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
             return;
         }
@@ -870,7 +870,7 @@ impl TimelineInnerState {
     #[instrument(skip_all)]
     fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
-        if self.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
+        if self.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
         }
 

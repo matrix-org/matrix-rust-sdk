@@ -160,7 +160,7 @@ impl BackupMachine {
 
     /// Are we able to back up room keys to the server?
     pub async fn enabled(&self) -> bool {
-        self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
+        self.backup_key.read().await.as_ref().is_some_and(|b| b.backup_version().is_some())
     }
 
     /// Check if our own device has signed the given signed JSON payload.

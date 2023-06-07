@@ -123,7 +123,7 @@ impl Room {
 
     /// Whether this room's [`RoomType`] is `m.space`.
     pub fn is_space(&self) -> bool {
-        self.inner.read().unwrap().room_type().map_or(false, |t| *t == RoomType::Space)
+        self.inner.read().unwrap().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
     /// Get the unread notification counts.
@@ -461,8 +461,7 @@ impl Room {
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
-        let is_room_creator =
-            self.inner.read().unwrap().creator().map(|c| c == user_id).unwrap_or(false);
+        let is_room_creator = self.inner.read().unwrap().creator() == Some(user_id);
 
         let power = self
             .store
@@ -489,9 +488,7 @@ impl Room {
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .map(|l| l.ignored_users.contains_key(member_event.user_id()))
-            .unwrap_or(false);
+            .is_some_and(|e| e.content.ignored_users.contains_key(member_event.user_id()));
 
         Ok(Some(RoomMember {
             event: Arc::new(member_event),

@@ -252,7 +252,7 @@ fn maybe_update_read_receipt(
         .get(receipt.user_id)
         .and_then(|receipts| receipts.get(&receipt.receipt_type))
         .map(|(event_id, _)| event_id);
-    if old_event_id.map_or(false, |id| id == receipt.event_id) {
+    if old_event_id.is_some_and(|id| id == receipt.event_id) {
         // Nothing to do.
         return false;
     }

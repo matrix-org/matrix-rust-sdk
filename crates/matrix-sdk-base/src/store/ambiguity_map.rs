@@ -94,12 +94,7 @@ impl AmbiguityCache {
         // incorrect AmbiguityChange overwriting the correct one. In other
         // words, this method is not idempotent so we make it by ignoring
         // duplicate events.
-        if self
-            .changes
-            .get(room_id)
-            .map(|c| c.contains_key(member_event.event_id()))
-            .unwrap_or(false)
-        {
+        if self.changes.get(room_id).is_some_and(|c| c.contains_key(member_event.event_id())) {
             return Ok(());
         }
 
@@ -118,7 +113,7 @@ impl AmbiguityCache {
             old_map.as_mut().and_then(|o| o.remove(member_event.state_key()));
         let ambiguated_member =
             new_map.as_mut().and_then(|n| n.add(member_event.state_key().clone()));
-        let ambiguous = new_map.as_ref().map(|n| n.is_ambiguous()).unwrap_or(false);
+        let ambiguous = new_map.as_ref().is_some_and(|n| n.is_ambiguous());
 
         self.update(room_id, old_map, new_map);
 

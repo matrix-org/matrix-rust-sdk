@@ -173,8 +173,8 @@ impl Device {
 
         self.user_id() == self.verification_machine.own_user_id()
             && self.device_id() == self.verification_machine.own_device_id()
-            && self.ed25519_key().map(|k| k == own_ed25519_key).unwrap_or(false)
-            && self.curve25519_key().map(|k| k == own_curve25519_key).unwrap_or(false)
+            && self.ed25519_key().is_some_and(|k| k == own_ed25519_key)
+            && self.curve25519_key().is_some_and(|k| k == own_curve25519_key)
     }
 
     /// Does the given `InboundGroupSession` belong to this device?
@@ -285,36 +285,28 @@ impl Device {
 
     /// Is this device cross signed by its owner?
     pub fn is_cross_signed_by_owner(&self) -> bool {
-        self.device_owner_identity
-            .as_ref()
-            .map(|device_identity| match device_identity {
-                // If it's one of our own devices, just check that
-                // we signed the device.
-                ReadOnlyUserIdentities::Own(identity) => {
-                    identity.is_device_signed(&self.inner).is_ok()
-                }
-                // If it's a device from someone else, check
-                // if the other user has signed this device.
-                ReadOnlyUserIdentities::Other(device_identity) => {
-                    device_identity.is_device_signed(&self.inner).is_ok()
-                }
-            })
-            .unwrap_or(false)
+        self.device_owner_identity.as_ref().is_some_and(|device_identity| match device_identity {
+            // If it's one of our own devices, just check that
+            // we signed the device.
+            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(&self.inner).is_ok(),
+            // If it's a device from someone else, check
+            // if the other user has signed this device.
+            ReadOnlyUserIdentities::Other(device_identity) => {
+                device_identity.is_device_signed(&self.inner).is_ok()
+            }
+        })
     }
 
     /// Is the device owner verified by us?
     pub fn is_device_owner_verified(&self) -> bool {
-        self.device_owner_identity
-            .as_ref()
-            .map(|id| match id {
-                ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
-                ReadOnlyUserIdentities::Other(other_identity) => self
-                    .own_identity
-                    .as_ref()
-                    .map(|oi| oi.is_verified() && oi.is_identity_signed(other_identity).is_ok())
-                    .unwrap_or(false),
-            })
-            .unwrap_or(false)
+        self.device_owner_identity.as_ref().is_some_and(|id| match id {
+            ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
+            ReadOnlyUserIdentities::Other(other_identity) => {
+                self.own_identity.as_ref().is_some_and(|oi| {
+                    oi.is_verified() && oi.is_identity_signed(other_identity).is_ok()
+                })
+            }
+        })
     }
 
     /// Request an interactive verification with this `Device`.
@@ -767,27 +759,22 @@ impl ReadOnlyDevice {
         own_identity: &Option<ReadOnlyOwnUserIdentity>,
         device_owner: &Option<ReadOnlyUserIdentities>,
     ) -> bool {
-        own_identity.as_ref().map_or(false, |own_identity| {
+        own_identity.as_ref().is_some_and(|own_identity| {
             // Our own identity needs to be marked as verified.
             own_identity.is_verified()
-                && device_owner
-                    .as_ref()
-                    .map(|device_identity| match device_identity {
-                        // If it's one of our own devices, just check that
-                        // we signed the device.
-                        ReadOnlyUserIdentities::Own(_) => {
-                            own_identity.is_device_signed(self).map_or(false, |_| true)
-                        }
+                && device_owner.as_ref().is_some_and(|device_identity| match device_identity {
+                    // If it's one of our own devices, just check that
+                    // we signed the device.
+                    ReadOnlyUserIdentities::Own(_) => own_identity.is_device_signed(self).is_ok(),
 
-                        // If it's a device from someone else, first check
-                        // that our user has signed the other user and then
-                        // check if the other user has signed this device.
-                        ReadOnlyUserIdentities::Other(device_identity) => {
-                            own_identity.is_identity_signed(device_identity).map_or(false, |_| true)
-                                && device_identity.is_device_signed(self).map_or(false, |_| true)
-                        }
-                    })
-                    .unwrap_or(false)
+                    // If it's a device from someone else, first check
+                    // that our user has signed the other user and then
+                    // check if the other user has signed this device.
+                    ReadOnlyUserIdentities::Other(device_identity) => {
+                        own_identity.is_identity_signed(device_identity).is_ok()
+                            && device_identity.is_device_signed(self).is_ok()
+                    }
+                })
         })
     }
 
