@@ -278,12 +278,18 @@ impl BaseClient {
 mod test {
     use ruma::{
         device_id, event_id,
-        events::{room::avatar::RoomAvatarEventContent, StateEventContent},
+        events::{
+            room::{
+                avatar::RoomAvatarEventContent,
+                member::{MembershipState, RoomMemberEventContent},
+            },
+            StateEventContent,
+        },
         mxc_uri, room_id,
         serde::Raw,
         uint, user_id, MxcUri, RoomId, UserId,
     };
-    use serde_json::{json, Value as JsonValue};
+    use serde_json::json;
 
     use super::*;
     use crate::SessionMeta;
@@ -351,6 +357,28 @@ mod test {
         );
     }
 
+    #[tokio::test]
+    #[ignore = "fails because we don't process avatars for invite rooms"]
+    async fn avatar_is_found_invitation_room_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I send sliding sync response containing an invited room with an avatar
+        let mut room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
+        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room in the client has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
+            "med1"
+        );
+    }
+
     async fn logged_in_client() -> BaseClient {
         let client = BaseClient::new();
         client
@@ -375,28 +403,34 @@ mod test {
         let mut avatar_event_content = RoomAvatarEventContent::new();
         avatar_event_content.url = Some(avatar_uri.to_owned());
 
-        room.required_state.push(
-            Raw::new(&make_state_event(user_id, "", avatar_event_content, None))
-                .expect("Failed to create state event")
-                .cast(),
-        );
+        room.required_state.push(make_state_event(user_id, "", avatar_event_content, None));
 
         room
     }
 
-    fn make_state_event<C: StateEventContent>(
+    fn set_room_membership(
+        room: &mut v4::SlidingSyncRoom,
+        user_id: &UserId,
+        membership_state: MembershipState,
+    ) {
+        let invite_content = RoomMemberEventContent::new(membership_state);
+        room.invite_state =
+            Some(vec![make_state_event(user_id, user_id.as_ref(), invite_content, None)]);
+    }
+
+    fn make_state_event<C: StateEventContent, E>(
         sender: &UserId,
         state_key: &str,
         content: C,
         prev_content: Option<C>,
-    ) -> JsonValue {
+    ) -> Raw<E> {
         let unsigned = if let Some(prev_content) = prev_content {
             json!({ "prev_content": prev_content })
         } else {
             json!({})
         };
 
-        json!({
+        Raw::new(&json!({
             "type": content.event_type(),
             "state_key": state_key,
             "content": content,
@@ -404,6 +438,8 @@ mod test {
             "sender": sender,
             "origin_server_ts": 10,
             "unsigned": unsigned,
-        })
+        }))
+        .expect("Failed to create state event")
+        .cast()
     }
 }
