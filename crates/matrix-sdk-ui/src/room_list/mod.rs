@@ -62,6 +62,7 @@
 
 use std::{future::ready, sync::Arc};
 
+use async_once_cell::OnceCell as AsyncOnceCell;
 use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
@@ -270,11 +271,11 @@ struct RoomInner {
     room: matrix_sdk::room::Room,
 
     /// The timeline of the room.
-    timeline: Timeline,
+    timeline: AsyncOnceCell<Timeline>,
 
     /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
     /// read marker nor the receipts.
-    sneaky_timeline: Timeline,
+    sneaky_timeline: AsyncOnceCell<Timeline>,
 }
 
 impl Room {
@@ -285,19 +286,13 @@ impl Room {
             .get_room(sliding_sync_room.room_id())
             .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
 
-        let timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .track_read_marker_and_receipts()
-            .build()
-            .await;
-
-        let sneaky_timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .build()
-            .await;
-
         Ok(Self {
-            inner: Arc::new(RoomInner { sliding_sync_room, room, timeline, sneaky_timeline }),
+            inner: Arc::new(RoomInner {
+                sliding_sync_room,
+                room,
+                timeline: AsyncOnceCell::new(),
+                sneaky_timeline: AsyncOnceCell::new(),
+            }),
         })
     }
 
@@ -313,8 +308,20 @@ impl Room {
     }
 
     /// Get the timeline of the room.
-    pub fn timeline(&self) -> &Timeline {
-        &self.inner.timeline
+    pub async fn timeline(&self) -> &Timeline {
+        self.inner
+            .timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .track_read_marker_and_receipts()
+                    .build()
+                    .await
+            })
+            .await
     }
 
     /// Get the latest event of the timeline.
@@ -322,7 +329,20 @@ impl Room {
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.sneaky_timeline.latest_event().await
+        self.inner
+            .sneaky_timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .build()
+                    .await
+            })
+            .await
+            .latest_event()
+            .await
     }
 }
 
