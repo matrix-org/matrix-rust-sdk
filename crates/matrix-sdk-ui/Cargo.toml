@@ -46,6 +46,7 @@ anyhow = { workspace = true }
 assert-json-diff = "2.0"
 assert_matches = { workspace = true }
 ctor = { workspace = true }
+eyeball-im-util = { workspace = true }
 matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = "0.1.0"
