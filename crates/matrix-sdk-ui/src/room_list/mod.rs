@@ -98,8 +98,6 @@ impl RoomList {
         let sliding_sync = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
-            .enable_caching()
-            .map_err(Error::SlidingSync)?
             // Enable the account data extension.
             .with_account_data_extension(
                 assign! { AccountDataConfig::default(), { enabled: Some(true) }},
