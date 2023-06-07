@@ -19,46 +19,13 @@ use matrix_sdk::{
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
-use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 use url::Url;
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room::TimelineLock, Client,
-    EventTimelineItem, Room, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
+    EventTimelineItem, Room, TaskHandle, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
-
-#[derive(uniffi::Object)]
-pub struct TaskHandle {
-    handle: JoinHandle<()>,
-}
-
-impl TaskHandle {
-    // Create a new task handle.
-    fn new(handle: JoinHandle<()>) -> Self {
-        Self { handle }
-    }
-}
-
-#[uniffi::export]
-impl TaskHandle {
-    pub fn cancel(&self) {
-        debug!("stoppable.cancel() called");
-
-        self.handle.abort();
-    }
-
-    /// Check whether the handle is finished.
-    pub fn is_finished(&self) -> bool {
-        self.handle.is_finished()
-    }
-}
-
-impl Drop for TaskHandle {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
 
 #[derive(uniffi::Object)]
 pub struct UnreadNotificationsCount {

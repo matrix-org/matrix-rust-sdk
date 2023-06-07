@@ -33,6 +33,7 @@ pub mod room;
 pub mod room_member;
 pub mod session_verification;
 pub mod sliding_sync;
+pub mod task_handle;
 pub mod timeline;
 pub mod tracing;
 
@@ -45,7 +46,7 @@ pub use platform::*;
 use self::error::ClientError;
 pub use self::{
     authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
+    session_verification::*, sliding_sync::*, task_handle::TaskHandle, timeline::*, tracing::*,
 };
 
 uniffi::include_scaffolding!("api");
