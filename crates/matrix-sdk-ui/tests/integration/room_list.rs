@@ -76,7 +76,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             $(
                 use State::*;
 
-                assert_matches!($room_list.state(), $pre_state, "pre state");
+                assert_matches!($room_list.state().get(), $pre_state, "pre state");
             )?
 
             let next = $room_list_sync_stream.next().await;
@@ -100,7 +100,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             }
 
-            $( assert_matches!($room_list.state(), $post_state, "post state"); )?
+            $( assert_matches!($room_list.state().get(), $post_state, "post state"); )?
 
             next
         }

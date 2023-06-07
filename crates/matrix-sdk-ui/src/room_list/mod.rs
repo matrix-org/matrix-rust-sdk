@@ -65,7 +65,7 @@ use std::{future::ready, sync::Arc};
 use async_once_cell::OnceCell as AsyncOnceCell;
 use async_stream::stream;
 use async_trait::async_trait;
-use eyeball::shared::Observable;
+use eyeball::{shared::Observable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, Stream, StreamExt};
 use imbl::Vector;
@@ -145,11 +145,9 @@ impl RoomList {
             //
             // So the sync is done after the machine _has entered_ into a new state.
             loop {
-                {
-                    let next_state = self.state.read().next(&self.sliding_sync).await?;
+                let next_state = self.state.get().next(&self.sliding_sync).await?;
 
-                    Observable::set(&self.state, next_state);
-                }
+                Observable::set(&self.state, next_state);
 
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
@@ -178,13 +176,8 @@ impl RoomList {
         }
     }
 
-    /// Get the current state of the state machine.
-    pub fn state(&self) -> State {
-        self.state.get()
-    }
-
-    /// Get a [`Stream`] of [`State`]s.
-    pub fn state_stream(&self) -> impl Stream<Item = State> {
+    /// Get a subscriber to the state.
+    pub fn state(&self) -> Subscriber<State> {
         Observable::subscribe(&self.state)
     }
 
