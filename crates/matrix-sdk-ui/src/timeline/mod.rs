@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
 use eyeball_im::VectorDiff;
@@ -43,7 +43,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 mod builder;
 mod event_handler;
@@ -126,8 +126,14 @@ impl Timeline {
 
             if options.wait_for_token {
                 info!("No prev_batch token, waiting");
-                start_lock =
-                    self.start_token_condvar.wait_until(start_lock, |tok| tok.is_some()).await;
+                (start_lock, _) = self
+                    .start_token_condvar
+                    .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
+                    .await;
+
+                if start_lock.is_none() {
+                    debug!("Waiting for prev_batch token timed out after 3s");
+                }
             }
         }
 
