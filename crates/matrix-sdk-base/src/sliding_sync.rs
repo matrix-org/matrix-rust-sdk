@@ -269,3 +269,73 @@ impl BaseClient {
         })
     }
 }
+
+#[cfg(test)]
+mod test {
+    use ruma::{device_id, room_id, user_id, RoomId};
+
+    use super::*;
+    use crate::SessionMeta;
+
+    #[tokio::test]
+    async fn can_process_empty_sliding_sync_response() {
+        let client = logged_in_client().await;
+        let empty_response = v4::Response::new("5".to_owned());
+        client.process_sliding_sync(&empty_response).await.expect("Failed to process sync");
+    }
+
+    #[tokio::test]
+    async fn process_sliding_sync_response_to_add_a_room() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room (with idenifiable data in
+        // joined_count)
+        let mut room = v4::SlidingSyncRoom::new();
+        room.joined_count = Some(41.try_into().expect("Failed to make UInt"));
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room appears in the client (with the same joined count)
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.room_id(), room_id);
+        assert_eq!(client_room.joined_members_count(), 41);
+    }
+
+    #[tokio::test]
+    #[ignore = "fails because the name is not yet processed"]
+    async fn room_name_is_found_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a name
+        let mut room = v4::SlidingSyncRoom::new();
+        room.name = Some("little room".to_owned());
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room appears in the client with the expected name
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name(), Some("little room".to_owned()));
+    }
+
+    async fn logged_in_client() -> BaseClient {
+        let client = BaseClient::new();
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@u:e.uk").to_owned(),
+                device_id: device_id!("XYZ").to_owned(),
+            })
+            .await
+            .expect("Failed to set session meta");
+        client
+    }
+
+    async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
+        let mut response = v4::Response::new("5".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+        response
+    }
+}
