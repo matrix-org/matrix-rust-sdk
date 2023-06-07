@@ -17,6 +17,7 @@ experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 testing = ["matrix-sdk/testing"]
 
 [dependencies]
+async-once-cell = "0.5.2"
 async-stream = { workspace = true, optional = true }
 async-trait = { workspace = true }
 chrono = "0.4.23"
