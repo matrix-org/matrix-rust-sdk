@@ -81,27 +81,31 @@ impl NotificationSettings {
         *self.delegate.write().await = delegate;
     }
 
-    /// Gets the notification mode for a given room
+    /// Gets the notification mode for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A room ID
     pub async fn get_room_notification_mode(
         &self,
         room_id: String,
     ) -> Result<RoomNotificationSettings, NotificationSettingsError> {
         let ruleset = &*self.push_rules.read().await;
         let notification_settings = self.sdk_client.notification_settings();
+        let parsed_room_id = RoomId::parse(&room_id)
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
         // Get the current user defined mode for this room
         if let Some(mode) =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, ruleset)
+            notification_settings.get_user_defined_room_notification_mode(&parsed_room_id, ruleset)
         {
             return Ok(RoomNotificationSettings::new(mode.into(), false));
         }
 
         // If the user didn't defined a notification mode, return the default one for
         // this room
-        let room_id =
-            RoomId::parse(room_id).map_err(|_| NotificationSettingsError::InvalidRoomId)?;
         let room = self
             .sdk_client
-            .get_room(&room_id)
+            .get_room(&parsed_room_id)
             .context("Room not found")
             .map_err(|_| NotificationSettingsError::RoomNotFound)?;
 
@@ -116,7 +120,12 @@ impl NotificationSettings {
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
 
-    /// Sets a notification mode for a given room
+    /// Sets the notification mode for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A room ID
+    /// * `mode` - A `RoomNotificationMode`
     pub async fn set_room_notification_mode(
         &self,
         room_id: String,
@@ -131,19 +140,31 @@ impl NotificationSettings {
             }
             RoomNotificationMode::Mute => SdkRoomNotificationMode::Mute,
         };
-        notification_settings.set_room_notification_mode(&room_id, mode, &mut ruleset).await?;
+        let parsed_room_idom_id = RoomId::parse(&room_id)
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+        notification_settings
+            .set_room_notification_mode(&parsed_room_idom_id, mode, &mut ruleset)
+            .await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
 
-    /// Restores the default notification mode for a given room
+    /// Restores the default notification mode for a room
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A room ID
     pub async fn restore_default_room_notification_mode(
         &self,
         room_id: String,
     ) -> Result<(), NotificationSettingsError> {
         let mut ruleset = self.push_rules.read().await.clone();
         let notification_settings = self.sdk_client.notification_settings();
-        notification_settings.delete_user_defined_room_rules(&room_id, &mut ruleset).await?;
+        let parsed_room_idom_id = RoomId::parse(&room_id)
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+        notification_settings
+            .delete_user_defined_room_rules(&parsed_room_idom_id, &mut ruleset)
+            .await?;
         *self.push_rules.write().await = ruleset;
         Ok(())
     }
@@ -154,13 +175,13 @@ impl NotificationSettings {
         self.sdk_client.notification_settings().contains_keyword_rules(ruleset)
     }
 
-    /// Get whether @room mentions are enabled.
+    /// Get whether `@room` mentions are enabled.
     pub async fn is_room_mention_enabled(&self) -> bool {
         let ruleset = &*self.push_rules.read().await;
         self.sdk_client.notification_settings().is_room_mention_enabled(ruleset)
     }
 
-    /// Set whether @room mentions are enabled.
+    /// Set whether `@room` mentions are enabled.
     pub async fn set_room_mention_enabled(
         &self,
         enabled: bool,

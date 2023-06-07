@@ -107,8 +107,8 @@ pub enum NotificationSettingsError {
     #[error("client error: {msg}")]
     Generic { msg: String },
     /// Invalid room id.
-    #[error("Invalid room id")]
-    InvalidRoomId,
+    #[error("Invalid room ID `{0}`")]
+    InvalidRoomId(String),
     /// Room not found
     #[error("Room not found")]
     RoomNotFound,
@@ -129,7 +129,6 @@ pub enum NotificationSettingsError {
 impl From<SdkNotificationSettingsError> for NotificationSettingsError {
     fn from(value: SdkNotificationSettingsError) -> Self {
         match value {
-            SdkNotificationSettingsError::InvalidRoomId => Self::InvalidRoomId,
             SdkNotificationSettingsError::RuleNotFound => Self::RuleNotFound,
             SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
             SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,

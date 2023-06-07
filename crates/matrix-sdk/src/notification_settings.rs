@@ -12,14 +12,14 @@ use ruma::{
 
 use crate::{error::NotificationSettingsError, Client, Result};
 
-/// Enum representing the push notification modes for a room
+/// Enum representing the push notification modes for a room.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoomNotificationMode {
-    /// All messages
+    /// Receive notifications for all messages.
     AllMessages,
-    /// Mentions and keywords only
+    /// Receive notifications for mentions and keywords only.
     MentionsAndKeywordsOnly,
-    /// Mute
+    /// Do not receive any notifications.
     Mute,
 }
 
@@ -35,10 +35,17 @@ impl NotificationSettings {
         Self { client }
     }
 
-    /// Sets a notification mode for a given room
+    /// Sets the notification mode for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `mode` - The `RoomNotificationMode` to set
+    /// * `ruleset` - A ruleset, representing the owner's account push rules,
+    ///   which will be updated.
     pub async fn set_room_notification_mode(
         &self,
-        room_id: &String,
+        room_id: &RoomId,
         mode: RoomNotificationMode,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
@@ -46,11 +53,11 @@ impl NotificationSettings {
         let current_mode = self.get_user_defined_room_notification_mode(room_id, ruleset);
 
         match (current_mode, mode) {
-            // Default > AllMessages
+            // from `None` to `AllMessages`
             (None, RoomNotificationMode::AllMessages) => {
                 self.insert_room_rule(room_id, true, ruleset).await?;
             }
-            // Mentions&Keywords > AllMessages
+            // from `MentionsAndKeywordsOnly`to `AllMessages`
             (
                 Some(RoomNotificationMode::MentionsAndKeywordsOnly),
                 RoomNotificationMode::AllMessages,
@@ -61,12 +68,12 @@ impl NotificationSettings {
                 self.insert_room_rule(room_id, true, ruleset).await?;
                 self.delete_rules(
                     current_custom_rules,
-                    vec![(RuleKind::Room, room_id.clone())],
+                    vec![(RuleKind::Room, room_id.to_string())],
                     ruleset,
                 )
                 .await?;
             }
-            // Mute > AllMessages
+            // from `Mute` to `AllMessages`
             (Some(RoomNotificationMode::Mute), RoomNotificationMode::AllMessages) => {
                 // Insert the rule before deleting the other custom rules to obtain the correct
                 // mode in the next sync response.
@@ -74,11 +81,11 @@ impl NotificationSettings {
                 self.insert_room_rule(room_id, true, ruleset).await?;
                 self.delete_rules(current_custom_rules, vec![], ruleset).await?;
             }
-            // Default > Mentions&Keywords
+            // from `None` to `MentionsAndKeywordsOnly`
             (None, RoomNotificationMode::MentionsAndKeywordsOnly) => {
                 self.insert_room_rule(room_id, false, ruleset).await?;
             }
-            // AllMessages > Mentions&Keywords
+            // from `AllMessages` to `MentionsAndKeywordsOnly`
             (
                 Some(RoomNotificationMode::AllMessages),
                 RoomNotificationMode::MentionsAndKeywordsOnly,
@@ -89,12 +96,12 @@ impl NotificationSettings {
                 self.insert_room_rule(room_id, false, ruleset).await?;
                 self.delete_rules(
                     current_custom_rules,
-                    vec![(RuleKind::Room, room_id.clone())],
+                    vec![(RuleKind::Room, room_id.to_string())],
                     ruleset,
                 )
                 .await?;
             }
-            // Mute > Mentions&Keywords
+            // from `Mute`to `MentionsAndKeywordsOnly`
             (Some(RoomNotificationMode::Mute), RoomNotificationMode::MentionsAndKeywordsOnly) => {
                 // Insert the rule before deleting the other custom rules to obtain the correct
                 // mode in the next sync response.
@@ -102,14 +109,14 @@ impl NotificationSettings {
                 self.insert_room_rule(room_id, false, ruleset).await?;
                 self.delete_rules(
                     current_custom_rules,
-                    vec![(RuleKind::Room, room_id.clone())],
+                    vec![(RuleKind::Room, room_id.to_string())],
                     ruleset,
                 )
                 .await?;
             }
-            // Mute > Mute
+            // from `Mute` to `Mute`
             (Some(RoomNotificationMode::Mute), RoomNotificationMode::Mute) => {}
-            // _ > Mute
+            // from anything > Mute
             (_, RoomNotificationMode::Mute) => {
                 // Insert the rule before deleting the other custom rules to obtain the correct
                 // mode in the next sync response.
@@ -117,59 +124,65 @@ impl NotificationSettings {
                 self.insert_override_room_rule(room_id, false, ruleset).await?;
                 self.delete_rules(current_custom_rules, vec![], ruleset).await?;
             }
-            // Other cases
-            (_, _) => {}
+            // from `AllMessages` to `AllMessages`
+            (Some(RoomNotificationMode::AllMessages), RoomNotificationMode::AllMessages) => {}
+            // from `MentionsAndKeywordsOnly` to `MentionsAndKeywordsOnly`
+            (
+                Some(RoomNotificationMode::MentionsAndKeywordsOnly),
+                RoomNotificationMode::MentionsAndKeywordsOnly,
+            ) => {}
         }
 
         Ok(())
     }
 
-    /// Gets all user defined rules matching a given room_id
+    /// Gets all user defined rules matching a given `room_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `ruleset` - A ruleset representing the owner's account push rules
     fn get_custom_rules_for_room(
         &self,
-        room_id: &String,
+        room_id: &RoomId,
         ruleset: &Ruleset,
     ) -> Vec<(RuleKind, String)> {
         let mut custom_rules: Vec<(RuleKind, String)> = Vec::new();
 
-        // add any Override rules matching this room_id
-        for rule in ruleset.override_.clone().iter() {
+        // add any `Override` rules matching this `room_id`
+        for rule in &ruleset.override_ {
             // if the rule_id is the room_id
             if rule.rule_id == *room_id {
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
                 continue;
             }
-            // if the rule contains a condition matching this room_id
-            if rule.conditions.iter().any(|x| match x {
-                PushCondition::EventMatch { key, pattern } => {
-                    key == "room_id" && *pattern == *room_id
-                }
-                _ => false,
-            }) {
+            // if the rule contains a condition matching this `room_id`
+            if rule.conditions.iter().any(|x| matches!(
+                x,
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+            )) {
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
                 continue;
             }
         }
 
-        // add any Room rules matching this room_id
-        if let Some(rule) = ruleset.room.clone().iter().find(|x| x.rule_id == *room_id) {
+        // add any `Room` rules matching this `room_id`
+        if let Some(rule) = ruleset.room.iter().find(|x| x.rule_id == *room_id).cloned() {
             custom_rules.push((RuleKind::Room, rule.rule_id.to_string()));
         }
 
-        // add any Underride rules matching this room_id
-        for rule in ruleset.underride.clone().iter() {
+        // add any `Underride` rules matching this `room_id`
+        for rule in &ruleset.underride {
             // if the rule_id is the room_id
             if rule.rule_id == *room_id {
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
                 continue;
             }
-            // if the rule contains a condition matching this room_id
-            if rule.conditions.iter().any(|x| match x {
-                PushCondition::EventMatch { key, pattern } => {
-                    key == "room_id" && *pattern == *room_id
-                }
-                _ => false,
-            }) {
+            // if the rule contains a condition matching this `room_id`
+            if rule.conditions.iter().any(|x| matches!(
+                x,
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+            )) {
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
                 continue;
             }
@@ -178,14 +191,23 @@ impl NotificationSettings {
         custom_rules
     }
 
-    /// Deletes a list of rules
+    /// Deletes a list of rules.
+    ///
+    /// # Arguments
+    ///
+    /// * `rules` - A `Vec<(RuleKind, String)>` representing the kind and rule
+    ///   ID of each rules
+    /// * `exception` - A `Vec<(RuleKind, String)>` containing rules to not
+    ///   delete
+    /// * `ruleset` - A ruleset, representing the owner's account push rules,
+    ///   from which rules will be removed
     async fn delete_rules(
         &self,
         rules: Vec<(RuleKind, String)>,
         exception: Vec<(RuleKind, String)>,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
-        for (rule_kind, rule_id) in rules.iter() {
+        for (rule_kind, rule_id) in rules {
             if exception.contains(&(rule_kind.clone(), rule_id.clone())) {
                 continue;
             }
@@ -197,36 +219,39 @@ impl NotificationSettings {
             if self.client.send(request, None).await.is_err() {
                 return Err(NotificationSettingsError::UnableToRemovePushRule);
             }
-            ruleset.remove(rule_kind.clone(), rule_id)?;
+            ruleset.remove(rule_kind, rule_id)?;
         }
         Ok(())
     }
 
-    /// Gets the user defined push notification mode for a given room id
+    /// Gets the user defined push notification mode for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `ruleset` - A ruleset representing the owner's account push rules
     pub fn get_user_defined_room_notification_mode(
         &self,
-        room_id: &String,
+        room_id: &RoomId,
         ruleset: &Ruleset,
     ) -> Option<RoomNotificationMode> {
-        // Search for an enabled Override
+        // Search for an enabled `Override`rule
         if let Some(rule) = ruleset.override_.iter().find(|x| x.enabled) {
             // without a Notify action
             if !rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
-                // with a condition of type `EventMatch` for this room_id
-                if rule.conditions.iter().any(|x| match x {
-                    PushCondition::EventMatch { key, pattern } => {
-                        key == "room_id" && *pattern == *room_id
-                    }
-                    _ => false,
-                }) {
+                // with a condition of type `EventMatch` for this `room_id`
+                if rule.conditions.iter().any(|x| matches!(
+                    x,
+                    PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                )) {
                     return Some(RoomNotificationMode::Mute);
                 }
             }
         }
 
-        // Search for an enabled Room rule where rule_id is the room_id
+        // Search for an enabled `Room` rule where `rule_id` is the `room_id`
         if let Some(rule) = ruleset.room.iter().find(|x| x.enabled && x.rule_id == *room_id) {
-            // if this rule contains a Notify action
+            // if this rule contains a `Notify` action
             if rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
                 return Some(RoomNotificationMode::AllMessages);
             } else {
@@ -234,28 +259,40 @@ impl NotificationSettings {
             }
         }
 
-        // There is no custom rule matching this room_id
+        // There is no custom rule matching this `room_id`
         None
     }
 
-    /// Delete all user defined rules for a given room id
+    /// Delete all user defined rules for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `ruleset` - A ruleset, representing the owner's account push rules,
+    ///   from which rules will be deleted.
     pub async fn delete_user_defined_room_rules(
         &self,
-        room_id: &String,
+        room_id: &RoomId,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.get_custom_rules_for_room(room_id, ruleset);
         self.delete_rules(rules, vec![], ruleset).await
     }
 
-    /// Gets the default push notification mode for a given room id
+    /// Gets the default notification mode for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `is_encrypted` - `true` if the room is encrypted
+    /// * `members_count` - the room members count
+    /// * `ruleset` - A ruleset representing the owner's account push rules.
     pub fn get_default_room_notification_mode(
         &self,
         is_encrypted: bool,
         members_count: u64,
         ruleset: &Ruleset,
     ) -> Result<RoomNotificationMode, NotificationSettingsError> {
-        // get the correct default rule id based on is_encrypted and members_count
+        // get the correct default rule ID based on `is_encrypted` and `members_count`
         let rule_id = match (is_encrypted, members_count) {
             (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
             (false, 2) => PredefinedUnderrideRuleId::RoomOneToOne,
@@ -263,8 +300,8 @@ impl NotificationSettings {
             (false, _) => PredefinedUnderrideRuleId::Message,
         };
 
-        // If there is an Underride rule that should trigger a notification, the mode is
-        // 'AllMessages'
+        // If there is an `Underride` rule that should trigger a notification, the mode
+        // is `AllMessages`
         if ruleset.underride.iter().any(|r| {
             r.enabled
                 && r.rule_id == rule_id.to_string()
@@ -272,15 +309,19 @@ impl NotificationSettings {
         }) {
             Ok(RoomNotificationMode::AllMessages)
         } else {
-            // Otherwise, the mode is 'MentionsAndKeywordsOnly'
+            // Otherwise, the mode is `MentionsAndKeywordsOnly`
             Ok(RoomNotificationMode::MentionsAndKeywordsOnly)
         }
     }
 
-    /// Get whether the IsUserMention rule is enabled.
-    #[allow(deprecated)]
+    /// Get whether the `IsUserMention` rule is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `ruleset` - A ruleset representing the owner's account push rules,
+    ///   which will be updated.
     pub fn is_user_mention_enabled(&self, ruleset: &Ruleset) -> bool {
-        // Search for an enabled Override rule IsUserMention (MSC3952).
+        // Search for an enabled `Override` rule `IsUserMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) = ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
         {
@@ -290,6 +331,7 @@ impl NotificationSettings {
         }
 
         // Fallback to deprecated rules for compatibility.
+        #[allow(deprecated)]
         let mentions_and_keywords_rules_id = vec![
             PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
             PredefinedContentRuleId::ContainsUserName.to_string(),
@@ -301,14 +343,20 @@ impl NotificationSettings {
         })
     }
 
-    /// Set whether the IsUserMention rule is enabled.
-    #[allow(deprecated)]
+    /// Set whether the `IsUserMention` rule is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - `true` to enable the `IsUserMention` rule, `false`
+    ///   otherwise
+    /// * `ruleset` - A ruleset representing the owner's account push rules, in
+    ///   which the rule will be enabled or disabled
     pub async fn set_user_mention_enabled(
         &self,
         enabled: bool,
         ruleset: &mut Ruleset,
     ) -> Result<()> {
-        // Sets the IsUserMention Override rule (MSC3952).
+        // Sets the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
         let request = set_pushrule_enabled::v3::Request::new(
             RuleScope::Global,
@@ -323,41 +371,47 @@ impl NotificationSettings {
             enabled,
         );
 
-        // For compatibility purpose, we still need to set ContainsUserName and
-        // ContainsDisplayName (deprecated rules).
-        let request = set_pushrule_enabled::v3::Request::new(
-            RuleScope::Global,
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName.to_string(),
-            enabled,
-        );
-        self.client.send(request, None).await?;
-        _ = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedContentRuleId::ContainsUserName,
-            enabled,
-        );
+        // For compatibility purpose, we still need to set `ContainsUserName` and
+        // `ContainsDisplayName` (deprecated rules).
+        #[allow(deprecated)]
+        {
+            let request = set_pushrule_enabled::v3::Request::new(
+                RuleScope::Global,
+                RuleKind::Content,
+                PredefinedContentRuleId::ContainsUserName.to_string(),
+                enabled,
+            );
+            self.client.send(request, None).await?;
+            _ = ruleset.set_enabled(
+                RuleKind::Content,
+                PredefinedContentRuleId::ContainsUserName,
+                enabled,
+            );
 
-        let request = set_pushrule_enabled::v3::Request::new(
-            RuleScope::Global,
-            RuleKind::Content,
-            PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
-            enabled,
-        );
-        self.client.send(request, None).await?;
-        _ = ruleset.set_enabled(
-            RuleKind::Content,
-            PredefinedOverrideRuleId::ContainsDisplayName,
-            enabled,
-        );
+            let request = set_pushrule_enabled::v3::Request::new(
+                RuleScope::Global,
+                RuleKind::Content,
+                PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
+                enabled,
+            );
+            self.client.send(request, None).await?;
+            _ = ruleset.set_enabled(
+                RuleKind::Content,
+                PredefinedOverrideRuleId::ContainsDisplayName,
+                enabled,
+            );
+        }
 
         Ok(())
     }
 
-    /// Get whether the IsRoomMention rule is enabled.
-    #[allow(deprecated)]
+    /// Get whether the `IsRoomMention` rule is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `ruleset` - A ruleset representing the owner's account push rules,
     pub fn is_room_mention_enabled(&self, ruleset: &Ruleset) -> bool {
-        // Search for an enabled Override rule IsRoomMention (MSC3952).
+        // Search for an enabled `Override` rule `IsRoomMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) = ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
         {
@@ -367,6 +421,7 @@ impl NotificationSettings {
         }
 
         // Fallback to deprecated rule for compatibility
+        #[allow(deprecated)]
         ruleset.content.iter().any(|r| {
             r.enabled
                 && r.rule_id == PredefinedOverrideRuleId::RoomNotif.to_string()
@@ -374,14 +429,20 @@ impl NotificationSettings {
         })
     }
 
-    /// Set whether the IsRoomMention rule is enabled.
-    #[allow(deprecated)]
+    /// Set whether the `IsRoomMention` rule is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - `true` to enable the `IsRoomMention` rule, `false`
+    ///   otherwise
+    /// * `ruleset` - A ruleset representing the owner's account push rules, in
+    ///   which the rule will be enabled or disabled
     pub async fn set_room_mention_enabled(
         &self,
         enabled: bool,
         ruleset: &mut Ruleset,
     ) -> Result<()> {
-        // Sets the IsRoomMention Override rule (MSC3952).
+        // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
         let request = set_pushrule_enabled::v3::Request::new(
             RuleScope::Global,
@@ -396,29 +457,49 @@ impl NotificationSettings {
             enabled,
         );
 
-        // For compatibility purpose, we still need to set RoomNotif (deprecated rule).
-        let request = set_pushrule_enabled::v3::Request::new(
-            RuleScope::Global,
-            RuleKind::Content,
-            PredefinedOverrideRuleId::RoomNotif.to_string(),
-            enabled,
-        );
-        self.client.send(request, None).await?;
-        _ = ruleset.set_enabled(RuleKind::Content, PredefinedOverrideRuleId::RoomNotif, enabled);
+        // For compatibility purpose, we still need to set `RoomNotif` (deprecated
+        // rule).
+        #[allow(deprecated)]
+        {
+            let request = set_pushrule_enabled::v3::Request::new(
+                RuleScope::Global,
+                RuleKind::Content,
+                PredefinedOverrideRuleId::RoomNotif.to_string(),
+                enabled,
+            );
+            self.client.send(request, None).await?;
+            _ = ruleset.set_enabled(
+                RuleKind::Content,
+                PredefinedOverrideRuleId::RoomNotif,
+                enabled,
+            );
+        }
 
         Ok(())
     }
 
-    /// Get whether the given ruleset contains some keywords rules
+    /// Get whether the given ruleset contains some enabled keywords rules.
+    ///
+    /// # Arguments
+    ///
+    /// * `ruleset` - A ruleset representing the owner's account push rules
     pub fn contains_keyword_rules(&self, ruleset: &Ruleset) -> bool {
-        // Search for a user defined Content rule.
+        // Search for a user defined `Content` rule.
         ruleset.content.iter().any(|r| !r.default && r.enabled)
     }
 
-    /// Insert a new override rule for a given room_id
+    /// Insert a new `Override` rule for a given `room_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `notify` - `true` if this rule should have a `Notify` action, `false`
+    ///   otherwise
+    /// * `ruleset` - A ruleset representing the owner's account push rules, in
+    ///   which the rule will be inserted
     async fn insert_override_room_rule(
         &self,
-        room_id: &str,
+        room_id: &RoomId,
         notify: bool,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
@@ -428,10 +509,10 @@ impl NotificationSettings {
             vec![]
         };
 
-        // Insert a new push rule without any actions
+        // Insert a new push rule matching this `room_id`
         let new_rule = NewConditionalPushRule::new(
-            room_id.to_owned(),
-            vec![PushCondition::EventMatch { key: "room_id".into(), pattern: room_id.to_owned() }],
+            room_id.to_string(),
+            vec![PushCondition::EventMatch { key: "room_id".into(), pattern: room_id.to_string() }],
             actions,
         );
         let request = set_pushrule::v3::Request::new(
@@ -446,10 +527,18 @@ impl NotificationSettings {
         Ok(())
     }
 
-    /// Insert a new room rule for a given room in the given ruleset
+    /// Insert a new `Room` push rule for a given `room_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - A `RoomId`
+    /// * `notify` - `true` if this rule should have a `Notify` action, `false`
+    ///   otherwise
+    /// * `ruleset` - A ruleset representing the owner's account push rules, in
+    ///   which the rule will be inserted
     async fn insert_room_rule(
         &self,
-        room_id: &String,
+        room_id: &RoomId,
         notify: bool,
         ruleset: &mut Ruleset,
     ) -> Result<(), NotificationSettingsError> {
@@ -459,8 +548,8 @@ impl NotificationSettings {
             vec![]
         };
 
-        // Insert a new Room push rule with a Notify action.
-        let new_rule = NewSimplePushRule::new(RoomId::parse(room_id)?, actions);
+        // Insert a new `Room` push rule for this `room_id`
+        let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
         let request =
             set_pushrule::v3::Request::new(RuleScope::Global, NewPushRule::Room(new_rule.clone()));
         if self.client.send(request, None).await.is_err() {
@@ -480,16 +569,16 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::push::{
-        Action, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
-        PredefinedUnderrideRuleId, RuleKind, Ruleset,
+    use ruma::{
+        push::{
+            Action, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
+            PredefinedUnderrideRuleId, RuleKind, Ruleset,
+        },
+        RoomId,
     };
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
-    use crate::{
-        notification_settings::RoomNotificationMode, test_utils::logged_in_client,
-        NotificationSettingsError,
-    };
+    use crate::{notification_settings::RoomNotificationMode, test_utils::logged_in_client};
 
     #[async_test]
     async fn get_default_room_notification_mode_encrypted_one_to_one() {
@@ -645,30 +734,6 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn insert_notify_room_rule_invalid_room_id() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let mut ruleset = client.account().push_rules().await.unwrap();
-        let notification_settings = client.notification_settings();
-        let room_id = "invalid_test_room_id".to_string();
-
-        let mode =
-            notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
-        assert!(mode.is_none());
-
-        let result = notification_settings.insert_room_rule(&room_id, true, &mut ruleset).await;
-        match result {
-            Err(error) => {
-                assert!(matches!(error, NotificationSettingsError::InvalidRoomId))
-            }
-            _ => {
-                panic!("a {:#?} error is expected.", NotificationSettingsError::InvalidRoomId)
-            }
-        }
-    }
-
-    #[async_test]
     async fn delete_user_defined_room_rules() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
@@ -677,7 +742,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let mode =
             notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
@@ -714,7 +779,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         // Default -> All
         let mode =
@@ -726,15 +791,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::AllMessages;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected.");
+        assert_eq!(new_mode, RoomNotificationMode::AllMessages);
     }
 
     #[async_test]
@@ -747,7 +807,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result = notification_settings.insert_room_rule(&room_id, false, &mut ruleset).await;
         assert!(result.is_ok());
@@ -762,15 +822,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::AllMessages;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::AllMessages);
     }
 
     #[async_test]
@@ -783,7 +838,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result =
             notification_settings.insert_override_room_rule(&room_id, false, &mut ruleset).await;
@@ -799,15 +854,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::AllMessages;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::AllMessages);
     }
 
     #[async_test]
@@ -820,7 +870,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let mode =
             notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
@@ -836,15 +886,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -857,7 +902,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result = notification_settings.insert_room_rule(&room_id, true, &mut ruleset).await;
         assert!(result.is_ok());
@@ -876,15 +921,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -897,7 +937,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result =
             notification_settings.insert_override_room_rule(&room_id, false, &mut ruleset).await;
@@ -917,15 +957,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::MentionsAndKeywordsOnly;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]
@@ -938,7 +973,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let mode =
             notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset);
@@ -950,15 +985,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::Mute;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::Mute);
     }
 
     #[async_test]
@@ -971,7 +1001,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result = notification_settings.insert_room_rule(&room_id, true, &mut ruleset).await;
         assert!(result.is_ok());
@@ -986,15 +1016,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::Mute;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::Mute);
     }
 
     #[async_test]
@@ -1007,7 +1032,7 @@ pub(crate) mod tests {
 
         let mut ruleset = client.account().push_rules().await.unwrap();
         let notification_settings = client.notification_settings();
-        let room_id = "!test_room:matrix.org".to_string();
+        let room_id = RoomId::parse("!test_room:matrix.org").unwrap();
 
         let result = notification_settings.insert_room_rule(&room_id, false, &mut ruleset).await;
         assert!(result.is_ok());
@@ -1022,15 +1047,10 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        let expected_mode = &RoomNotificationMode::Mute;
-        match notification_settings.get_user_defined_room_notification_mode(&room_id, &ruleset) {
-            Some(new_mode) => {
-                assert_eq!(&new_mode, expected_mode)
-            }
-            None => {
-                panic!("mode {:?} is expected.", expected_mode)
-            }
-        }
+        let new_mode = notification_settings
+            .get_user_defined_room_notification_mode(&room_id, &ruleset)
+            .expect("A mode is expected");
+        assert_eq!(new_mode, RoomNotificationMode::Mute);
     }
 
     #[async_test]

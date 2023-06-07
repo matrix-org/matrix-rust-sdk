@@ -427,9 +427,6 @@ pub enum RefreshTokenError {
 /// Errors that can occur when manipulating push notification settings.
 #[derive(Debug, Error, Clone)]
 pub enum NotificationSettingsError {
-    /// Invalid room id.
-    #[error("Invalid room id")]
-    InvalidRoomId,
     /// Unable to add push rule.
     #[error("Unable to add push rule")]
     UnableToAddPushRule,
@@ -442,12 +439,6 @@ pub enum NotificationSettingsError {
     /// Unable to save the push rules
     #[error("Unable to save push rules")]
     UnableToSavePushRules,
-}
-
-impl From<IdParseError> for NotificationSettingsError {
-    fn from(_: IdParseError) -> Self {
-        NotificationSettingsError::InvalidRoomId
-    }
 }
 
 impl From<InsertPushRuleError> for NotificationSettingsError {
