@@ -759,23 +759,27 @@ impl ReadOnlyDevice {
         own_identity: &Option<ReadOnlyOwnUserIdentity>,
         device_owner: &Option<ReadOnlyUserIdentities>,
     ) -> bool {
-        own_identity.as_ref().is_some_and(|own_identity| {
-            // Our own identity needs to be marked as verified.
-            own_identity.is_verified()
-                && device_owner.as_ref().is_some_and(|device_identity| match device_identity {
-                    // If it's one of our own devices, just check that
-                    // we signed the device.
-                    ReadOnlyUserIdentities::Own(_) => own_identity.is_device_signed(self).is_ok(),
+        own_identity.as_ref().zip(device_owner.as_ref()).is_some_and(
+            |(own_identity, device_identity)| {
+                // Our own identity needs to be marked as verified.
+                own_identity.is_verified()
+                    && match device_identity {
+                        // If it's one of our own devices, just check that
+                        // we signed the device.
+                        ReadOnlyUserIdentities::Own(_) => {
+                            own_identity.is_device_signed(self).is_ok()
+                        }
 
-                    // If it's a device from someone else, first check
-                    // that our user has signed the other user and then
-                    // check if the other user has signed this device.
-                    ReadOnlyUserIdentities::Other(device_identity) => {
-                        own_identity.is_identity_signed(device_identity).is_ok()
-                            && device_identity.is_device_signed(self).is_ok()
+                        // If it's a device from someone else, first check
+                        // that our user has signed the other user and then
+                        // check if the other user has signed this device.
+                        ReadOnlyUserIdentities::Other(device_identity) => {
+                            own_identity.is_identity_signed(device_identity).is_ok()
+                                && device_identity.is_device_signed(self).is_ok()
+                        }
                     }
-                })
-        })
+            },
+        )
     }
 
     pub(crate) async fn encrypt(
