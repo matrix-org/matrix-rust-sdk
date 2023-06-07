@@ -276,7 +276,14 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
-    use ruma::{device_id, room_id, uint, user_id, RoomId};
+    use ruma::{
+        device_id, event_id,
+        events::{room::avatar::RoomAvatarEventContent, StateEventContent},
+        mxc_uri, room_id,
+        serde::Raw,
+        uint, user_id, MxcUri, RoomId, UserId,
+    };
+    use serde_json::{json, Value as JsonValue};
 
     use super::*;
     use crate::SessionMeta;
@@ -324,6 +331,26 @@ mod test {
         assert_eq!(client_room.name(), Some("little room".to_owned()));
     }
 
+    #[tokio::test]
+    async fn avatar_is_found_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I send sliding sync response containing a room with an avatar
+        let room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room in the client has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
+            "med1"
+        );
+    }
+
     async fn logged_in_client() -> BaseClient {
         let client = BaseClient::new();
         client
@@ -340,5 +367,43 @@ mod test {
         let mut response = v4::Response::new("5".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
+    }
+
+    fn room_with_avatar(avatar_uri: &MxcUri, user_id: &UserId) -> v4::SlidingSyncRoom {
+        let mut room = v4::SlidingSyncRoom::new();
+
+        let mut avatar_event_content = RoomAvatarEventContent::new();
+        avatar_event_content.url = Some(avatar_uri.to_owned());
+
+        room.required_state.push(
+            Raw::new(&make_state_event(user_id, "", avatar_event_content, None))
+                .expect("Failed to create state event")
+                .cast(),
+        );
+
+        room
+    }
+
+    fn make_state_event<C: StateEventContent>(
+        sender: &UserId,
+        state_key: &str,
+        content: C,
+        prev_content: Option<C>,
+    ) -> JsonValue {
+        let unsigned = if let Some(prev_content) = prev_content {
+            json!({ "prev_content": prev_content })
+        } else {
+            json!({})
+        };
+
+        json!({
+            "type": content.event_type(),
+            "state_key": state_key,
+            "content": content,
+            "event_id": event_id!("$evt"),
+            "sender": sender,
+            "origin_server_ts": 10,
+            "unsigned": unsigned,
+        })
     }
 }
