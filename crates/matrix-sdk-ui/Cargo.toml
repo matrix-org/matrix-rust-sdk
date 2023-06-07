@@ -14,7 +14,7 @@ rustls-tls = ["matrix-sdk/rustls-tls"]
 experimental-room-list = ["experimental-sliding-sync", "dep:async-stream", "dep:eyeball-im-util"]
 experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 
-testing = ["matrix-sdk/testing"]
+testing = ["matrix-sdk/testing", "dep:eyeball-im-util"]
 
 [dependencies]
 async-once-cell = "0.5.2"

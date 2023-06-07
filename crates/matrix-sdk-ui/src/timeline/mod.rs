@@ -18,7 +18,7 @@
 
 use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
 
-use eyeball_im::{VectorDiff, VectorSubscriber};
+use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::TryFutureExt;
 use imbl::Vector;
@@ -240,6 +240,16 @@ impl Timeline {
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
         let (items, stream) = self.inner.subscribe().await;
+        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        (items, stream)
+    }
+
+    #[cfg(feature = "testing")]
+    pub async fn subscribe_filter_map<U: Clone>(
+        &self,
+        f: impl Fn(Arc<TimelineItem>) -> Option<U>,
+    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
+        let (items, stream) = self.inner.subscribe_filter_map(f).await;
         let stream = TimelineStream::new(stream, self.drop_handle.clone());
         (items, stream)
     }
@@ -552,24 +562,21 @@ impl Drop for TimelineDropHandle {
 }
 
 pin_project! {
-    struct TimelineStream {
+    struct TimelineStream<S> {
         #[pin]
-        inner: VectorSubscriber<Arc<TimelineItem>>,
+        inner: S,
         event_handler_handles: Arc<TimelineDropHandle>,
     }
 }
 
-impl TimelineStream {
-    fn new(
-        inner: VectorSubscriber<Arc<TimelineItem>>,
-        event_handler_handles: Arc<TimelineDropHandle>,
-    ) -> Self {
+impl<S> TimelineStream<S> {
+    fn new(inner: S, event_handler_handles: Arc<TimelineDropHandle>) -> Self {
         Self { inner, event_handler_handles }
     }
 }
 
-impl Stream for TimelineStream {
-    type Item = VectorDiff<Arc<TimelineItem>>;
+impl<S: Stream> Stream for TimelineStream<S> {
+    type Item = S::Item;
 
     fn poll_next(
         self: Pin<&mut Self>,
