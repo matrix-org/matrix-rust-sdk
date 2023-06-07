@@ -33,17 +33,14 @@ use crate::timeline::TimelineItemContent;
 #[async_test]
 async fn invalid_edit() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
+    let mut stream = timeline.subscribe_events().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event = item.as_event().unwrap();
-    let msg = event.content().as_message().unwrap();
+    let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "test");
 
-    let msg_event_id = event.event_id().unwrap();
+    let msg_event_id = item.event_id().unwrap();
 
     let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
@@ -62,7 +59,7 @@ async fn invalid_edit() {
 #[async_test]
 async fn invalid_event_content() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
+    let mut stream = timeline.subscribe_events().await;
 
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
@@ -76,15 +73,12 @@ async fn invalid_event_content() {
         }))
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_item = item.as_event().unwrap();
-    assert_eq!(event_item.sender(), "@alice:example.org");
-    assert_eq!(event_item.event_id().unwrap(), "$eeG0HA0FAZ37wP8kXlNkxx3I");
-    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
+    assert_eq!(item.sender(), "@alice:example.org");
+    assert_eq!(item.event_id().unwrap(), "$eeG0HA0FAZ37wP8kXlNkxx3I");
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
     let event_type = assert_matches!(
-        event_item.content(),
+        item.content(),
         TimelineItemContent::FailedToParseMessageLike { event_type, .. } => event_type
     );
     assert_eq!(*event_type, MessageLikeEventType::RoomMessage);
@@ -103,12 +97,11 @@ async fn invalid_event_content() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let event_item = item.as_event().unwrap();
-    assert_eq!(event_item.sender(), "@alice:example.org");
-    assert_eq!(event_item.event_id().unwrap(), "$d5G0HA0FAZ37wP8kXlNkxx3I");
-    assert_eq!(event_item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
+    assert_eq!(item.sender(), "@alice:example.org");
+    assert_eq!(item.event_id().unwrap(), "$d5G0HA0FAZ37wP8kXlNkxx3I");
+    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));
     let (event_type, state_key) = assert_matches!(
-        event_item.content(),
+        item.content(),
         TimelineItemContent::FailedToParseState {
             event_type,
             state_key,

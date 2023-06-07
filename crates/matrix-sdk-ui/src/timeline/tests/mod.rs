@@ -45,7 +45,7 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{traits::RoomDataProvider, Profile, TimelineInner, TimelineItem};
+use super::{traits::RoomDataProvider, EventTimelineItem, Profile, TimelineInner, TimelineItem};
 
 mod basic;
 mod echo;
@@ -77,6 +77,13 @@ impl TestTimeline {
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
         let (items, stream) = self.inner.subscribe().await;
+        assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
+        stream
+    }
+
+    async fn subscribe_events(&self) -> impl Stream<Item = VectorDiff<EventTimelineItem>> {
+        let (items, stream) =
+            self.inner.subscribe_filter_map(|item| item.as_event().cloned()).await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
     }

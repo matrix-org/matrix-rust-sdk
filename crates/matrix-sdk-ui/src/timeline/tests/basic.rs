@@ -72,7 +72,7 @@ async fn initial_events() {
 #[async_test]
 async fn sticker() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
+    let mut stream = timeline.subscribe_events().await;
 
     timeline
         .handle_live_custom_event(json!({
@@ -93,17 +93,14 @@ async fn sticker() {
         }))
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Sticker(_));
+    assert_matches!(item.content(), TimelineItemContent::Sticker(_));
 }
 
 #[async_test]
 async fn room_member() {
     let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
+    let mut stream = timeline.subscribe_events().await;
 
     let mut first_room_member_content = RoomMemberEventContent::new(MembershipState::Invite);
     first_room_member_content.displayname = Some("Alice".to_owned());
@@ -116,11 +113,9 @@ async fn room_member() {
         )
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    let membership =
+        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
@@ -136,7 +131,8 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    let membership =
+        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
@@ -152,7 +148,7 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let profile = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::ProfileChange(ev) => ev);
+    let profile = assert_matches!(item.content(), TimelineItemContent::ProfileChange(ev) => ev);
     assert_matches!(profile.displayname_change(), Some(_));
     assert_matches!(profile.avatar_url_change(), None);
 
@@ -165,7 +161,8 @@ async fn room_member() {
         .await;
 
     let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let membership = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::MembershipChange(ev) => ev);
+    let membership =
+        assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
     assert_matches!(membership.change(), None);
 }

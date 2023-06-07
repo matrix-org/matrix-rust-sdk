@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use std::{collections::HashMap, sync::Arc};
 
 use eyeball_im::{ObservableVector, VectorSubscriber};
-#[cfg(feature = "testing")]
+#[cfg(any(test, feature = "testing"))]
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
 use indexmap::IndexSet;
@@ -128,7 +128,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         (items, stream)
     }
 
-    #[cfg(feature = "testing")]
+    #[cfg(any(test, feature = "testing"))]
     pub(super) async fn subscribe_filter_map<U, F>(
         &self,
         f: F,
