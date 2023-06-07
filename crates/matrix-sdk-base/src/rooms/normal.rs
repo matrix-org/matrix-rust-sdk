@@ -20,13 +20,15 @@ use std::{
 use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
+    event_id,
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
+            tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -44,7 +46,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, RoomMemberships,
+    MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
 /// The underlying room data structure collecting state for joined, left and
@@ -719,6 +721,14 @@ impl RoomInfo {
         self.base_info.handle_redaction(event);
     }
 
+    /// Update the room name
+    pub fn update_name(&mut self, name: String) {
+        self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(Some(name)),
+            event_id: Some(event_id!("$fake_event_id").to_owned()),
+        }));
+    }
+
     /// Update the notifications count
     pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
@@ -1128,5 +1138,33 @@ mod test {
 
         room.inner.write().unwrap().update_summary(&summary);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::EmptyWas("Matthew".to_owned()));
+    }
+
+    #[test]
+    fn setting_the_name_on_room_info_creates_a_fake_event() {
+        // Given a room
+        let mut room_info = RoomInfo::new(room_id!("!r:e.uk"), RoomState::Joined);
+
+        // When I update its name
+        room_info.update_name("new name".to_owned());
+
+        // Then it reports the name I provided
+        assert_eq!(room_info.name(), Some("new name"));
+
+        // And that is implemented by making a fake event
+        assert_eq!(
+            room_info
+                .base_info
+                .name
+                .as_ref()
+                .unwrap()
+                .as_original()
+                .unwrap()
+                .content
+                .name
+                .as_ref()
+                .unwrap(),
+            "new name"
+        );
     }
 }
