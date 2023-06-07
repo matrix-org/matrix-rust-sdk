@@ -2,8 +2,12 @@ use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
+use ruma::RoomId;
 
-use crate::{Client, RoomListEntry, TaskHandle, RUNTIME};
+use crate::{
+    Client, EventTimelineItem, RoomListEntry, TaskHandle, TimelineDiff, TimelineItem,
+    TimelineListener, RUNTIME,
+};
 
 #[uniffi::export]
 impl Client {
@@ -25,6 +29,7 @@ pub enum RoomListError {
     UnknownList { list_name: String },
     InputHasNotBeenApplied,
     RoomNotFound { room_name: String },
+    InvalidRoomId { error: String },
 }
 
 impl From<matrix_sdk_ui::room_list::Error> for RoomListError {
@@ -37,6 +42,12 @@ impl From<matrix_sdk_ui::room_list::Error> for RoomListError {
             InputHasNotBeenApplied(_) => Self::InputHasNotBeenApplied,
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
         }
+    }
+}
+
+impl From<ruma::IdParseError> for RoomListError {
+    fn from(value: ruma::IdParseError) -> Self {
+        Self::InvalidRoomId { error: value.to_string() }
     }
 }
 
@@ -79,7 +90,7 @@ impl RoomList {
         let (entries, entries_stream) = self.inner.entries().await.map_err(RoomListError::from)?;
 
         Ok(RoomListEntriesResult {
-            entries: entries.iter().map(Into::into).collect(),
+            entries: entries.into_iter().map(Into::into).collect(),
             entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
                 pin_mut!(entries_stream);
 
@@ -88,6 +99,12 @@ impl RoomList {
                 }
             }))),
         })
+    }
+
+    async fn room(&self, room_id: String) -> Result<Arc<RoomListRoom>, RoomListError> {
+        let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
+
+        Ok(Arc::new(RoomListRoom { inner: Arc::new(self.inner.room(room_id).await?) }))
     }
 }
 
@@ -166,4 +183,42 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
 // Also declared in the UDL file.
 pub trait RoomListEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: RoomListEntriesUpdate);
+}
+
+#[derive(uniffi::Object)]
+pub struct RoomListRoom {
+    inner: Arc<matrix_sdk_ui::room_list::Room>,
+}
+
+#[uniffi::export]
+impl RoomListRoom {
+    async fn name(&self) -> Option<String> {
+        self.inner.name().await
+    }
+
+    async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListRoomTimelineResult {
+        let timeline = self.inner.timeline().await;
+        let (items, items_stream) = timeline.subscribe().await;
+
+        RoomListRoomTimelineResult {
+            items: items.into_iter().map(TimelineItem::from_arc).collect(),
+            items_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(items_stream);
+
+                while let Some(diff) = items_stream.next().await {
+                    listener.on_update(Arc::new(TimelineDiff::new(diff)))
+                }
+            }))),
+        }
+    }
+
+    async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
+        self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomListRoomTimelineResult {
+    pub items: Vec<Arc<TimelineItem>>,
+    pub items_stream: Arc<TaskHandle>,
 }
