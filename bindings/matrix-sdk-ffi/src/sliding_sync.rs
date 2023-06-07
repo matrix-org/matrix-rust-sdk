@@ -332,12 +332,20 @@ pub enum RoomListEntry {
     Filled { room_id: String },
 }
 
+impl From<MatrixRoomEntry> for RoomListEntry {
+    fn from(value: MatrixRoomEntry) -> Self {
+        (&value).into()
+    }
+}
+
 impl From<&MatrixRoomEntry> for RoomListEntry {
-    fn from(other: &MatrixRoomEntry) -> Self {
-        match other {
+    fn from(value: &MatrixRoomEntry) -> Self {
+        match value {
             MatrixRoomEntry::Empty => Self::Empty,
-            MatrixRoomEntry::Filled(b) => Self::Filled { room_id: b.to_string() },
-            MatrixRoomEntry::Invalidated(b) => Self::Invalidated { room_id: b.to_string() },
+            MatrixRoomEntry::Filled(room_id) => Self::Filled { room_id: room_id.to_string() },
+            MatrixRoomEntry::Invalidated(room_id) => {
+                Self::Invalidated { room_id: room_id.to_string() }
+            }
         }
     }
 }

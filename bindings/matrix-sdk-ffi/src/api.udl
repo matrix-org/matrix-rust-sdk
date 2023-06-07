@@ -50,6 +50,7 @@ callback interface SlidingSyncListStateObserver {
     void did_receive_update(SlidingSyncState new_state);
 };
 
+// Used by `SlidingSync` _and_ `RoomList`. Be careful.
 [Enum]
 interface RoomListEntry {
     Empty();
@@ -166,4 +167,34 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
+};
+
+enum RoomListState {
+    "Init",
+    "FirstRooms",
+    "AllRooms",
+    "CarryOn",
+    "Terminated",
+};
+
+callback interface RoomListStateObserver {
+    void on_update(RoomListState state);
+};
+
+[Enum]
+interface RoomListEntriesUpdate {
+    Append(sequence<RoomListEntry> values);
+    Clear();
+    PushFront(RoomListEntry value);
+    PushBack(RoomListEntry value);
+    PopFront();
+    PopBack();
+    Insert(u32 index, RoomListEntry value);
+    Set(u32 index, RoomListEntry value);
+    Remove(u32 index);
+    Reset(sequence<RoomListEntry> values);
+};
+
+callback interface RoomListEntriesObserver {
+    void on_update(RoomListEntriesUpdate room_entries_update);
 };

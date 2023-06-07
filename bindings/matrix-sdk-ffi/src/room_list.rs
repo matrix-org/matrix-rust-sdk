@@ -1,0 +1,170 @@
+use std::{fmt::Debug, sync::Arc};
+
+use eyeball_im::VectorDiff;
+use futures_util::{pin_mut, StreamExt};
+
+use crate::{Client, RoomListEntry, TaskHandle, RUNTIME};
+
+#[uniffi::export]
+impl Client {
+    /// Get a new `RoomList` instance.
+    pub fn room_list(&self) -> Result<Arc<RoomList>, RoomListError> {
+        Ok(Arc::new(RoomList {
+            inner: Arc::new(
+                RUNTIME
+                    .block_on(async { matrix_sdk_ui::RoomList::new(self.inner.clone()).await })
+                    .map_err(RoomListError::from)?,
+            ),
+        }))
+    }
+}
+
+#[derive(uniffi::Error)]
+pub enum RoomListError {
+    SlidingSync { error: String },
+    UnknownList { list_name: String },
+    InputHasNotBeenApplied,
+    RoomNotFound { room_name: String },
+}
+
+impl From<matrix_sdk_ui::room_list::Error> for RoomListError {
+    fn from(value: matrix_sdk_ui::room_list::Error) -> Self {
+        use matrix_sdk_ui::room_list::Error::*;
+
+        match value {
+            SlidingSync(error) => Self::SlidingSync { error: error.to_string() },
+            UnknownList(list_name) => Self::UnknownList { list_name },
+            InputHasNotBeenApplied(_) => Self::InputHasNotBeenApplied,
+            RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
+        }
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct RoomList {
+    inner: Arc<matrix_sdk_ui::RoomList>,
+}
+
+#[uniffi::export]
+impl RoomList {
+    fn sync(&self) -> Arc<TaskHandle> {
+        let this = self.inner.clone();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let sync_stream = this.sync();
+            pin_mut!(sync_stream);
+
+            while let Some(_) = sync_stream.next().await {
+                // keep going!
+            }
+        })))
+    }
+
+    fn state(&self, observer: Box<dyn RoomListStateObserver>) -> Arc<TaskHandle> {
+        let state_stream = self.inner.state();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(state_stream);
+
+            while let Some(state) = state_stream.next().await {
+                observer.on_update(state.into());
+            }
+        })))
+    }
+
+    fn entries(
+        &self,
+        observer: Box<dyn RoomListEntriesObserver>,
+    ) -> Result<RoomListEntriesResult, RoomListError> {
+        let (entries, entries_stream) =
+            RUNTIME.block_on(async { self.inner.entries().await.map_err(RoomListError::from) })?;
+
+        Ok(RoomListEntriesResult {
+            entries: entries.iter().map(Into::into).collect(),
+            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_stream);
+
+                while let Some(diff) = entries_stream.next().await {
+                    observer.on_update(diff.into());
+                }
+            }))),
+        })
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomListEntriesResult {
+    pub entries: Vec<RoomListEntry>,
+    pub entries_stream: Arc<TaskHandle>,
+}
+
+// Also declared in the UDL file.
+pub enum RoomListState {
+    Init,
+    FirstRooms,
+    AllRooms,
+    CarryOn,
+    Terminated,
+}
+
+impl From<matrix_sdk_ui::room_list::State> for RoomListState {
+    fn from(value: matrix_sdk_ui::room_list::State) -> Self {
+        use matrix_sdk_ui::room_list::State::*;
+
+        match value {
+            Init => Self::Init,
+            FirstRooms => Self::FirstRooms,
+            AllRooms => Self::AllRooms,
+            CarryOn => Self::CarryOn,
+            Terminated { .. } => Self::Terminated,
+        }
+    }
+}
+
+// Also declared in the UDL file.
+pub trait RoomListStateObserver: Send + Sync + Debug {
+    fn on_update(&self, state: RoomListState);
+}
+
+pub enum RoomListEntriesUpdate {
+    Append { values: Vec<RoomListEntry> },
+    Clear,
+    PushFront { value: RoomListEntry },
+    PushBack { value: RoomListEntry },
+    PopFront,
+    PopBack,
+    Insert { index: u32, value: RoomListEntry },
+    Set { index: u32, value: RoomListEntry },
+    Remove { index: u32 },
+    Reset { values: Vec<RoomListEntry> },
+}
+
+impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
+    fn from(other: VectorDiff<matrix_sdk::RoomListEntry>) -> Self {
+        match other {
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(Into::into).collect() }
+            }
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::PushFront { value } => Self::PushFront { value: value.into() },
+            VectorDiff::PushBack { value } => Self::PushBack { value: value.into() },
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index: u32::try_from(index).unwrap(), value: value.into() }
+            }
+            VectorDiff::Set { index, value } => {
+                Self::Set { index: u32::try_from(index).unwrap(), value: value.into() }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
+            VectorDiff::Reset { values } => {
+                Self::Reset { values: values.into_iter().map(Into::into).collect() }
+            }
+        }
+    }
+}
+
+// Also declared in the UDL file.
+pub trait RoomListEntriesObserver: Send + Sync + Debug {
+    fn on_update(&self, room_entries_update: RoomListEntriesUpdate);
+}
