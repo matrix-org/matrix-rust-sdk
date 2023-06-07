@@ -18,6 +18,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
+#[cfg(feature = "testing")]
+use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
 use indexmap::{IndexMap, IndexSet};
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -124,6 +126,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let items = state.items.clone();
         let stream = state.items.subscribe();
         (items, stream)
+    }
+
+    #[cfg(feature = "testing")]
+    pub(super) async fn subscribe_filter_map<U, F>(
+        &self,
+        f: F,
+    ) -> (Vector<U>, FilterMapVectorSubscriber<Arc<TimelineItem>, F>)
+    where
+        U: Clone,
+        F: Fn(Arc<TimelineItem>) -> Option<U>,
+    {
+        trace!("Creating timeline items signal");
+        let state = self.state.lock().await;
+        state.items.subscribe_filter_map(f)
     }
 
     pub(super) fn set_initial_user_receipt(
