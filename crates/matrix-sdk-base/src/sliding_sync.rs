@@ -126,6 +126,10 @@ impl BaseClient {
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
 
+                if let Some(name) = &room_data.name {
+                    room_info.update_name(name.to_owned());
+                }
+
                 // Sliding sync doesn't have a room summary, nevertheless it contains the joined
                 // and invited member counts. It likely will never have a heroes concept since
                 // it calculates the room display name for us.
@@ -304,7 +308,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore = "fails because the name is not yet processed"]
     async fn room_name_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
