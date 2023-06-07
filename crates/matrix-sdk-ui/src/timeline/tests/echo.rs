@@ -16,7 +16,6 @@ use std::{io, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
 use matrix_sdk::Error;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -24,6 +23,7 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
 };
 use serde_json::json;
+use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::timeline::event_item::EventSendState;
@@ -40,13 +40,11 @@ async fn remote_echo_full_trip() {
         ))
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // Scenario 1: The local event has not been sent yet to the server.
     {
-        let item =
-            assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+        let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
         let event = item.as_event().unwrap();
         assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
     }
@@ -63,10 +61,7 @@ async fn remote_echo_full_trip() {
             )
             .await;
 
-        let item = assert_matches!(
-            stream.next().await,
-            Some(VectorDiff::Set { value, index: 1 }) => value
-        );
+        let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event = item.as_event().unwrap();
         assert_matches!(event.send_state(), Some(EventSendState::SendingFailed { .. }));
     }
@@ -83,10 +78,7 @@ async fn remote_echo_full_trip() {
             )
             .await;
 
-        let item = assert_matches!(
-            stream.next().await,
-            Some(VectorDiff::Set { value, index: 1 }) => value
-        );
+        let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event_item = item.as_event().unwrap();
         assert_matches!(event_item.send_state(), Some(EventSendState::Sent { .. }));
 
@@ -109,8 +101,7 @@ async fn remote_echo_full_trip() {
         .await;
 
     // The local echo is replaced with the remote echo
-    let item =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
 }
 
@@ -126,19 +117,16 @@ async fn remote_echo_new_position() {
         ))
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let txn_id_from_event = item.as_event().unwrap();
     assert_eq!(txn_id, txn_id_from_event.transaction_id().unwrap());
 
     // … and another event that comes back before the remote echo
     timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let _bob_message =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _bob_message = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // When the remote echo comes in…
     timeline
@@ -158,12 +146,12 @@ async fn remote_echo_new_position() {
         .await;
 
     // … the local echo should be removed
-    assert_matches!(stream.next().await, Some(VectorDiff::Remove { index: 1 }));
+    assert_next_matches!(stream, VectorDiff::Remove { index: 1 });
     // … along with its day divider
-    assert_matches!(stream.next().await, Some(VectorDiff::Remove { index: 0 }));
+    assert_next_matches!(stream, VectorDiff::Remove { index: 0 });
 
     // … and the remote echo added (no new day divider because both bob's and
     // alice's message are from the same day according to server timestamps)
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
 }

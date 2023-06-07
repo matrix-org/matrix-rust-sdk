@@ -14,7 +14,6 @@
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
 use imbl::vector;
 use matrix_sdk::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
@@ -32,6 +31,7 @@ use ruma::{
     },
 };
 use serde_json::{json, Value as JsonValue};
+use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
 use crate::timeline::{
@@ -61,11 +61,11 @@ async fn initial_events() {
         ])
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_matches!(&*item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *BOB);
 }
 
@@ -93,7 +93,7 @@ async fn sticker() {
         }))
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_matches!(item.content(), TimelineItemContent::Sticker(_));
 }
 
@@ -113,7 +113,7 @@ async fn room_member() {
         )
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let membership =
         assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
@@ -130,7 +130,7 @@ async fn room_member() {
         )
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let membership =
         assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
@@ -147,7 +147,7 @@ async fn room_member() {
         )
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let profile = assert_matches!(item.content(), TimelineItemContent::ProfileChange(ev) => ev);
     assert_matches!(profile.displayname_change(), Some(_));
     assert_matches!(profile.avatar_url_change(), None);
@@ -160,7 +160,7 @@ async fn room_member() {
         )
         .await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let membership =
         assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
@@ -180,10 +180,9 @@ async fn other_state() {
         )
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
     let full_content =
         assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomName(c) => c);
@@ -193,7 +192,7 @@ async fn other_state() {
 
     timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
     let full_content =
         assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomTopic(c) => c);
@@ -258,10 +257,9 @@ async fn sanitized() {
         )
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     let message = assert_matches!(event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
@@ -287,10 +285,9 @@ async fn reply() {
         )
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     let first_event_id = first_event.event_id().unwrap();
     let first_event_sender = *ALICE;
@@ -318,7 +315,7 @@ async fn reply() {
 
     timeline.handle_live_message_event(&BOB, reply).await;
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
 
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);

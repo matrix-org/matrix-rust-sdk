@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
 use matrix_sdk_test::async_test;
 use ruma::events::{
     receipt::{ReceiptThread, ReceiptType},
     room::message::RoomMessageEventContent,
 };
+use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
 
@@ -31,18 +30,15 @@ async fn read_receipts_updates() {
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
     timeline.handle_live_message_event(*BOB, RoomMessageEventContent::text_plain("B")).await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // No read receipt for our own user.
-    let item_a =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
     // Implicit read receipt of Bob.
-    let item_b =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item_b = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_b = item_b.as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*BOB).is_some());
@@ -50,21 +46,18 @@ async fn read_receipts_updates() {
     // Implicit read receipt of Bob is updated.
     timeline.handle_live_message_event(*BOB, RoomMessageEventContent::text_plain("C")).await;
 
-    let item_a =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 2, value }) => value);
+    let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let item_c =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item_c = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
     assert!(event_c.read_receipts().get(*BOB).is_some());
 
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("D")).await;
 
-    let item_d =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item_d = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_d = item_d.as_event().unwrap();
     assert!(event_d.read_receipts().is_empty());
 
@@ -78,13 +71,11 @@ async fn read_receipts_updates() {
         )])
         .await;
 
-    let item_c =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
+    let item_c = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
     let event_c = item_c.as_event().unwrap();
     assert!(event_c.read_receipts().is_empty());
 
-    let item_d =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 4, value }) => value);
+    let item_d = assert_next_matches!(stream, VectorDiff::Set { index: 4, value } => value);
     let event_d = item_d.as_event().unwrap();
     assert_eq!(event_d.read_receipts().len(), 1);
     assert!(event_d.read_receipts().get(*BOB).is_some());
