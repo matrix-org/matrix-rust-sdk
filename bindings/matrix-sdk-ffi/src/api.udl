@@ -177,7 +177,7 @@ enum RoomListState {
     "Terminated",
 };
 
-callback interface RoomListStateObserver {
+callback interface RoomListStateListener {
     void on_update(RoomListState state);
 };
 
@@ -195,6 +195,6 @@ interface RoomListEntriesUpdate {
     Reset(sequence<RoomListEntry> values);
 };
 
-callback interface RoomListEntriesObserver {
+callback interface RoomListEntriesListener {
     void on_update(RoomListEntriesUpdate room_entries_update);
 };

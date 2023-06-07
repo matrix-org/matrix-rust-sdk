@@ -60,21 +60,21 @@ impl RoomList {
         })))
     }
 
-    fn state(&self, observer: Box<dyn RoomListStateObserver>) -> Arc<TaskHandle> {
+    fn state(&self, listener: Box<dyn RoomListStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(state_stream);
 
             while let Some(state) = state_stream.next().await {
-                observer.on_update(state.into());
+                listener.on_update(state.into());
             }
         })))
     }
 
     fn entries(
         &self,
-        observer: Box<dyn RoomListEntriesObserver>,
+        listener: Box<dyn RoomListEntriesListener>,
     ) -> Result<RoomListEntriesResult, RoomListError> {
         let (entries, entries_stream) =
             RUNTIME.block_on(async { self.inner.entries().await.map_err(RoomListError::from) })?;
@@ -85,7 +85,7 @@ impl RoomList {
                 pin_mut!(entries_stream);
 
                 while let Some(diff) = entries_stream.next().await {
-                    observer.on_update(diff.into());
+                    listener.on_update(diff.into());
                 }
             }))),
         })
@@ -122,7 +122,7 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListState {
 }
 
 // Also declared in the UDL file.
-pub trait RoomListStateObserver: Send + Sync + Debug {
+pub trait RoomListStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListState);
 }
 
@@ -165,6 +165,6 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
 }
 
 // Also declared in the UDL file.
-pub trait RoomListEntriesObserver: Send + Sync + Debug {
+pub trait RoomListEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: RoomListEntriesUpdate);
 }
