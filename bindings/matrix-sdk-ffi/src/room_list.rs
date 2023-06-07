@@ -72,12 +72,11 @@ impl RoomList {
         })))
     }
 
-    fn entries(
+    async fn entries(
         &self,
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Result<RoomListEntriesResult, RoomListError> {
-        let (entries, entries_stream) =
-            RUNTIME.block_on(async { self.inner.entries().await.map_err(RoomListError::from) })?;
+        let (entries, entries_stream) = self.inner.entries().await.map_err(RoomListError::from)?;
 
         Ok(RoomListEntriesResult {
             entries: entries.iter().map(Into::into).collect(),
