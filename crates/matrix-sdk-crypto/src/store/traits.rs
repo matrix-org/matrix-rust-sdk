@@ -38,6 +38,9 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// The error type used by this crypto store.
     type Error: fmt::Debug + Into<CryptoStoreError>;
 
+    /// Force invalidating the in-memory caches used by this store, if any.
+    async fn invalidate_caches(&self) -> Result<(), Self::Error>;
+
     /// Load an account that was previously stored.
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, Self::Error>;
 
@@ -371,6 +374,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
         self.0.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn invalidate_caches(&self) -> Result<()> {
+        self.0.invalidate_caches().await.map_err(Into::into)
     }
 }
 

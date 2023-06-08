@@ -71,6 +71,11 @@ impl SessionStore {
     pub fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
         self.entries.insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
+
+    /// Clears all the session entries in the list of sessions.
+    pub fn clear(&self) {
+        self.entries.clear();
+    }
 }
 
 #[derive(Debug, Default, Clone)]

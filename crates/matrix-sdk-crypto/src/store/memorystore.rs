@@ -311,6 +311,11 @@ impl CryptoStore for MemoryStore {
         warn!("Method not implemented");
         Ok(())
     }
+
+    async fn invalidate_caches(&self) -> Result<()> {
+        warn!("Method invalidate_caches not implemented");
+        Ok(())
+    }
 }
 
 #[cfg(test)]

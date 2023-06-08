@@ -78,12 +78,14 @@ mod keys {
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 pub struct IndexeddbCryptoStore {
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
     store_cipher: Option<Arc<StoreCipher>>,
 
+    // DB values cached in memory.
+    // Make sure to reload them in `Self::invalidate_caches` if adding new fields here.
+    account_info: Arc<RwLock<Option<AccountInfo>>>,
     session_cache: SessionStore,
 }
 
@@ -1054,6 +1056,17 @@ impl_crypto_store! {
             .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
             .object_store(keys::CORE)?
             .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
+        Ok(())
+    }
+
+    async fn invalidate_caches(&self) -> Result<()> {
+        // Force a reload of the account.
+        *self.account_info.write().unwrap() = None;
+        self.load_account().await?;
+
+        // Clearing the session cache ought to be sufficient.
+        self.session_cache.clear();
+
         Ok(())
     }
 }

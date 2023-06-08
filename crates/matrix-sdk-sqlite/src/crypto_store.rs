@@ -60,7 +60,8 @@ pub struct SqliteCryptoStore {
     path: Option<PathBuf>,
     pool: SqlitePool,
 
-    // DB values cached in memory
+    // DB values cached in memory.
+    // Make sure to reload them in `Self::invalidate_caches` if adding new fields here.
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     session_cache: SessionStore,
 }
@@ -1127,6 +1128,17 @@ impl CryptoStore for SqliteCryptoStore {
         self.acquire().await?.set_kv(key, serialized).await?;
         Ok(())
     }
+
+    async fn invalidate_caches(&self) -> Result<()> {
+        // Force a reload of the account.
+        *self.account_info.write().unwrap() = None;
+        self.load_account().await?;
+
+        // Clearing the session cache ought to be sufficient.
+        self.session_cache.clear();
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1148,6 +1160,109 @@ mod tests {
     }
 
     cryptostore_integration_tests!();
+}
+
+#[cfg(test)]
+mod cache_test {
+    use matrix_sdk_crypto::{
+        store::{Changes, CryptoStore as _},
+        ReadOnlyAccount,
+    };
+    use matrix_sdk_test::async_test;
+    use once_cell::sync::Lazy;
+    use ruma::{device_id, user_id};
+    use tempfile::{tempdir, TempDir};
+
+    use super::SqliteCryptoStore;
+    use crate::error::Error;
+
+    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+
+    #[async_test]
+    async fn invalidate_caches() -> Result<(), Error> {
+        let tmpdir_path = TMP_DIR.path().join("invalidate_caches");
+        let store = SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), None)
+            .await
+            .expect("Can't create a passphrase protected store");
+
+        let mut ro_account =
+            ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("ALICEDEVICE"));
+        store.save_account(ro_account.clone()).await?;
+
+        let bob_account =
+            ReadOnlyAccount::new(user_id!("@bob:example.org"), device_id!("BOBDEVICE"));
+
+        let sender_key = {
+            let (our_session, _other_session) = ro_account.create_session_for(&bob_account).await;
+            let sender_key = our_session.sender_key();
+            let sessions = vec![our_session];
+            let changes = Changes { sessions, ..Default::default() };
+            store.save_changes(changes).await?;
+            sender_key
+        };
+
+        assert!(store.get_account_info().is_some());
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 1);
+
+        // Basic invalidation works.
+        store.invalidate_caches().await.unwrap();
+        let account = store.get_account_info().unwrap();
+        assert_eq!(account.user_id, user_id!("@alice:example.org"));
+        assert_eq!(account.device_id, device_id!("ALICEDEVICE"));
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 1);
+
+        // Ok, open the store a second time, wreak havoc.
+        let store2 = SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), None)
+            .await
+            .expect("Can't create a passphrase protected store");
+        ro_account.device_id = device_id!("FANCYNEWDEVICEID").to_owned();
+        store2.save_account(ro_account.clone()).await?;
+
+        // Device id in store 1 is invalid now:
+        let account2 = store2.get_account_info().unwrap();
+        assert_eq!(account.device_id, device_id!("ALICEDEVICE"));
+        assert_eq!(account2.device_id, device_id!("FANCYNEWDEVICEID"));
+
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 1);
+
+        // But if we explicitly invalidate store1, we're fine.
+        store.invalidate_caches().await?;
+
+        let account = store.get_account_info().unwrap();
+        assert_eq!(account.user_id, user_id!("@alice:example.org"));
+        assert_eq!(account.device_id, device_id!("FANCYNEWDEVICEID"));
+
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 1);
+
+        // And invalidating is a no-op on store2.
+        store2.invalidate_caches().await?;
+
+        let account2 = store2.get_account_info().unwrap();
+        assert_eq!(account2.user_id, user_id!("@alice:example.org"));
+        assert_eq!(account2.device_id, device_id!("FANCYNEWDEVICEID"));
+
+        // Now adding a session in store 2 invalidates store 1 again.
+        {
+            let (our_session, _other_session) = ro_account.create_session_for(&bob_account).await;
+            let sessions = vec![our_session];
+            let changes = Changes { sessions, ..Default::default() };
+            store2.save_changes(changes).await?;
+        };
+
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 1);
+
+        store.invalidate_caches().await?;
+
+        let cached_session = store.get_sessions(&sender_key.to_string()).await?.unwrap();
+        assert_eq!(cached_session.lock().await.len(), 2);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
