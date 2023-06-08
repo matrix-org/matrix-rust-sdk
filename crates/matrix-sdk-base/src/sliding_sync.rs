@@ -302,7 +302,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn process_sliding_sync_response_to_add_a_room() {
+    async fn room_with_unspecified_state_is_added_to_client_and_joined_list() {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
@@ -312,12 +312,18 @@ mod test {
         let mut room = v4::SlidingSyncRoom::new();
         room.joined_count = Some(uint!(41));
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        let sync_resp =
+            client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
         // Then the room appears in the client (with the same joined count)
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.room_id(), room_id);
         assert_eq!(client_room.joined_members_count(), 41);
+        assert_eq!(client_room.state(), RoomState::Joined);
+
+        // And it is added to the list of joined rooms, and not the invited ones
+        assert!(sync_resp.rooms.join.get(room_id).is_some());
+        assert!(sync_resp.rooms.invite.get(room_id).is_none());
     }
 
     #[tokio::test]
@@ -355,6 +361,30 @@ mod test {
             client_room.avatar_url().expect("No avatar URL").media_id().expect("No media ID"),
             "med1"
         );
+    }
+
+    #[tokio::test]
+    async fn invitation_room_is_added_to_client_and_invite_list() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I send sliding sync response containing an invited room
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        let response = response_with_room(room_id, room).await;
+        let sync_resp =
+            client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room is added to the client
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.room_id(), room_id);
+        assert_eq!(client_room.state(), RoomState::Invited);
+
+        // And it is added to the list of invited rooms, not the joined ones
+        assert!(!sync_resp.rooms.invite[room_id].invite_state.is_empty());
+        assert!(sync_resp.rooms.join.get(room_id).is_none());
     }
 
     #[tokio::test]
