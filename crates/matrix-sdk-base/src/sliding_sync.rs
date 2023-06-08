@@ -276,7 +276,7 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
-    use ruma::{device_id, room_id, user_id, RoomId};
+    use ruma::{device_id, room_id, uint, user_id, RoomId};
 
     use super::*;
     use crate::SessionMeta;
@@ -294,10 +294,10 @@ mod test {
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room (with idenifiable data in
-        // joined_count)
+        // When I send sliding sync response containing a room (with identifiable data
+        // in joined_count)
         let mut room = v4::SlidingSyncRoom::new();
-        room.joined_count = Some(41.try_into().expect("Failed to make UInt"));
+        room.joined_count = Some(uint!(41));
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
