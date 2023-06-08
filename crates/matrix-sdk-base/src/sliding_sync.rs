@@ -320,9 +320,7 @@ mod test {
         device_id, event_id,
         events::{
             room::{
-                avatar::RoomAvatarEventContent,
-                canonical_alias::RoomCanonicalAliasEventContent,
-                member::{MembershipState, RoomMemberEventContent},
+                avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             },
             StateEventContent,
         },
@@ -409,11 +407,10 @@ mod test {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
-        let user_id = user_id!("@u:e.uk");
 
         // When I send sliding sync response containing an invited room
         let mut room = v4::SlidingSyncRoom::new();
-        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        set_room_invited(&mut room);
         let response = response_with_room(room_id, room).await;
         let sync_resp =
             client.process_sliding_sync(&response).await.expect("Failed to process sync");
@@ -437,7 +434,7 @@ mod test {
 
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
-        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        set_room_invited(&mut room);
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
@@ -459,7 +456,7 @@ mod test {
 
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
-        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        set_room_invited(&mut room);
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
@@ -516,14 +513,17 @@ mod test {
         room
     }
 
-    fn set_room_membership(
-        room: &mut v4::SlidingSyncRoom,
-        user_id: &UserId,
-        membership_state: MembershipState,
-    ) {
-        let invite_content = RoomMemberEventContent::new(membership_state);
-        room.invite_state =
-            Some(vec![make_state_event(user_id, user_id.as_ref(), invite_content, None)]);
+    fn set_room_invited(room: &mut v4::SlidingSyncRoom) {
+        // MSC3575 shows an almost-empty event to indicate that we are invited to a room.
+        // Just the type is supplied.
+
+        let evt = Raw::new(&json!({
+            "type": "m.room.member",
+        }))
+        .expect("Failed to make raw event")
+        .cast();
+
+        room.invite_state = Some(vec![evt]);
     }
 
     fn make_state_event<C: StateEventContent, E>(
