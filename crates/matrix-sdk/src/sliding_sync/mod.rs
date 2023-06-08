@@ -46,17 +46,18 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign, OwnedRoomId, RoomId, TransactionId,
+    assign, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
+    runtime::Handle,
     select, spawn,
     sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use self::sticky_parameters::StickyData;
+use self::sticky_parameters::{SlidingSyncStickyManager, StickyData};
 use crate::{config::RequestConfig, Client, Result};
 
 /// Number of times a Sliding Sync session can expire before raising an error.
@@ -78,38 +79,6 @@ pub struct SlidingSync {
 
     /// A lock to ensure that responses are handled one at a time.
     response_handling_lock: Arc<AsyncMutex<()>>,
-}
-
-#[derive(Debug)]
-pub(super) struct SlidingSyncStickyParameters {
-    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
-    /// but one wants to receive updates.
-    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-
-    /// The intended state of the extensions being supplied to sliding /sync
-    /// calls.
-    extensions: ExtensionsConfig,
-}
-
-impl SlidingSyncStickyParameters {
-    /// Create a new set of sticky parameters.
-    pub fn new(
-        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-        extensions: ExtensionsConfig,
-    ) -> Self {
-        Self { room_subscriptions, extensions }
-    }
-}
-
-impl StickyData for SlidingSyncStickyParameters {
-    type Request = v4::Request;
-
-    fn apply(&self, req: &mut Self::Request) {
-        assign!(req, {
-            room_subscriptions: self.room_subscriptions.clone(),
-            extensions: self.extensions.clone(),
-        });
-    }
 }
 
 #[derive(Debug)]
@@ -138,7 +107,7 @@ pub(super) struct SlidingSyncInner {
     rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// Request parameters that are sticky.
-    sticky: StdRwLock<sticky_parameters::SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
+    sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
@@ -182,6 +151,11 @@ impl SlidingSync {
 
     /// Unsubscribe from a given room.
     pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
+        // Note: we don't use `BTreeMap::remove` here, because that would require
+        // mutable access thus calling `data_mut()`, which in turn would
+        // invalidate the sticky parameters even if the `room_id` wasn't in the
+        // mapping.
+
         // If there's a subscription…
         if self.inner.sticky.read().unwrap().data().room_subscriptions.contains_key(&room_id) {
             // Remove it…
@@ -403,9 +377,8 @@ impl SlidingSync {
 
     async fn generate_sync_request(
         &self,
+        txn_id: OwnedTransactionId,
     ) -> Result<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)> {
-        let txn_id = TransactionId::new();
-
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
@@ -452,7 +425,7 @@ impl SlidingSync {
         }
 
         Ok((
-            // Build the request itself.
+            // The request itself.
             request,
             // Configure long-polling. We need 30 seconds for the long-poll itself, in
             // addition to 30 more extra seconds for the network delays.
@@ -464,7 +437,7 @@ impl SlidingSync {
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
-            self.generate_sync_request().await?;
+            self.generate_sync_request(TransactionId::new()).await?;
 
         debug!("Sending the sliding sync request");
 
@@ -572,7 +545,7 @@ impl SlidingSync {
         stream! {
             loop {
                 sync_span.in_scope(|| {
-                    debug!(?self.inner.position,"Sync-loop is running");
+                    debug!(?self.inner.position, "Sync-loop is running");
                 });
 
                 select! {
@@ -636,8 +609,7 @@ impl SlidingSync {
                                         // Force invalidation of all the sticky parameters.
                                         let _ = self.inner.sticky.write().unwrap().data_mut();
 
-                                        let handle = tokio::runtime::Handle::current();
-                                        handle.block_on(async {
+                                        Handle::current().block_on(async {
                                             self.inner.lists.write().await.values_mut().for_each(|list| list.invalidate_sticky_data());
                                         });
 
@@ -717,7 +689,7 @@ impl SlidingSync {
 #[derive(Debug)]
 pub(super) struct SlidingSyncPositionMarkers {
     /// An ephemeral position in the current stream, as received from the
-    /// previous /sync response, or `None` for the first request.
+    /// previous `/sync` response, or `None` for the first request.
     ///
     /// Should not be persisted.
     pos: Option<String>,
@@ -725,10 +697,12 @@ pub(super) struct SlidingSyncPositionMarkers {
     /// Server-provided opaque token that remembers what the last timeline and
     /// state events stored by the client were.
     ///
-    /// If `None`, the server will send the
-    /// full information for all the lists present in the request.
+    /// If `None`, the server will send the full information for all the lists
+    /// present in the request.
     delta_token: Option<String>,
 
+    /// Server-provided opaque token that remembers the current position in the
+    /// to-device extension's stream.
     to_device_token: Option<String>,
 }
 
@@ -759,6 +733,40 @@ pub struct UpdateSummary {
     pub lists: Vec<String>,
     /// The rooms that have seen updates
     pub rooms: Vec<OwnedRoomId>,
+}
+
+/// The set of sticky parameters owned by the `SlidingSyncInner` instance, and
+/// sent in the request.
+#[derive(Debug)]
+pub(super) struct SlidingSyncStickyParameters {
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
+    /// but one wants to receive updates.
+    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+
+    /// The intended state of the extensions being supplied to sliding /sync
+    /// calls.
+    extensions: ExtensionsConfig,
+}
+
+impl SlidingSyncStickyParameters {
+    /// Create a new set of sticky parameters.
+    pub fn new(
+        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+        extensions: ExtensionsConfig,
+    ) -> Self {
+        Self { room_subscriptions, extensions }
+    }
+}
+
+impl StickyData for SlidingSyncStickyParameters {
+    type Request = v4::Request;
+
+    fn apply(&self, request: &mut Self::Request) {
+        assign!(request, {
+            room_subscriptions: self.room_subscriptions.clone(),
+            extensions: self.extensions.clone(),
+        });
+    }
 }
 
 #[cfg(test)]
@@ -1010,9 +1018,9 @@ mod tests {
 
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
-        let (request, _, _) = sync.generate_sync_request().await?;
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id.clone()).await?;
 
-        let txn_id = request.txn_id.unwrap();
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
         assert_eq!(request.extensions.to_device.enabled, Some(true));
         assert!(request.extensions.to_device.since.is_none());
@@ -1028,9 +1036,9 @@ mod tests {
         }
 
         // Regenerating a request will yield the same one.
-        let (request, _, _) = sync.generate_sync_request().await?;
+        let txn_id2 = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id2.clone()).await?;
 
-        let txn_id2 = request.txn_id.unwrap();
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
         assert_eq!(request.extensions.to_device.enabled, Some(true));
         assert!(request.extensions.to_device.since.is_none());
@@ -1046,7 +1054,8 @@ mod tests {
         }
 
         // The next request should contain no sticky parameters.
-        let (request, _, _) = sync.generate_sync_request().await?;
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert!(request.extensions.to_device.since.is_none());
@@ -1057,7 +1066,8 @@ mod tests {
         let since_token = "since";
         sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
 
-        let (request, _, _) = sync.generate_sync_request().await?;
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
 
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());

@@ -2,6 +2,7 @@ mod builder;
 mod frozen;
 mod request_generator;
 mod room_list_entry;
+mod sticky;
 
 use std::{
     collections::HashSet,
@@ -20,66 +21,14 @@ use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{
-    api::client::sync::sync_events::v4,
-    assign,
-    events::{StateEventType, TimelineEventType},
-    OwnedRoomId, TransactionId,
-};
+use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
-use super::{
-    sticky_parameters::{SlidingSyncStickyManager, StickyData},
-    Error, SlidingSyncInternalMessage,
-};
+use self::sticky::SlidingSyncListStickyParameters;
+use super::{sticky_parameters::SlidingSyncStickyManager, Error, SlidingSyncInternalMessage};
 use crate::Result;
-
-#[derive(Debug)]
-pub(super) struct ListStickyParameters {
-    /// Sort the room list by this.
-    sort: Vec<String>,
-
-    /// Required states to return per room.
-    required_state: Vec<(StateEventType, String)>,
-
-    /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
-
-    /// The maximum number of timeline events to query for.
-    timeline_limit: Option<Bound>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncListBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
-}
-
-impl ListStickyParameters {
-    pub fn new(
-        sort: Vec<String>,
-        required_state: Vec<(StateEventType, String)>,
-        filters: Option<v4::SyncRequestListFilters>,
-        timeline_limit: Option<Bound>,
-        bump_event_types: Vec<TimelineEventType>,
-    ) -> Self {
-        // Consider that each list will have at least one parameter set, so invalidate
-        // it by default.
-        Self { sort, required_state, filters, timeline_limit, bump_event_types }
-    }
-}
-
-impl StickyData for ListStickyParameters {
-    type Request = v4::SyncRequestList;
-
-    fn apply(&self, req: &mut v4::SyncRequestList) {
-        req.sort = self.sort.to_vec();
-        req.room_details.required_state = self.required_state.to_vec();
-        req.room_details.timeline_limit = self.timeline_limit.map(|val| val.into());
-        req.filters = self.filters.clone();
-        req.bump_event_types = self.bump_event_types.clone();
-    }
-}
 
 /// Should this [`SlidingSyncList`] be stored in the cache, and automatically
 /// reloaded from the cache upon creation?
@@ -164,12 +113,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        self.inner.sticky.read().unwrap().data().timeline_limit
+        self.inner.sticky.read().unwrap().data().timeline_limit()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
-        self.inner.sticky.write().unwrap().data_mut().timeline_limit = timeline;
+        self.inner.sticky.write().unwrap().data_mut().set_timeline_limit(timeline);
     }
 
     /// Get the current room list.
@@ -334,7 +283,7 @@ pub(super) struct SlidingSyncListInner {
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
     /// knows).
-    sticky: StdRwLock<SlidingSyncStickyManager<ListStickyParameters>>,
+    sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -417,13 +366,13 @@ impl SlidingSyncListInner {
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
 
-        let mut req = assign!(v4::SyncRequestList::default(), { ranges });
+        let mut request = assign!(v4::SyncRequestList::default(), { ranges });
         {
             let mut sticky = self.sticky.write().unwrap();
-            sticky.maybe_apply(&mut req, txn_id);
+            sticky.maybe_apply(&mut request, txn_id);
         }
 
-        req
+        request
     }
 
     /// Update the [`Self::room_list`]. It also updates
@@ -1022,13 +971,13 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, Some(7));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(7));
 
         list.set_timeline_limit(Some(42));
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, Some(42));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(42));
 
         list.set_timeline_limit(None);
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit, None);
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), None);
     }
 
     #[test]

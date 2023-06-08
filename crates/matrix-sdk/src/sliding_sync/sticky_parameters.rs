@@ -2,7 +2,8 @@
 //! request parameters once and have the server remember them.
 //!
 //! The set of sticky parameters have to be agreed upon by the server and the
-//! client; this is defined in the MSC.
+//! client; this is defined in the
+//! [MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md).
 
 use ruma::{OwnedTransactionId, TransactionId};
 
@@ -13,12 +14,12 @@ pub trait StickyData {
     type Request;
 
     /// Apply the current data onto the request.
-    fn apply(&self, req: &mut Self::Request);
+    fn apply(&self, request: &mut Self::Request);
 }
 
 /// Helper data structure to manage sticky parameters, for any kind of data.
 ///
-/// Initially, the data provided is considered to be invalidated, so it's
+/// Initially, the provided data is considered to be invalidated, so it's
 /// applied onto the request the first time it's sent. Any changes to the
 /// wrapped data happen via `[Self::data_mut]`, which invalidates the sticky
 /// parameters; they will be applied automatically to the next request.

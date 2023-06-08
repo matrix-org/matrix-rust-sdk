@@ -18,8 +18,8 @@ use ruma::{
 use tokio::sync::broadcast::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, Bound, ListStickyParameters, SlidingSyncList,
-    SlidingSyncListCachePolicy, SlidingSyncListInner, SlidingSyncListRequestGenerator,
+    super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
+    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncListStickyParameters,
     SlidingSyncMode, SlidingSyncState,
 };
 use crate::{
@@ -202,13 +202,15 @@ impl SlidingSyncListBuilder {
                 sync_mode: StdRwLock::new(self.sync_mode.clone()),
 
                 // From the builder
-                sticky: StdRwLock::new(SlidingSyncStickyManager::new(ListStickyParameters::new(
-                    self.sort,
-                    self.required_state,
-                    self.filters,
-                    self.timeline_limit,
-                    self.bump_event_types,
-                ))),
+                sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                    SlidingSyncListStickyParameters::new(
+                        self.sort,
+                        self.required_state,
+                        self.filters,
+                        self.timeline_limit,
+                        self.bump_event_types,
+                    ),
+                )),
                 name: self.name,
                 cache_policy: self.cache_policy,
 
