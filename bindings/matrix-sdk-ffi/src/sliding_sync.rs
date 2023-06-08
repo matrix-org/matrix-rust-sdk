@@ -19,7 +19,7 @@ use matrix_sdk::{
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
 use matrix_sdk_ui::{
-    notifications::NotificationApi as MatrixNotificationApi, timeline::SlidingSyncRoomExt,
+    notifications::NotificationSync as MatrixNotificationSync, timeline::SlidingSyncRoomExt,
 };
 use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
@@ -888,11 +888,11 @@ impl SlidingSyncBuilder {
 }
 
 #[derive(uniffi::Object)]
-pub struct NotificationApi {
-    inner: MatrixNotificationApi,
+pub struct NotificationSync {
+    inner: MatrixNotificationSync,
 }
 
-impl NotificationApi {
+impl NotificationSync {
     pub fn start(&self) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
 
@@ -949,10 +949,10 @@ impl Client {
     pub fn notification_sliding_sync(
         &self,
         id: String,
-    ) -> Result<Arc<NotificationApi>, ClientError> {
+    ) -> Result<Arc<NotificationSync>, ClientError> {
         RUNTIME.block_on(async move {
-            let inner = MatrixNotificationApi::new(id, self.inner.clone()).await?;
-            let notification_api = NotificationApi { inner };
+            let inner = MatrixNotificationSync::new(id, self.inner.clone()).await?;
+            let notification_api = NotificationSync { inner };
             notification_api.start();
             Ok(Arc::new(notification_api))
         })

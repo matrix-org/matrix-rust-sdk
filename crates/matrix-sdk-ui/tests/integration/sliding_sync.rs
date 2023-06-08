@@ -1,0 +1,79 @@
+//! Helpers for integration tests involving sliding sync.
+
+use wiremock::{http::Method, Match, Request};
+
+pub(crate) struct SlidingSyncMatcher;
+
+impl Match for SlidingSyncMatcher {
+    fn matches(&self, request: &Request) -> bool {
+        request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+            && request.method == Method::Post
+    }
+}
+
+/// Run a single sliding sync request, checking that the request is a subset of what we expect it
+/// to be, and providing the given next response.
+#[macro_export]
+macro_rules! sliding_sync_then_assert_request_and_fake_response {
+    (
+        [$server:ident, $stream:ident]
+        assert request = { $( $request_json:tt )* },
+        respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
+        $(,)?
+    ) => {
+        sliding_sync_then_assert_request_and_fake_response! {
+            [$server, $stream]
+            sync matches Some(Ok(_)),
+            assert request = { $( $request_json )* },
+            respond with = $( ( code $code ) )? { $( $response_json )* },
+        }
+    };
+
+    (
+        [$server:ident, $stream:ident]
+        sync matches $sync_result:pat,
+        assert request = { $( $request_json:tt )* },
+        respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
+        $(,)?
+    ) => {
+        {
+            use crate::sliding_sync::SlidingSyncMatcher;
+            use wiremock::{Mock, ResponseTemplate, Match as _};
+            use assert_matches::assert_matches;
+            use serde_json::json;
+
+            let _code = 200;
+            $( let _code = $code; )?
+
+            let _mock_guard = Mock::given(SlidingSyncMatcher)
+                .respond_with(ResponseTemplate::new(_code).set_body_json(
+                    json!({ $( $response_json )* })
+                ))
+                .mount_as_scoped(&$server)
+                .await;
+
+            let next = $stream.next().await;
+
+            assert_matches!(next, $sync_result, "sync's result");
+
+            for request in $server.received_requests().await.expect("Request recording has been disabled").iter().rev() {
+                if SlidingSyncMatcher.matches(request) {
+                    let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+                    if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
+                        &json_value,
+                        &json!({ $( $request_json )* }),
+                        assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
+                    ) {
+                        dbg!(json_value);
+                        panic!("{}", error);
+                    }
+
+                    break;
+                }
+            }
+
+            next
+        }
+    };
+}

@@ -18,7 +18,6 @@ use wiremock::MockServer;
 use crate::{
     logged_in_client,
     timeline::sliding_sync::{assert_timeline_stream, timeline_event},
-    SlidingSyncMatcher,
 };
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
@@ -62,7 +61,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 assert_matches!($room_list.state(), $pre_state, "pre state");
             )?
 
-            let next = super::sync_then_assert_request_and_fake_response! {
+            let next = super::sliding_sync_then_assert_request_and_fake_response! {
                 [$server, $stream]
                 sync matches $sync_result,
                 assert request = { $( $request_json )* },

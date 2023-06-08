@@ -16,7 +16,7 @@
 //!
 //! The notification API is a high-level helper that is designed to take care of
 //! handling the synchronization of notifications, be they received within the
-//! app or within a dedicated notification process (e.g. the NSE process on iOS
+//! app or within a dedicated notification process (e.g. the [NSE] process on iOS
 //! devices).
 //!
 //! Under the hood, this uses a sliding sync instance configured with no lists,
@@ -27,23 +27,25 @@
 //! As this may be used across different processes, this also makes sure that
 //! there's only one process writing to the databases holding encryption
 //! information. TODO as of 2023-06-06, this hasn't been done yet.
+//!
+//! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{sliding_sync::ExtensionsSetter, Client, SlidingSync};
-use tracing::warn;
+use tracing::error;
 
 /// High-level helper for synchronizing notifications using sliding sync.
 ///
 /// See the module's documentation for more details.
 #[derive(Clone)]
-pub struct NotificationApi {
+pub struct NotificationSync {
     sliding_sync: SlidingSync,
 }
 
-impl NotificationApi {
-    /// Creates a new instance of a `NotificationApi`.
+impl NotificationSync {
+    /// Creates a new instance of a `NotificationSync`.
     ///
     /// This will create and manage an instance of [`matrix_sdk::SlidingSync`].
     /// The `id` is used as the identifier of that instance, as such make
@@ -83,10 +85,10 @@ impl NotificationApi {
                         // This API is only concerned with the e2ee and to-device extensions.
                         // Warn if anything weird has been received from the proxy.
                         if !update_summary.lists.is_empty() {
-                            warn!(?update_summary.lists, "unexpected non-empty list of lists in notification API");
+                            error!(?update_summary.lists, "unexpected non-empty list of lists in notification API");
                         }
                         if !update_summary.rooms.is_empty() {
-                            warn!(?update_summary.rooms, "unexpected non-empty list of rooms in notification API");
+                            error!(?update_summary.rooms, "unexpected non-empty list of rooms in notification API");
                         }
 
                         // Cool cool, let's do it again.
@@ -110,7 +112,7 @@ impl NotificationApi {
     }
 }
 
-/// Errors for the [`NotificationApi`].
+/// Errors for the [`NotificationSync`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Something wrong happened in sliding sync")]

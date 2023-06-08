@@ -14,7 +14,7 @@
 
 mod events;
 
-#[cfg(feature = "experimental-notification-api")]
+#[cfg(feature = "experimental-notification")]
 pub mod notifications;
 #[cfg(feature = "experimental-room-list")]
 pub mod room_list;
