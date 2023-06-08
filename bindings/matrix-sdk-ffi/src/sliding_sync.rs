@@ -887,13 +887,19 @@ impl SlidingSyncBuilder {
     }
 }
 
+pub trait NotificationSyncListener: Sync + Send {
+    /// Called whenever the notification sync loop terminates, and must be
+    /// restarted.
+    fn did_terminate(&self);
+}
+
 #[derive(uniffi::Object)]
 pub struct NotificationSync {
     inner: MatrixNotificationSync,
 }
 
 impl NotificationSync {
-    pub fn start(&self) -> Arc<TaskHandle> {
+    pub fn start(&self, listener: Box<dyn NotificationSyncListener>) -> Arc<TaskHandle> {
         let inner = self.inner.clone();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
@@ -915,14 +921,13 @@ impl NotificationSync {
                         // The internal sliding sync instance already handles retries for us, so if
                         // we get an error here, it means the maximum number of retries has been
                         // reached, and there's not much we can do anymore.
-                        //
-                        // TODO(bnjbvr) signal that with a new observer that indicates whenever
-                        // there's an error?
                         warn!("Error when handling notifications: {err}");
                         break;
                     }
                 }
             }
+
+            listener.did_terminate();
         })))
     }
 }
@@ -949,11 +954,12 @@ impl Client {
     pub fn notification_sliding_sync(
         &self,
         id: String,
+        listener: Box<dyn NotificationSyncListener>,
     ) -> Result<Arc<NotificationSync>, ClientError> {
         RUNTIME.block_on(async move {
             let inner = MatrixNotificationSync::new(id, self.inner.clone()).await?;
             let notification_api = NotificationSync { inner };
-            notification_api.start();
+            notification_api.start(listener);
             Ok(Arc::new(notification_api))
         })
     }
