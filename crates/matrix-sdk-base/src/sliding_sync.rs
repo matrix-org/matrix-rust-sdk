@@ -104,7 +104,7 @@ impl BaseClient {
         let mut new_rooms = Rooms::default();
 
         for (room_id, room_data) in rooms {
-            let (room_to_add, joined_room, invited_room) = self
+            let (room_to_store, joined_room, invited_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     room_data,
@@ -114,8 +114,8 @@ impl BaseClient {
                     account_data,
                 )
                 .await?;
-            if let Some(room_to_add) = room_to_add {
-                changes.add_room(room_to_add);
+            if let Some(room_to_store) = room_to_store {
+                changes.add_room(room_to_store);
             }
             if let Some(joined_room) = joined_room {
                 new_rooms.join.insert(room_id.clone(), joined_room);
@@ -198,7 +198,7 @@ impl BaseClient {
             let mut room_info = room.clone_info();
             room_info.mark_state_partially_synced();
 
-            let room_to_add = if let Some(r) = store.get_room(room_id) {
+            let room_to_store = if let Some(r) = store.get_room(room_id) {
                 let mut room_info = r.clone_info();
                 room_info.mark_as_invited(); // FIXME: this might not be accurate
                 room_info.mark_state_partially_synced();
@@ -211,7 +211,7 @@ impl BaseClient {
 
             let invited_room = v3::InvitedRoom::from(v3::InviteState::from(invite_state.clone()));
 
-            Ok((room_to_add, None, Some(invited_room)))
+            Ok((room_to_store, None, Some(invited_room)))
         } else {
             let room = store.get_or_create_room(room_id, RoomState::Joined).await;
             let mut room_info = room.clone_info();
