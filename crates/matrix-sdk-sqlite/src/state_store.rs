@@ -35,7 +35,7 @@ use tracing::{debug, warn};
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{chain, load_db_version, Key, SqliteObjectExt},
+    utils::{load_db_version, Key, SqliteObjectExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -52,6 +52,8 @@ mod keys {
     pub const DISPLAY_NAME: &str = "display_name";
     pub const MEDIA: &str = "media";
 }
+
+const DATABASE_VERSION: u8 = 2;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -78,10 +80,7 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let path = path.as_ref();
-        fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-        let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-state.sqlite3"));
-        let pool = cfg.create_pool(Runtime::Tokio1)?;
+        let pool = create_pool(path.as_ref()).await?;
 
         Self::open_with_pool(pool, passphrase).await
     }
@@ -93,14 +92,75 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        let version = load_db_version(&conn).await?;
-        run_migrations(&conn, version).await.map_err(OpenStoreError::Migration)?;
+        let mut version = load_db_version(&conn).await?;
+
+        if version == 0 {
+            init(&conn).await?;
+            version = 1;
+        }
+
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
         };
+        let this = Self { store_cipher, path: None, pool };
+        this.run_migrations(&conn, version, None).await?;
 
-        Ok(Self { store_cipher, path: None, pool })
+        Ok(this)
+    }
+
+    /// Run database migrations from the given `from` version to the given `to`
+    /// version
+    ///
+    /// If `to` is `None`, the current database version will be used.
+    async fn run_migrations(&self, conn: &SqliteConn, from: u8, to: Option<u8>) -> Result<()> {
+        let to = to.unwrap_or(DATABASE_VERSION);
+
+        if from < to {
+            debug!(version = from, new_version = to, "Upgrading database");
+        } else {
+            return Ok(());
+        }
+
+        if from < 2 && to >= 2 {
+            let this = self.clone();
+            conn.with_transaction(move |txn| {
+                // Create new table.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/002_a_create_new_room_info.sql"
+                ))?;
+
+                // Migrate data to new table.
+                for data in txn
+                    .prepare("SELECT data FROM room_info")?
+                    .query_map((), |row| row.get::<_, Vec<u8>>(0))?
+                {
+                    let data = data?;
+                    let room_info: RoomInfo = this.deserialize_json(&data)?;
+
+                    let room_id = this.encode_key(keys::ROOM_INFO, room_info.room_id());
+                    let state = this
+                        .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
+                    txn.prepare_cached(
+                        "INSERT OR REPLACE INTO new_room_info (room_id, state, data)
+                         VALUES (?, ?, ?)",
+                    )?
+                    .execute((room_id, state, data))?;
+                }
+
+                // Replace old table.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/002_b_replace_room_info.sql"
+                ))?;
+
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+        }
+
+        conn.set_kv("version", vec![to]).await?;
+
+        Ok(())
     }
 
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
@@ -185,9 +245,6 @@ impl SqliteStateStore {
         room_id: &RoomId,
         stripped: bool,
     ) -> rusqlite::Result<()> {
-        let room_info_room_id = self.encode_key(keys::ROOM_INFO, room_id);
-        txn.remove_room_info(&room_info_room_id, Some(stripped))?;
-
         let state_event_room_id = self.encode_key(keys::STATE_EVENT, room_id);
         txn.remove_room_state_events(&state_event_room_id, Some(stripped))?;
 
@@ -196,28 +253,23 @@ impl SqliteStateStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 1;
+async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
+    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
+    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-state.sqlite3"));
+    Ok(cfg.create_pool(Runtime::Tokio1)?)
+}
 
-async fn run_migrations(conn: &SqliteConn, version: u8) -> rusqlite::Result<()> {
-    if version == 0 {
-        debug!("Creating database");
-    } else if version < DATABASE_VERSION {
-        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
-    } else {
-        return Ok(());
-    }
+/// Initialize the database.
+async fn init(conn: &SqliteConn) -> Result<()> {
+    // First turn on WAL mode, this can't be done in the transaction, it fails with
+    // the error message: "cannot change into wal mode from within a transaction".
+    conn.execute_batch("PRAGMA journal_mode = wal;").await?;
+    conn.with_transaction(|txn| {
+        txn.execute_batch(include_str!("../migrations/state_store/001_init.sql"))
+    })
+    .await?;
 
-    if version < 1 {
-        // First turn on WAL mode, this can't be done in the transaction, it fails with
-        // the error message: "cannot change into wal mode from within a transaction".
-        conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/state_store/001_init.sql"))
-        })
-        .await?;
-    }
-
-    conn.set_kv("version", vec![DATABASE_VERSION]).await?;
+    conn.set_kv("version", vec![1]).await?;
 
     Ok(())
 }
@@ -235,9 +287,9 @@ trait SqliteConnectionStateStoreExt {
     ) -> rusqlite::Result<()>;
     fn remove_room_account_data(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 
-    fn set_room_info(&self, room_id: &[u8], stripped: bool, data: &[u8]) -> rusqlite::Result<()>;
-    fn get_room_info(&self, room_id: &[u8], stripped: bool) -> rusqlite::Result<Option<Vec<u8>>>;
-    fn remove_room_info(&self, room_id: &[u8], stripped: Option<bool>) -> rusqlite::Result<()>;
+    fn set_room_info(&self, room_id: &[u8], state: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+    fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>>;
+    fn remove_room_info(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 
     fn set_state_event(
         &self,
@@ -326,36 +378,23 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
         Ok(())
     }
 
-    fn set_room_info(&self, room_id: &[u8], stripped: bool, data: &[u8]) -> rusqlite::Result<()> {
+    fn set_room_info(&self, room_id: &[u8], state: &[u8], data: &[u8]) -> rusqlite::Result<()> {
         self.prepare_cached(
-            "INSERT OR REPLACE INTO room_info (room_id, stripped, data)
+            "INSERT OR REPLACE INTO room_info (room_id, state, data)
              VALUES (?, ?, ?)",
         )?
-        .execute((room_id, stripped, data))?;
+        .execute((room_id, state, data))?;
         Ok(())
     }
 
-    fn get_room_info(&self, room_id: &[u8], stripped: bool) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.query_row(
-            "SELECT data FROM room_info WHERE room_id = ? AND stripped = ?",
-            (room_id, stripped),
-            |row| row.get(0),
-        )
-        .optional()
+    fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.query_row("SELECT data FROM room_info WHERE room_id = ?", (room_id,), |row| row.get(0))
+            .optional()
     }
 
     /// Remove the room info for the given room.
-    ///
-    /// If `stripped` is `Some()`, only removes the room info if it is in the
-    /// given stripped state. Otherwise, the room info is removed regardless
-    /// of the stripped state.
-    fn remove_room_info(&self, room_id: &[u8], stripped: Option<bool>) -> rusqlite::Result<()> {
-        if let Some(stripped) = stripped {
-            self.prepare_cached("DELETE FROM room_info WHERE room_id = ? AND stripped = ?")?
-                .execute((room_id, stripped))?;
-        } else {
-            self.prepare_cached("DELETE FROM room_info WHERE room_id = ?")?.execute((room_id,))?;
-        }
+    fn remove_room_info(&self, room_id: &[u8]) -> rusqlite::Result<()> {
+        self.prepare_cached("DELETE FROM room_info WHERE room_id = ?")?.execute((room_id,))?;
         Ok(())
     }
 
@@ -517,12 +556,25 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
         Ok(())
     }
 
-    async fn get_room_infos(&self, stripped: bool) -> Result<Vec<Vec<u8>>> {
-        Ok(self
-            .prepare("SELECT data FROM room_info WHERE stripped = ?", move |mut stmt| {
-                stmt.query_map((stripped,), |row| row.get(0))?.collect()
-            })
-            .await?)
+    async fn get_room_infos(&self, states: Vec<Key>) -> Result<Vec<Vec<u8>>> {
+        if states.is_empty() {
+            Ok(self
+                .prepare("SELECT data FROM room_info", move |mut stmt| {
+                    stmt.query_map((), |row| row.get(0))?.collect()
+                })
+                .await?)
+        } else {
+            let sql_params = vec!["?"; states.len()].join(", ");
+            let sql = format!("SELECT data FROM room_info WHERE state IN ({sql_params})");
+
+            Ok(self
+                .prepare(sql, move |mut stmt| {
+                    stmt.query(rusqlite::params_from_iter(states))?
+                        .mapped(|row| row.get(0))
+                        .collect()
+                })
+                .await?)
+        }
     }
 
     async fn get_maybe_stripped_state_event(
@@ -771,7 +823,6 @@ impl StateStore for SqliteStateStore {
                     receipts,
                     redactions,
                     stripped_state,
-                    stripped_room_infos,
                     ambiguity_maps,
                     notifications: _,
                 } = changes;
@@ -805,14 +856,16 @@ impl StateStore for SqliteStateStore {
                     txn.set_kv_blob(&key, &value)?;
                 }
 
-                for (room_id, room_info) in chain(room_infos, stripped_room_infos) {
+                for (room_id, room_info) in room_infos {
                     let stripped = room_info.state() == RoomState::Invited;
                     // Remove non-stripped data for stripped rooms and vice-versa.
                     this.remove_maybe_stripped_room_data(txn, &room_id, !stripped)?;
 
                     let room_id = this.encode_key(keys::ROOM_INFO, room_id);
+                    let state = this
+                        .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
                     let data = this.serialize_json(&room_info)?;
-                    txn.set_room_info(&room_id, stripped, &data)?;
+                    txn.set_room_info(&room_id, &state, &data)?;
                 }
 
                 for (room_id, state_event_types) in state {
@@ -963,7 +1016,7 @@ impl StateStore for SqliteStateStore {
                 for (room_id, redactions) in redactions {
                     let make_room_version = || {
                         let encoded_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
-                        txn.get_room_info(&encoded_room_id, false)
+                        txn.get_room_info(&encoded_room_id)
                             .ok()
                             .flatten()
                             .and_then(|v| this.deserialize_json::<RoomInfo>(&v).ok())
@@ -1138,7 +1191,7 @@ impl StateStore for SqliteStateStore {
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.acquire()
             .await?
-            .get_room_infos(false)
+            .get_room_infos(Vec::new())
             .await?
             .into_iter()
             .map(|data| self.deserialize_json(&data))
@@ -1146,9 +1199,11 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+        let states =
+            vec![self.encode_key(keys::ROOM_INFO, serde_json::to_string(&RoomState::Invited)?)];
         self.acquire()
             .await?
-            .get_room_infos(true)
+            .get_room_infos(states)
             .await?
             .into_iter()
             .map(|data| self.deserialize_json(&data))
@@ -1304,7 +1359,7 @@ impl StateStore for SqliteStateStore {
             .await?
             .with_transaction(move |txn| {
                 let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
-                txn.remove_room_info(&room_info_room_id, None)?;
+                txn.remove_room_info(&room_info_room_id)?;
 
                 let state_event_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
                 txn.remove_room_state_events(&state_event_room_id, None)?;
@@ -1383,4 +1438,90 @@ mod encrypted_tests {
     }
 
     statestore_integration_tests!(with_media_tests);
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use std::{
+        path::{Path, PathBuf},
+        sync::{
+            atomic::{AtomicU32, Ordering::SeqCst},
+            Arc,
+        },
+    };
+
+    use matrix_sdk_base::{RoomInfo, RoomState, StateStore};
+    use matrix_sdk_test::async_test;
+    use once_cell::sync::Lazy;
+    use ruma::RoomId;
+    use tempfile::{tempdir, TempDir};
+
+    use super::{create_pool, init, keys, SqliteStateStore};
+    use crate::{
+        error::{Error, Result},
+        get_or_create_store_cipher,
+        utils::SqliteObjectExt,
+    };
+
+    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static NUM: AtomicU32 = AtomicU32::new(0);
+    const SECRET: &str = "secret";
+
+    fn new_path() -> PathBuf {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        TMP_DIR.path().join(name)
+    }
+
+    async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
+        let pool = create_pool(path).await.unwrap();
+        let conn = pool.get().await?;
+
+        init(&conn).await?;
+
+        let store_cipher = Some(Arc::new(get_or_create_store_cipher(SECRET, &conn).await.unwrap()));
+        let this = SqliteStateStore { store_cipher, path: None, pool };
+        this.run_migrations(&conn, 1, Some(version)).await?;
+
+        Ok(this)
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v1_to_v2() {
+        let path = new_path();
+        // Create and populate db.
+        {
+            let db = create_fake_db(&path, 1).await.unwrap();
+            let conn = db.pool.get().await.unwrap();
+
+            let this = db.clone();
+            conn.with_transaction(move |txn| {
+                for i in 0..5 {
+                    let room_id = RoomId::parse(format!("!room_{i}:localhost")).unwrap();
+                    let (state, stripped) =
+                        if i < 3 { (RoomState::Joined, false) } else { (RoomState::Invited, true) };
+                    let info = RoomInfo::new(&room_id, state);
+
+                    let room_id = this.encode_key(keys::ROOM_INFO, room_id);
+                    let data = this.serialize_json(&info)?;
+
+                    txn.prepare_cached(
+                        "INSERT OR REPLACE INTO room_info (room_id, stripped, data)
+                         VALUES (?, ?, ?)",
+                    )?
+                    .execute((room_id, stripped, data))?;
+                }
+
+                Result::<_, Error>::Ok(())
+            })
+            .await
+            .unwrap();
+        }
+
+        // This transparently migrates to the latest version.
+        let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
+
+        // Check all room infos are there.
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 5);
+        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 2);
+    }
 }

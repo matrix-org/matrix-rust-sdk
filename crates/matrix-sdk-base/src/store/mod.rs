@@ -347,9 +347,6 @@ pub struct StateChanges {
         OwnedRoomId,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     >,
-    /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
-    /// while knocking)
-    pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
@@ -372,11 +369,6 @@ impl StateChanges {
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_room(&mut self, room: RoomInfo) {
         self.room_infos.insert(room.room_id.clone(), room);
-    }
-
-    /// Update the `StateChanges` struct with the given `RoomInfo`.
-    pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.stripped_room_infos.insert(room.room_id.clone(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.

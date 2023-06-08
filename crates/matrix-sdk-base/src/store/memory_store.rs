@@ -38,7 +38,7 @@ use tracing::{debug, warn};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState, media::MediaRequest, MinimalRoomMemberEvent,
-    RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -59,7 +59,6 @@ pub struct MemoryStore {
         Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
     room_account_data:
         Arc<DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_infos: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
@@ -101,7 +100,6 @@ impl MemoryStore {
             room_info: Default::default(),
             room_state: Default::default(),
             room_account_data: Default::default(),
-            stripped_room_infos: Default::default(),
             stripped_room_state: Default::default(),
             stripped_members: Default::default(),
             presence: Default::default(),
@@ -245,16 +243,10 @@ impl MemoryStore {
 
         for (room_id, room_info) in &changes.room_infos {
             self.room_info.insert(room_id.clone(), room_info.clone());
-            self.stripped_room_infos.remove(room_id);
         }
 
         for (sender, event) in &changes.presence {
             self.presence.insert(sender.clone(), event.clone());
-        }
-
-        for (room_id, info) in &changes.stripped_room_infos {
-            self.stripped_room_infos.insert(room_id.clone(), info.clone());
-            self.room_info.remove(room_id);
         }
 
         for (room, event_types) in &changes.stripped_state {
@@ -455,7 +447,13 @@ impl MemoryStore {
     }
 
     fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
-        self.stripped_room_infos.iter().map(|r| r.clone()).collect()
+        self.room_info
+            .iter()
+            .filter_map(|r| match r.state() {
+                RoomState::Invited => Some(r.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     async fn get_account_data_event(
@@ -541,7 +539,6 @@ impl MemoryStore {
         self.room_info.remove(room_id);
         self.room_state.remove(room_id);
         self.room_account_data.remove(room_id);
-        self.stripped_room_infos.remove(room_id);
         self.stripped_room_state.remove(room_id);
         self.stripped_members.remove(room_id);
         self.room_user_receipts.remove(room_id);

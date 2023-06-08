@@ -846,7 +846,7 @@ impl BaseClient {
 
             self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
 
-            changes.add_stripped_room(room_info);
+            changes.add_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
         }
@@ -901,12 +901,6 @@ impl BaseClient {
         }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.update_summary(room_info.clone())
-            }
-        }
-
-        for (room_id, room_info) in &changes.stripped_room_infos {
-            if let Some(room) = self.store.get_stripped_room(room_id) {
                 room.update_summary(room_info.clone())
             }
         }

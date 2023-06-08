@@ -25,7 +25,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    MinimalStateEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
+    StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -103,7 +104,6 @@ mod keys {
     pub const PRESENCE: &str = "presence";
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
 
-    pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
 
@@ -125,7 +125,6 @@ mod keys {
         ROOM_INFOS,
         PRESENCE,
         ROOM_ACCOUNT_DATA,
-        STRIPPED_ROOM_INFOS,
         STRIPPED_ROOM_STATE,
         STRIPPED_USER_IDS,
         ROOM_USER_RECEIPTS,
@@ -510,8 +509,8 @@ impl_state_store!({
             stores.extend([keys::ROOM_STATE, keys::ROOM_INFOS]);
         }
 
-        if !changes.room_infos.is_empty() || !changes.stripped_room_infos.is_empty() {
-            stores.extend([keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS]);
+        if !changes.room_infos.is_empty() {
+            stores.insert(keys::ROOM_INFOS);
         }
 
         if !changes.stripped_state.is_empty() {
@@ -622,13 +621,11 @@ impl_state_store!({
 
         if !changes.room_infos.is_empty() {
             let room_infos = tx.object_store(keys::ROOM_INFOS)?;
-            let stripped_room_infos = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
                 room_infos.put_key_val(
                     &self.encode_key(keys::ROOM_INFOS, room_id),
                     &self.serialize_event(&room_info)?,
                 )?;
-                stripped_room_infos.delete(&self.encode_key(keys::STRIPPED_ROOM_INFOS, room_id))?;
             }
         }
 
@@ -639,18 +636,6 @@ impl_state_store!({
                     &self.encode_key(keys::PRESENCE, sender),
                     &self.serialize_event(&event)?,
                 )?;
-            }
-        }
-
-        if !changes.stripped_room_infos.is_empty() {
-            let stripped_room_infos = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
-            let room_infos = tx.object_store(keys::ROOM_INFOS)?;
-            for (room_id, info) in &changes.stripped_room_infos {
-                stripped_room_infos.put_key_val(
-                    &self.encode_key(keys::STRIPPED_ROOM_INFOS, room_id),
-                    &self.serialize_event(&info)?,
-                )?;
-                room_infos.delete(&self.encode_key(keys::ROOM_INFOS, room_id))?;
             }
         }
 
@@ -906,17 +891,30 @@ impl_state_store!({
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let entries = self
+        let txn = self
             .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_ROOM_INFOS)?
-            .get_all()?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok())
-            .collect::<Vec<_>>();
+            .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::ROOM_INFOS)?;
 
-        Ok(entries)
+        let mut infos = Vec::new();
+        let cursor = store.open_cursor()?.await?;
+
+        if let Some(cursor) = cursor {
+            loop {
+                let value = cursor.value();
+                let info = self.deserialize_event::<RoomInfo>(&value)?;
+
+                if info.state() == RoomState::Invited {
+                    infos.push(info);
+                }
+
+                if !cursor.continue_cursor()?.await? {
+                    break;
+                }
+            }
+        }
+
+        Ok(infos)
     }
 
     async fn get_users_with_display_name(
@@ -1092,7 +1090,7 @@ impl_state_store!({
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        let direct_stores = [keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS];
+        let direct_stores = [keys::ROOM_INFOS];
 
         let prefixed_stores = [
             keys::PROFILES,
