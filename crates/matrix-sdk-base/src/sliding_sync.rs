@@ -114,9 +114,7 @@ impl BaseClient {
                     account_data,
                 )
                 .await?;
-            if let Some(room_to_store) = room_to_store {
-                changes.add_room(room_to_store);
-            }
+            changes.add_room(room_to_store);
             if let Some(joined_room) = joined_room {
                 new_rooms.join.insert(room_id.clone(), joined_room);
             }
@@ -192,137 +190,131 @@ impl BaseClient {
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
-    ) -> Result<(Option<RoomInfo>, Option<JoinedRoom>, Option<InvitedRoom>)> {
-        // If any invite_state exists, we take it to mean that we are invited to this room
-        // https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
-        if let Some(invite_state) = &room_data.invite_state {
-            let room = store.get_or_create_stripped_room(room_id).await;
-            let mut room_info = room.clone_info();
-            room_info.mark_state_partially_synced();
+    ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
+        // If any invite_state exists, we take it to mean that we are invited to this
+        // room https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
+        let (room, mut room_info, invited_room) =
+            if let Some(invite_state) = &room_data.invite_state {
+                let room = store.get_or_create_stripped_room(room_id).await;
+                let mut room_info = room.clone_info();
 
-            // We don't actually know what events are inside invite_state. In theory, they might
-            // not contain an m.room.member event, or they might set the membership to something
-            // other than invite. This would be very weird behaviour by the server, because
-            // invite_state is supposed to contain an m.room.member.
-            // Later, we will call handle_invited_state, which will reflect any information found
-            // in the real events inside invite_state, but we default to considering this room
-            // invited simply because invite_state exists. This is needed in the normal case,
-            // because the sliding sync server tries to send minimal state, meaning that we
-            // normally actually just receive {"type": "m.room.member"} with no content at all.
-            room_info.mark_as_invited();
+                // We don't actually know what events are inside invite_state. In theory, they
+                // might not contain an m.room.member event, or they might set the
+                // membership to something other than invite. This would be very
+                // weird behaviour by the server, because invite_state is supposed
+                // to contain an m.room.member. Later, we will call
+                // handle_invited_state, which will reflect any information found in
+                // the real events inside invite_state, but we default to considering this room
+                // invited simply because invite_state exists. This is needed in the normal
+                // case, because the sliding sync server tries to send minimal
+                // state, meaning that we normally actually just receive {"type":
+                // "m.room.member"} with no content at all.
+                room_info.mark_as_invited();
 
-            room_info.mark_state_partially_synced();
+                self.handle_invited_state(invite_state.as_slice(), &mut room_info, changes);
 
-            if !room_data.required_state.is_empty() {
-                self.handle_state(
-                    &room_data.required_state,
-                    &mut room_info,
-                    changes,
-                    ambiguity_cache,
+                (
+                    room,
+                    room_info,
+                    Some(v3::InvitedRoom::from(v3::InviteState::from(invite_state.clone()))),
                 )
-                .await?;
-            }
+            } else {
+                let room = store.get_or_create_room(room_id, RoomState::Joined).await;
+                let mut room_info = room.clone_info();
 
-            self.handle_invited_state(invite_state.as_slice(), &mut room_info, changes);
+                // We default to considering this room joined if it's not an invite, but we
+                // expect to find a m.room.member event in the required_state, so
+                // this should get fixed to the real correct value when we call
+                // self.handle_state below.
+                room_info.mark_as_joined();
 
-            let invited_room = v3::InvitedRoom::from(v3::InviteState::from(invite_state.clone()));
+                (room, room_info, None)
+            };
 
-            Ok((Some(room_info), None, Some(invited_room)))
-        } else {
-            let room = store.get_or_create_room(room_id, RoomState::Joined).await;
-            let mut room_info = room.clone_info();
+        room_info.mark_state_partially_synced();
 
-            // We default to considering this room joined if it's not an invite, but we expect to
-            // find a m.room.member event in the required_state, so this should get fixed to the
-            // real correct value when we call self.handle_state below.
-            room_info.mark_as_joined();
+        if let Some(name) = &room_data.name {
+            room_info.update_name(name.to_owned());
+        }
 
-            room_info.mark_state_partially_synced();
+        // Sliding sync doesn't have a room summary, nevertheless it contains the joined
+        // and invited member counts. It likely will never have a heroes concept since
+        // it calculates the room display name for us.
+        //
+        // Let's at least fetch the member counts, since they might be useful.
+        let mut room_summary = RoomSummary::new();
+        room_summary.invited_member_count = room_data.invited_count;
+        room_summary.joined_member_count = room_data.joined_count;
+        room_info.update_summary(&room_summary);
 
-            if let Some(name) = &room_data.name {
-                room_info.update_name(name.to_owned());
-            }
+        room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-            // Sliding sync doesn't have a room summary, nevertheless it contains the joined
-            // and invited member counts. It likely will never have a heroes concept since
-            // it calculates the room display name for us.
-            //
-            // Let's at least fetch the member counts, since they might be useful.
-            let mut room_summary = RoomSummary::new();
-            room_summary.invited_member_count = room_data.invited_count;
-            room_summary.joined_member_count = room_data.joined_count;
-            room_info.update_summary(&room_summary);
-
-            room_info.set_prev_batch(room_data.prev_batch.as_deref());
-
-            let mut user_ids = if !room_data.required_state.is_empty() {
-                self.handle_state(
-                    &room_data.required_state,
-                    &mut room_info,
-                    changes,
-                    ambiguity_cache,
-                )
+        let mut user_ids = if !room_data.required_state.is_empty() {
+            self.handle_state(&room_data.required_state, &mut room_info, changes, ambiguity_cache)
                 .await?
-            } else {
-                Default::default()
-            };
+        } else {
+            Default::default()
+        };
 
-            let room_account_data = if let Some(events) = account_data.rooms.get(room_id) {
-                self.handle_room_account_data(room_id, events, changes).await;
-                Some(events.to_vec())
-            } else {
-                None
-            };
+        let room_account_data = if let Some(events) = account_data.rooms.get(room_id) {
+            self.handle_room_account_data(room_id, events, changes).await;
+            Some(events.to_vec())
+        } else {
+            None
+        };
 
-            if room_data.limited {
-                room_info.mark_members_missing();
-            }
+        if room_data.limited {
+            room_info.mark_members_missing();
+        }
 
-            let push_rules = self.get_push_rules(changes).await?;
+        let push_rules = self.get_push_rules(changes).await?;
 
-            let timeline = self
-                .handle_timeline(
-                    &room,
-                    room_data.limited,
-                    room_data.timeline.clone(),
-                    room_data.prev_batch.clone(),
-                    &push_rules,
-                    &mut user_ids,
-                    &mut room_info,
-                    changes,
-                    ambiguity_cache,
-                )
-                .await?;
+        let timeline = self
+            .handle_timeline(
+                &room,
+                room_data.limited,
+                room_data.timeline.clone(),
+                room_data.prev_batch.clone(),
+                &push_rules,
+                &mut user_ids,
+                &mut room_info,
+                changes,
+                ambiguity_cache,
+            )
+            .await?;
 
-            #[cfg(feature = "e2e-encryption")]
-            if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
-                    if !room.is_encrypted() {
-                        // The room turned on encryption in this sync, we need
-                        // to also get all the existing users and mark them for
-                        // tracking.
-                        let user_ids = store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
-                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
-                    }
+        #[cfg(feature = "e2e-encryption")]
+        if room_info.is_encrypted() {
+            if let Some(o) = self.olm_machine() {
+                if !room.is_encrypted() {
+                    // The room turned on encryption in this sync, we need
+                    // to also get all the existing users and mark them for
+                    // tracking.
+                    let user_ids = store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
+                }
 
-                    if !user_ids.is_empty() {
-                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
-                    }
+                if !user_ids.is_empty() {
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
                 }
             }
-            let notification_count = room_data.unread_notifications.clone().into();
-            room_info.update_notification_count(notification_count);
+        }
+        let notification_count = room_data.unread_notifications.clone().into();
+        room_info.update_notification_count(notification_count);
 
-            let joined_room = JoinedRoom::new(
+        let joined_room = if invited_room.is_none() {
+            Some(JoinedRoom::new(
                 timeline,
                 room_data.required_state.clone(),
                 room_account_data.unwrap_or_default(),
                 Vec::new(),
                 notification_count,
-            );
+            ))
+        } else {
+            None
+        };
 
-            Ok((Some(room_info), Some(joined_room), None))
-        }
+        Ok((room_info, joined_room, invited_room))
     }
 }
 
@@ -385,6 +377,24 @@ mod test {
 
         // When I send sliding sync response containing a room with a name
         let mut room = v4::SlidingSyncRoom::new();
+        room.name = Some("little room".to_owned());
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room appears in the client with the expected name
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name(), Some("little room".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn invited_room_name_is_found_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a name
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_invited(&mut room);
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
@@ -526,8 +536,8 @@ mod test {
     }
 
     fn set_room_invited(room: &mut v4::SlidingSyncRoom) {
-        // MSC3575 shows an almost-empty event to indicate that we are invited to a room.
-        // Just the type is supplied.
+        // MSC3575 shows an almost-empty event to indicate that we are invited to a
+        // room. Just the type is supplied.
 
         let evt = Raw::new(&json!({
             "type": "m.room.member",
