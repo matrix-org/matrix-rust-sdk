@@ -30,12 +30,12 @@ use ruma::{
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{chain, Key, SqliteObjectExt},
+    utils::{chain, load_db_version, Key, SqliteObjectExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -93,7 +93,8 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        run_migrations(&conn).await.map_err(OpenStoreError::Migration)?;
+        let version = load_db_version(&conn).await?;
+        run_migrations(&conn, version).await.map_err(OpenStoreError::Migration)?;
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
@@ -197,36 +198,13 @@ impl SqliteStateStore {
 
 const DATABASE_VERSION: u8 = 1;
 
-async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
-    let kv_exists = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
-            (),
-            |row| row.get::<_, u32>(0),
-        )
-        .await?
-        > 0;
-
-    let version = if kv_exists {
-        match conn.get_kv("version").await?.as_deref() {
-            Some([v]) => *v,
-            Some(_) => {
-                error!("version database field has multiple bytes");
-                return Ok(());
-            }
-            None => {
-                error!("version database field is missing");
-                return Ok(());
-            }
-        }
-    } else {
-        0
-    };
-
+async fn run_migrations(conn: &SqliteConn, version: u8) -> rusqlite::Result<()> {
     if version == 0 {
         debug!("Creating database");
     } else if version < DATABASE_VERSION {
         debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
+    } else {
+        return Ok(());
     }
 
     if version < 1 {
