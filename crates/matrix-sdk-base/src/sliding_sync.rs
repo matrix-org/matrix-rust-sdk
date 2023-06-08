@@ -197,22 +197,6 @@ impl BaseClient {
 
         room_info.mark_state_partially_synced();
 
-        if let Some(name) = &room_data.name {
-            room_info.update_name(name.to_owned());
-        }
-
-        // Sliding sync doesn't have a room summary, nevertheless it contains the joined
-        // and invited member counts. It likely will never have a heroes concept since
-        // it calculates the room display name for us.
-        //
-        // Let's at least fetch the member counts, since they might be useful.
-        let mut room_summary = RoomSummary::new();
-        room_summary.invited_member_count = room_data.invited_count;
-        room_summary.joined_member_count = room_data.joined_count;
-        room_info.update_summary(&room_summary);
-
-        room_info.set_prev_batch(room_data.prev_batch.as_deref());
-
         let mut user_ids = if !room_data.required_state.is_empty() {
             self.handle_state(&room_data.required_state, &mut room_info, changes, ambiguity_cache)
                 .await?
@@ -227,9 +211,7 @@ impl BaseClient {
             None
         };
 
-        if room_data.limited {
-            room_info.mark_members_missing();
-        }
+        process_room_properties(room_data, &mut room_info);
 
         let push_rules = self.get_push_rules(changes).await?;
 
@@ -263,6 +245,7 @@ impl BaseClient {
                 }
             }
         }
+
         let notification_count = room_data.unread_notifications.clone().into();
         room_info.update_notification_count(notification_count);
 
@@ -330,6 +313,28 @@ impl BaseClient {
 
             (room, room_info, None)
         }
+    }
+}
+
+fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut RoomInfo) {
+    if let Some(name) = &room_data.name {
+        room_info.update_name(name.to_owned());
+    }
+
+    // Sliding sync doesn't have a room summary, nevertheless it contains the joined
+    // and invited member counts. It likely will never have a heroes concept since
+    // it calculates the room display name for us.
+    //
+    // Let's at least fetch the member counts, since they might be useful.
+    let mut room_summary = RoomSummary::new();
+    room_summary.invited_member_count = room_data.invited_count;
+    room_summary.joined_member_count = room_data.joined_count;
+    room_info.update_summary(&room_summary);
+
+    room_info.set_prev_batch(room_data.prev_batch.as_deref());
+
+    if room_data.limited {
+        room_info.mark_members_missing();
     }
 }
 
