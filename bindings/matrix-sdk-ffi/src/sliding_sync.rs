@@ -893,17 +893,20 @@ pub trait NotificationSyncListener: Sync + Send {
     fn did_terminate(&self);
 }
 
+/// Full context for the notification sync loop.
 #[derive(uniffi::Object)]
 pub struct NotificationSync {
-    inner: MatrixNotificationSync,
+    /// Unused field, kept for its `Drop` semantics.
+    _handle: TaskHandle,
 }
 
 impl NotificationSync {
-    pub fn start(&self, listener: Box<dyn NotificationSyncListener>) -> Arc<TaskHandle> {
-        let inner = self.inner.clone();
-
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let stream = inner.sync();
+    fn start(
+        notification: MatrixNotificationSync,
+        listener: Box<dyn NotificationSyncListener>,
+    ) -> TaskHandle {
+        TaskHandle::new(RUNTIME.spawn(async move {
+            let stream = notification.sync();
             pin_mut!(stream);
 
             loop {
@@ -928,7 +931,7 @@ impl NotificationSync {
             }
 
             listener.did_terminate();
-        })))
+        }))
     }
 }
 
@@ -958,9 +961,8 @@ impl Client {
     ) -> Result<Arc<NotificationSync>, ClientError> {
         RUNTIME.block_on(async move {
             let inner = MatrixNotificationSync::new(id, self.inner.clone()).await?;
-            let notification_api = NotificationSync { inner };
-            notification_api.start(listener);
-            Ok(Arc::new(notification_api))
+            let handle = NotificationSync::start(inner, listener);
+            Ok(Arc::new(NotificationSync { _handle: handle }))
         })
     }
 }
