@@ -321,13 +321,14 @@ mod test {
         events::{
             room::{
                 avatar::RoomAvatarEventContent,
+                canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent},
             },
             StateEventContent,
         },
-        mxc_uri, room_id,
+        mxc_uri, room_alias_id, room_id,
         serde::Raw,
-        uint, user_id, MxcUri, RoomId, UserId,
+        uint, user_id, MxcUri, RoomAliasId, RoomId, UserId,
     };
     use serde_json::json;
 
@@ -448,6 +449,25 @@ mod test {
         );
     }
 
+    #[tokio::test]
+    async fn canonical_alias_is_found_in_invitation_room_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+        let room_alias_id = room_alias_id!("#myroom:e.uk");
+
+        // When I send sliding sync response containing an invited room with an avatar
+        let mut room = room_with_canonical_alias(room_alias_id, user_id);
+        set_room_membership(&mut room, user_id, MembershipState::Invite);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room in the client has the avatar
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.canonical_alias(), Some(room_alias_id.to_owned()));
+    }
+
     async fn logged_in_client() -> BaseClient {
         let client = BaseClient::new();
         client
@@ -473,6 +493,25 @@ mod test {
         avatar_event_content.url = Some(avatar_uri.to_owned());
 
         room.required_state.push(make_state_event(user_id, "", avatar_event_content, None));
+
+        room
+    }
+
+    fn room_with_canonical_alias(
+        room_alias_id: &RoomAliasId,
+        user_id: &UserId,
+    ) -> v4::SlidingSyncRoom {
+        let mut room = v4::SlidingSyncRoom::new();
+
+        let mut canonical_alias_event_content = RoomCanonicalAliasEventContent::new();
+        canonical_alias_event_content.alias = Some(room_alias_id.to_owned());
+
+        room.required_state.push(make_state_event(
+            user_id,
+            "",
+            canonical_alias_event_content,
+            None,
+        ));
 
         room
     }
