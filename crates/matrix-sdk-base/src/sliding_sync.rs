@@ -199,10 +199,19 @@ impl BaseClient {
             room_info.mark_state_partially_synced();
 
             let room_to_store = if let Some(r) = store.get_room(room_id) {
-                let mut room_info = r.clone_info();
-                room_info.mark_as_invited(); // FIXME: this might not be accurate
-                room_info.mark_state_partially_synced();
-                Some(room_info)
+                let mut stored_room_info = r.clone_info();
+                stored_room_info.mark_as_invited(); // FIXME: this might not be accurate
+                stored_room_info.mark_state_partially_synced();
+                if !room_data.required_state.is_empty() {
+                    self.handle_state(
+                        &room_data.required_state,
+                        &mut stored_room_info,
+                        changes,
+                        ambiguity_cache,
+                    )
+                    .await?;
+                }
+                Some(stored_room_info)
             } else {
                 None
             };
@@ -419,8 +428,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore = "fails because we don't process avatars for invite rooms"]
-    async fn avatar_is_found_invitation_room_when_processing_sliding_sync_response() {
+    async fn avatar_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
