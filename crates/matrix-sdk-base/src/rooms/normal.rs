@@ -20,7 +20,6 @@ use std::{
 use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
-    event_id,
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -725,7 +724,7 @@ impl RoomInfo {
     pub fn update_name(&mut self, name: String) {
         self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: RoomNameEventContent::new(Some(name)),
-            event_id: Some(event_id!("$fake_event_id").to_owned()),
+            event_id: None,
         }));
     }
 
