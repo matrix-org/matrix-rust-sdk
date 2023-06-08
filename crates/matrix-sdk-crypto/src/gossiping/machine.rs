@@ -1008,6 +1008,10 @@ impl GossipMachine {
             }
         }
     }
+
+    pub(crate) fn invalidate_caches(&self) {
+        self.outbound_group_sessions.invalidate_caches();
+    }
 }
 
 #[cfg(test)]

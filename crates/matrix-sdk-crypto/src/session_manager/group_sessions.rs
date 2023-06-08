@@ -110,6 +110,11 @@ impl GroupSessionCache {
     ) -> Option<OutboundGroupSession> {
         self.get_or_load(room_id).await.filter(|o| session_id == o.session_id())
     }
+
+    pub(crate) fn invalidate_caches(&self) {
+        self.sessions.clear();
+        self.sessions_being_shared.clear();
+    }
 }
 
 /// Returned by `collect_session_recipients`.
@@ -842,6 +847,10 @@ impl GroupSessionManager {
         }
 
         Ok(requests)
+    }
+
+    pub(crate) fn invalidate_caches(&self) {
+        self.sessions.invalidate_caches();
     }
 }
 

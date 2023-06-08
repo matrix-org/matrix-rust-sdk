@@ -1728,6 +1728,26 @@ impl OlmMachine {
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.inner.backup_machine
     }
+
+    /// Invalidates all the caches in the `OlmMachine`.
+    ///
+    /// This must be done if there's some other process that might have written
+    /// to the same database, if there's a suspicion this other process did
+    /// in fact write.
+    pub async fn invalidate_caches(&self) -> StoreResult<()> {
+        self.store().invalidate_caches().await?;
+
+        // TODO could the account be invalidated, and as such should it be reloaded in
+        // all the data structures too?
+        // TODO are there other cached fields? 😅
+
+        self.inner.group_session_manager.invalidate_caches();
+        self.inner.session_manager.invalidate_caches();
+
+        self.inner.key_request_machine.invalidate_caches();
+
+        Ok(())
+    }
 }
 
 #[cfg(any(feature = "testing", test))]

@@ -431,6 +431,10 @@ impl SessionManager {
 
         Ok(())
     }
+
+    pub(crate) fn invalidate_caches(&self) {
+        self.key_request_machine.invalidate_caches();
+    }
 }
 
 #[cfg(test)]
