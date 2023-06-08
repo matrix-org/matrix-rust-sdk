@@ -33,7 +33,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
-        assert request = { $( $request_json:tt )* },
+        assert request >= { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $(,)?
     ) => {
@@ -41,7 +41,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             [$server, $room_list, $stream]
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
-            assert request = { $( $request_json )* },
+            assert request >= { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
         }
     };
@@ -50,7 +50,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         [$server:ident, $room_list:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
-        assert request = { $( $request_json:tt )* },
+        assert request >= { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $(,)?
     ) => {
@@ -64,7 +64,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             let next = super::sliding_sync_then_assert_request_and_fake_response! {
                 [$server, $stream]
                 sync matches $sync_result,
-                assert request = { $( $request_json )* },
+                assert request >= { $( $request_json )* },
                 respond with = $( ( code $code ) )? { $( $response_json )* },
             };
 
@@ -200,7 +200,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
@@ -234,7 +234,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
@@ -275,7 +275,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = AllRooms => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 99]],
@@ -308,7 +308,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Enjoy => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 149]],
@@ -353,7 +353,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => FirstRooms,
-            assert request = {
+            assert request >= {
                 "lists": {
                     ALL_ROOMS: {
                         "ranges": [[0, 19]],
@@ -381,7 +381,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = FirstRooms => AllRooms,
-            assert request = {
+            assert request >= {
                 "lists": {
                     ALL_ROOMS: {
                         "ranges": [[0, 9]],
@@ -416,7 +416,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = AllRooms => Enjoy,
-            assert request = {
+            assert request >= {
                 "lists": {
                     ALL_ROOMS: {
                         "ranges": [[0, 9]],
@@ -458,7 +458,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         [server, room_list, sync]
         sync matches Some(Err(_)),
         states = Init => Terminated { .. },
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // The default range, in selective sync-mode.
@@ -483,7 +483,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Terminated { .. } => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // Still the default range, in selective sync-mode.
@@ -507,7 +507,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         [server, room_list, sync]
         sync matches Some(Err(_)),
         states = FirstRooms => Terminated { .. },
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // In `FirstRooms`, the sync-mode has changed to growing, with
@@ -540,7 +540,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Terminated { .. } => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // In `AllRooms`, the sync-mode is still growing, but the range
@@ -569,7 +569,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         [server, room_list, sync]
         sync matches Some(Err(_)),
         states = AllRooms => Terminated { .. },
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // In `AllRooms`, the sync-mode is still growing, and the range
@@ -599,7 +599,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Terminated { .. } => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // Due to the error, the range is reset to its initial value.
@@ -627,7 +627,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Enjoy => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // No error. The range is making progress.
@@ -655,7 +655,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         [server, room_list, sync]
         sync matches Some(Err(_)),
         states = Enjoy => Terminated { .. },
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // Range is making progress and is even reaching the maximum
@@ -685,7 +685,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Terminated { .. } => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     // An error was received at the previous sync iteration.
@@ -726,7 +726,7 @@ async fn test_entries_stream() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
@@ -784,7 +784,7 @@ async fn test_entries_stream() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
@@ -858,7 +858,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
@@ -912,7 +912,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
@@ -997,7 +997,7 @@ async fn test_room() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {
@@ -1037,7 +1037,7 @@ async fn test_room() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "1",
             "lists": {
@@ -1095,7 +1095,7 @@ async fn test_room_timeline() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {
@@ -1129,7 +1129,7 @@ async fn test_room_timeline() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {},
@@ -1179,7 +1179,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {
@@ -1210,7 +1210,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {},
@@ -1234,7 +1234,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request = {},
+        assert request >= {},
         respond with = {
             "pos": "0",
             "lists": {},
@@ -1276,7 +1276,7 @@ async fn test_input_viewport() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
@@ -1293,7 +1293,7 @@ async fn test_input_viewport() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 49]],
@@ -1316,7 +1316,7 @@ async fn test_input_viewport() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = AllRooms => Enjoy,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 49]],

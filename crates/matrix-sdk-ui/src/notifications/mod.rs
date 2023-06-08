@@ -16,8 +16,8 @@
 //!
 //! The notification API is a high-level helper that is designed to take care of
 //! handling the synchronization of notifications, be they received within the
-//! app or within a dedicated notification process (e.g. the [NSE] process on iOS
-//! devices).
+//! app or within a dedicated notification process (e.g. the [NSE] process on
+//! iOS devices).
 //!
 //! Under the hood, this uses a sliding sync instance configured with no lists,
 //! but that enables the e2ee and to-device extensions, so that it can both

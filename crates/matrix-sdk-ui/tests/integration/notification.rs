@@ -75,14 +75,20 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
 
     // The to-device since token is passed from the previous request.
     // The extensions haven't changed, so they're not updated (sticky parameters
-    // ftw).
+    // ftw)... in the first request. Then, the sliding sync instance will retry
+    // those requests, so it will include them again; as a matter of fact, the
+    // last request that we assert against will contain those.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         sync matches Some(Err(_)),
         assert request = {
             "conn_id": "notifs",
             "extensions": {
+                "e2ee": {
+                    "enabled": true,
+                },
                 "to_device": {
+                    "enabled": true,
                     "since": "nb1"
                 }
             }

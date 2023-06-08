@@ -11,20 +11,20 @@ impl Match for SlidingSyncMatcher {
     }
 }
 
-/// Run a single sliding sync request, checking that the request is a subset of what we expect it
-/// to be, and providing the given next response.
+/// Run a single sliding sync request, checking that the request is a subset of
+/// what we expect it to be, and providing the given next response.
 #[macro_export]
 macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
-        assert request = { $( $request_json:tt )* },
+        assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $(,)?
     ) => {
         sliding_sync_then_assert_request_and_fake_response! {
             [$server, $stream]
             sync matches Some(Ok(_)),
-            assert request = { $( $request_json )* },
+            assert request $sign { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
         }
     };
@@ -32,12 +32,12 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
         sync matches $sync_result:pat,
-        assert request = { $( $request_json:tt )* },
+        assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $(,)?
     ) => {
         {
-            use crate::sliding_sync::SlidingSyncMatcher;
+            use $crate::sliding_sync::SlidingSyncMatcher;
             use wiremock::{Mock, ResponseTemplate, Match as _};
             use assert_matches::assert_matches;
             use serde_json::json;
@@ -63,7 +63,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                     if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
                         &json_value,
                         &json!({ $( $request_json )* }),
-                        assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
+                        $crate::sliding_sync_then_assert_request_and_fake_response!(@assertion_config $sign)
                     ) {
                         dbg!(json_value);
                         panic!("{}", error);
@@ -76,4 +76,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
             next
         }
     };
+
+    (@assertion_config >=) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive) };
+    (@assertion_config =) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict) };
 }
