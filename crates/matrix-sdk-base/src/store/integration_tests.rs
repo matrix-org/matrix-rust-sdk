@@ -182,7 +182,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             )]),
         );
 
-        changes.add_stripped_room(stripped_room);
+        changes.add_room(stripped_room);
 
         let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
         let stripped_member_event = Raw::new(&stripped_member_json.clone()).unwrap().cast();
@@ -306,7 +306,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
         assert!(self.get_presence_event(user_id).await?.is_some());
-        assert_eq!(self.get_room_infos().await?.len(), 1, "Expected to find 1 room info");
+        assert_eq!(self.get_room_infos().await?.len(), 2, "Expected to find 2 room infos");
         assert_eq!(
             self.get_stripped_room_infos().await?.len(),
             1,
@@ -775,13 +775,13 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut changes = StateChanges::default();
         changes.add_stripped_member(room_id, user_id, custom_stripped_membership_event(user_id));
-        changes.add_stripped_room(RoomInfo::new(room_id, RoomState::Invited));
+        changes.add_room(RoomInfo::new(room_id, RoomState::Invited));
         self.save_changes(&changes).await.unwrap();
 
         let member_event =
             self.get_member_event(room_id, user_id).await.unwrap().unwrap().deserialize().unwrap();
         assert!(matches!(member_event, MemberEvent::Stripped(_)));
-        assert_eq!(self.get_room_infos().await.unwrap().len(), 0);
+        assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
         assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 1);
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
@@ -799,7 +799,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.remove_room(room_id).await?;
 
-        assert!(self.get_room_infos().await?.is_empty(), "room is still there");
+        assert_eq!(self.get_room_infos().await?.len(), 1, "room is still there");
         assert_eq!(self.get_stripped_room_infos().await?.len(), 1);
 
         assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());

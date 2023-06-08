@@ -40,7 +40,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 6;
+const CURRENT_DB_VERSION: u32 = 7;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -70,6 +70,7 @@ mod old_keys {
     pub const INVITED_USER_IDS: &str = "invited_user_ids";
     pub const STRIPPED_JOINED_USER_IDS: &str = "stripped_joined_user_ids";
     pub const STRIPPED_INVITED_USER_IDS: &str = "stripped_invited_user_ids";
+    pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
 }
 
 pub async fn upgrade_meta_db(
@@ -219,6 +220,9 @@ pub async fn upgrade_inner_db(
             if old_version < 6 {
                 migration.merge(migrate_to_v6(&pre_db, store_cipher).await?);
             }
+            if old_version < 7 {
+                migration.merge(migrate_to_v7(&pre_db, store_cipher).await?);
+            }
         }
 
         pre_db.close();
@@ -269,7 +273,7 @@ pub const V1_STORES: &[&str] = &[
     keys::ROOM_INFOS,
     keys::PRESENCE,
     keys::ROOM_ACCOUNT_DATA,
-    keys::STRIPPED_ROOM_INFOS,
+    old_keys::STRIPPED_ROOM_INFOS,
     old_keys::STRIPPED_MEMBERS,
     keys::STRIPPED_ROOM_STATE,
     old_keys::STRIPPED_JOINED_USER_IDS,
@@ -439,7 +443,7 @@ async fn migrate_to_v5(
             keys::ROOM_STATE,
             keys::STRIPPED_ROOM_STATE,
             keys::ROOM_INFOS,
-            keys::STRIPPED_ROOM_INFOS,
+            old_keys::STRIPPED_ROOM_INFOS,
         ],
         IdbTransactionMode::Readwrite,
     )?;
@@ -474,7 +478,7 @@ async fn migrate_to_v5(
     let stripped_members_store = tx.object_store(old_keys::STRIPPED_MEMBERS)?;
     let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
     let stripped_room_infos = tx
-        .object_store(keys::STRIPPED_ROOM_INFOS)?
+        .object_store(old_keys::STRIPPED_ROOM_INFOS)?
         .get_all()?
         .await?
         .iter()
@@ -515,7 +519,12 @@ async fn migrate_to_v6(
     // We only have joined and invited user IDs in the old store, so instead we will
     // use the room member events to populate the new store.
     let tx = db.transaction_on_multi_with_mode(
-        &[keys::ROOM_STATE, keys::ROOM_INFOS, keys::STRIPPED_ROOM_STATE, keys::STRIPPED_ROOM_INFOS],
+        &[
+            keys::ROOM_STATE,
+            keys::ROOM_INFOS,
+            keys::STRIPPED_ROOM_STATE,
+            old_keys::STRIPPED_ROOM_INFOS,
+        ],
         IdbTransactionMode::Readonly,
     )?;
 
@@ -545,7 +554,7 @@ async fn migrate_to_v6(
 
     let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
     let stripped_room_infos = tx
-        .object_store(keys::STRIPPED_ROOM_INFOS)?
+        .object_store(old_keys::STRIPPED_ROOM_INFOS)?
         .get_all()?
         .await?
         .iter()
@@ -594,6 +603,43 @@ async fn migrate_to_v6(
         ]),
         create_stores: HashSet::from_iter([keys::USER_IDS, keys::STRIPPED_USER_IDS]),
         data,
+    })
+}
+
+/// Remove the stripped room infos store and migrate the data with the other
+/// room infos, as well as .
+async fn migrate_to_v7(
+    db: &IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<OngoingMigration> {
+    let tx = db.transaction_on_multi_with_mode(
+        &[old_keys::STRIPPED_ROOM_INFOS],
+        IdbTransactionMode::Readonly,
+    )?;
+
+    let room_infos = tx
+        .object_store(old_keys::STRIPPED_ROOM_INFOS)?
+        .get_all()?
+        .await?
+        .iter()
+        .filter_map(|value| {
+            deserialize_event::<RoomInfo>(store_cipher, &value)
+                .ok()
+                .map(|info| (encode_key(store_cipher, keys::ROOM_INFOS, info.room_id()), value))
+        })
+        .collect::<Vec<_>>();
+
+    tx.await.into_result()?;
+
+    let mut data = HashMap::new();
+    if !room_infos.is_empty() {
+        data.insert(keys::ROOM_INFOS, room_infos);
+    }
+
+    Ok(OngoingMigration {
+        drop_stores: HashSet::from_iter([old_keys::STRIPPED_ROOM_INFOS]),
+        data,
+        ..Default::default()
     })
 }
 
@@ -646,7 +692,6 @@ mod tests {
                     keys::ROOM_INFOS,
                     keys::PRESENCE,
                     keys::ROOM_ACCOUNT_DATA,
-                    keys::STRIPPED_ROOM_INFOS,
                     keys::STRIPPED_ROOM_STATE,
                     keys::ROOM_USER_RECEIPTS,
                     keys::ROOM_EVENT_RECEIPTS,
@@ -685,6 +730,9 @@ mod tests {
                     for name in [keys::USER_IDS, keys::STRIPPED_USER_IDS] {
                         db.create_object_store(name)?;
                     }
+                }
+                if version < 7 {
+                    db.create_object_store(old_keys::STRIPPED_ROOM_INFOS)?;
                 }
 
                 Ok(())
@@ -1003,7 +1051,7 @@ mod tests {
                     old_keys::MEMBERS,
                     keys::ROOM_INFOS,
                     old_keys::STRIPPED_MEMBERS,
-                    keys::STRIPPED_ROOM_INFOS,
+                    old_keys::STRIPPED_ROOM_INFOS,
                 ],
                 IdbTransactionMode::Readwrite,
             )?;
@@ -1025,10 +1073,10 @@ mod tests {
                 &encode_key(None, old_keys::STRIPPED_MEMBERS, (stripped_room_id, stripped_user_id)),
                 &serialize_event(None, &stripped_member_event)?,
             )?;
-            let stripped_room_infos_store = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
             stripped_room_infos_store.put_key_val(
-                &encode_key(None, keys::STRIPPED_ROOM_INFOS, stripped_room_id),
+                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
                 &serialize_event(None, &stripped_room_info)?,
             )?;
 
@@ -1079,7 +1127,7 @@ mod tests {
                     keys::ROOM_STATE,
                     keys::ROOM_INFOS,
                     keys::STRIPPED_ROOM_STATE,
-                    keys::STRIPPED_ROOM_INFOS,
+                    old_keys::STRIPPED_ROOM_INFOS,
                     old_keys::INVITED_USER_IDS,
                     old_keys::JOINED_USER_IDS,
                     old_keys::STRIPPED_INVITED_USER_IDS,
@@ -1121,10 +1169,10 @@ mod tests {
                 ),
                 &serialize_event(None, &stripped_member_event)?,
             )?;
-            let stripped_room_infos_store = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
             stripped_room_infos_store.put_key_val(
-                &encode_key(None, keys::STRIPPED_ROOM_INFOS, stripped_room_id),
+                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
                 &serialize_event(None, &stripped_room_info)?,
             )?;
 
@@ -1191,6 +1239,47 @@ mod tests {
                 .as_slice(),
             [stripped_user_id.to_owned()]
         );
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v7() -> Result<()> {
+        let name = format!("migrating-v7-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        let room_id = room_id!("!room:localhost");
+        let stripped_room_id = room_id!("!stripped_room:localhost");
+
+        // Populate DB with old table.
+        {
+            let db = create_fake_db(&name, 6).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[keys::ROOM_INFOS, old_keys::STRIPPED_ROOM_INFOS],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
+            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            room_infos_store.put_key_val(
+                &encode_key(None, keys::ROOM_INFOS, room_id),
+                &serialize_event(None, &room_info)?,
+            )?;
+
+            let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
+            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            stripped_room_infos_store.put_key_val(
+                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
+                &serialize_event(None, &stripped_room_info)?,
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 2);
 
         Ok(())
     }

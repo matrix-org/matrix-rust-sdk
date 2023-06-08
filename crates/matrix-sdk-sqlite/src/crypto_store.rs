@@ -101,7 +101,7 @@ impl SqliteCryptoStore {
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
         let version = load_db_version(&conn).await?;
-        run_migrations(&conn, version).await.map_err(OpenStoreError::Migration)?;
+        run_migrations(&conn, version).await?;
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
@@ -196,7 +196,7 @@ impl SqliteCryptoStore {
 const DATABASE_VERSION: u8 = 6;
 
 /// Run migrations for the given version of the database.
-async fn run_migrations(conn: &SqliteConn, version: u8) -> rusqlite::Result<()> {
+async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
     if version == 0 {
         debug!("Creating database");
     } else if version < DATABASE_VERSION {
