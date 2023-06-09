@@ -237,6 +237,12 @@ pub trait CryptoStore: AsyncTraitDeps {
         key: &str,
         new: Vec<u8>,
     ) -> Result<bool, Self::Error>;
+
+    /// Removes a custom value from the store.
+    ///
+    /// Returns a boolean indicating whether the value was actually present in
+    /// the store.
+    async fn remove_custom_value(&self, key: &str) -> Result<bool, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -390,6 +396,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         new: Vec<u8>,
     ) -> Result<bool, Self::Error> {
         self.0.insert_custom_value_if_missing(key, new).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<bool, Self::Error> {
+        self.0.remove_custom_value(key).await.map_err(Into::into)
     }
 }
 

@@ -312,14 +312,14 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn insert_custom_value_if_missing(&self, key: &str, new: Vec<u8>) -> Result<bool> {
-        let actual = self.get_custom_value(key).await?;
-        if actual.is_none() {
-            self.set_custom_value(key, new).await?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+    async fn insert_custom_value_if_missing(&self, _key: &str, _new: Vec<u8>) -> Result<bool> {
+        warn!("Method insert_custom_value_if_missing not implemented");
+        Ok(false)
+    }
+
+    async fn remove_custom_value(&self, _key: &str) -> Result<bool> {
+        warn!("Method remove_custom_value not implemented");
+        Ok(false)
     }
 }
 
