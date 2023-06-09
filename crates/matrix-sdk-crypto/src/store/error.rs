@@ -78,6 +78,18 @@ pub enum CryptoStoreError {
     /// A problem with the underlying database backend
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// A lock value was to be removed, but it didn't contain the expected lock value.
+    #[error("a lock value was to be removed, but it didn't contain the expected lock value")]
+    IncorrectLockValue,
+
+    /// A lock value was to be removed, but it was missing in the database.
+    #[error("a lock value was to be removed, but it was missing in the database")]
+    MissingLockValue,
+
+    /// Spent too long waiting for a database lock.
+    #[error("a lock timed out")]
+    LockTimeout,
 }
 
 impl CryptoStoreError {
