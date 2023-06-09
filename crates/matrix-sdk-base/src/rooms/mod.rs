@@ -7,7 +7,7 @@ use std::{collections::HashSet, fmt};
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomState};
+pub use normal::{Room, RoomInfo, RoomState, RoomStateFilter};
 use ruma::{
     assign,
     events::{
