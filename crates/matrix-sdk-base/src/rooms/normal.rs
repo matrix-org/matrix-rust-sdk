@@ -26,8 +26,8 @@ use ruma::{
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
-            tombstone::RoomTombstoneEventContent,
+            member::MembershipState, name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -81,6 +81,19 @@ pub enum RoomState {
     Left,
     /// The room is in a invited state.
     Invited,
+}
+
+impl From<&MembershipState> for RoomState {
+    fn from(membership_state: &MembershipState) -> Self {
+        match membership_state {
+            MembershipState::Ban => Self::Left, // TODO: is this right?
+            MembershipState::Invite => Self::Invited,
+            MembershipState::Join => Self::Joined,
+            MembershipState::Knock => Self::Left, // TODO: is this right?
+            MembershipState::Leave => Self::Left,
+            _ => panic!("Unexpected MembershipState: {}", membership_state),
+        }
+    }
 }
 
 impl Room {
@@ -635,6 +648,10 @@ impl RoomInfo {
     /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
         self.room_state = RoomState::Invited;
+    }
+
+    pub(crate) fn set_state(&mut self, room_state: RoomState) {
+        self.room_state = room_state;
     }
 
     /// Mark this Room as having all the members synced.
