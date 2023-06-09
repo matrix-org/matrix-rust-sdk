@@ -180,6 +180,7 @@ impl BaseClient {
     }
 
     /// Get all the rooms this client knows about.
+    #[deprecated = "Use get_rooms_filtered with RoomStateFilter::INVITED instead."]
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
         self.get_rooms_filtered(RoomStateFilter::INVITED)
     }
