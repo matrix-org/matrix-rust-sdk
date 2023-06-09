@@ -291,7 +291,7 @@ impl NotificationSettings {
         is_encrypted: bool,
         members_count: u64,
         ruleset: &Ruleset,
-    ) -> Result<RoomNotificationMode, NotificationSettingsError> {
+    ) -> RoomNotificationMode {
         // get the correct default rule ID based on `is_encrypted` and `members_count`
         let rule_id = match (is_encrypted, members_count) {
             (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
@@ -307,10 +307,10 @@ impl NotificationSettings {
                 && r.rule_id == rule_id.to_string()
                 && r.actions.iter().any(|a| a.should_notify())
         }) {
-            Ok(RoomNotificationMode::AllMessages)
+            RoomNotificationMode::AllMessages
         } else {
             // Otherwise, the mode is `MentionsAndKeywordsOnly`
-            Ok(RoomNotificationMode::MentionsAndKeywordsOnly)
+            RoomNotificationMode::MentionsAndKeywordsOnly
         }
     }
 
@@ -591,9 +591,11 @@ pub(crate) mod tests {
         let encrypted: bool = true;
         let members_count = 2;
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result = ruleset.set_enabled(
@@ -614,9 +616,11 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly)
     }
 
@@ -631,9 +635,11 @@ pub(crate) mod tests {
         let encrypted = false;
         let members_count = 2;
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result = ruleset.set_enabled(
@@ -651,9 +657,11 @@ pub(crate) mod tests {
             ruleset.set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true);
         assert!(result.is_ok());
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
@@ -670,9 +678,11 @@ pub(crate) mod tests {
         let encrypted: bool = true;
         let members_count = 3;
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result =
@@ -690,9 +700,11 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
@@ -707,9 +719,11 @@ pub(crate) mod tests {
         let encrypted: bool = false;
         let members_count = 3;
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::AllMessages);
 
         let result =
@@ -727,9 +741,11 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok());
 
-        let mode = notification_settings
-            .get_default_room_notification_mode(encrypted, members_count, &ruleset)
-            .expect("A default mode should be defined.");
+        let mode = notification_settings.get_default_room_notification_mode(
+            encrypted,
+            members_count,
+            &ruleset,
+        );
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 

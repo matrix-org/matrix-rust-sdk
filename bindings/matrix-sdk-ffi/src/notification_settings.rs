@@ -116,7 +116,7 @@ impl NotificationSettings {
             is_encrypted,
             members_count,
             ruleset,
-        )?;
+        );
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
 
