@@ -146,7 +146,6 @@ pub(crate) struct Store {
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
-    stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten. The sync processing is supposed to use write access,
     /// such that only it is currently accessing the store overall. Other things
@@ -164,7 +163,6 @@ impl Store {
             session_tokens: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
-            stripped_rooms: Default::default(),
             sync_lock: Default::default(),
         }
     }
@@ -184,11 +182,6 @@ impl Store {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
-        }
-
-        for info in self.inner.get_stripped_room_infos().await? {
-            let room = Room::restore(&session_meta.user_id, self.inner.clone(), info);
-            self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
         let token =
@@ -240,53 +233,14 @@ impl Store {
 
     /// Get the room with the given room id.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.rooms
-            .get(room_id)
-            .and_then(|r| match r.state() {
-                RoomState::Joined => Some(r.clone()),
-                RoomState::Left => Some(r.clone()),
-                RoomState::Invited => self.get_stripped_room(room_id),
-            })
-            .or_else(|| self.get_stripped_room(room_id))
-    }
-
-    /// Get all the rooms this store knows about.
-    pub fn get_stripped_rooms(&self) -> Vec<Room> {
-        self.stripped_rooms.iter().filter_map(|r| self.get_stripped_room(r.key())).collect()
-    }
-
-    /// Get the stripped room with the given room id.
-    pub fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.stripped_rooms.get(room_id).map(|r| r.clone())
-    }
-
-    /// Lookup the stripped Room for the given RoomId, or create one, if it
-    /// didn't exist yet in the store
-    pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let user_id =
-            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
-
-        // Remove the respective room from non-stripped rooms.
-        self.rooms.remove(room_id);
-
-        self.stripped_rooms
-            .entry(room_id.to_owned())
-            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomState::Invited))
-            .clone()
+        self.rooms.get(room_id).map(|r| r.clone())
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
     pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomState) -> Room {
-        if room_type == RoomState::Invited {
-            return self.get_or_create_stripped_room(room_id).await;
-        }
-
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
-
-        // Remove the respective room from stripped rooms.
-        self.stripped_rooms.remove(room_id);
 
         self.rooms
             .entry(room_id.to_owned())
@@ -303,7 +257,6 @@ impl fmt::Debug for Store {
             .field("session_meta", &self.session_meta)
             .field("sync_token", &self.sync_token)
             .field("rooms", &self.rooms)
-            .field("stripped_rooms", &self.stripped_rooms)
             .finish_non_exhaustive()
     }
 }

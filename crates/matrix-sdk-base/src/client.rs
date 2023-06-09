@@ -181,7 +181,7 @@ impl BaseClient {
 
     /// Get all the rooms this client knows about.
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
-        self.store.get_stripped_rooms()
+        self.get_rooms_filtered(RoomStateFilter::INVITED)
     }
 
     /// Get a reference to the store.
@@ -839,15 +839,10 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in response.rooms.invite {
-            let room = self.store.get_or_create_stripped_room(&room_id).await;
+            let room = self.store.get_or_create_room(&room_id, RoomState::Invited).await;
             let mut room_info = room.clone_info();
-
-            if let Some(r) = self.store.get_room(&room_id) {
-                let mut room_info = r.clone_info();
-                room_info.mark_as_invited();
-                room_info.mark_state_fully_synced();
-                changes.add_room(room_info);
-            }
+            room_info.mark_as_invited();
+            room_info.mark_state_fully_synced();
 
             self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
 
