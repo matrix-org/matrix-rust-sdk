@@ -14,6 +14,7 @@
   for invited rooms too.
 - Add `Client::subscribe_to_room_updates` and `room::Common::subscribe_to_updates`
 - `Client::rooms` now returns all rooms, even invited, as advertised.
+- Add `Client::rooms_filtered`
 
 # 0.6.2
 

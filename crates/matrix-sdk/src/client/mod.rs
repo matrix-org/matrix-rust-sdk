@@ -887,6 +887,15 @@ impl Client {
             .collect()
     }
 
+    /// Get all the rooms the client knows about, filtered by room state.
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<room::Room> {
+        self.base_client()
+            .get_rooms_filtered(filter)
+            .into_iter()
+            .map(|room| room::Common::new(self.clone(), room).into())
+            .collect()
+    }
+
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<room::Joined> {
         self.base_client()
