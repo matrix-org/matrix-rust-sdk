@@ -23,6 +23,8 @@
 - Move `StateStore::get_member_event` to `StateStoreExt`
 - `StateStore::get_stripped_room_infos` is deprecated. All room infos should now be returned by
   `get_room_infos`.
+- `BaseClient::get_stripped_rooms` is deprecated. Use `get_rooms_filtered` with
+  `RoomStateFilter::INVITED` instead.
 
 ## 0.5.1
 
