@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, RwLock as SyncRwLock},
 };
 
+use bitflags::bitflags;
 use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
@@ -844,6 +845,56 @@ impl RoomInfo {
 
     fn topic(&self) -> Option<&str> {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
+    }
+}
+
+bitflags! {
+    /// Room state filter as a bitset.
+    ///
+    /// Note that [`RoomStateFilter::empty()`] doesn't filter the results and
+    /// is equivalent to [`RoomStateFilter::all()`].
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RoomStateFilter: u16 {
+        /// The room is in a joined state.
+        const JOINED   = 0b00000001;
+        /// The room is in an invited state.
+        const INVITED  = 0b00000010;
+        /// The room is in a left state.
+        const LEFT     = 0b00000100;
+    }
+}
+
+impl RoomStateFilter {
+    /// Whether the given room state matches this `RoomStateFilter`.
+    pub fn matches(&self, state: RoomState) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        let bit_state = match state {
+            RoomState::Joined => Self::JOINED,
+            RoomState::Left => Self::LEFT,
+            RoomState::Invited => Self::INVITED,
+        };
+
+        self.contains(bit_state)
+    }
+
+    /// Get this `RoomStateFilter` as a list of matching [`RoomState`]s.
+    pub fn as_vec(&self) -> Vec<RoomState> {
+        let mut states = Vec::new();
+
+        if self.contains(Self::JOINED) {
+            states.push(RoomState::Joined);
+        }
+        if self.contains(Self::LEFT) {
+            states.push(RoomState::Left);
+        }
+        if self.contains(Self::INVITED) {
+            states.push(RoomState::Invited);
+        }
+
+        states
     }
 }
 

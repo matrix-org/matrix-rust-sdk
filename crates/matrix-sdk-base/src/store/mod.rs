@@ -61,7 +61,7 @@ pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{RoomInfo, RoomState},
-    MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
+    MinimalRoomMemberEvent, Room, RoomStateFilter, Session, SessionMeta, SessionTokens,
 };
 
 pub(crate) mod ambiguity_map;
@@ -227,6 +227,15 @@ impl Store {
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.rooms.iter().filter_map(|r| self.get_room(r.key())).collect()
+    }
+
+    /// Get all the rooms this store knows about, filtered by state.
+    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+        self.rooms
+            .iter()
+            .filter(|r| filter.matches(r.state()))
+            .filter_map(|r| self.get_room(r.key()))
+            .collect()
     }
 
     /// Get the room with the given room id.

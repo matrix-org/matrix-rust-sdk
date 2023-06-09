@@ -65,7 +65,7 @@ use crate::{
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    Session, SessionMeta, SessionTokens,
+    RoomStateFilter, Session, SessionMeta, SessionTokens,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -166,6 +166,11 @@ impl BaseClient {
     /// Get all the rooms this client knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.store.get_rooms()
+    }
+
+    /// Get all the rooms this client knows about, filtered by room state.
+    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+        self.store.get_rooms_filtered(filter)
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
