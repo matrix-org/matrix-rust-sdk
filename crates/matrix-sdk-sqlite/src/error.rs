@@ -32,6 +32,18 @@ pub enum OpenStoreError {
     #[error(transparent)]
     CreatePool(#[from] CreatePoolError),
 
+    /// Failed to load the database's version.
+    #[error("Failed to load database version")]
+    LoadVersion(#[source] rusqlite::Error),
+
+    /// The version of the database is missing.
+    #[error("Missing database version")]
+    MissingVersion,
+
+    /// The version of the database is invalid.
+    #[error("Invalid database version")]
+    InvalidVersion,
+
     /// Failed to apply migrations.
     #[error("Failed to run migrations")]
     Migration(#[source] rusqlite::Error),
