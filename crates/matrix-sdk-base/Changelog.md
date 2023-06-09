@@ -21,6 +21,8 @@
   - `can_send_state`
   - `can_trigger_room_notification`
 - Move `StateStore::get_member_event` to `StateStoreExt`
+- `StateStore::get_stripped_room_infos` is deprecated. All room infos should now be returned by
+  `get_room_infos`.
 
 ## 0.5.1
 

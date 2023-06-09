@@ -307,11 +307,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
         assert!(self.get_presence_event(user_id).await?.is_some());
         assert_eq!(self.get_room_infos().await?.len(), 2, "Expected to find 2 room infos");
-        assert_eq!(
-            self.get_stripped_room_infos().await?.len(),
-            1,
-            "Expected to find 1 stripped room info"
-        );
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 1, "Expected to find 1 stripped room info");
         assert!(self
             .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
@@ -740,7 +738,9 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_persist_invited_room(&self) -> Result<()> {
         self.populate().await?;
 
-        assert_eq!(self.get_stripped_room_infos().await?.len(), 1);
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 1);
 
         Ok(())
     }
@@ -751,7 +751,9 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
         assert_eq!(self.get_room_infos().await.unwrap().len(), 0);
-        assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 0);
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 0);
 
         let mut changes = StateChanges::default();
         changes
@@ -768,7 +770,9 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_member_event(room_id, user_id).await.unwrap().unwrap().deserialize().unwrap();
         assert!(matches!(member_event, MemberEvent::Sync(_)));
         assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
-        assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 0);
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 0);
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
@@ -782,7 +786,9 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_member_event(room_id, user_id).await.unwrap().unwrap().deserialize().unwrap();
         assert!(matches!(member_event, MemberEvent::Stripped(_)));
         assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
-        assert_eq!(self.get_stripped_room_infos().await.unwrap().len(), 1);
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 1);
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
@@ -800,7 +806,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.remove_room(room_id).await?;
 
         assert_eq!(self.get_room_infos().await?.len(), 1, "room is still there");
-        assert_eq!(self.get_stripped_room_infos().await?.len(), 1);
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert_eq!(stripped_rooms.len(), 1);
 
         assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
         assert!(
@@ -853,7 +861,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.remove_room(stripped_room_id).await?;
 
         assert!(self.get_room_infos().await?.is_empty(), "still room info found");
-        assert!(self.get_stripped_room_infos().await?.is_empty(), "still stripped room info found");
+        #[allow(deprecated)]
+        let stripped_rooms = self.get_stripped_room_infos().await?;
+        assert!(stripped_rooms.is_empty(), "still stripped room info found");
         Ok(())
     }
 }

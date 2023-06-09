@@ -1522,6 +1522,8 @@ mod migration_tests {
 
         // Check all room infos are there.
         assert_eq!(store.get_room_infos().await.unwrap().len(), 5);
-        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 2);
+        #[allow(deprecated)]
+        let stripped_rooms = store.get_stripped_room_infos().await.unwrap();
+        assert_eq!(stripped_rooms.len(), 2);
     }
 }

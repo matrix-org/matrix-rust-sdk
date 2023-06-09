@@ -153,6 +153,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
+    #[deprecated = "Use get_room_infos instead and filter by RoomState"]
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the users that use the given display name in the given room.
@@ -400,6 +401,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_room_infos().await.map_err(Into::into)
     }
 
+    #[allow(deprecated)]
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {
         self.0.get_stripped_room_infos().await.map_err(Into::into)
     }
