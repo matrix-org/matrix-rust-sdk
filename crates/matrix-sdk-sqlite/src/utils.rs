@@ -184,7 +184,7 @@ impl SqliteObjectStoreExt for deadpool_sqlite::Object {
     }
 }
 
-// Load the version of the database with the given connection.
+/// Load the version of the database with the given connection.
 pub(crate) async fn load_db_version(conn: &deadpool_sqlite::Object) -> Result<u8, OpenStoreError> {
     let kv_exists = conn
         .query_row(
