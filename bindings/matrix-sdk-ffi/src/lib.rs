@@ -41,12 +41,12 @@ pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 pub use matrix_sdk_ui::timeline::PaginationOutcome;
 pub use platform::*;
 
+// Re-exports for more convenient use inside other submodules
+use self::error::ClientError;
 pub use self::{
     authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
     session_verification::*, sliding_sync::*, timeline::*, tracing::*,
 };
-// Re-exports for more convenient use inside other submodules
-use self::{client::Client, error::ClientError};
 
 uniffi::include_scaffolding!("api");
 
