@@ -361,6 +361,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Some(content)
     }
 
+    pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
+        let mut state = self.state.lock().await;
+        if let Some((idx, _)) =
+            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
+        {
+            state.items.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
