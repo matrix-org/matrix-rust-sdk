@@ -50,7 +50,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    runtime::Handle,
     select, spawn,
     sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
@@ -597,7 +596,7 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_span.in_scope(|| {
+                                    sync_span.in_scope(|| async {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
                                         // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
@@ -609,12 +608,10 @@ impl SlidingSync {
                                         // Force invalidation of all the sticky parameters.
                                         let _ = self.inner.sticky.write().unwrap().data_mut();
 
-                                        Handle::current().block_on(async {
-                                            self.inner.lists.write().await.values_mut().for_each(|list| list.invalidate_sticky_data());
-                                        });
+                                        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
 
                                         debug!(?self.inner.position, "Sliding Sync has been reset");
-                                    });
+                                    }).await;
 
                                     continue;
                                 }
@@ -771,9 +768,11 @@ impl StickyData for SlidingSyncStickyParameters {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
-    use ruma::room_id;
-    use wiremock::MockServer;
+    use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id};
+    use serde_json::json;
+    use wiremock::{Match, MockServer};
 
     use super::*;
     use crate::{
@@ -1072,6 +1071,86 @@ mod tests {
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert_eq!(request.extensions.to_device.since.as_deref(), Some(since_token));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sticky_parameters_invalidated_by_reset() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test-slidingsync")?
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .build()
+            .await?;
+
+        // First request asks to enable the extension.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_some());
+
+        let sync = sliding_sync.sync();
+        pin_mut!(sync);
+
+        #[derive(Clone)]
+        struct SlidingSyncMatcher;
+
+        impl Match for SlidingSyncMatcher {
+            fn matches(&self, request: &wiremock::Request) -> bool {
+                request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+                    && request.method == wiremock::http::Method::Post
+            }
+        }
+
+        #[derive(Deserialize)]
+        struct PartialRequest {
+            txn_id: Option<String>,
+        }
+
+        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
+            .respond_with(|request: &wiremock::Request| {
+                // Repeat with the txn_id in the response, if set.
+                let request: PartialRequest = request.body_json().unwrap();
+                wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                    "txn_id": request.txn_id,
+                    "pos": "0"
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        // Next request doesn't ask to enable the extension.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_none());
+
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        // Stop responding with successful requests!
+        drop(_mock_guard);
+
+        // When responding with M_UNKNOWN_POS, that regenerates the sticky parameters,
+        // so they're reset.
+        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_json(json!({
+                "error": "foo",
+                "errcode": "M_UNKNOWN_POS",
+            })))
+            .mount_as_scoped(&server)
+            .await;
+
+        let next = sync.next().await;
+
+        // The request will retry a few times, then end in an error eventually.
+        assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
+
+        // Next request asks to enable the extension again.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_some());
 
         Ok(())
     }
