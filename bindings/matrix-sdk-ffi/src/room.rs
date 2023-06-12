@@ -28,7 +28,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 use mime::Mime;
-use tracing::error;
+use tracing::{error, info};
 
 use super::RUNTIME;
 use crate::{
@@ -777,6 +777,22 @@ impl Room {
         RUNTIME.spawn(async move {
             if let Err(e) = timeline.retry_send(txn_id.as_str().into()).await {
                 error!(txn_id, "Failed to retry sending: {e}");
+            }
+        });
+    }
+
+    pub fn cancel_send(&self, txn_id: String) {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't retry sending message");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            if !timeline.cancel_send(txn_id.as_str().into()).await {
+                info!(txn_id, "Failed to discard local echo: Not found");
             }
         });
     }
