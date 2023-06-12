@@ -65,7 +65,7 @@ impl RoomList {
             let sync_stream = this.sync();
             pin_mut!(sync_stream);
 
-            while let Some(_) = sync_stream.next().await {
+            while sync_stream.next().await.is_some() {
                 // keep going!
             }
         })))
