@@ -130,9 +130,23 @@ impl ClientBuilder {
         }
 
         let sdk_client = RUNTIME.block_on(async move { inner_builder.build().await })?;
-        sdk_client.set_sliding_sync_proxy(
-            builder.sliding_sync_proxy.map(|url| Url::parse(&url)).transpose()?,
-        );
+
+        // At this point, `sdk_client` might contain a `sliding_sync_proxy` that has
+        // been configured by the homeserver (if it's a `ServerName` and the
+        // `.well-known` file is filled as expected).
+        //
+        // If `builder.sliding_sync_proxy` contains `Some(_)`, it means one wants to
+        // overwrite this value. It would be an error to call
+        // `sdk_client.set_sliding_sync_proxy()` with `None`, as it would erase the
+        // `sliding_sync_proxy` if any, and it's not the intented behavior.
+        //
+        // So let's call `sdk_client.set_sliding_sync_proxy()` if and only if there is
+        // `Some(_)` value in `builder.sliding_sync_proxy`. That's really important: It
+        // might not break an existing app session, but it is likely to break a new
+        // session, which not immediate to detect if there is no test.
+        if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
+            sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+        }
 
         let client = Client::new(sdk_client);
 
