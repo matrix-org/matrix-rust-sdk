@@ -19,46 +19,12 @@ use matrix_sdk::{
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
-use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
-use url::Url;
+use tracing::{error, warn};
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room::TimelineLock, Client,
-    EventTimelineItem, Room, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
+    EventTimelineItem, Room, TaskHandle, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
 };
-
-#[derive(uniffi::Object)]
-pub struct TaskHandle {
-    handle: JoinHandle<()>,
-}
-
-impl TaskHandle {
-    // Create a new task handle.
-    fn new(handle: JoinHandle<()>) -> Self {
-        Self { handle }
-    }
-}
-
-#[uniffi::export]
-impl TaskHandle {
-    pub fn cancel(&self) {
-        debug!("stoppable.cancel() called");
-
-        self.handle.abort();
-    }
-
-    /// Check whether the handle is finished.
-    pub fn is_finished(&self) -> bool {
-        self.handle.is_finished()
-    }
-}
-
-impl Drop for TaskHandle {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
 
 #[derive(uniffi::Object)]
 pub struct UnreadNotificationsCount {
@@ -365,12 +331,20 @@ pub enum RoomListEntry {
     Filled { room_id: String },
 }
 
+impl From<MatrixRoomEntry> for RoomListEntry {
+    fn from(value: MatrixRoomEntry) -> Self {
+        (&value).into()
+    }
+}
+
 impl From<&MatrixRoomEntry> for RoomListEntry {
-    fn from(other: &MatrixRoomEntry) -> Self {
-        match other {
+    fn from(value: &MatrixRoomEntry) -> Self {
+        match value {
             MatrixRoomEntry::Empty => Self::Empty,
-            MatrixRoomEntry::Filled(b) => Self::Filled { room_id: b.to_string() },
-            MatrixRoomEntry::Invalidated(b) => Self::Invalidated { room_id: b.to_string() },
+            MatrixRoomEntry::Filled(room_id) => Self::Filled { room_id: room_id.to_string() },
+            MatrixRoomEntry::Invalidated(room_id) => {
+                Self::Invalidated { room_id: room_id.to_string() }
+            }
         }
     }
 }
@@ -892,15 +866,11 @@ impl Client {
     /// Note: the identifier must be less than 16 chars long.
     pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
         let mut inner = self.inner.sliding_sync(id)?;
-        if let Some(sliding_sync_proxy) = self
-            .sliding_sync_proxy
-            .read()
-            .unwrap()
-            .clone()
-            .and_then(|p| Url::parse(p.as_str()).ok())
-        {
+
+        if let Some(sliding_sync_proxy) = self.inner.sliding_sync_proxy() {
             inner = inner.sliding_sync_proxy(sliding_sync_proxy);
         }
+
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

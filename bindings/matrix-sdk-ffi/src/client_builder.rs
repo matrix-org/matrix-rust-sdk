@@ -9,6 +9,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
@@ -128,12 +129,28 @@ impl ClientBuilder {
             );
         }
 
-        RUNTIME.block_on(async move {
-            let client = inner_builder.build().await?;
-            let c = Client::new(client);
-            c.set_sliding_sync_proxy(builder.sliding_sync_proxy);
-            Ok(Arc::new(c))
-        })
+        let sdk_client = RUNTIME.block_on(async move { inner_builder.build().await })?;
+
+        // At this point, `sdk_client` might contain a `sliding_sync_proxy` that has
+        // been configured by the homeserver (if it's a `ServerName` and the
+        // `.well-known` file is filled as expected).
+        //
+        // If `builder.sliding_sync_proxy` contains `Some(_)`, it means one wants to
+        // overwrite this value. It would be an error to call
+        // `sdk_client.set_sliding_sync_proxy()` with `None`, as it would erase the
+        // `sliding_sync_proxy` if any, and it's not the intended behavior.
+        //
+        // So let's call `sdk_client.set_sliding_sync_proxy()` if and only if there is
+        // `Some(_)` value in `builder.sliding_sync_proxy`. That's really important: It
+        // might not break an existing app session, but it is likely to break a new
+        // session, which not immediate to detect if there is no test.
+        if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
+            sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+        }
+
+        let client = Client::new(sdk_client);
+
+        Ok(Arc::new(client))
     }
 }
 

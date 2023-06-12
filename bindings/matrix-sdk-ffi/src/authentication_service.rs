@@ -181,7 +181,7 @@ impl AuthenticationService {
         if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
             sliding_sync_proxy = Some(custom_proxy);
         } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
-            sliding_sync_proxy = Some(discovered_proxy);
+            sliding_sync_proxy = Some(discovered_proxy.to_string());
         } else {
             sliding_sync_proxy = None;
         }

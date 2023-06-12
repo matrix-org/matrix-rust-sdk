@@ -76,7 +76,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             $(
                 use State::*;
 
-                assert_matches!($room_list.state(), $pre_state, "pre state");
+                assert_matches!($room_list.state().get(), $pre_state, "pre state");
             )?
 
             let next = $room_list_sync_stream.next().await;
@@ -100,7 +100,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             }
 
-            $( assert_matches!($room_list.state(), $post_state, "post state"); )?
+            $( assert_matches!($room_list.state().get(), $post_state, "post state"); )?
 
             next
         }
@@ -317,7 +317,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = AllRooms => Enjoy,
+        states = AllRooms => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -350,7 +350,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Enjoy => Enjoy,
+        states = CarryOn => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -458,7 +458,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
-            states = AllRooms => Enjoy,
+            states = AllRooms => CarryOn,
             assert request = {
                 "lists": {
                     ALL_ROOMS: {
@@ -641,7 +641,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Enjoy,
+        states = Terminated { .. } => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -665,11 +665,11 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         },
     };
 
-    // Do a regular sync from the `Enjoy` state to update the `ALL_ROOMS` list
+    // Do a regular sync from the `CarryOn` state to update the `ALL_ROOMS` list
     // again.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Enjoy => Enjoy,
+        states = CarryOn => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -693,11 +693,11 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         },
     };
 
-    // Simulate an error from the `Enjoy` state.
+    // Simulate an error from the `CarryOn` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = Enjoy => Terminated { .. },
+        states = CarryOn => Terminated { .. },
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -727,7 +727,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Enjoy,
+        states = Terminated { .. } => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {
@@ -1358,7 +1358,7 @@ async fn test_input_viewport() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = AllRooms => Enjoy,
+        states = AllRooms => CarryOn,
         assert request = {
             "lists": {
                 ALL_ROOMS: {

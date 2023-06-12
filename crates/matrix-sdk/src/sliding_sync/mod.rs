@@ -681,6 +681,11 @@ impl SlidingSync {
         let mut position_lock = self.inner.position.write().unwrap();
         position_lock.pos = Some(new_pos);
     }
+
+    /// Get the URL to Sliding Sync.
+    pub fn sliding_sync_proxy(&self) -> Option<Url> {
+        self.inner.sliding_sync_proxy.clone()
+    }
 }
 
 #[derive(Debug)]

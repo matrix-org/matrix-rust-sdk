@@ -30,9 +30,11 @@ pub mod event;
 mod helpers;
 pub mod notification;
 pub mod room;
+pub mod room_list;
 pub mod room_member;
 pub mod session_verification;
 pub mod sliding_sync;
+pub mod task_handle;
 pub mod timeline;
 pub mod tracing;
 
@@ -44,8 +46,9 @@ pub use platform::*;
 // Re-exports for more convenient use inside other submodules
 use self::error::ClientError;
 pub use self::{
-    authentication_service::*, client::*, event::*, notification::*, room::*, room_member::*,
-    session_verification::*, sliding_sync::*, timeline::*, tracing::*,
+    authentication_service::*, client::*, event::*, notification::*, room::*, room_list::*,
+    room_member::*, session_verification::*, sliding_sync::*, task_handle::TaskHandle, timeline::*,
+    tracing::*,
 };
 
 uniffi::include_scaffolding!("api");

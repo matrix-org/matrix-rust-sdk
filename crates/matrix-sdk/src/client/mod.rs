@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-sliding-sync")]
+use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
@@ -142,7 +144,7 @@ pub(crate) struct ClientInner {
     authentication_issuer: Option<RwLock<String>>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: Option<RwLock<Url>>,
+    sliding_sync_proxy: StdRwLock<Option<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -336,9 +338,16 @@ impl Client {
 
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub async fn sliding_sync_proxy(&self) -> Option<Url> {
-        let server = self.inner.sliding_sync_proxy.as_ref()?;
-        Some(server.read().await.clone())
+    pub fn sliding_sync_proxy(&self) -> Option<Url> {
+        let server = self.inner.sliding_sync_proxy.read().unwrap();
+        Some(server.as_ref()?.clone())
+    }
+
+    /// Force to set the sliding sync proxy URL.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
+        let mut lock = self.inner.sliding_sync_proxy.write().unwrap();
+        *lock = sliding_sync_proxy;
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {

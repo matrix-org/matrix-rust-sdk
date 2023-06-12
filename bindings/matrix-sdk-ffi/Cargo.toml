@@ -29,7 +29,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", default-features = false, features = ["e2e-encryption", "experimental-sliding-sync"] }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
