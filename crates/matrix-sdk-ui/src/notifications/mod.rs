@@ -33,7 +33,8 @@
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{sliding_sync::ExtensionsSetter, Client, SlidingSync};
+use matrix_sdk::{Client, SlidingSync};
+use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::error;
 
 /// High-level helper for synchronizing notifications using sliding sync.
@@ -56,13 +57,10 @@ impl NotificationSync {
             .sliding_sync(id)
             .map_err(Error::SlidingSyncError)?
             .enable_caching()?
-            .with_extensions(ExtensionsSetter {
-                to_device: true,
-                e2ee: true,
-                account_data: false,
-                receipts: false,
-                typing: false,
-            })
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;
 

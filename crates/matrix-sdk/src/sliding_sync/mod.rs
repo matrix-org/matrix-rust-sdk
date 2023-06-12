@@ -950,13 +950,8 @@ mod tests {
         // If we explicitly enable a subset of extensions, only those should be enabled.
         let sliding_sync = client
             .sliding_sync("test-slidingsync")?
-            .with_extensions(ExtensionsSetter {
-                to_device: true,
-                e2ee: true,
-                account_data: false,
-                receipts: false,
-                typing: false,
-            })
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
+            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true)}))
             .build()
             .await?;
 
