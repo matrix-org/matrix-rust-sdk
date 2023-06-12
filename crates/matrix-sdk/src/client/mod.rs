@@ -14,12 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-sliding-sync")]
+use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
+    sync::{Arc, Mutex as StdMutex},
 };
 
 use dashmap::DashMap;

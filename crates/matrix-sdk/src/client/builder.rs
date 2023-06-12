@@ -13,10 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fmt,
-    sync::{Arc, RwLock as StdRwLock},
-};
+#[cfg(feature = "experimental-sliding-sync")]
+use std::sync::RwLock as StdRwLock;
+use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
