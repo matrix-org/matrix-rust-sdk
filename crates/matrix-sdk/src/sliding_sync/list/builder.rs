@@ -19,10 +19,14 @@ use tokio::sync::broadcast::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
-    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncMode, SlidingSyncState,
+    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncListStickyParameters,
+    SlidingSyncMode, SlidingSyncState,
 };
 use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, FrozenSlidingSyncRoom},
+    sliding_sync::{
+        cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager,
+        FrozenSlidingSyncRoom,
+    },
     Client, RoomListEntry,
 };
 
@@ -198,13 +202,17 @@ impl SlidingSyncListBuilder {
                 sync_mode: StdRwLock::new(self.sync_mode.clone()),
 
                 // From the builder
-                sort: self.sort,
-                required_state: self.required_state,
-                filters: self.filters,
-                timeline_limit: StdRwLock::new(self.timeline_limit),
+                sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                    SlidingSyncListStickyParameters::new(
+                        self.sort,
+                        self.required_state,
+                        self.filters,
+                        self.timeline_limit,
+                        self.bump_event_types,
+                    ),
+                )),
                 name: self.name,
                 cache_policy: self.cache_policy,
-                bump_event_types: self.bump_event_types,
 
                 // Computed from the builder.
                 request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new(

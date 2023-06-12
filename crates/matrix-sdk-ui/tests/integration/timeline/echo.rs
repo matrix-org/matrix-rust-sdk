@@ -263,3 +263,42 @@ async fn dedup_by_event_id_late() {
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
 }
+
+#[async_test]
+async fn cancel_failed() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = EventBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let txn_id: &TransactionId = "my-txn-id".into();
+
+    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+
+    // Local echo is added
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
+    });
+
+    // Sending fails, the mock server has no matching route
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
+    });
+
+    // Discard, assert the local echo is found
+    assert!(timeline.cancel_send(txn_id).await);
+
+    // Observable local echo being removed
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
+}
