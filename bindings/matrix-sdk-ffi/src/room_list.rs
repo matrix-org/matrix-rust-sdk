@@ -101,10 +101,10 @@ impl RoomList {
         })
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListRoom>, RoomListError> {
+    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListRoom { inner: Arc::new(self.inner.room(room_id).await?) }))
+        Ok(Arc::new(RoomListItem { inner: Arc::new(self.inner.room(room_id).await?) }))
     }
 }
 
@@ -186,21 +186,21 @@ pub trait RoomListEntriesListener: Send + Sync + Debug {
 }
 
 #[derive(uniffi::Object)]
-pub struct RoomListRoom {
+pub struct RoomListItem {
     inner: Arc<matrix_sdk_ui::room_list::Room>,
 }
 
 #[uniffi::export]
-impl RoomListRoom {
+impl RoomListItem {
     fn name(&self) -> Option<String> {
         RUNTIME.block_on(async { self.inner.name().await })
     }
 
-    async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListRoomTimelineResult {
+    async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListItemTimelineResult {
         let timeline = self.inner.timeline().await;
         let (items, items_stream) = timeline.subscribe().await;
 
-        RoomListRoomTimelineResult {
+        RoomListItemTimelineResult {
             items: items.into_iter().map(TimelineItem::from_arc).collect(),
             items_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
                 pin_mut!(items_stream);
@@ -220,7 +220,7 @@ impl RoomListRoom {
 }
 
 #[derive(uniffi::Record)]
-pub struct RoomListRoomTimelineResult {
+pub struct RoomListItemTimelineResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub items_stream: Arc<TaskHandle>,
 }
