@@ -96,9 +96,14 @@ impl RoomList {
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
-            .sliding_sync("room-list")
-            .map_err(Error::SlidingSync)?
+        let mut sliding_sync_builder =
+            client.sliding_sync("room-list").map_err(Error::SlidingSync)?;
+
+        if let Some(sliding_sync_proxy_url) = client.sliding_sync_proxy().await {
+            sliding_sync_builder = sliding_sync_builder.sliding_sync_proxy(sliding_sync_proxy_url);
+        }
+
+        let sliding_sync = sliding_sync_builder
             // Enable the account data extension.
             .with_account_data_extension(
                 assign! { AccountDataConfig::default(), { enabled: Some(true) }},
