@@ -133,7 +133,7 @@ impl ClientBuilder {
             let sdk_client = inner_builder.build().await?;
 
             if let Some(sliding_sync_proxy) = &builder.sliding_sync_proxy {
-                sdk_client.set_sliding_sync_proxy(Url::parse(&sliding_sync_proxy).unwrap()).await;
+                sdk_client.set_sliding_sync_proxy(Url::parse(sliding_sync_proxy).unwrap());
             }
 
             let client = Client::new(sdk_client);

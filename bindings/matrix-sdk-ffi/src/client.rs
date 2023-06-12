@@ -240,7 +240,7 @@ impl Client {
             let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
                 .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
 
-            RUNTIME.block_on(async { self.inner.set_sliding_sync_proxy(sliding_sync_proxy).await });
+            self.inner.set_sliding_sync_proxy(sliding_sync_proxy);
         }
 
         Ok(())
@@ -269,9 +269,7 @@ impl Client {
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
     /// not configured.
     pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
-        RUNTIME.block_on(async move {
-            self.inner.sliding_sync_proxy().await.map(|server| server.to_string())
-        })
+        self.inner.sliding_sync_proxy().map(|server| server.to_string())
     }
 
     pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<String>) {

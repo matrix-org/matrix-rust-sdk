@@ -13,7 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, RwLock as StdRwLock},
+};
 
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 use ruma::{
@@ -400,7 +403,7 @@ impl ClientBuilder {
             homeserver,
             authentication_issuer,
             #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_proxy: RwLock::new(sliding_sync_proxy),
+            sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),

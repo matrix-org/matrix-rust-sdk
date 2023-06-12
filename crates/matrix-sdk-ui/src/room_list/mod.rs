@@ -99,7 +99,7 @@ impl RoomList {
         let mut sliding_sync_builder =
             client.sliding_sync("room-list").map_err(Error::SlidingSync)?;
 
-        if let Some(sliding_sync_proxy_url) = client.sliding_sync_proxy().await {
+        if let Some(sliding_sync_proxy_url) = client.sliding_sync_proxy() {
             sliding_sync_builder = sliding_sync_builder.sliding_sync_proxy(sliding_sync_proxy_url);
         }
 
