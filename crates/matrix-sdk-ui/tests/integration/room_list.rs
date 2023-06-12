@@ -239,6 +239,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                         [0, 19],
                     ],
                     "required_state": [
+                        ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                     ],
                     "sort": ["by_recency", "by_name"],

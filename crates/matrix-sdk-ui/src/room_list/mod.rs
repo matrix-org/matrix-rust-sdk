@@ -76,7 +76,7 @@ use matrix_sdk::{
     SlidingSyncMode,
 };
 pub use room::*;
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{events::StateEventType, OwnedRoomId, RoomId};
 pub use state::*;
 use thiserror::Error;
 
@@ -107,7 +107,11 @@ impl RoomList {
             .add_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
-                    .timeline_limit(1),
+                    .timeline_limit(1)
+                    .required_state(vec![
+                        (StateEventType::RoomAvatar, "".to_owned()),
+                        (StateEventType::RoomEncryption, "".to_owned()),
+                    ]),
             )
             .build()
             .await

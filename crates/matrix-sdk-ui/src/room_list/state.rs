@@ -5,6 +5,7 @@ use std::future::ready;
 use async_trait::async_trait;
 use matrix_sdk::{SlidingSync, SlidingSyncList, SlidingSyncMode};
 use once_cell::sync::Lazy;
+use ruma::events::StateEventType;
 
 use super::Error;
 
@@ -89,7 +90,8 @@ impl Action for AddVisibleRoomsList {
             .add_list(
                 SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective())
-                    .timeline_limit(20),
+                    .timeline_limit(20)
+                    .required_state(vec![(StateEventType::RoomEncryption, "".to_owned())]),
             )
             .await
             .map_err(Error::SlidingSync)?;
