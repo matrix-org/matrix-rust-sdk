@@ -139,6 +139,11 @@ impl Media {
     ///   temporary file's extension.
     ///
     /// * `use_cache` - If we should use the media cache for this request.
+    ///
+    /// * `temp_dir` - Path to a directory where temporary directories can be
+    ///   created. If not provided, a default, global temporary directory will
+    ///   be used; this may not work properly on Android, where the default
+    ///   location may require root access on some older Android versions.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_media_file(
         &self,
@@ -146,6 +151,7 @@ impl Media {
         body: Option<String>,
         content_type: &Mime,
         use_cache: bool,
+        temp_dir: Option<String>,
     ) -> Result<MediaFileHandle> {
         let data = self.get_media_content(request, use_cache).await?;
 
@@ -165,7 +171,7 @@ impl Media {
             // If the body is a file name and has an extension use that
             (Some(_), Some(filename_with_extension), Some(_)) => {
                 // Use an intermediary directory to avoid conflicts
-                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
                 let temp_file = TempFileBuilder::new()
                     .prefix(filename_with_extension)
                     .rand_bytes(0)
@@ -175,7 +181,7 @@ impl Media {
             // If the body is a file name but doesn't have an extension try inferring one for it
             (Some(filename), None, Some(inferred_extension)) => {
                 // Use an intermediary directory to avoid conflicts
-                let temp_dir = TempFileBuilder::new().tempdir()?;
+                let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
                 let temp_file = TempFileBuilder::new()
                     .prefix(filename)
                     .suffix(&(".".to_owned() + inferred_extension))

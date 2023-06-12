@@ -17,6 +17,7 @@ use std::{fmt, ops::ControlFlow};
 /// Options for pagination.
 pub struct PaginationOptions<'a> {
     inner: PaginationOptionsInner<'a>,
+    pub(super) wait_for_token: bool,
 }
 
 impl<'a> PaginationOptions<'a> {
@@ -60,6 +61,19 @@ impl<'a> PaginationOptions<'a> {
         })
     }
 
+    /// Whether to wait for a pagination token to be set before starting.
+    ///
+    /// This is not something you should normally do since it can lead to very
+    /// long wait times, however in the specific case of using sliding sync with
+    /// the current proxy and subscribing to the room in a way that you know a
+    /// sync will be coming in soon, it can be useful to reduce unnecessary
+    /// traffic from duplicated events and avoid ordering issues from the sync
+    /// proxy returning older data than pagination.
+    pub fn wait_for_token(mut self) -> Self {
+        self.wait_for_token = true;
+        self
+    }
+
     pub(super) fn next_event_limit(
         &mut self,
         pagination_outcome: PaginationOutcome,
@@ -81,7 +95,7 @@ impl<'a> PaginationOptions<'a> {
     }
 
     fn new(inner: PaginationOptionsInner<'a>) -> Self {
-        Self { inner }
+        Self { inner, wait_for_token: false }
     }
 }
 

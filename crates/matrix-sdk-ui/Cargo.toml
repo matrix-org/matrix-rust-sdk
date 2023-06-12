@@ -14,9 +14,11 @@ rustls-tls = ["matrix-sdk/rustls-tls"]
 experimental-room-list = ["experimental-sliding-sync", "dep:async-stream", "dep:eyeball-im-util"]
 experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 
-testing = ["matrix-sdk/testing"]
+testing = ["dep:eyeball-im-util"]
 
 [dependencies]
+async-once-cell = "0.5.2"
+async-std = { version = "1.12.0", features = ["unstable"] }
 async-stream = { workspace = true, optional = true }
 async-trait = { workspace = true }
 chrono = "0.4.23"
@@ -44,6 +46,8 @@ anyhow = { workspace = true }
 assert-json-diff = "2.0"
 assert_matches = { workspace = true }
 ctor = { workspace = true }
+eyeball-im-util = { workspace = true }
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = "0.1.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }

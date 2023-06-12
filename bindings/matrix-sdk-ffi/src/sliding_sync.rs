@@ -806,9 +806,9 @@ pub struct SlidingSyncBuilder {
 
 #[uniffi::export]
 impl SlidingSyncBuilder {
-    pub fn homeserver(self: Arc<Self>, url: String) -> Result<Arc<Self>, ClientError> {
+    pub fn sliding_sync_proxy(self: Arc<Self>, url: String) -> Result<Arc<Self>, ClientError> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.homeserver(url.parse()?);
+        builder.inner = builder.inner.sliding_sync_proxy(url.parse()?);
         Ok(Arc::new(builder))
     }
 
@@ -899,7 +899,7 @@ impl Client {
             .clone()
             .and_then(|p| Url::parse(p.as_str()).ok())
         {
-            inner = inner.homeserver(sliding_sync_proxy);
+            inner = inner.sliding_sync_proxy(sliding_sync_proxy);
         }
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }

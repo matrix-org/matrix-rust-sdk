@@ -24,10 +24,8 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{
-    compare_events_positions,
-    event_item::EventTimelineItemKind,
-    inner::{RoomDataProvider, TimelineInnerState},
-    rfind_event_by_id, EventTimelineItem, RelativePosition, TimelineItem,
+    compare_events_positions, event_item::EventTimelineItemKind, inner::TimelineInnerState,
+    rfind_event_by_id, traits::RoomDataProvider, EventTimelineItem, RelativePosition, TimelineItem,
 };
 
 struct FullReceipt<'a> {
@@ -254,7 +252,7 @@ fn maybe_update_read_receipt(
         .get(receipt.user_id)
         .and_then(|receipts| receipts.get(&receipt.receipt_type))
         .map(|(event_id, _)| event_id);
-    if old_event_id.map_or(false, |id| id == receipt.event_id) {
+    if old_event_id.is_some_and(|id| id == receipt.event_id) {
         // Nothing to do.
         return false;
     }

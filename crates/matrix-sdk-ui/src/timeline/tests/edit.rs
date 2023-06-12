@@ -14,7 +14,6 @@
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -28,6 +27,7 @@ use ruma::{
     server_name, EventId,
 };
 use serde_json::json;
+use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE};
 use crate::timeline::TimelineItemContent;
@@ -40,9 +40,8 @@ async fn live_redacted() {
     timeline
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
 
@@ -72,10 +71,9 @@ async fn live_sanitized() {
         )
         .await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
@@ -100,8 +98,7 @@ async fn live_sanitized() {
     );
     timeline.handle_live_message_event(&ALICE, edit).await;
 
-    let item =
-        assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 1, value }) => value);
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let first_event = item.as_event().unwrap();
     let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
@@ -155,9 +152,8 @@ async fn aggregated_sanitized() {
     });
     timeline.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
 
-    let _day_divider =
-        assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
-    let item = assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);

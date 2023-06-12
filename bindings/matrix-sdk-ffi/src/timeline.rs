@@ -262,6 +262,10 @@ impl EventTimelineItem {
         self.0.unique_identifier()
     }
 
+    pub fn transaction_id(&self) -> Option<String> {
+        self.0.transaction_id().map(ToString::to_string)
+    }
+
     pub fn event_id(&self) -> Option<String> {
         self.0.event_id().map(ToString::to_string)
     }

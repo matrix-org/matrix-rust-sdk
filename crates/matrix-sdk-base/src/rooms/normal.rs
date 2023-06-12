@@ -26,7 +26,8 @@ use ruma::{
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
+            tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -44,7 +45,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, RoomMemberships,
+    MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
 /// The underlying room data structure collecting state for joined, left and
@@ -123,7 +124,7 @@ impl Room {
 
     /// Whether this room's [`RoomType`] is `m.space`.
     pub fn is_space(&self) -> bool {
-        self.inner.read().unwrap().room_type().map_or(false, |t| *t == RoomType::Space)
+        self.inner.read().unwrap().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
     /// Get the unread notification counts.
@@ -461,8 +462,7 @@ impl Room {
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
-        let is_room_creator =
-            self.inner.read().unwrap().creator().map(|c| c == user_id).unwrap_or(false);
+        let is_room_creator = self.inner.read().unwrap().creator() == Some(user_id);
 
         let power = self
             .store
@@ -489,9 +489,7 @@ impl Room {
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .map(|e| e.content)
-            .map(|l| l.ignored_users.contains_key(member_event.user_id()))
-            .unwrap_or(false);
+            .is_some_and(|e| e.content.ignored_users.contains_key(member_event.user_id()));
 
         Ok(Some(RoomMember {
             event: Arc::new(member_event),
@@ -720,6 +718,14 @@ impl RoomInfo {
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
         self.base_info.handle_redaction(event);
+    }
+
+    /// Update the room name
+    pub fn update_name(&mut self, name: String) {
+        self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(Some(name)),
+            event_id: None,
+        }));
     }
 
     /// Update the notifications count
@@ -1131,5 +1137,33 @@ mod test {
 
         room.inner.write().unwrap().update_summary(&summary);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::EmptyWas("Matthew".to_owned()));
+    }
+
+    #[test]
+    fn setting_the_name_on_room_info_creates_a_fake_event() {
+        // Given a room
+        let mut room_info = RoomInfo::new(room_id!("!r:e.uk"), RoomState::Joined);
+
+        // When I update its name
+        room_info.update_name("new name".to_owned());
+
+        // Then it reports the name I provided
+        assert_eq!(room_info.name(), Some("new name"));
+
+        // And that is implemented by making a fake event
+        assert_eq!(
+            room_info
+                .base_info
+                .name
+                .as_ref()
+                .unwrap()
+                .as_original()
+                .unwrap()
+                .content
+                .name
+                .as_ref()
+                .unwrap(),
+            "new name"
+        );
     }
 }

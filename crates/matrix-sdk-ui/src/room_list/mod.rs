@@ -62,6 +62,7 @@
 
 use std::{future::ready, sync::Arc};
 
+use async_once_cell::OnceCell as AsyncOnceCell;
 use async_stream::stream;
 use async_trait::async_trait;
 use eyeball::shared::Observable;
@@ -74,7 +75,7 @@ use matrix_sdk::{
     SlidingSyncMode, SlidingSyncRoom,
 };
 use once_cell::sync::Lazy;
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{api::client::sync::sync_events::v4::AccountDataConfig, assign, OwnedRoomId, RoomId};
 use thiserror::Error;
 
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -98,15 +99,17 @@ impl RoomList {
         let sliding_sync = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
-            .enable_caching()
-            .map_err(Error::SlidingSync)?
-            .add_cached_list(
+            // Enable the account data extension.
+            .with_account_data_extension(
+                assign! { AccountDataConfig::default(), { enabled: Some(true) }},
+            )
+            // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
+            // fast
+            .add_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
                     .timeline_limit(1),
             )
-            .await
-            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map_err(Error::SlidingSync)?;
@@ -193,7 +196,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_stream()))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -208,7 +211,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Pass an [`Input`] onto the state machine.
@@ -268,11 +271,11 @@ struct RoomInner {
     room: matrix_sdk::room::Room,
 
     /// The timeline of the room.
-    timeline: Timeline,
+    timeline: AsyncOnceCell<Timeline>,
 
     /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
     /// read marker nor the receipts.
-    sneaky_timeline: Timeline,
+    sneaky_timeline: AsyncOnceCell<Timeline>,
 }
 
 impl Room {
@@ -283,19 +286,13 @@ impl Room {
             .get_room(sliding_sync_room.room_id())
             .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
 
-        let timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .track_read_marker_and_receipts()
-            .build()
-            .await;
-
-        let sneaky_timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .build()
-            .await;
-
         Ok(Self {
-            inner: Arc::new(RoomInner { sliding_sync_room, room, timeline, sneaky_timeline }),
+            inner: Arc::new(RoomInner {
+                sliding_sync_room,
+                room,
+                timeline: AsyncOnceCell::new(),
+                sneaky_timeline: AsyncOnceCell::new(),
+            }),
         })
     }
 
@@ -311,8 +308,20 @@ impl Room {
     }
 
     /// Get the timeline of the room.
-    pub fn timeline(&self) -> &Timeline {
-        &self.inner.timeline
+    pub async fn timeline(&self) -> &Timeline {
+        self.inner
+            .timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .track_read_marker_and_receipts()
+                    .build()
+                    .await
+            })
+            .await
     }
 
     /// Get the latest event of the timeline.
@@ -320,7 +329,20 @@ impl Room {
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.sneaky_timeline.latest_event().await
+        self.inner
+            .sneaky_timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .build()
+                    .await
+            })
+            .await
+            .latest_event()
+            .await
     }
 }
 
@@ -443,7 +465,7 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
                 ready(())
             })
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
 
         Ok(())
     }

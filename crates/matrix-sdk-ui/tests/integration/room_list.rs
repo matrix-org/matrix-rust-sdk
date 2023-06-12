@@ -252,6 +252,9 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 "to_device": {
                     "enabled": true,
                 },
+                "account_data": {
+                    "enabled": true
+                }
             },
         },
         respond with = {
@@ -1069,11 +1072,11 @@ async fn test_room() -> Result<(), Error> {
 
     // Room has received a name from sliding sync.
     let room0 = room_list.room(room_id_0).await?;
-    assert_eq!(room0.name().await, Some("Room #0".to_string()));
+    assert_eq!(room0.name().await, Some("Room #0".to_owned()));
 
     // Room has not received a name from sliding sync, then it's calculated.
     let room1 = room_list.room(room_id_1).await?;
-    assert_eq!(room1.name().await, Some("Empty Room".to_string()));
+    assert_eq!(room1.name().await, Some("Empty Room".to_owned()));
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1103,7 +1106,7 @@ async fn test_room() -> Result<(), Error> {
     };
 
     // Room has _now_ received a name from sliding sync!
-    assert_eq!(room1.name().await, Some("Room #1".to_string()));
+    assert_eq!(room1.name().await, Some("Room #1".to_owned()));
 
     Ok(())
 }
@@ -1163,7 +1166,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id).await?;
-    let timeline = room.timeline();
+    let timeline = room.timeline().await;
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
 

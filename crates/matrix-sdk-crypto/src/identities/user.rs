@@ -200,10 +200,7 @@ impl Deref for UserIdentity {
 impl UserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
-        self.own_identity
-            .as_ref()
-            .map(|o| o.is_identity_signed(&self.inner).is_ok())
-            .unwrap_or(false)
+        self.own_identity.as_ref().is_some_and(|o| o.is_identity_signed(&self.inner).is_ok())
     }
 
     /// Manually verify this user.

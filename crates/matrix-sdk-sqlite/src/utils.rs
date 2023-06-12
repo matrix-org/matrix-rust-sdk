@@ -17,6 +17,8 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction};
 
+use crate::OpenStoreError;
+
 pub(crate) fn chain<T>(
     it1: impl IntoIterator<Item = T>,
     it2: impl IntoIterator<Item = T>,
@@ -179,5 +181,28 @@ impl SqliteObjectStoreExt for deadpool_sqlite::Object {
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
 
         Ok(())
+    }
+}
+
+/// Load the version of the database with the given connection.
+pub(crate) async fn load_db_version(conn: &deadpool_sqlite::Object) -> Result<u8, OpenStoreError> {
+    let kv_exists = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
+            (),
+            |row| row.get::<_, u32>(0),
+        )
+        .await
+        .map_err(OpenStoreError::LoadVersion)?
+        > 0;
+
+    if kv_exists {
+        match conn.get_kv("version").await.map_err(OpenStoreError::LoadVersion)?.as_deref() {
+            Some([v]) => Ok(*v),
+            Some(_) => Err(OpenStoreError::InvalidVersion),
+            None => Err(OpenStoreError::MissingVersion),
+        }
+    } else {
+        Ok(0)
     }
 }

@@ -139,8 +139,8 @@ dictionary MoveData {
 
 [Enum]
 interface PaginationOptions {
-    SingleRequest(u16 event_limit);
-    UntilNumItems(u16 event_limit, u16 items);
+    SingleRequest(u16 event_limit, boolean wait_for_token);
+    UntilNumItems(u16 event_limit, u16 items, boolean wait_for_token);
 };
 
 interface RoomMessageEventContent {};
