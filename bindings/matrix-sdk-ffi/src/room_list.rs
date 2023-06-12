@@ -101,10 +101,12 @@ impl RoomList {
         })
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListItem { inner: Arc::new(self.inner.room(room_id).await?) }))
+        Ok(Arc::new(RoomListItem {
+            inner: Arc::new(RUNTIME.block_on(async { self.inner.room(room_id).await })?),
+        }))
     }
 }
 
