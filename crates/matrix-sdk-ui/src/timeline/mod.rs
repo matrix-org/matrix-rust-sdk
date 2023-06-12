@@ -418,6 +418,21 @@ impl Timeline {
         Ok(())
     }
 
+    /// Discard a local echo for a message that failed to send.
+    ///
+    /// Returns whether the local echo with the given transaction ID was found.
+    ///
+    /// # Argument
+    ///
+    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
+    ///   `send_state()` of `SendState::FailedToSend { .. }`. *Note:* A send
+    ///   state of `SendState::NotYetSent` might be supported in the future as
+    ///   well, but there can be no guarantee for that actually stopping the
+    ///   event from reaching the server.
+    pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
+        self.inner.discard_local_echo(txn_id).await
+    }
+
     /// Fetch unavailable details about the event with the given ID.
     ///
     /// This method only works for IDs of remote [`EventTimelineItem`]s,
