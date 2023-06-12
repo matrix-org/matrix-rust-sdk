@@ -138,7 +138,7 @@ impl ClientBuilder {
         // If `builder.sliding_sync_proxy` contains `Some(_)`, it means one wants to
         // overwrite this value. It would be an error to call
         // `sdk_client.set_sliding_sync_proxy()` with `None`, as it would erase the
-        // `sliding_sync_proxy` if any, and it's not the intented behavior.
+        // `sliding_sync_proxy` if any, and it's not the intended behavior.
         //
         // So let's call `sdk_client.set_sliding_sync_proxy()` if and only if there is
         // `Some(_)` value in `builder.sliding_sync_proxy`. That's really important: It
