@@ -193,22 +193,24 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
     ) -> Result<(Option<RoomInfo>, Option<JoinedRoom>, Option<InvitedRoom>)> {
-        // If any invite_state exists, we take it to mean that we are invited to this room
-        // https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
+        // If any invite_state exists, we take it to mean that we are invited to this
+        // room https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
         if let Some(invite_state) = &room_data.invite_state {
             let room = store.get_or_create_stripped_room(room_id).await;
             let mut room_info = room.clone_info();
             room_info.mark_state_partially_synced();
 
-            // We don't actually know what events are inside invite_state. In theory, they might
-            // not contain an m.room.member event, or they might set the membership to something
-            // other than invite. This would be very weird behaviour by the server, because
-            // invite_state is supposed to contain an m.room.member.
-            // Later, we will call handle_invited_state, which will reflect any information found
-            // in the real events inside invite_state, but we default to considering this room
-            // invited simply because invite_state exists. This is needed in the normal case,
-            // because the sliding sync server tries to send minimal state, meaning that we
-            // normally actually just receive {"type": "m.room.member"} with no content at all.
+            // We don't actually know what events are inside invite_state. In theory, they
+            // might not contain an m.room.member event, or they might set the
+            // membership to something other than invite. This would be very
+            // weird behaviour by the server, because invite_state is supposed
+            // to contain an m.room.member. Later, we will call
+            // handle_invited_state, which will reflect any information found in
+            // the real events inside invite_state, but we default to considering this room
+            // invited simply because invite_state exists. This is needed in the normal
+            // case, because the sliding sync server tries to send minimal
+            // state, meaning that we normally actually just receive {"type":
+            // "m.room.member"} with no content at all.
             room_info.mark_as_invited();
 
             room_info.mark_state_partially_synced();
@@ -232,9 +234,10 @@ impl BaseClient {
             let room = store.get_or_create_room(room_id, RoomState::Joined).await;
             let mut room_info = room.clone_info();
 
-            // We default to considering this room joined if it's not an invite, but we expect to
-            // find a m.room.member event in the required_state, so this should get fixed to the
-            // real correct value when we call self.handle_state below.
+            // We default to considering this room joined if it's not an invite, but we
+            // expect to find a m.room.member event in the required_state, so
+            // this should get fixed to the real correct value when we call
+            // self.handle_state below.
             room_info.mark_as_joined();
 
             room_info.mark_state_partially_synced();
@@ -526,8 +529,8 @@ mod test {
     }
 
     fn set_room_invited(room: &mut v4::SlidingSyncRoom) {
-        // MSC3575 shows an almost-empty event to indicate that we are invited to a room.
-        // Just the type is supplied.
+        // MSC3575 shows an almost-empty event to indicate that we are invited to a
+        // room. Just the type is supplied.
 
         let evt = Raw::new(&json!({
             "type": "m.room.member",
