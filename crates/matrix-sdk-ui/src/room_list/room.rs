@@ -61,6 +61,11 @@ impl Room {
         })
     }
 
+    /// Get the underlying [`matrix_sdk::room::Room`].
+    pub fn inner_room(&self) -> &matrix_sdk::room::Room {
+        &self.inner.room
+    }
+
     /// Get the timeline of the room.
     pub async fn timeline(&self) -> &Timeline {
         self.inner
