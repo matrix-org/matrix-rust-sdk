@@ -229,7 +229,7 @@ impl Client {
             device_id: device_id.into(),
         };
 
-        let result = self.restore_session_inner(session)?;
+        self.restore_session_inner(session)?;
 
         if let Some(sliding_sync_proxy) = sliding_sync_proxy {
             let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
@@ -238,7 +238,7 @@ impl Client {
             RUNTIME.block_on(async { self.inner.set_sliding_sync_proxy(sliding_sync_proxy).await });
         }
 
-        Ok(result)
+        Ok(())
     }
 }
 
