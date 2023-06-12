@@ -20,7 +20,6 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tracing::{error, warn};
-use url::Url;
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room::TimelineLock, Client,
@@ -867,15 +866,13 @@ impl Client {
     /// Note: the identifier must be less than 16 chars long.
     pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
         let mut inner = self.inner.sliding_sync(id)?;
-        if let Some(sliding_sync_proxy) = self
-            .sliding_sync_proxy
-            .read()
-            .unwrap()
-            .clone()
-            .and_then(|p| Url::parse(p.as_str()).ok())
+
+        if let Some(sliding_sync_proxy) =
+            RUNTIME.block_on(async { self.inner.sliding_sync_proxy().await })
         {
             inner = inner.sliding_sync_proxy(sliding_sync_proxy);
         }
+
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

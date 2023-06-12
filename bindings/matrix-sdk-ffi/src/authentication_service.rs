@@ -17,7 +17,6 @@ pub struct AuthenticationService {
     passphrase: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
-    custom_sliding_sync_proxy: RwLock<Option<String>>,
 }
 
 impl Drop for AuthenticationService {
@@ -83,17 +82,12 @@ impl HomeserverLoginDetails {
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     #[uniffi::constructor]
-    pub fn new(
-        base_path: String,
-        passphrase: Option<String>,
-        custom_sliding_sync_proxy: Option<String>,
-    ) -> Arc<Self> {
+    pub fn new(base_path: String, passphrase: Option<String>) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
             passphrase,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
-            custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
         })
     }
 
@@ -142,9 +136,7 @@ impl AuthenticationService {
 
         // Now we've verified that it's a valid homeserver, make sure
         // there's a sliding sync proxy available one way or another.
-        if self.custom_sliding_sync_proxy.read().unwrap().is_none()
-            && client.discovered_sliding_sync_proxy().is_none()
-        {
+        if client.discovered_sliding_sync_proxy().is_none() {
             return Err(AuthenticationError::SlidingSyncNotAvailable);
         }
 
@@ -177,20 +169,10 @@ impl AuthenticationService {
         let homeserver_url = client.homeserver();
         let session = client.inner.session().ok_or(AuthenticationError::SessionMissing)?;
 
-        let sliding_sync_proxy: Option<String>;
-        if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
-            sliding_sync_proxy = Some(custom_proxy);
-        } else if let Some(discovered_proxy) = client.discovered_sliding_sync_proxy() {
-            sliding_sync_proxy = Some(discovered_proxy);
-        } else {
-            sliding_sync_proxy = None;
-        }
-
         let client = ClientBuilder::new()
             .base_path(self.base_path.clone())
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
-            .sliding_sync_proxy(sliding_sync_proxy)
             .username(whoami.user_id.to_string())
             .build_inner()?;
 
