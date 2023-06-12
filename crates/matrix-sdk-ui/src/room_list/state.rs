@@ -14,7 +14,7 @@ use super::Error;
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
-/// The state of the [`RoomList`]' state machine.
+/// The state of the [`super::RoomList`]' state machine.
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
     /// That's the first initial state.
