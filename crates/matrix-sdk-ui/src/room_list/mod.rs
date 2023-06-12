@@ -579,7 +579,7 @@ mod tests {
 
         {
             let url = Url::parse("https://foo.matrix/").unwrap();
-            client.set_sliding_sync_proxy(url.clone()).await;
+            client.set_sliding_sync_proxy(Some(url.clone()));
 
             let room_list = RoomList::new(client.clone()).await?;
 
