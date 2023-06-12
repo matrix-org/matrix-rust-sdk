@@ -76,7 +76,7 @@ use matrix_sdk::{
     SlidingSyncMode,
 };
 pub use room::*;
-use ruma::{api::client::sync::sync_events::v4::AccountDataConfig, assign, OwnedRoomId, RoomId};
+use ruma::{OwnedRoomId, RoomId};
 pub use state::*;
 use thiserror::Error;
 
@@ -101,10 +101,7 @@ impl RoomList {
         }
 
         let sliding_sync = sliding_sync_builder
-            // Enable the account data extension.
-            .with_account_data_extension(
-                assign! { AccountDataConfig::default(), { enabled: Some(true) }},
-            )
+            .with_common_extensions()
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
