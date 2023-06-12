@@ -383,9 +383,9 @@ impl SlidingSync {
         let mut requests_lists = BTreeMap::new();
 
         {
-            let mut lists = self.inner.lists.write().await;
+            let lists = self.inner.lists.read().await;
 
-            for (name, list) in lists.iter_mut() {
+            for (name, list) in lists.iter() {
                 requests_lists.insert(name.clone(), list.next_request(&txn_id)?);
             }
         }
