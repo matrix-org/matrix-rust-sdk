@@ -57,8 +57,8 @@
 //! [`RoomList::entries`] provides a way to get a stream of room list entry.
 //! This stream can be filtered, and the filter can be changed over time.
 //!
-//! [`RoomList::state_stream`] provides a way to get a stream of the state
-//! machine's state, which can be pretty helpful for the client app.
+//! [`RoomList::state`] provides a way to get a stream of the state machine's
+//! state, which can be pretty helpful for the client app.
 
 use std::{future::ready, sync::Arc};
 
