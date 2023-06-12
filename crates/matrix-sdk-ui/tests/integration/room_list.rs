@@ -241,6 +241,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "required_state": [
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
+                        ["m.room.power_levels", ""],
                     ],
                     "filters": {
                         "is_invite": false,

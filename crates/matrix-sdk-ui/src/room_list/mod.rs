@@ -114,6 +114,7 @@ impl RoomList {
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
+                        (StateEventType::RoomPowerLevels, "".to_owned()),
                     ])
                     .filters(Some(assign!(SyncRequestListFilters::default(), {
                         is_invite: Some(false),
