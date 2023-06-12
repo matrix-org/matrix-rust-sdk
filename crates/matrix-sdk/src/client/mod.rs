@@ -343,9 +343,9 @@ impl Client {
 
     /// Force to set the sliding sync proxy URL.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Url) {
+    pub fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
         let mut lock = self.inner.sliding_sync_proxy.write().unwrap();
-        *lock = Some(sliding_sync_proxy);
+        *lock = sliding_sync_proxy;
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {

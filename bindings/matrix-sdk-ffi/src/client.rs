@@ -113,7 +113,6 @@ pub struct Client {
     notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
-    pub(crate) sliding_sync_proxy: Arc<RwLock<Option<String>>>,
     pub(crate) sliding_sync_reset_broadcast_tx: Arc<SharedObservable<()>>,
 }
 
@@ -140,7 +139,6 @@ impl Client {
             delegate: Arc::new(RwLock::new(None)),
             notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
-            sliding_sync_proxy: Arc::new(RwLock::new(None)),
             sliding_sync_reset_broadcast_tx: Default::default(),
         };
 
@@ -224,8 +222,6 @@ impl Client {
             sliding_sync_proxy,
         } = session;
 
-        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy.clone();
-
         let session = matrix_sdk::Session {
             access_token,
             refresh_token,
@@ -235,12 +231,11 @@ impl Client {
 
         self.restore_session_inner(session)?;
 
-        // Save `sliding_sync_proxy` for real, on the real client.
         if let Some(sliding_sync_proxy) = sliding_sync_proxy {
             let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
                 .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
 
-            self.inner.set_sliding_sync_proxy(sliding_sync_proxy);
+            self.inner.set_sliding_sync_proxy(Some(sliding_sync_proxy));
         }
 
         Ok(())
@@ -268,12 +263,12 @@ impl Client {
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
     /// not configured.
-    pub fn discovered_sliding_sync_proxy(&self) -> Option<String> {
-        self.inner.sliding_sync_proxy().map(|server| server.to_string())
+    pub fn discovered_sliding_sync_proxy(&self) -> Option<Url> {
+        self.inner.sliding_sync_proxy()
     }
 
-    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<String>) {
-        *self.sliding_sync_proxy.write().unwrap() = sliding_sync_proxy;
+    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
+        self.inner.set_sliding_sync_proxy(sliding_sync_proxy);
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
@@ -304,7 +299,8 @@ impl Client {
             let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
                 self.inner.session().context("Missing session")?;
             let homeserver_url = self.inner.homeserver().await.into();
-            let sliding_sync_proxy = self.sliding_sync_proxy.read().unwrap().clone();
+            let sliding_sync_proxy =
+                self.discovered_sliding_sync_proxy().map(|url| url.to_string());
 
             Ok(Session {
                 access_token,
