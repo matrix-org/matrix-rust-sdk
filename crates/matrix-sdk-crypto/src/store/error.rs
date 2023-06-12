@@ -18,6 +18,7 @@ use ruma::{IdParseError, OwnedDeviceId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
+use super::locks::LockStoreError;
 use crate::olm::SessionCreationError;
 
 /// A `CryptoStore` specific result type.
@@ -79,17 +80,9 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
 
-    /// A lock value was to be removed, but it didn't contain the expected lock value.
-    #[error("a lock value was to be removed, but it didn't contain the expected lock value")]
-    IncorrectLockValue,
-
-    /// A lock value was to be removed, but it was missing in the database.
-    #[error("a lock value was to be removed, but it was missing in the database")]
-    MissingLockValue,
-
-    /// Spent too long waiting for a database lock.
-    #[error("a lock timed out")]
-    LockTimeout,
+    /// An error due to locking.
+    #[error(transparent)]
+    Lock(#[from] LockStoreError),
 }
 
 impl CryptoStoreError {

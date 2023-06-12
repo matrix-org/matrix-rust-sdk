@@ -1,5 +1,10 @@
+use std::{env::temp_dir, path::Path, sync::Arc, time::Duration};
+
 use anyhow::Result;
-use matrix_sdk_crypto::store::{locks::CryptoStoreLockGuard, DynCryptoStore, IntoCryptoStore as _};
+use matrix_sdk_crypto::store::{
+    locks::{CryptoStoreLock, CryptoStoreLockGuard},
+    DynCryptoStore, IntoCryptoStore as _,
+};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use nix::{
     libc::rand,
@@ -7,8 +12,6 @@ use nix::{
     unistd::{close, fork, pipe, read, write},
 };
 use speedy::{Readable, Writable};
-use std::{env::temp_dir, time::Duration};
-use std::{path::Path, sync::Arc};
 use tokio::{runtime::Runtime, time::sleep};
 
 #[derive(Clone, Debug, Writable, Readable)]
@@ -83,10 +86,12 @@ async fn parent_main(path: &Path, write_pipe: i32) -> Result<()> {
     // Set initial generation to 0.
     store.set_custom_value(GENERATION_KEY, vec![generation]).await?;
 
+    let mut lock = CryptoStoreLock::new(store.clone(), lock_key.clone(), "parent".to_owned(), None);
+
     loop {
         //while generation <= 254 {
         // Write a command.
-        let val = unsafe { rand() } % 1;
+        let val = unsafe { rand() } % 2;
 
         let id = unsafe { rand() };
         let str = format!("hello {id}");
@@ -116,23 +121,29 @@ async fn parent_main(path: &Path, write_pipe: i32) -> Result<()> {
 
         loop {
             // Compete with the child to take the lock!
-            let _lock = CryptoStoreLockGuard::new(store.clone(), lock_key.clone()).await?;
+            lock.lock().await?;
 
             let read_generation =
                 store.get_custom_value(GENERATION_KEY).await?.expect("there's always a generation")
                     [0];
 
-            // Check that if we've seen the latest result, based on the generation number (any
-            // write to the generation indicates somebody else wrote to the database).
+            // Check that if we've seen the latest result, based on the generation number
+            // (any write to the generation indicates somebody else wrote to the
+            // database).
             if generation != read_generation {
                 // Run assertions here.
                 cmd.assert(&store).await?;
 
                 generation = read_generation;
 
+                lock.unlock().await?;
                 break;
             }
+
             println!("parent: waiting...");
+            lock.unlock().await?;
+
+            sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -153,7 +164,9 @@ async fn simple_parent_test(
         sleep(Duration::from_millis(300)).await;
 
         eprintln!("parent waits for lock");
-        let _lock = CryptoStoreLockGuard::new(store.clone(), lock_key.clone()).await?;
+        let _lock =
+            CryptoStoreLockGuard::new(store.clone(), lock_key.clone(), "parent".to_owned(), None)
+                .await?;
 
         eprintln!("parent got the lock, checking custom value");
 
@@ -170,7 +183,9 @@ async fn simple_parent_test(
 
     {
         eprintln!("parent waits for lock 2");
-        let _lock = CryptoStoreLockGuard::new(store.clone(), lock_key.clone()).await?;
+        let _lock =
+            CryptoStoreLockGuard::new(store.clone(), lock_key.clone(), "parent2".to_owned(), None)
+                .await?;
 
         eprintln!("parent got the lock 2, checking no more value");
 
@@ -186,13 +201,16 @@ async fn child_main(path: &Path, read_pipe: i32) -> Result<()> {
     let store = SqliteCryptoStore::open(path, None).await?.into_crypto_store();
     let lock_key = LOCK_KEY.to_string();
 
+    let mut lock = CryptoStoreLock::new(store.clone(), lock_key.clone(), "child".to_owned(), None);
+
     loop {
         eprintln!("child waits for command");
         match read_command(read_pipe)? {
             Command::WriteValue(val) => {
                 eprintln!("child received command: write {val}; waiting for lock");
 
-                let _lock = CryptoStoreLockGuard::new(store.clone(), lock_key.clone()).await?;
+                lock.lock().await?;
+
                 eprintln!("child got the lock");
 
                 store.set_custom_value(KEY, val.as_bytes().to_vec()).await?;
@@ -200,12 +218,15 @@ async fn child_main(path: &Path, read_pipe: i32) -> Result<()> {
                 let generation = store.get_custom_value(GENERATION_KEY).await?.unwrap()[0];
                 let generation = generation.wrapping_add(1);
                 store.set_custom_value(GENERATION_KEY, vec![generation]).await?;
+
+                lock.unlock().await?;
             }
 
             Command::ReadValue(expected) => {
                 eprintln!("child received command: read {expected}; waiting for lock");
 
-                let _lock = CryptoStoreLockGuard::new(store.clone(), lock_key.clone()).await?;
+                lock.lock().await?;
+
                 eprintln!("child got the lock");
 
                 let val = store.get_custom_value(KEY).await?.expect("missing value in child");
@@ -215,6 +236,8 @@ async fn child_main(path: &Path, read_pipe: i32) -> Result<()> {
 
                 let generation = store.get_custom_value(GENERATION_KEY).await?.unwrap()[0];
                 store.set_custom_value(GENERATION_KEY, vec![generation + 1]).await?;
+
+                lock.unlock().await?;
             }
 
             Command::Quit => {
