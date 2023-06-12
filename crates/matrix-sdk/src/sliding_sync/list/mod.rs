@@ -2,6 +2,7 @@ mod builder;
 mod frozen;
 mod request_generator;
 mod room_list_entry;
+mod sticky;
 
 use std::{
     collections::HashSet,
@@ -20,17 +21,13 @@ use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{
-    api::client::sync::sync_events::v4,
-    assign,
-    events::{StateEventType, TimelineEventType},
-    OwnedRoomId,
-};
+use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
-use super::{Error, SlidingSyncInternalMessage};
+use self::sticky::SlidingSyncListStickyParameters;
+use super::{sticky_parameters::SlidingSyncStickyManager, Error, SlidingSyncInternalMessage};
 use crate::Result;
 
 /// Should this [`SlidingSyncList`] be stored in the cache, and automatically
@@ -116,12 +113,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Option<Bound> {
-        *self.inner.timeline_limit.read().unwrap()
+        self.inner.sticky.read().unwrap().data().timeline_limit()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
-        *self.inner.timeline_limit.write().unwrap() = timeline;
+        self.inner.sticky.write().unwrap().data_mut().set_timeline_limit(timeline);
     }
 
     /// Get the current room list.
@@ -198,8 +195,11 @@ impl SlidingSyncList {
     ///
     /// The next request is entirely calculated based on the request generator
     /// ([`SlidingSyncListRequestGenerator`]).
-    pub(super) fn next_request(&mut self) -> Result<v4::SyncRequestList, Error> {
-        self.inner.next_request()
+    pub(super) fn next_request(
+        &self,
+        txn_id: &TransactionId,
+    ) -> Result<v4::SyncRequestList, Error> {
+        self.inner.next_request(txn_id)
     }
 
     /// Returns the current cache policy for this list.
@@ -239,6 +239,17 @@ impl SlidingSyncList {
 
         Ok(new_changes)
     }
+
+    /// Commit the set of sticky parameters for this list.
+    pub fn maybe_commit_sticky(&mut self, txn_id: &TransactionId) {
+        self.inner.sticky.write().unwrap().maybe_commit(txn_id);
+    }
+
+    /// Manually invalidate the sticky data, so the sticky parameters are
+    /// re-sent next time.
+    pub fn invalidate_sticky_data(&self) {
+        let _ = self.inner.sticky.write().unwrap().data_mut();
+    }
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -266,17 +277,10 @@ pub(super) struct SlidingSyncListInner {
     /// The state this list is in.
     state: StdRwLock<Observable<SlidingSyncState>>,
 
-    /// Sort the room list by this.
-    sort: Vec<String>,
-
-    /// Required states to return per room.
-    required_state: Vec<(StateEventType, String)>,
-
-    /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
-
-    /// The maximum number of timeline events to query for.
-    timeline_limit: StdRwLock<Option<Bound>>,
+    /// Parameters that are sticky, and can be sent only once per session (until
+    /// the connection is dropped or the server invalidates what the client
+    /// knows).
+    sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
 
     /// The total number of rooms that is possible to interact with for the
     /// given list.
@@ -300,10 +304,6 @@ pub(super) struct SlidingSyncListInner {
     /// The Sliding Sync internal channel sender. See
     /// [`SlidingSyncInner::internal_channel`] to learn more.
     sliding_sync_internal_channel_sender: Sender<SlidingSyncInternalMessage>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncListBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 
     #[cfg(any(test, feature = "testing"))]
     sync_mode: StdRwLock<SlidingSyncMode>,
@@ -343,7 +343,7 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self) -> Result<v4::SyncRequestList, Error> {
+    fn next_request(&self, txn_id: &TransactionId) -> Result<v4::SyncRequestList, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -352,31 +352,24 @@ impl SlidingSyncListInner {
         };
 
         // Here we go.
-        Ok(self.request(ranges))
+        Ok(self.request(ranges, txn_id))
     }
 
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges) -> v4::SyncRequestList {
+    fn request(&self, ranges: Ranges, txn_id: &TransactionId) -> v4::SyncRequestList {
         use ruma::UInt;
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
-        let sort = self.sort.clone();
-        let required_state = self.required_state.clone();
-        let timeline_limit = self.timeline_limit.read().unwrap().map(UInt::from);
-        let filters = self.filters.clone();
 
-        assign!(v4::SyncRequestList::default(), {
-            ranges,
-            room_details: assign!(v4::RoomDetailsConfig::default(), {
-                required_state,
-                timeline_limit,
-            }),
-            sort,
-            filters,
-            bump_event_types: self.bump_event_types.clone(),
-        })
+        let mut request = assign!(v4::SyncRequestList::default(), { ranges });
+        {
+            let mut sticky = self.sticky.write().unwrap();
+            sticky.maybe_apply(&mut request, txn_id);
+        }
+
+        request
     }
 
     /// Update the [`Self::room_list`]. It also updates
@@ -975,13 +968,13 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(7));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(7));
 
         list.set_timeline_limit(Some(42));
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), Some(42));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(42));
 
         list.set_timeline_limit(None);
-        assert_eq!(*list.inner.timeline_limit.read().unwrap(), None);
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), None);
     }
 
     #[test]
@@ -996,7 +989,7 @@ mod tests {
         let room1 = room_id!("!room1:bar.org");
 
         // Simulate a request.
-        let _ = list.next_request();
+        let _ = list.next_request("tid".into());
 
         // A new response.
         let sync0: v4::SyncOp = serde_json::from_value(json!({
@@ -1032,7 +1025,7 @@ mod tests {
             $(
                 {
                     // Generate a new request.
-                    let request = $list.next_request().unwrap();
+                    let request = $list.next_request("tid".into()).unwrap();
 
                     assert_eq!(
                         request.ranges,
@@ -1489,7 +1482,7 @@ mod tests {
         // Initial range.
         for _ in 0..=1 {
             // Simulate a request.
-            let _ = list.next_request();
+            let _ = list.next_request("tid".into());
 
             // A new response.
             let sync: v4::SyncOp = serde_json::from_value(json!({
@@ -1532,7 +1525,7 @@ mod tests {
         });
 
         // Simulate a request.
-        let _ = list.next_request();
+        let _ = list.next_request("tid".into());
 
         // A new response.
         let sync: v4::SyncOp = serde_json::from_value(json!({

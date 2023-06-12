@@ -21,6 +21,7 @@ mod client;
 mod error;
 mod list;
 mod room;
+mod sticky_parameters;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -45,7 +46,7 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign, OwnedRoomId, RoomId,
+    assign, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -55,6 +56,7 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
+use self::sticky_parameters::{SlidingSyncStickyManager, StickyData};
 use crate::{config::RequestConfig, Client, Result};
 
 /// Number of times a Sliding Sync session can expire before raising an error.
@@ -103,19 +105,14 @@ pub(super) struct SlidingSyncInner {
     /// The rooms details
     rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
-    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists but
-    /// one wants to receive updates.
-    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, v4::RoomSubscription>>,
+    /// Request parameters that are sticky.
+    sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
 
     /// Number of times a Sliding Sync session has been reset.
     reset_counter: AtomicU8,
-
-    /// Static configuration for extensions, passed in the slidinc sync
-    /// requests.
-    extensions: ExtensionsConfig,
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
@@ -139,9 +136,11 @@ impl SlidingSync {
     /// Subscribe to a given room.
     pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
         self.inner
-            .room_subscriptions
+            .sticky
             .write()
             .unwrap()
+            .data_mut()
+            .room_subscriptions
             .insert(room_id, settings.unwrap_or_default());
 
         self.inner.internal_channel_send_if_possible(
@@ -151,8 +150,15 @@ impl SlidingSync {
 
     /// Unsubscribe from a given room.
     pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
-        // If removing the subscription was successful…
-        if self.inner.room_subscriptions.write().unwrap().remove(&room_id).is_some() {
+        // Note: we don't use `BTreeMap::remove` here, because that would require
+        // mutable access thus calling `data_mut()`, which in turn would
+        // invalidate the sticky parameters even if the `room_id` wasn't in the
+        // mapping.
+
+        // If there's a subscription…
+        if self.inner.sticky.read().unwrap().data().room_subscriptions.contains_key(&room_id) {
+            // Remove it…
+            self.inner.sticky.write().unwrap().data_mut().room_subscriptions.remove(&room_id);
             // … then keep the unsubscription for the next request.
             self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
 
@@ -170,11 +176,6 @@ impl SlidingSync {
     /// Check the number of rooms.
     pub fn get_number_of_rooms(&self) -> usize {
         self.inner.rooms.blocking_read().len()
-    }
-
-    #[instrument(skip(self))]
-    fn update_to_device_since(&self, since: String) {
-        self.inner.position.write().unwrap().to_device_token = Some(since);
     }
 
     /// Find a list by its name, and do something on it if it exists.
@@ -260,25 +261,6 @@ impl SlidingSync {
         self.inner.rooms.read().await.values().cloned().collect()
     }
 
-    fn prepare_extension_config(&self, pos: Option<&str>) -> ExtensionsConfig {
-        let mut extensions = self.inner.extensions.clone();
-
-        if pos.is_none() {
-            // The pos is `None`, it's either our initial sync or the proxy forgot about us
-            // and sent us an `UnknownPos` error. We need to send out the config for our
-            // extensions.
-            extensions.e2ee.enabled = Some(true);
-            extensions.to_device.enabled = Some(true);
-        }
-
-        // Try to chime in a to-device token that may be unset or restored from the
-        // cache.
-        let to_device_since = self.inner.position.read().unwrap().to_device_token.clone();
-        extensions.to_device.since = to_device_since;
-
-        extensions
-    }
-
     /// Handle the HTTP response.
     #[instrument(skip_all)]
     async fn handle_response(
@@ -306,6 +288,17 @@ impl SlidingSync {
             let mut position_lock = self.inner.position.write().unwrap();
             position_lock.pos = Some(sliding_sync_response.pos);
             position_lock.delta_token = sliding_sync_response.delta_token;
+            if let Some(to_device) = sliding_sync_response.extensions.to_device {
+                position_lock.to_device_token = Some(to_device.next_batch);
+            }
+        }
+
+        // Commit sticky parameters, if needed.
+        if let Some(ref txn_id) = sliding_sync_response.txn_id {
+            let txn_id = txn_id.as_str().into();
+            self.inner.sticky.write().unwrap().maybe_commit(txn_id);
+            let mut lists = self.inner.lists.write().await;
+            lists.values_mut().for_each(|list| list.maybe_commit_sticky(txn_id));
         }
 
         let update_summary = {
@@ -372,11 +365,6 @@ impl SlidingSync {
                     }
                 }
 
-                // Update the `to-device` next-batch if any.
-                if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                    self.update_to_device_since(to_device.next_batch);
-                }
-
                 updated_lists
             };
 
@@ -386,53 +374,69 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
+    async fn generate_sync_request(
+        &self,
+        txn_id: OwnedTransactionId,
+    ) -> Result<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)> {
+        // Collect requests for lists.
+        let mut requests_lists = BTreeMap::new();
+
+        {
+            let lists = self.inner.lists.read().await;
+
+            for (name, list) in lists.iter() {
+                requests_lists.insert(name.clone(), list.next_request(&txn_id)?);
+            }
+        }
+
+        // Collect the `pos` and `delta_token`.
+        let (pos, delta_token) = {
+            let position_lock = self.inner.position.read().unwrap();
+
+            (position_lock.pos.clone(), position_lock.delta_token.clone())
+        };
+
+        Span::current().record("pos", &pos);
+
+        // Collect other data.
+        let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
+        let timeout = Duration::from_secs(30);
+
+        let mut request = assign!(v4::Request::new(), {
+            txn_id: Some(txn_id.to_string()),
+            pos,
+            delta_token,
+            timeout: Some(timeout),
+            lists: requests_lists,
+            unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
+        });
+
+        {
+            let mut sticky_params = self.inner.sticky.write().unwrap();
+
+            sticky_params.maybe_apply(&mut request, &txn_id);
+
+            // Set the to_device token if the extension is enabled.
+            if sticky_params.data().extensions.to_device.enabled == Some(true) {
+                request.extensions.to_device.since =
+                    self.inner.position.read().unwrap().to_device_token.clone();
+            }
+        }
+
+        Ok((
+            // The request itself.
+            request,
+            // Configure long-polling. We need 30 seconds for the long-poll itself, in
+            // addition to 30 more extra seconds for the network delays.
+            RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            room_unsubscriptions,
+        ))
+    }
+
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
-        let (request, request_config, requested_room_unsubscriptions) = {
-            // Collect requests for lists.
-            let mut requests_lists = BTreeMap::new();
-
-            {
-                let mut lists = self.inner.lists.write().await;
-
-                for (name, list) in lists.iter_mut() {
-                    requests_lists.insert(name.clone(), list.next_request()?);
-                }
-            }
-
-            // Collect the `pos` and `delta_token`.
-            let (pos, delta_token) = {
-                let position_lock = self.inner.position.read().unwrap();
-
-                (position_lock.pos.clone(), position_lock.delta_token.clone())
-            };
-
-            Span::current().record("pos", &pos);
-
-            // Collect other data.
-            let room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
-            let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
-            let timeout = Duration::from_secs(30);
-            let extensions = self.prepare_extension_config(pos.as_deref());
-
-            (
-                // Build the request itself.
-                assign!(v4::Request::new(), {
-                    // conn_id: self.inner.id.clone(),
-                    pos,
-                    delta_token,
-                    timeout: Some(timeout),
-                    lists: requests_lists,
-                    room_subscriptions,
-                    unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
-                    extensions,
-                }),
-                // Configure long-polling. We need 30 seconds for the long-poll itself, in
-                // addition to 30 more extra seconds for the network delays.
-                RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
-                room_unsubscriptions,
-            )
-        };
+        let (request, request_config, requested_room_unsubscriptions) =
+            self.generate_sync_request(TransactionId::new()).await?;
 
         debug!("Sending the sliding sync request");
 
@@ -532,7 +536,7 @@ impl SlidingSync {
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
     #[instrument(name = "sync_stream", skip_all)]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.extensions, ?self.inner.position, "About to run the sync-loop");
+        debug!(?self.inner.position, "About to run the sync-loop");
 
         let sync_span = Span::current();
         let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
@@ -540,7 +544,7 @@ impl SlidingSync {
         stream! {
             loop {
                 sync_span.in_scope(|| {
-                    debug!(?self.inner.extensions, ?self.inner.position,"Sync-loop is running");
+                    debug!(?self.inner.position, "Sync-loop is running");
                 });
 
                 select! {
@@ -592,17 +596,22 @@ impl SlidingSync {
                                     }
 
                                     // Let's reset the Sliding Sync session.
-                                    sync_span.in_scope(|| {
+                                    sync_span.in_scope(|| async {
                                         warn!("Session expired. Restarting Sliding Sync.");
 
-                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value.
+                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
                                             position_lock.pos = None;
                                         }
 
-                                        debug!(?self.inner.extensions, ?self.inner.position, "Sliding Sync has been reset");
-                                    });
+                                        // Force invalidation of all the sticky parameters.
+                                        let _ = self.inner.sticky.write().unwrap().data_mut();
+
+                                        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
+
+                                        debug!(?self.inner.position, "Sliding Sync has been reset");
+                                    }).await;
 
                                     continue;
                                 }
@@ -676,8 +685,21 @@ impl SlidingSync {
 
 #[derive(Debug)]
 pub(super) struct SlidingSyncPositionMarkers {
+    /// An ephemeral position in the current stream, as received from the
+    /// previous `/sync` response, or `None` for the first request.
+    ///
+    /// Should not be persisted.
     pos: Option<String>,
+
+    /// Server-provided opaque token that remembers what the last timeline and
+    /// state events stored by the client were.
+    ///
+    /// If `None`, the server will send the full information for all the lists
+    /// present in the request.
     delta_token: Option<String>,
+
+    /// Server-provided opaque token that remembers the current position in the
+    /// to-device extension's stream.
     to_device_token: Option<String>,
 }
 
@@ -710,58 +732,52 @@ pub struct UpdateSummary {
     pub rooms: Vec<OwnedRoomId>,
 }
 
+/// The set of sticky parameters owned by the `SlidingSyncInner` instance, and
+/// sent in the request.
+#[derive(Debug)]
+pub(super) struct SlidingSyncStickyParameters {
+    /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
+    /// but one wants to receive updates.
+    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+
+    /// The intended state of the extensions being supplied to sliding /sync
+    /// calls.
+    extensions: ExtensionsConfig,
+}
+
+impl SlidingSyncStickyParameters {
+    /// Create a new set of sticky parameters.
+    pub fn new(
+        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+        extensions: ExtensionsConfig,
+    ) -> Self {
+        Self { room_subscriptions, extensions }
+    }
+}
+
+impl StickyData for SlidingSyncStickyParameters {
+    type Request = v4::Request;
+
+    fn apply(&self, request: &mut Self::Request) {
+        assign!(request, {
+            room_subscriptions: self.room_subscriptions.clone(),
+            extensions: self.extensions.clone(),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
-    use ruma::{
-        api::client::sync::sync_events::v4::{E2EEConfig, ToDeviceConfig},
-        room_id,
-    };
-    use wiremock::MockServer;
+    use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id};
+    use serde_json::json;
+    use wiremock::{Match, MockServer};
 
     use super::*;
-    use crate::test_utils::logged_in_client;
-
-    #[tokio::test]
-    async fn to_device_is_enabled_when_pos_is_none() -> Result<()> {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let sync = client.sliding_sync("test-slidingsync")?.build().await?;
-        let extensions = sync.prepare_extension_config(None);
-
-        // If the user doesn't provide any extension config, we enable to-device and
-        // e2ee anyways.
-        assert_matches!(
-            extensions.to_device,
-            ToDeviceConfig { enabled: Some(true), since: None, .. }
-        );
-        assert_matches!(extensions.e2ee, E2EEConfig { enabled: Some(true), .. });
-
-        let some_since = "some_since".to_owned();
-        sync.update_to_device_since(some_since.to_owned());
-        let extensions = sync.prepare_extension_config(Some("foo"));
-
-        // If there's a `pos` and to-device `since` token, we make sure we put the token
-        // into the extension config. The rest doesn't need to be re-enabled due to
-        // stickyness.
-        assert_matches!(
-            extensions.to_device,
-            ToDeviceConfig { enabled: None, since: Some(since), .. } if since == some_since
-        );
-        assert_matches!(extensions.e2ee, E2EEConfig { enabled: None, .. });
-
-        let extensions = sync.prepare_extension_config(None);
-        // Even if there isn't a `pos`, if we have a to-device `since` token, we put it
-        // into the request.
-        assert_matches!(
-            extensions.to_device,
-            ToDeviceConfig { enabled: Some(true), since: Some(since), .. } if since == some_since
-        );
-
-        Ok(())
-    }
+    use crate::{
+        sliding_sync::sticky_parameters::SlidingSyncStickyManager, test_utils::logged_in_client,
+    };
 
     async fn new_sliding_sync(
         lists: Vec<SlidingSyncListBuilder>,
@@ -797,7 +813,8 @@ mod tests {
         sliding_sync.subscribe_to_room(room1.clone(), None);
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
 
             assert!(room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -808,7 +825,8 @@ mod tests {
         sliding_sync.unsubscribe_from_room(room2.clone());
 
         {
-            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
 
             assert!(!room_subscriptions.contains_key(&room0));
             assert!(room_subscriptions.contains_key(&room1));
@@ -833,14 +851,6 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        // When no to-device token is present, `prepare_extensions_config` doesn't fill
-        // the request with it.
-        let config = sliding_sync.prepare_extension_config(Some("pos"));
-        assert!(config.to_device.since.is_none());
-
-        let config = sliding_sync.prepare_extension_config(None);
-        assert!(config.to_device.since.is_none());
-
         // When no to-device token is present, it's still not there after caching
         // either.
         let frozen = FrozenSlidingSync::from(&sliding_sync);
@@ -849,13 +859,7 @@ mod tests {
         // When a to-device token is present, `prepare_extensions_config` fills the
         // request with it.
         let since = String::from("my-to-device-since-token");
-        sliding_sync.update_to_device_since(since.clone());
-
-        let config = sliding_sync.prepare_extension_config(Some("pos"));
-        assert_eq!(config.to_device.since.as_ref(), Some(&since));
-
-        let config = sliding_sync.prepare_extension_config(None);
-        assert_eq!(config.to_device.since.as_ref(), Some(&since));
+        sliding_sync.inner.position.write().unwrap().to_device_token = Some(since.clone());
 
         let frozen = FrozenSlidingSync::from(&sliding_sync);
         assert_eq!(frozen.to_device_since, Some(since));
@@ -885,6 +889,268 @@ mod tests {
         assert!(lists.contains_key("bar"));
 
         // this test also ensures that Tokio is not panicking when calling `add_list`.
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sticky_parameters_api_invalidated_flow() {
+        let r0 = room_id!("!room:example.org");
+
+        let mut room_subscriptions = BTreeMap::new();
+        room_subscriptions.insert(r0.to_owned(), Default::default());
+
+        // At first it's invalidated.
+        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
+            room_subscriptions,
+            Default::default(),
+        ));
+        assert!(sticky.is_invalidated());
+
+        // Then when we create a request, the sticky parameters are applied.
+        let txn_id: &TransactionId = "tid123".into();
+
+        let mut request = v4::Request::default();
+        request.txn_id = Some(txn_id.to_string());
+
+        sticky.maybe_apply(&mut request, txn_id);
+
+        assert!(request.txn_id.is_some());
+        assert_eq!(request.room_subscriptions.len(), 1);
+        assert!(request.room_subscriptions.get(r0).is_some());
+
+        let tid = request.txn_id.unwrap();
+
+        sticky.maybe_commit(tid.as_str().into());
+        assert!(!sticky.is_invalidated());
+
+        // Applying new parameters will invalidate again.
+        sticky
+            .data_mut()
+            .room_subscriptions
+            .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
+        assert!(sticky.is_invalidated());
+
+        // Committing with the wrong transaction id will keep it invalidated.
+        sticky.maybe_commit("wrong tid today, my love has gone away 🎵".into());
+        assert!(sticky.is_invalidated());
+
+        // Restarting a request will only remember the last generated transaction id.
+        let txn_id1: &TransactionId = "tid456".into();
+        let mut request1 = v4::Request::default();
+        request1.txn_id = Some(txn_id1.to_string());
+        sticky.maybe_apply(&mut request1, txn_id1);
+
+        assert!(sticky.is_invalidated());
+        assert_eq!(request1.room_subscriptions.len(), 2);
+
+        let txn_id2: &TransactionId = "tid789".into();
+        let mut request2 = v4::Request::default();
+        request2.txn_id = Some(txn_id2.to_string());
+
+        sticky.maybe_apply(&mut request2, txn_id2);
+        assert!(sticky.is_invalidated());
+        assert_eq!(request2.room_subscriptions.len(), 2);
+
+        // Here we commit with the not most-recent TID, so it keeps the invalidated
+        // status.
+        sticky.maybe_commit(txn_id1);
+        assert!(sticky.is_invalidated());
+
+        // But here we use the latest TID, so the commit is effective.
+        sticky.maybe_commit(txn_id2);
+        assert!(!sticky.is_invalidated());
+    }
+
+    #[test]
+    fn test_extensions_are_sticky() {
+        let mut extensions = ExtensionsConfig::default();
+        extensions.account_data.enabled = Some(true);
+
+        // At first it's invalidated.
+        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
+            Default::default(),
+            extensions,
+        ));
+
+        assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
+
+        // `StickyParameters::new` follows its caller's intent when it comes to e2ee and
+        // to-device.
+        let extensions = &sticky.data().extensions;
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None,);
+        assert_eq!(extensions.to_device.since, None,);
+
+        // What the user explicitly enabled is... enabled.
+        assert_eq!(extensions.account_data.enabled, Some(true),);
+
+        let txn_id: &TransactionId = "tid123".into();
+        let mut request = v4::Request::default();
+        request.txn_id = Some(txn_id.to_string());
+        sticky.maybe_apply(&mut request, txn_id);
+        assert!(sticky.is_invalidated());
+        assert_eq!(request.extensions.to_device.enabled, None);
+        assert_eq!(request.extensions.to_device.since, None);
+        assert_eq!(request.extensions.e2ee.enabled, None);
+        assert_eq!(request.extensions.account_data.enabled, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_sticky_extensions_plus_since() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let mut ss_builder = client.sliding_sync("test-slidingsync")?;
+        ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
+
+        let sync = ss_builder.build().await?;
+
+        // We get to-device and e2ee even without requesting it.
+        assert_eq!(
+            sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled,
+            Some(true)
+        );
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, Some(true));
+        // But what we didn't enable... isn't enabled.
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
+
+        // Even without a since token, the first request will contain the extensions
+        // configuration, at least.
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id.clone()).await?;
+
+        assert_eq!(request.extensions.e2ee.enabled, Some(true));
+        assert_eq!(request.extensions.to_device.enabled, Some(true));
+        assert!(request.extensions.to_device.since.is_none());
+
+        {
+            // Committing with another transaction id doesn't validate anything.
+            let mut sticky = sync.inner.sticky.write().unwrap();
+            assert!(sticky.is_invalidated());
+            sticky.maybe_commit(
+                "hopefully the rng won't generate this very specific transaction id".into(),
+            );
+            assert!(sticky.is_invalidated());
+        }
+
+        // Regenerating a request will yield the same one.
+        let txn_id2 = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id2.clone()).await?;
+
+        assert_eq!(request.extensions.e2ee.enabled, Some(true));
+        assert_eq!(request.extensions.to_device.enabled, Some(true));
+        assert!(request.extensions.to_device.since.is_none());
+
+        assert!(txn_id != txn_id2, "the two requests must not share the same transaction id");
+
+        {
+            // Committing with the expected transaction id will validate it.
+            let mut sticky = sync.inner.sticky.write().unwrap();
+            assert!(sticky.is_invalidated());
+            sticky.maybe_commit(txn_id2.as_str().into());
+            assert!(!sticky.is_invalidated());
+        }
+
+        // The next request should contain no sticky parameters.
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
+        assert!(request.extensions.e2ee.enabled.is_none());
+        assert!(request.extensions.to_device.enabled.is_none());
+        assert!(request.extensions.to_device.since.is_none());
+
+        // If there's a to-device `since` token, we make sure we put the token
+        // into the extension config. The rest doesn't need to be re-enabled due to
+        // stickyness.
+        let since_token = "since";
+        sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
+
+        let txn_id = TransactionId::new();
+        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
+
+        assert!(request.extensions.e2ee.enabled.is_none());
+        assert!(request.extensions.to_device.enabled.is_none());
+        assert_eq!(request.extensions.to_device.since.as_deref(), Some(since_token));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sticky_parameters_invalidated_by_reset() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test-slidingsync")?
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .build()
+            .await?;
+
+        // First request asks to enable the extension.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_some());
+
+        let sync = sliding_sync.sync();
+        pin_mut!(sync);
+
+        #[derive(Clone)]
+        struct SlidingSyncMatcher;
+
+        impl Match for SlidingSyncMatcher {
+            fn matches(&self, request: &wiremock::Request) -> bool {
+                request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+                    && request.method == wiremock::http::Method::Post
+            }
+        }
+
+        #[derive(Deserialize)]
+        struct PartialRequest {
+            txn_id: Option<String>,
+        }
+
+        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
+            .respond_with(|request: &wiremock::Request| {
+                // Repeat with the txn_id in the response, if set.
+                let request: PartialRequest = request.body_json().unwrap();
+                wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                    "txn_id": request.txn_id,
+                    "pos": "0"
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        // Next request doesn't ask to enable the extension.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_none());
+
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        // Stop responding with successful requests!
+        drop(_mock_guard);
+
+        // When responding with M_UNKNOWN_POS, that regenerates the sticky parameters,
+        // so they're reset.
+        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_json(json!({
+                "error": "foo",
+                "errcode": "M_UNKNOWN_POS",
+            })))
+            .mount_as_scoped(&server)
+            .await;
+
+        let next = sync.next().await;
+
+        // The request will retry a few times, then end in an error eventually.
+        assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
+
+        // Next request asks to enable the extension again.
+        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        assert!(request.extensions.to_device.enabled.is_some());
 
         Ok(())
     }

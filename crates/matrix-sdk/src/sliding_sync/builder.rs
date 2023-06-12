@@ -12,10 +12,11 @@ use url::Url;
 
 use super::{
     cache::{format_storage_key_prefix, restore_sliding_sync_state},
+    sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     SlidingSyncRoom,
 };
-use crate::{Client, Result};
+use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -261,6 +262,12 @@ impl SlidingSyncBuilder {
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
 
+        // Always enable to-device events and the e2ee-extension on the initial request,
+        // no matter what the caller wants.
+        let mut extensions = self.extensions.unwrap_or_default();
+        extensions.to_device.enabled = Some(true);
+        extensions.e2ee.enabled = Some(true);
+
         Ok(SlidingSync::new(SlidingSyncInner {
             _id: Some(self.id),
             sliding_sync_proxy: self.sliding_sync_proxy,
@@ -270,7 +277,6 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            extensions: self.extensions.unwrap_or_default(),
             reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {
@@ -279,7 +285,9 @@ impl SlidingSyncBuilder {
                 to_device_token,
             }),
 
-            room_subscriptions: StdRwLock::new(self.subscriptions),
+            sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+            )),
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
