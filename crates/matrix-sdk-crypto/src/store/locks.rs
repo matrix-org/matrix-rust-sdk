@@ -159,9 +159,10 @@ impl CryptoStoreLock {
 /// RAII struct that implements the semantics of taking/release a
 /// `CryptoStoreLock` automatically.
 ///
-/// Note: this is dangerous and racy! Releasing the lock takes place in the `Drop` implementation,
-/// but since that can't be async, it means we have to spawn a new task there to do that. So this
-/// may be racy, in case of high contention.
+/// Note: this is dangerous and racy! Releasing the lock takes place in the
+/// `Drop` implementation, but since that can't be async, it means we have to
+/// spawn a new task there to do that. So this may be racy, in case of high
+/// contention.
 ///
 /// TODO(bnjbvr) remove this API then?
 #[derive(Debug)]
