@@ -242,6 +242,11 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                     ],
+                    "filters": {
+                        "is_invite": false,
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 1,
                 },
@@ -291,6 +296,11 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "required_state": [
                         ["m.room.encryption", ""],
                     ],
+                    "filters": {
+                        "is_invite": false,
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 20,
                 }

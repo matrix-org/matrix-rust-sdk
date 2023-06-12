@@ -76,7 +76,10 @@ use matrix_sdk::{
     SlidingSyncMode,
 };
 pub use room::*;
-use ruma::{events::StateEventType, OwnedRoomId, RoomId};
+use ruma::{
+    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    OwnedRoomId, RoomId,
+};
 pub use state::*;
 use thiserror::Error;
 
@@ -111,7 +114,12 @@ impl RoomList {
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
-                    ]),
+                    ])
+                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                        is_invite: Some(false),
+                        is_tombstoned: Some(false),
+                        not_room_types: vec!["m.space".to_owned()],
+                    }))),
             )
             .build()
             .await
