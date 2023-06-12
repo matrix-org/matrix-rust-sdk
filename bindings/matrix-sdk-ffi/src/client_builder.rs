@@ -9,6 +9,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
+use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
@@ -23,6 +24,7 @@ pub struct ClientBuilder {
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
+    sliding_sync_proxy: Option<String>,
     inner: MatrixClientBuilder,
 }
 
@@ -75,6 +77,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn sliding_sync_proxy(self: Arc<Self>, sliding_sync_proxy: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.sliding_sync_proxy = sliding_sync_proxy;
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
         Ok(self.build_inner()?)
     }
@@ -121,7 +129,17 @@ impl ClientBuilder {
             );
         }
 
-        RUNTIME.block_on(async move { Ok(Arc::new(Client::new(inner_builder.build().await?))) })
+        RUNTIME.block_on(async move {
+            let sdk_client = inner_builder.build().await?;
+
+            if let Some(sliding_sync_proxy) = &builder.sliding_sync_proxy {
+                sdk_client.set_sliding_sync_proxy(Url::parse(&sliding_sync_proxy).unwrap()).await;
+            }
+
+            let client = Client::new(sdk_client);
+            client.set_sliding_sync_proxy(builder.sliding_sync_proxy);
+            Ok(Arc::new(client))
+        })
     }
 }
 
@@ -135,6 +153,7 @@ impl Default for ClientBuilder {
             server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
+            sliding_sync_proxy: None,
             inner: MatrixClient::builder(),
         }
     }
