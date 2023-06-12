@@ -129,16 +129,14 @@ impl ClientBuilder {
             );
         }
 
-        RUNTIME.block_on(async move {
-            let sdk_client = inner_builder.build().await?;
+        let sdk_client = RUNTIME.block_on(async move { inner_builder.build().await })?;
+        sdk_client.set_sliding_sync_proxy(
+            builder.sliding_sync_proxy.map(|url| Url::parse(&url)).transpose()?,
+        );
 
-            let client = Client::new(sdk_client);
-            client.set_sliding_sync_proxy(
-                builder.sliding_sync_proxy.map(|url| Url::parse(&url)).transpose()?,
-            );
+        let client = Client::new(sdk_client);
 
-            Ok(Arc::new(client))
-        })
+        Ok(Arc::new(client))
     }
 }
 

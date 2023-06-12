@@ -267,10 +267,6 @@ impl Client {
         self.inner.sliding_sync_proxy()
     }
 
-    pub(crate) fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
-        self.inner.set_sliding_sync_proxy(sliding_sync_proxy);
-    }
-
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.inner.get_login_types().await?;
