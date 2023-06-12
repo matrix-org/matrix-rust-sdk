@@ -340,6 +340,7 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
         events::{
@@ -357,14 +358,14 @@ mod test {
     use super::*;
     use crate::SessionMeta;
 
-    #[tokio::test]
+    #[async_test]
     async fn can_process_empty_sliding_sync_response() {
         let client = logged_in_client().await;
         let empty_response = v4::Response::new("5".to_owned());
         client.process_sliding_sync(&empty_response).await.expect("Failed to process sync");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_with_unspecified_state_is_added_to_client_and_joined_list() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -389,7 +390,7 @@ mod test {
         assert!(sync_resp.rooms.invite.get(room_id).is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_name_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -406,7 +407,7 @@ mod test {
         assert_eq!(client_room.name(), Some("little room".to_owned()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invited_room_name_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -424,7 +425,7 @@ mod test {
         assert_eq!(client_room.name(), Some("little room".to_owned()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn avatar_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -444,7 +445,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invitation_room_is_added_to_client_and_invite_list() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -467,7 +468,7 @@ mod test {
         assert!(sync_resp.rooms.join.get(room_id).is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn avatar_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -488,7 +489,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn canonical_alias_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
