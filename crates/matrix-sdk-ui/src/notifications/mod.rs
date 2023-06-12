@@ -54,8 +54,7 @@ impl NotificationSync {
     /// the risk of causing problems.
     pub async fn new(id: impl Into<String>, client: Client) -> Result<Self, Error> {
         let sliding_sync = client
-            .sliding_sync(id)
-            .map_err(Error::SlidingSyncError)?
+            .sliding_sync(id)?
             .enable_caching()?
             .with_to_device_extension(
                 assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
@@ -113,6 +112,6 @@ impl NotificationSync {
 /// Errors for the [`NotificationSync`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Something wrong happened in sliding sync")]
+    #[error("Something wrong happened in sliding sync: {0:#}")]
     SlidingSyncError(#[from] matrix_sdk::Error),
 }
