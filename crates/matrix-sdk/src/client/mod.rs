@@ -142,7 +142,7 @@ pub(crate) struct ClientInner {
     authentication_issuer: Option<RwLock<String>>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: Option<RwLock<Url>>,
+    sliding_sync_proxy: RwLock<Option<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -337,17 +337,15 @@ impl Client {
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     pub async fn sliding_sync_proxy(&self) -> Option<Url> {
-        let server = self.inner.sliding_sync_proxy.as_ref()?;
-        Some(server.read().await.clone())
+        let server = self.inner.sliding_sync_proxy.read().await;
+        Some(server.as_ref()?.clone())
     }
 
     /// Force to set the sliding sync proxy URL.
     #[cfg(feature = "experimental-sliding-sync")]
     pub async fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Url) {
-        if let Some(lock) = &self.inner.sliding_sync_proxy {
-            let mut lock_guard = lock.write().await;
-            *lock_guard = sliding_sync_proxy;
-        }
+        let mut lock = self.inner.sliding_sync_proxy.write().await;
+        *lock = Some(sliding_sync_proxy);
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {

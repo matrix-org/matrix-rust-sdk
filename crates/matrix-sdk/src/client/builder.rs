@@ -393,8 +393,6 @@ impl ClientBuilder {
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
         let authentication_issuer = authentication_issuer.map(RwLock::new);
-        #[cfg(feature = "experimental-sliding-sync")]
-        let sliding_sync_proxy = sliding_sync_proxy.map(RwLock::new);
 
         let (unknown_token_error_sender, _) = broadcast::channel(1);
 
@@ -402,7 +400,7 @@ impl ClientBuilder {
             homeserver,
             authentication_issuer,
             #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_proxy,
+            sliding_sync_proxy: RwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),

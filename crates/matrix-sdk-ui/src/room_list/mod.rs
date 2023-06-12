@@ -533,7 +533,7 @@ pub enum Input {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::{config::RequestConfig, Session};
+    use matrix_sdk::{config::RequestConfig, reqwest::Url, Session};
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
     use wiremock::MockServer;
@@ -565,6 +565,28 @@ mod tests {
         let (client, _) = new_client().await;
 
         RoomList::new(client).await
+    }
+
+    #[async_test]
+    async fn test_sliding_sync_proxy_url() -> Result<(), Error> {
+        let (client, _) = new_client().await;
+
+        {
+            let room_list = RoomList::new(client.clone()).await?;
+
+            assert!(room_list.sliding_sync().sliding_sync_proxy().is_none());
+        }
+
+        {
+            let url = Url::parse("https://foo.matrix/").unwrap();
+            client.set_sliding_sync_proxy(url.clone()).await;
+
+            let room_list = RoomList::new(client.clone()).await?;
+
+            assert_eq!(room_list.sliding_sync().sliding_sync_proxy(), Some(url));
+        }
+
+        Ok(())
     }
 
     #[async_test]
