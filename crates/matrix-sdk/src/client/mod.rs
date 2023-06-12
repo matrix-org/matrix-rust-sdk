@@ -341,6 +341,15 @@ impl Client {
         Some(server.read().await.clone())
     }
 
+    /// Force to set the sliding sync proxy URL.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub async fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Url) {
+        if let Some(lock) = &self.inner.sliding_sync_proxy {
+            let mut lock_guard = lock.write().await;
+            *lock_guard = sliding_sync_proxy;
+        }
+    }
+
     fn session_meta(&self) -> Option<&SessionMeta> {
         self.base_client().session_meta()
     }

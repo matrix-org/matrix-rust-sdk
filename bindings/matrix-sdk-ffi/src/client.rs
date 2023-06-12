@@ -33,6 +33,7 @@ use ruma::{
 use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, warn};
+use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{client, ClientError, NotificationItem};
@@ -212,8 +213,14 @@ impl Client {
 
     /// Restores the client from a `Session`.
     pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
-        let Session { access_token, refresh_token, user_id, device_id, homeserver_url: _ } =
-            session;
+        let Session {
+            access_token,
+            refresh_token,
+            user_id,
+            device_id,
+            homeserver_url: _,
+            sliding_sync_proxy,
+        } = session;
 
         let session = matrix_sdk::Session {
             access_token,
@@ -221,7 +228,17 @@ impl Client {
             user_id: user_id.try_into()?,
             device_id: device_id.into(),
         };
-        Ok(self.restore_session_inner(session)?)
+
+        let result = self.restore_session_inner(session)?;
+
+        if let Some(sliding_sync_proxy) = sliding_sync_proxy {
+            let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
+                .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
+
+            RUNTIME.block_on(async { self.inner.set_sliding_sync_proxy(sliding_sync_proxy).await });
+        }
+
+        Ok(result)
     }
 }
 
@@ -287,6 +304,11 @@ impl Client {
                 user_id: user_id.to_string(),
                 device_id: device_id.to_string(),
                 homeserver_url,
+                sliding_sync_proxy: self
+                    .inner
+                    .sliding_sync_proxy()
+                    .await
+                    .map(|url| url.to_string()),
             })
         })
     }
@@ -744,6 +766,7 @@ pub struct Session {
 
     // FFI-only fields (for now)
     pub homeserver_url: String,
+    pub sliding_sync_proxy: Option<String>,
 }
 
 #[uniffi::export]
