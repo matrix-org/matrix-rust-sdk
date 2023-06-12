@@ -192,8 +192,8 @@ pub struct RoomListRoom {
 
 #[uniffi::export]
 impl RoomListRoom {
-    async fn name(&self) -> Option<String> {
-        self.inner.name().await
+    fn name(&self) -> Option<String> {
+        RUNTIME.block_on(async { self.inner.name().await })
     }
 
     async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListRoomTimelineResult {
@@ -212,8 +212,10 @@ impl RoomListRoom {
         }
     }
 
-    async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
-        self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
+    fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
+        RUNTIME.block_on(async {
+            self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
+        })
     }
 }
 
