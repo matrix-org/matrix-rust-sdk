@@ -134,7 +134,7 @@ impl SlidingSyncListRequestGenerator {
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Selective => {
-                // Nothing to do: we already have the full ranges, return the existing ranges.
+                // Nothing to do: we already have the full ranges, return the existing ranges.
                 // For the growing and paging modes, keep the current value of `requested_end`,
                 // which is still valid.
                 Ok(self.ranges.clone())
