@@ -34,15 +34,15 @@ mime = "0.3.16"
 # FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce experimental-sliding-sync being exposed here..
 # see https://github.com/matrix-org/matrix-rust-sdk/issues/1014
 once_cell = { workspace = true }
-opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.11.0", features = ["tokio", "reqwest-client", "http-proto"] }
+opentelemetry = { version = "0.19.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.12.0", features = ["tokio", "reqwest-client", "http-proto"] }
 ruma = { workspace = true, features = ["unstable-sanitize", "unstable-unspecified"] }
 sanitize-filename-reader-friendly = "2.2.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-core = { workspace = true }
-tracing-opentelemetry = { version = "0.18.0" }
+tracing-opentelemetry = { version = "0.19.0" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
