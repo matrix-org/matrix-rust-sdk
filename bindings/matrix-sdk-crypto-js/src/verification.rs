@@ -217,7 +217,8 @@ impl Sas {
         self.inner.cancel_info().map(Into::into)
     }
 
-    /// Did we initiate the verification flow.
+    /// True if we initiated the verification flow (ie, we sent the
+    /// `m.key.verification.request`).
     #[wasm_bindgen(js_name = "weStarted")]
     pub fn we_started(&self) -> bool {
         self.inner.we_started()
@@ -225,9 +226,9 @@ impl Sas {
 
     /// Accept the SAS verification.
     ///
-    /// This does nothing if the verification was already accepted,
-    /// otherwise it returns an `AcceptEventContent` that needs to be
-    /// sent out.
+    /// This does nothing (and returns `undefined`) if the verification was
+    /// already accepted, otherwise it returns an `OutgoingRequest`
+    /// that needs to be sent out.
     pub fn accept(&self) -> Result<JsValue, JsError> {
         self.inner
             .accept()
@@ -271,6 +272,9 @@ impl Sas {
     }
 
     /// Cancel the verification.
+    ///
+    /// Returns either an `OutgoingRequest` which should be sent out, or
+    /// `undefined` if the verification is already cancelled.
     pub fn cancel(&self) -> Result<JsValue, JsError> {
         self.inner
             .cancel()
@@ -284,6 +288,9 @@ impl Sas {
     /// Cancel the verification.
     ///
     /// This cancels the verification with given code.
+    ///
+    /// Returns either an `OutgoingRequest` which should be sent out, or
+    /// `undefined` if the verification is already cancelled.
     #[wasm_bindgen(js_name = "cancelWithCode")]
     pub fn cancel_with_code(&self, code: CancelCode) -> Result<JsValue, JsError> {
         self.inner
@@ -322,7 +329,7 @@ impl Sas {
     /// Get the emoji version of the short auth string.
     ///
     /// Returns `undefined` if we can't yet present the short auth string,
-    /// otherwise seven tuples containing the emoji and description.
+    /// otherwise an array of seven `Emoji` objects.
     pub fn emoji(&self) -> Option<Array> {
         Some(
             self.inner
@@ -519,6 +526,9 @@ impl Qr {
     }
 
     /// Cancel the verification flow.
+    ///
+    /// Returns either an `OutgoingRequest` which should be sent out, or
+    /// `undefined` if the verification is already cancelled.
     pub fn cancel(&self) -> Result<JsValue, JsError> {
         self.inner
             .cancel()
@@ -532,6 +542,9 @@ impl Qr {
     /// Cancel the verification.
     ///
     /// This cancels the verification with given code.
+    ///
+    /// Returns either an `OutgoingRequest` which should be sent out, or
+    /// `undefined` if the verification is already cancelled.
     #[wasm_bindgen(js_name = "cancelWithCode")]
     pub fn cancel_with_code(&self, code: CancelCode) -> Result<JsValue, JsError> {
         self.inner
