@@ -1188,4 +1188,46 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_sliding_sync_proxy_url() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        {
+            // A server that doesn't expose a sliding sync proxy gets and transmits none, by
+            // default.
+            let sync = client.sliding_sync("no-proxy")?.build().await?;
+
+            assert!(sync.sliding_sync_proxy().is_none());
+        }
+
+        {
+            // The sliding sync builder can be used to customize a proxy, though.
+            let url = Url::parse("https://bar.matrix/").unwrap();
+            let sync =
+                client.sliding_sync("own-proxy")?.sliding_sync_proxy(url.clone()).build().await?;
+            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+        }
+
+        // Set the client's proxy, that will be inherited by sliding sync.
+        let url = Url::parse("https://foo.matrix/").unwrap();
+        client.set_sliding_sync_proxy(Some(url.clone()));
+
+        {
+            // The sliding sync inherits the client's sliding sync proxy URL.
+            let sync = client.sliding_sync("client-proxy")?.build().await?;
+            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+        }
+
+        {
+            // …unless we override it.
+            let url = Url::parse("https://bar.matrix/").unwrap();
+            let sync =
+                client.sliding_sync("own-proxy")?.sliding_sync_proxy(url.clone()).build().await?;
+            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+        }
+
+        Ok(())
+    }
 }
