@@ -428,21 +428,19 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info,
                 });
-                message::MessageType::Image(message::ImageMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
+                message::MessageType::Image(
+                    message::ImageMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info)),
+                )
             }
             mime::AUDIO => {
                 let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
-                message::MessageType::Audio(message::AudioMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
+                message::MessageType::Audio(
+                    message::AudioMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info)),
+                )
             }
             mime::VIDEO => {
                 let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
@@ -450,11 +448,10 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::Video(message::VideoMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
+                message::MessageType::Video(
+                    message::VideoMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info)),
+                )
             }
             _ => {
                 let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
@@ -462,11 +459,10 @@ impl Media {
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::File(message::FileMessageEventContent::plain(
-                    body.to_owned(),
-                    url,
-                    Some(Box::new(info)),
-                ))
+                message::MessageType::File(
+                    message::FileMessageEventContent::plain(body.to_owned(), url)
+                        .info(Box::new(info)),
+                )
             }
         })
     }
