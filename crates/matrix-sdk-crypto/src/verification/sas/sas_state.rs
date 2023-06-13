@@ -76,7 +76,7 @@ const STRINGS: &[ShortAuthenticationString] =
     &[ShortAuthenticationString::Decimal, ShortAuthenticationString::Emoji];
 
 fn the_protocol_definitions(
-    short_auth_stings: Option<Vec<ShortAuthenticationString>>,
+    short_auth_strings: Option<Vec<ShortAuthenticationString>>,
 ) -> SasV1Content {
     SasV1ContentInit {
         short_authentication_string: short_auth_stings.unwrap_or_else(|| STRINGS.to_owned()),
