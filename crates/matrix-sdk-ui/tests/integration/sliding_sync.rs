@@ -4,6 +4,11 @@ use wiremock::{http::Method, Match, Request};
 
 pub(crate) struct SlidingSyncMatcher;
 
+#[derive(serde::Deserialize)]
+pub(crate) struct PartialSlidingSyncRequest {
+    pub txn_id: Option<String>,
+}
+
 impl Match for SlidingSyncMatcher {
     fn matches(&self, request: &Request) -> bool {
         request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
@@ -37,8 +42,8 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         $(,)?
     ) => {
         {
-            use $crate::sliding_sync::SlidingSyncMatcher;
-            use wiremock::{Mock, ResponseTemplate, Match as _};
+            use $crate::sliding_sync::{SlidingSyncMatcher, PartialSlidingSyncRequest};
+            use wiremock::{Mock, ResponseTemplate, Match as _, Request};
             use assert_matches::assert_matches;
             use serde_json::json;
 
@@ -46,9 +51,16 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
             $( let _code = $code; )?
 
             let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(ResponseTemplate::new(_code).set_body_json(
-                    json!({ $( $response_json )* })
-                ))
+                .respond_with(move |request: &Request| {
+                    let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+                    // Repeat the transaction id in the response, to validate sticky parameters.
+                    ResponseTemplate::new(_code).set_body_json(
+                        json!({
+                            "txn_id": partial_request.txn_id,
+                            $( $response_json )*
+                        })
+                    )
+                })
                 .mount_as_scoped(&$server)
                 .await;
 
@@ -58,7 +70,12 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
             for request in $server.received_requests().await.expect("Request recording has been disabled").iter().rev() {
                 if SlidingSyncMatcher.matches(request) {
-                    let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+                    let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+                    // Strip the transaction id, if present.
+                    if let Some(root) = json_value.as_object_mut() {
+                        root.remove("txn_id");
+                    }
 
                     if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
                         &json_value,

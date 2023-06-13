@@ -85,7 +85,7 @@ pub(super) struct SlidingSyncInner {
     /// A unique identifier for this instance of sliding sync.
     ///
     /// Used to distinguish different connections to the sliding sync proxy.
-    id: Option<String>,
+    id: String,
 
     /// Customize the sliding sync proxy URL.
     sliding_sync_proxy: Option<Url>,
@@ -403,7 +403,7 @@ impl SlidingSync {
         let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
-            conn_id: Some(self.id),
+            conn_id: Some(self.inner.id.clone()),
             txn_id: Some(txn_id.to_string()),
             pos,
             delta_token,
@@ -456,7 +456,7 @@ impl SlidingSync {
 
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            if self.inner.extensions.e2ee.enabled == Some(true) {
+            if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
                 debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
                 let (e2ee_uploads, response) =
@@ -1014,19 +1014,27 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut ss_builder = client.sliding_sync("test-slidingsync")?;
-        ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .build()
+            .await?;
 
-        let sync = ss_builder.build().await?;
-
-        // We get to-device and e2ee even without requesting it.
-        assert_eq!(
-            sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled,
-            Some(true)
-        );
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, Some(true));
-        // But what we didn't enable... isn't enabled.
+        // No extensions have been explicitly enabled here.
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None,);
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, None);
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
+
+        // Now enable e2ee and to-device.
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
 
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
@@ -1123,7 +1131,7 @@ mod tests {
 
         let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
             .respond_with(|request: &wiremock::Request| {
-                // Repeat with the txn_id in the response, if set.
+                // Repeat the txn_id in the response, if set.
                 let request: PartialRequest = request.body_json().unwrap();
                 wiremock::ResponseTemplate::new(200).set_body_json(json!({
                     "txn_id": request.txn_id,
@@ -1193,56 +1201,6 @@ mod tests {
 
         // The sync-loop is actually running.
         assert!(stream.next().await.is_some());
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_extensions_not_automatically_enabled() -> Result<()> {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        // If we don't explicitly enable extensions, none should get enabled for us
-        // automatically.
-        let sliding_sync = client.sliding_sync("test-slidingsync")?.build().await?;
-
-        let extensions = sliding_sync.prepare_extension_config(None);
-        assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None);
-        assert_eq!(extensions.account_data.enabled, None);
-        assert_eq!(extensions.receipts.enabled, None);
-        assert_eq!(extensions.typing.enabled, None);
-
-        let extensions = sliding_sync.prepare_extension_config(Some("pos"));
-        assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None);
-        assert_eq!(extensions.account_data.enabled, None);
-        assert_eq!(extensions.receipts.enabled, None);
-        assert_eq!(extensions.typing.enabled, None);
-
-        // If we explicitly enable a subset of extensions, only those should be enabled.
-        let sliding_sync = client
-            .sliding_sync("test-slidingsync")?
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
-            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true)}))
-            .build()
-            .await?;
-
-        let extensions = sliding_sync.prepare_extension_config(None);
-        assert_eq!(extensions.e2ee.enabled, Some(true));
-        assert_eq!(extensions.to_device.enabled, Some(true));
-        assert_eq!(extensions.account_data.enabled, None);
-        assert_eq!(extensions.receipts.enabled, None);
-        assert_eq!(extensions.typing.enabled, None);
-
-        // The extensions "enabled" fields are sticky: they're not reset if we have a
-        // valid position.
-        let extensions = sliding_sync.prepare_extension_config(Some("pos"));
-        assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None);
-        assert_eq!(extensions.account_data.enabled, None);
-        assert_eq!(extensions.receipts.enabled, None);
-        assert_eq!(extensions.typing.enabled, None);
 
         Ok(())
     }

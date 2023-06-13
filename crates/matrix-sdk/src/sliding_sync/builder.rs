@@ -266,14 +266,8 @@ impl SlidingSyncBuilder {
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
 
-        // Always enable to-device events and the e2ee-extension on the initial request,
-        // no matter what the caller wants.
-        let mut extensions = self.extensions.unwrap_or_default();
-        extensions.to_device.enabled = Some(true);
-        extensions.e2ee.enabled = Some(true);
-
         Ok(SlidingSync::new(SlidingSyncInner {
-            id: Some(self.id),
+            id: self.id,
             sliding_sync_proxy,
 
             client,
@@ -291,7 +285,10 @@ impl SlidingSyncBuilder {
             }),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+                SlidingSyncStickyParameters::new(
+                    self.subscriptions,
+                    self.extensions.unwrap_or_default(),
+                ),
             )),
             room_unsubscriptions: Default::default(),
 

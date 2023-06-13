@@ -245,7 +245,6 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "ranges": [
                         [0, 49],
                     ],
-                    "timeline_limit": 1,
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
@@ -1318,6 +1317,7 @@ async fn test_input_viewport() -> Result<(), Error> {
 
     assert!(room_list.apply_input(Input::Viewport(vec![10..=15, 20..=25])).await.is_ok());
 
+    // The `timeline_limit` is not repeated because it's sticky.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = AllRooms => CarryOn,
@@ -1328,7 +1328,6 @@ async fn test_input_viewport() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[10, 15], [20, 25]],
-                    "timeline_limit": 20,
                 }
             }
         },
