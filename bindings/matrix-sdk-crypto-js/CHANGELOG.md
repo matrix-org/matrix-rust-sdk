@@ -1,6 +1,6 @@
 # v0.1.0-alpha.11
 
-- Simplify the respionse type of `Sas.confirm()`.
+-   Simplify the respionse type of `Sas.confirm()`.
 
 # v0.1.0-alpha.10
 
