@@ -79,7 +79,7 @@ fn the_protocol_definitions(
     short_auth_strings: Option<Vec<ShortAuthenticationString>>,
 ) -> SasV1Content {
     SasV1ContentInit {
-        short_authentication_string: short_auth_stings.unwrap_or_else(|| STRINGS.to_owned()),
+        short_authentication_string: short_auth_strings.unwrap_or_else(|| STRINGS.to_owned()),
         key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
         message_authentication_codes: vec![
             #[allow(deprecated)]
