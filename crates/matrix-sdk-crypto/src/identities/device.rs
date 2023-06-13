@@ -19,7 +19,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    },
+    }, time::{SystemTime, UNIX_EPOCH},
 };
 
 use atomic::Atomic;
@@ -91,6 +91,14 @@ pub struct ReadOnlyDevice {
         deserialize_with = "atomic_bool_deserializer"
     )]
     withheld_code_sent: Arc<AtomicBool>,
+    /// First time this device was seen.
+    /// Default to epoch for migration purpose.
+    #[serde(default = "default_first_time_seen_ts")]
+    first_time_seen_ts: SystemTime,
+}
+
+fn default_first_time_seen_ts() -> SystemTime {
+    SystemTime::UNIX_EPOCH
 }
 
 impl std::fmt::Debug for ReadOnlyDevice {
@@ -598,6 +606,7 @@ impl ReadOnlyDevice {
             trust_state: Arc::new(Atomic::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
+            first_time_seen_ts: SystemTime::now(),
         }
     }
 
@@ -898,9 +907,17 @@ impl ReadOnlyDevice {
     /// replicated locally.
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        ReadOnlyDevice::try_from(&device_keys)
-            .expect("Creating a device from our own account should always succeed")
+        let from_keys = ReadOnlyDevice::try_from(&device_keys)
+            .expect("Creating a device from our own account should always succeed");
+        ReadOnlyDevice { first_time_seen_ts: account.creation_local_time_ts(), ..from_keys }
     }
+
+    /// Get the local timestamp of when this device was first persisted, in seconds since epoch.
+    pub fn first_time_seen_ts(&self) -> u64 {
+        self.first_time_seen_ts.duration_since(UNIX_EPOCH)
+        .unwrap().as_secs()
+    }
+
 }
 
 impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
@@ -912,6 +929,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
+            first_time_seen_ts: SystemTime::now(),
         };
 
         device.verify_device_keys(device_keys)?;
@@ -968,6 +986,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::time::SystemTime;
+
     use ruma::user_id;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
@@ -976,6 +996,8 @@ pub(crate) mod tests {
 
     #[test]
     fn create_a_device() {
+
+        let now = SystemTime::now();
         let user_id = user_id!("@example:localhost");
         let device_id = "BNYQQWUMXO";
 
@@ -995,6 +1017,12 @@ pub(crate) mod tests {
             device.ed25519_key().unwrap(),
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
+
+
+        let then = SystemTime::now();
+
+        assert!(device.first_time_seen_ts >= now);
+        assert!(device.first_time_seen_ts <= then);
     }
 
     #[test]

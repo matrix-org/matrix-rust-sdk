@@ -19,7 +19,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
-    },
+    }, time::{SystemTime, Duration},
 };
 
 use ruma::{
@@ -29,8 +29,8 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
-    RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -486,6 +486,8 @@ pub struct ReadOnlyAccount {
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicU64>,
+    // The creation time of the account
+    creation_local_time_ts: SystemTime,
 }
 
 /// A pickled version of an `Account`.
@@ -505,6 +507,10 @@ pub struct PickledAccount {
     pub shared: bool,
     /// The number of uploaded one-time keys we have on the server.
     pub uploaded_signed_key_count: u64,
+    /// The local time creation of this account (seconds since epoch), used as
+    /// creation time of own device
+    #[serde(default)]
+    pub creation_local_time_ts: u64,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -540,6 +546,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
+            creation_local_time_ts: SystemTime::now(),
         }
     }
 
@@ -561,6 +568,11 @@ impl ReadOnlyAccount {
     /// Get the key ID of our Ed25519 signing key.
     pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
         DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
+    }
+
+    /// Get the local timestamp creation of the account
+    pub fn creation_local_time_ts(&self) -> SystemTime {
+        self.creation_local_time_ts
     }
 
     /// Update the uploaded key count.
@@ -762,6 +774,7 @@ impl ReadOnlyAccount {
             pickle,
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
+            creation_local_time_ts: self.creation_local_time_ts.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
         }
     }
 
@@ -785,6 +798,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
+            creation_local_time_ts: SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(pickle.creation_local_time_ts)).unwrap_or(SystemTime::UNIX_EPOCH)
         })
     }
 
