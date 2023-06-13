@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use std::{
+    cmp,
     collections::{BTreeMap, HashMap},
     convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    }, time::{SystemTime, UNIX_EPOCH},
+    },
+    time::SystemTime,
 };
 
 use atomic::Atomic;
@@ -69,6 +71,38 @@ pub enum MaybeEncryptedRoomKey {
     },
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(from = "u64", into = "u64")]
+struct SecondsSinceUnixEpoch(u64);
+
+impl SecondsSinceUnixEpoch {
+    fn now() -> Self {
+        SecondsSinceUnixEpoch(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0f64, |t| t.as_secs_f64())
+                .to_bits(),
+        )
+    }
+}
+
+impl Default for SecondsSinceUnixEpoch {
+    fn default() -> Self {
+        SecondsSinceUnixEpoch(0u64)
+    }
+}
+
+impl From<u64> for SecondsSinceUnixEpoch {
+    fn from(value: u64) -> Self {
+        SecondsSinceUnixEpoch(cmp::max(0, value))
+    }
+}
+impl From<SecondsSinceUnixEpoch> for u64 {
+    fn from(value: SecondsSinceUnixEpoch) -> Self {
+        value.0
+    }
+}
+
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
@@ -91,14 +125,10 @@ pub struct ReadOnlyDevice {
         deserialize_with = "atomic_bool_deserializer"
     )]
     withheld_code_sent: Arc<AtomicBool>,
-    /// First time this device was seen.
+    /// First time this device was seen in secs since epoch.
     /// Default to epoch for migration purpose.
-    #[serde(default = "default_first_time_seen_ts")]
-    first_time_seen_ts: SystemTime,
-}
-
-fn default_first_time_seen_ts() -> SystemTime {
-    SystemTime::UNIX_EPOCH
+    #[serde(default)]
+    first_time_seen_ts: SecondsSinceUnixEpoch,
 }
 
 impl std::fmt::Debug for ReadOnlyDevice {
@@ -606,7 +636,7 @@ impl ReadOnlyDevice {
             trust_state: Arc::new(Atomic::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
-            first_time_seen_ts: SystemTime::now(),
+            first_time_seen_ts: SecondsSinceUnixEpoch::now(),
         }
     }
 
@@ -909,15 +939,14 @@ impl ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         let from_keys = ReadOnlyDevice::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");
-        ReadOnlyDevice { first_time_seen_ts: account.creation_local_time_ts(), ..from_keys }
+        ReadOnlyDevice { first_time_seen_ts: account.creation_local_time_ts().into(), ..from_keys }
     }
 
-    /// Get the local timestamp of when this device was first persisted, in seconds since epoch.
+    /// Get the local timestamp of when this device was first persisted, in
+    /// seconds since epoch.
     pub fn first_time_seen_ts(&self) -> u64 {
-        self.first_time_seen_ts.duration_since(UNIX_EPOCH)
-        .unwrap().as_secs()
+        self.first_time_seen_ts.into()
     }
-
 }
 
 impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
@@ -929,7 +958,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
-            first_time_seen_ts: SystemTime::now(),
+            first_time_seen_ts: SecondsSinceUnixEpoch::now(),
         };
 
         device.verify_device_keys(device_keys)?;
@@ -986,6 +1015,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use std::time::SystemTime;
 
     use ruma::user_id;
@@ -996,8 +1026,7 @@ pub(crate) mod tests {
 
     #[test]
     fn create_a_device() {
-
-        let now = SystemTime::now();
+        let now = now_as_secs();
         let user_id = user_id!("@example:localhost");
         let device_id = "BNYQQWUMXO";
 
@@ -1018,11 +1047,14 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
 
+        let then = now_as_secs();
 
-        let then = SystemTime::now();
+        assert!(device.first_time_seen_ts() >= now);
+        assert!(device.first_time_seen_ts() <= then);
+    }
 
-        assert!(device.first_time_seen_ts >= now);
-        assert!(device.first_time_seen_ts <= then);
+    fn now_as_secs() -> u64 {
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64().to_bits()
     }
 
     #[test]
