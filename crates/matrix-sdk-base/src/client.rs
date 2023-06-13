@@ -17,7 +17,7 @@
 use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
+    fmt, iter,
     sync::Arc,
 };
 
@@ -478,10 +478,16 @@ impl BaseClient {
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
+    /// Process the events provided during a sync.
+    ///
+    /// events must be exactly the same list of events that are in raw_events,
+    /// but deserialised. We demand them here to avoid deserialising
+    /// multiple times.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_state(
         &self,
-        events: &[Raw<AnySyncStateEvent>],
+        raw_events: &[Raw<AnySyncStateEvent>],
+        events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
@@ -490,16 +496,8 @@ impl BaseClient {
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
 
-        for raw_event in events {
-            let event = match raw_event.deserialize() {
-                Ok(ev) => ev,
-                Err(e) => {
-                    warn!("Couldn't deserialize state event: {e}");
-                    continue;
-                }
-            };
-
-            room_info.handle_state_event(&event);
+        for (raw_event, event) in iter::zip(raw_events, events) {
+            room_info.handle_state_event(event);
 
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 ambiguity_cache.handle_event(changes, &room_info.room_id, member).await?;
@@ -714,9 +712,12 @@ impl BaseClient {
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
 
+            let deserialized_events = Self::deserialize_events(&new_info.state.events);
+
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &deserialized_events,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -800,9 +801,12 @@ impl BaseClient {
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
 
+            let deserialized_events = Self::deserialize_events(&new_info.state.events);
+
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &deserialized_events,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -1241,6 +1245,21 @@ impl BaseClient {
     /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
         self.ignore_user_list_changes_tx.subscribe()
+    }
+
+    pub(crate) fn deserialize_events(
+        raw_events: &[Raw<AnySyncStateEvent>],
+    ) -> Vec<AnySyncStateEvent> {
+        raw_events
+            .iter()
+            .filter_map(|raw_event| match raw_event.deserialize() {
+                Ok(ev) => Some(ev),
+                Err(e) => {
+                    warn!("Couldn't deserialize state event: {e}");
+                    None
+                }
+            })
+            .collect()
     }
 }
 

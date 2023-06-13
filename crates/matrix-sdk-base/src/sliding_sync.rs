@@ -21,10 +21,9 @@ use ruma::{
         v4::{self, AccountData},
     },
     events::AnySyncStateEvent,
-    serde::Raw,
     RoomId,
 };
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -193,15 +192,30 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
+        let required_state = Self::deserialize_events(&room_data.required_state);
+
         // Find or create the room in the store
-        let (room, mut room_info, invited_room) =
-            self.process_sliding_sync_room_membership(room_data, store, room_id, changes).await;
+        let (room, mut room_info, invited_room) = self
+            .process_sliding_sync_room_membership(
+                room_data,
+                &required_state,
+                store,
+                room_id,
+                changes,
+            )
+            .await;
 
         room_info.mark_state_partially_synced();
 
-        let mut user_ids = if !room_data.required_state.is_empty() {
-            self.handle_state(&room_data.required_state, &mut room_info, changes, ambiguity_cache)
-                .await?
+        let mut user_ids = if !required_state.is_empty() {
+            self.handle_state(
+                &room_data.required_state,
+                &required_state,
+                &mut room_info,
+                changes,
+                ambiguity_cache,
+            )
+            .await?
         } else {
             Default::default()
         };
@@ -276,6 +290,7 @@ impl BaseClient {
     async fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
+        required_state: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
         changes: &mut StateChanges,
@@ -319,31 +334,20 @@ impl BaseClient {
             // property. In sliding sync we only have invite_state and
             // required_state, so we must process required_state looking for
             // relevant membership events.
-            self.handle_own_room_membership(&room_data.required_state, &mut room_info).await;
+            self.handle_own_room_membership(required_state, &mut room_info).await;
 
             (room, room_info, None)
         }
     }
 
-    /// Find any m.room.member events that refer to the current user, and update the state in
-    /// room_info to reflect the "membership" property.
+    /// Find any m.room.member events that refer to the current user, and update
+    /// the state in room_info to reflect the "membership" property.
     pub(crate) async fn handle_own_room_membership(
         &self,
-        required_state: &[Raw<AnySyncStateEvent>],
+        required_state: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
     ) {
-        // Note: we deserialise these same events inside handle_state(). We could refactor to do
-        // this only once.
-
-        for raw_event in required_state {
-            let event = match raw_event.deserialize() {
-                Ok(ev) => ev,
-                Err(e) => {
-                    warn!("Couldn't deserialize state event: {e}");
-                    continue;
-                }
-            };
-
+        for event in required_state {
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
