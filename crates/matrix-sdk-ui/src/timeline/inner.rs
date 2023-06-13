@@ -16,10 +16,11 @@
 use std::collections::BTreeSet;
 use std::{collections::HashMap, sync::Arc};
 
-use async_trait::async_trait;
 use eyeball_im::{ObservableVector, VectorSubscriber};
+#[cfg(any(test, feature = "testing"))]
+use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
@@ -39,10 +40,8 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
-        AnySyncTimelineEvent,
     },
-    push::{Action, PushConditionRoomCtx, Ruleset},
-    serde::Raw,
+    push::Action,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
 };
@@ -51,15 +50,18 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{field, info_span, Instrument as _};
 
+#[cfg(feature = "e2e-encryption")]
+use super::traits::Decryptor;
 use super::{
     compare_events_positions,
     event_handler::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
-    rfind_event_by_id, rfind_event_item, EventSendState, EventTimelineItem, InReplyToDetails,
-    Message, Profile, RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    rfind_event_by_id, rfind_event_item,
+    traits::RoomDataProvider,
+    EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile, RelativePosition,
+    RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -124,6 +126,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let items = state.items.clone();
         let stream = state.items.subscribe();
         (items, stream)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub(super) async fn subscribe_filter_map<U, F>(
+        &self,
+        f: F,
+    ) -> (Vector<U>, FilterMapVectorSubscriber<Arc<TimelineItem>, F>)
+    where
+        U: Clone,
+        F: Fn(Arc<TimelineItem>) -> Option<U>,
+    {
+        trace!("Creating timeline items signal");
+        let state = self.state.lock().await;
+        state.items.subscribe_filter_map(f)
     }
 
     pub(super) fn set_initial_user_receipt(
@@ -321,6 +337,42 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.set(idx, Arc::new(new_item));
     }
 
+    pub(super) async fn prepare_retry(
+        &self,
+        txn_id: &TransactionId,
+    ) -> Option<TimelineItemContent> {
+        let mut state = self.state.lock().await;
+
+        let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
+        let local_item = item.as_local()?;
+
+        if !matches!(&local_item.send_state, EventSendState::SendingFailed { .. }) {
+            debug!("Attempted to retry the sending of an item that is not in failed state");
+            return None;
+        }
+
+        let new_item = TimelineItem::Event(
+            item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
+        );
+
+        let content = item.content.clone();
+        state.items.set(idx, Arc::new(new_item));
+
+        Some(content)
+    }
+
+    pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
+        let mut state = self.state.lock().await;
+        if let Some((idx, _)) =
+            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
+        {
+            state.items.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Handle a back-paginated event.
     ///
     /// Returns the number of timeline updates that were made.
@@ -345,7 +397,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn add_loading_indicator(&self) {
         let mut state = self.state.lock().await;
 
-        if state.items.front().map_or(false, |item| item.is_loading_indicator()) {
+        if state.items.front().is_some_and(|item| item.is_loading_indicator()) {
             warn!("There is already a loading indicator");
             return;
         }
@@ -357,7 +409,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
         let mut state = self.state.lock().await;
 
-        if !state.items.front().map_or(false, |item| item.is_loading_indicator()) {
+        if !state.items.front().is_some_and(|item| item.is_loading_indicator()) {
             warn!("There is no loading indicator");
             return;
         }
@@ -830,7 +882,7 @@ impl TimelineInnerState {
     #[instrument(skip_all)]
     fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
-        if self.fully_read_event.as_ref().map_or(false, |id| *id == fully_read_event_id) {
+        if self.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
         }
 
@@ -887,93 +939,4 @@ async fn fetch_replied_to_event(
         Err(e) => TimelineDetails::Error(Arc::new(e)),
     };
     Ok(res)
-}
-
-#[async_trait]
-pub(super) trait RoomDataProvider {
-    fn own_user_id(&self) -> &UserId;
-    async fn profile(&self, user_id: &UserId) -> Option<Profile>;
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
-}
-
-#[async_trait]
-impl RoomDataProvider for room::Common {
-    fn own_user_id(&self) -> &UserId {
-        (**self).own_user_id()
-    }
-
-    async fn profile(&self, user_id: &UserId) -> Option<Profile> {
-        match self.get_member_no_sync(user_id).await {
-            Ok(Some(member)) => Some(Profile {
-                display_name: member.display_name().map(ToOwned::to_owned),
-                display_name_ambiguous: member.name_ambiguous(),
-                avatar_url: member.avatar_url().map(ToOwned::to_owned),
-            }),
-            Ok(None) if self.are_members_synced() => Some(Profile {
-                display_name: None,
-                display_name_ambiguous: false,
-                avatar_url: None,
-            }),
-            Ok(None) => None,
-            Err(e) => {
-                error!(%user_id, "Failed to getch room member information: {e}");
-                None
-            }
-        }
-    }
-
-    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        match self.event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await {
-            Ok(receipts) => receipts.into_iter().collect(),
-            Err(e) => {
-                error!(?event_id, "Failed to get read receipts for event: {e}");
-                IndexMap::new()
-            }
-        }
-    }
-
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
-        match self.push_context().await {
-            Ok(Some(push_context)) => match self.client().account().push_rules().await {
-                Ok(push_rules) => Some((push_rules, push_context)),
-                Err(e) => {
-                    error!("Could not get push rules: {e}");
-                    None
-                }
-            },
-            Ok(None) => {
-                debug!("Could not aggregate push context");
-                None
-            }
-            Err(e) => {
-                error!("Could not get push context: {e}");
-                None
-            }
-        }
-    }
-}
-
-// Internal helper to make most of retry_event_decryption independent of a room
-// object, which is annoying to create for testing and not really needed
-#[async_trait]
-trait Decryptor: Copy {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent>;
-}
-
-#[async_trait]
-impl Decryptor for &room::Common {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
-        self.decrypt_event(raw.cast_ref()).await
-    }
-}
-
-#[cfg(all(test, feature = "e2e-encryption"))]
-#[async_trait]
-impl Decryptor for (&OlmMachine, &RoomId) {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
-        let (olm_machine, room_id) = self;
-        let event = olm_machine.decrypt_room_event(raw.cast_ref(), room_id).await?;
-        Ok(event)
-    }
 }

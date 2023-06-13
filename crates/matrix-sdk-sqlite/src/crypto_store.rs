@@ -37,12 +37,14 @@ use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _},
+    utils::{
+        load_db_version, Key, SqliteConnectionExt as _, SqliteObjectExt, SqliteObjectStoreExt as _,
+    },
     OpenStoreError,
 };
 
@@ -98,7 +100,8 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        run_migrations(&conn).await.map_err(OpenStoreError::Migration)?;
+        let version = load_db_version(&conn).await?;
+        run_migrations(&conn, version).await.map_err(OpenStoreError::Migration)?;
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
@@ -192,36 +195,14 @@ impl SqliteCryptoStore {
 
 const DATABASE_VERSION: u8 = 6;
 
-async fn run_migrations(conn: &SqliteConn) -> rusqlite::Result<()> {
-    let kv_exists = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
-            (),
-            |row| row.get::<_, u32>(0),
-        )
-        .await?
-        > 0;
-
-    let version = if kv_exists {
-        match conn.get_kv("version").await?.as_deref() {
-            Some([v]) => *v,
-            Some(_) => {
-                error!("version database field has multiple bytes");
-                return Ok(());
-            }
-            None => {
-                error!("version database field is missing");
-                return Ok(());
-            }
-        }
-    } else {
-        0
-    };
-
+/// Run migrations for the given version of the database.
+async fn run_migrations(conn: &SqliteConn, version: u8) -> rusqlite::Result<()> {
     if version == 0 {
         debug!("Creating database");
     } else if version < DATABASE_VERSION {
         debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
+    } else {
+        return Ok(());
     }
 
     if version < 1 {

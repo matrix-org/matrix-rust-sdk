@@ -334,20 +334,17 @@ impl PrivateCrossSigningIdentity {
         let master_differs = self
             .master_public_key()
             .await
-            .map(|master| &master != public_identity.master_key())
-            .unwrap_or(false);
+            .is_some_and(|master| &master != public_identity.master_key());
 
         let user_signing_differs = self
             .user_signing_public_key()
             .await
-            .map(|subkey| &subkey != public_identity.user_signing_key())
-            .unwrap_or(false);
+            .is_some_and(|subkey| &subkey != public_identity.user_signing_key());
 
         let self_signing_differs = self
             .self_signing_public_key()
             .await
-            .map(|subkey| &subkey != public_identity.self_signing_key())
-            .unwrap_or(false);
+            .is_some_and(|subkey| &subkey != public_identity.self_signing_key());
 
         ClearResult {
             master_cleared: master_differs,

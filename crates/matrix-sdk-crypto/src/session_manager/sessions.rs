@@ -130,10 +130,7 @@ impl SessionManager {
 
     #[allow(dead_code)]
     pub fn is_device_wedged(&self, device: &ReadOnlyDevice) -> bool {
-        self.wedged_devices
-            .get(device.user_id())
-            .map(|d| d.contains(device.device_id()))
-            .unwrap_or(false)
+        self.wedged_devices.get(device.user_id()).is_some_and(|d| d.contains(device.device_id()))
     }
 
     /// Check if the session was created to unwedge a Device.
@@ -298,7 +295,7 @@ impl SessionManager {
     }
 
     fn is_user_timed_out(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
-        self.failed_devices.get(user_id).map(|d| d.contains(device_id)).unwrap_or(false)
+        self.failed_devices.get(user_id).is_some_and(|d| d.contains(device_id))
     }
 
     /// Receive a successful key claim response and create new Olm sessions with

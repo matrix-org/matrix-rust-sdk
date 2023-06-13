@@ -1,3 +1,7 @@
+# v0.1.0-alpha.10
+
+-   Add `masterKey`, `userSigningKey`, `selfSigningKey` to `UserIdentity` and `OwnUserIdentity`
+
 # v0.1.0-alpha.9
 
 -   Extend `OlmDevice.markRequestAsSent` to accept responses to

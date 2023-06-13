@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-sliding-sync")]
+use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
@@ -53,7 +55,7 @@ use ruma::{
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
             },
-            sync::sync_events::{self},
+            sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
             user_directory::search_users,
         },
@@ -142,7 +144,7 @@ pub(crate) struct ClientInner {
     authentication_issuer: Option<RwLock<String>>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: Option<RwLock<Url>>,
+    sliding_sync_proxy: StdRwLock<Option<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -336,9 +338,16 @@ impl Client {
 
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub async fn sliding_sync_proxy(&self) -> Option<Url> {
-        let server = self.inner.sliding_sync_proxy.as_ref()?;
-        Some(server.read().await.clone())
+    pub fn sliding_sync_proxy(&self) -> Option<Url> {
+        let server = self.inner.sliding_sync_proxy.read().unwrap();
+        Some(server.as_ref()?.clone())
+    }
+
+    /// Force to set the sliding sync proxy URL.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
+        let mut lock = self.inner.sliding_sync_proxy.write().unwrap();
+        *lock = sliding_sync_proxy;
     }
 
     fn session_meta(&self) -> Option<&SessionMeta> {
@@ -1845,13 +1854,14 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver: Option<String>,
+        sliding_sync_proxy: Option<String>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = Box::pin(self.send_inner(request.clone(), config, homeserver.clone())).await;
+        let res =
+            Box::pin(self.send_inner(request.clone(), config, sliding_sync_proxy.clone())).await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1870,7 +1880,7 @@ impl Client {
                         }
                     }
                 } else {
-                    return Box::pin(self.send_inner(request, config, homeserver)).await;
+                    return Box::pin(self.send_inner(request, config, sliding_sync_proxy)).await;
                 }
             }
         }

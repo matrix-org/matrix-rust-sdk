@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent},
+    deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
     MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
@@ -889,42 +889,6 @@ impl_state_store!({
             .await?
             .map(|f| self.deserialize_event(&f))
             .transpose()
-    }
-
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>> {
-        if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_ROOM_STATE)?
-            .get(&self.encode_key(
-                keys::STRIPPED_ROOM_STATE,
-                (room_id, StateEventType::RoomMember, state_key),
-            ))?
-            .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawMemberEvent::Stripped(e)))
-        } else if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::ROOM_STATE)?
-            .get(
-                &self
-                    .encode_key(keys::ROOM_STATE, (room_id, StateEventType::RoomMember, state_key)),
-            )?
-            .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawMemberEvent::Sync(e)))
-        } else {
-            Ok(None)
-        }
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {

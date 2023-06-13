@@ -12,10 +12,11 @@ use url::Url;
 
 use super::{
     cache::{format_storage_key_prefix, restore_sliding_sync_state},
+    sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     SlidingSyncRoom,
 };
-use crate::{Client, Result};
+use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -25,7 +26,7 @@ use crate::{Client, Result};
 pub struct SlidingSyncBuilder {
     id: String,
     storage_key: Option<String>,
-    homeserver: Option<Url>,
+    sliding_sync_proxy: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<ExtensionsConfig>,
@@ -41,7 +42,7 @@ impl SlidingSyncBuilder {
             Ok(Self {
                 id,
                 storage_key: None,
-                homeserver: None,
+                sliding_sync_proxy: None,
                 client,
                 lists: Vec::new(),
                 extensions: None,
@@ -64,9 +65,14 @@ impl SlidingSyncBuilder {
         Ok(self)
     }
 
-    /// Set the homeserver for sliding sync only.
-    pub fn homeserver(mut self, value: Url) -> Self {
-        self.homeserver = Some(value);
+    /// Set the sliding sync proxy URL.
+    ///
+    /// Note you might not need that in general, since the client uses the
+    /// `.well-known` endpoint to automatically find the sliding sync proxy
+    /// URL. This method should only be called if the proxy is at a
+    /// different URL than the one publicized in the `.well-known` endpoint.
+    pub fn sliding_sync_proxy(mut self, value: Url) -> Self {
+        self.sliding_sync_proxy = Some(value);
         self
     }
 
@@ -120,6 +126,10 @@ impl SlidingSyncBuilder {
 
             if cfg.account_data.enabled.is_none() {
                 cfg.account_data.enabled = Some(true);
+            }
+
+            if cfg.receipts.enabled.is_none() {
+                cfg.receipts.enabled = Some(true);
             }
         }
         self
@@ -251,24 +261,27 @@ impl SlidingSyncBuilder {
 
         // Use the provided sliding-sync proxy URL, or try to get the one that was discovered by
         // the client.
-        let homeserver = match self.homeserver {
-            Some(url) => Some(url),
-            None => client.sliding_sync_proxy().await,
-        };
+        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
 
+        // Always enable to-device events and the e2ee-extension on the initial request,
+        // no matter what the caller wants.
+        let mut extensions = self.extensions.unwrap_or_default();
+        extensions.to_device.enabled = Some(true);
+        extensions.e2ee.enabled = Some(true);
+
         Ok(SlidingSync::new(SlidingSyncInner {
             id: Some(self.id),
-            homeserver,
+            sliding_sync_proxy,
+
             client,
             storage_key: self.storage_key,
 
             lists,
             rooms,
 
-            extensions: self.extensions.unwrap_or_default(),
             reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {
@@ -277,7 +290,9 @@ impl SlidingSyncBuilder {
                 to_device_token,
             }),
 
-            room_subscriptions: StdRwLock::new(self.subscriptions),
+            sticky: StdRwLock::new(SlidingSyncStickyManager::new(
+                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+            )),
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,

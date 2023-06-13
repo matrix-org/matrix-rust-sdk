@@ -554,11 +554,8 @@ impl OutboundGroupSession {
 
                     share_info
                         .get(device.user_id())
-                        .and_then(|d| {
-                            let info = d.get(device.device_id())?;
-                            Some(matches!(info, ShareInfo::Withheld(c) if c == code))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|d| d.get(device.device_id()))
+                        .is_some_and(|info| matches!(info, ShareInfo::Withheld(c) if c == code))
                 })
             })
     }

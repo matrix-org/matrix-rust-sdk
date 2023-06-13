@@ -16,9 +16,10 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
-use eyeball_im::{VectorDiff, VectorSubscriber};
+use async_std::sync::{Condvar, Mutex};
+use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::TryFutureExt;
 use imbl::Vector;
@@ -42,8 +43,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 mod builder;
 mod event_handler;
@@ -51,13 +51,13 @@ mod event_item;
 mod inner;
 mod pagination;
 mod read_receipts;
-mod room_ext;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "e2e-encryption")]
 mod to_device;
+mod traits;
 mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;
@@ -72,7 +72,7 @@ pub use self::{
         TimelineDetails, TimelineItemContent,
     },
     pagination::{PaginationOptions, PaginationOutcome},
-    room_ext::RoomExt,
+    traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
 
@@ -87,7 +87,8 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 #[derive(Debug)]
 pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
-    start_token: Mutex<Option<String>>,
+    start_token: Arc<Mutex<Option<String>>>,
+    start_token_condvar: Arc<Condvar>,
     _end_token: Mutex<Option<String>>,
     drop_handle: Arc<TimelineDropHandle>,
 }
@@ -117,11 +118,23 @@ impl Timeline {
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
-        if start_lock.is_none()
-            && self.inner.items().await.front().map_or(false, |item| item.is_timeline_start())
-        {
-            warn!("Start of timeline reached, ignoring backwards-pagination request");
-            return Ok(());
+        if start_lock.is_none() {
+            if self.inner.items().await.front().is_some_and(|item| item.is_timeline_start()) {
+                warn!("Start of timeline reached, ignoring backwards-pagination request");
+                return Ok(());
+            }
+
+            if options.wait_for_token {
+                info!("No prev_batch token, waiting");
+                (start_lock, _) = self
+                    .start_token_condvar
+                    .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
+                    .await;
+
+                if start_lock.is_none() {
+                    debug!("Waiting for prev_batch token timed out after 3s");
+                }
+            }
         }
 
         self.inner.add_loading_indicator().await;
@@ -244,6 +257,16 @@ impl Timeline {
         (items, stream)
     }
 
+    #[cfg(feature = "testing")]
+    pub async fn subscribe_filter_map<U: Clone>(
+        &self,
+        f: impl Fn(Arc<TimelineItem>) -> Option<U>,
+    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
+        let (items, stream) = self.inner.subscribe_filter_map(f).await;
+        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        (items, stream)
+    }
+
     /// Send a message to the room, and add it to the timeline as a local echo.
     ///
     /// For simplicity, this method doesn't currently allow custom message
@@ -332,6 +355,82 @@ impl Timeline {
             .await?;
 
         Ok(())
+    }
+
+    /// Retry sending a message that previously failed to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
+    ///   `send_state()` of `SendState::FailedToSend { .. }`
+    pub async fn retry_send(&self, txn_id: &TransactionId) -> Result<(), Error> {
+        macro_rules! error_return {
+            ($msg:literal) => {{
+                error!($msg);
+                return Ok(());
+            }};
+        }
+
+        let item = self.inner.prepare_retry(txn_id).await.ok_or(Error::RetryEventNotInTimeline)?;
+        let content = match item {
+            TimelineItemContent::Message(msg) => {
+                AnyMessageLikeEventContent::RoomMessage(msg.into())
+            }
+            TimelineItemContent::RedactedMessage => {
+                error_return!("Invalid state: attempting to retry a redacted message");
+            }
+            TimelineItemContent::Sticker(sticker) => {
+                AnyMessageLikeEventContent::Sticker(sticker.content)
+            }
+            TimelineItemContent::UnableToDecrypt(_) => {
+                error_return!("Invalid state: attempting to retry a UTD item");
+            }
+            TimelineItemContent::MembershipChange(_)
+            | TimelineItemContent::ProfileChange(_)
+            | TimelineItemContent::OtherState(_) => {
+                error_return!("Retrying state events is not currently supported");
+            }
+            TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. } => {
+                error_return!("Invalid state: attempting to retry a failed-to-parse item");
+            }
+        };
+
+        let send_state = match Room::from(self.room().clone()) {
+            Room::Joined(room) => {
+                let response = room.send(content, Some(txn_id)).await;
+
+                match response {
+                    Ok(response) => EventSendState::Sent { event_id: response.event_id },
+                    Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
+                }
+            }
+            _ => {
+                EventSendState::SendingFailed {
+                    // FIXME: Probably not exactly right
+                    error: Arc::new(matrix_sdk::Error::InconsistentState),
+                }
+            }
+        };
+
+        self.inner.update_event_send_state(txn_id, send_state).await;
+
+        Ok(())
+    }
+
+    /// Discard a local echo for a message that failed to send.
+    ///
+    /// Returns whether the local echo with the given transaction ID was found.
+    ///
+    /// # Argument
+    ///
+    /// * `txn_id` - The transaction ID of a local echo timeline item that has a
+    ///   `send_state()` of `SendState::FailedToSend { .. }`. *Note:* A send
+    ///   state of `SendState::NotYetSent` might be supported in the future as
+    ///   well, but there can be no guarantee for that actually stopping the
+    ///   event from reaching the server.
+    pub async fn cancel_send(&self, txn_id: &TransactionId) -> bool {
+        self.inner.discard_local_echo(txn_id).await
     }
 
     /// Fetch unavailable details about the event with the given ID.
@@ -491,24 +590,21 @@ impl Drop for TimelineDropHandle {
 }
 
 pin_project! {
-    struct TimelineStream {
+    struct TimelineStream<S> {
         #[pin]
-        inner: VectorSubscriber<Arc<TimelineItem>>,
+        inner: S,
         event_handler_handles: Arc<TimelineDropHandle>,
     }
 }
 
-impl TimelineStream {
-    fn new(
-        inner: VectorSubscriber<Arc<TimelineItem>>,
-        event_handler_handles: Arc<TimelineDropHandle>,
-    ) -> Self {
+impl<S> TimelineStream<S> {
+    fn new(inner: S, event_handler_handles: Arc<TimelineDropHandle>) -> Self {
         Self { inner, event_handler_handles }
     }
 }
 
-impl Stream for TimelineStream {
-    type Item = VectorDiff<Arc<TimelineItem>>;
+impl<S: Stream> Stream for TimelineStream<S> {
+    type Item = S::Item;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -628,6 +724,10 @@ pub enum Error {
     /// The requested event with a remote echo is not in the timeline.
     #[error("Event with remote echo not found in timeline")]
     RemoteEventNotInTimeline,
+
+    /// Can't find an event with the given transaction ID, can't retry.
+    #[error("Event not found, can't retry sending")]
+    RetryEventNotInTimeline,
 
     /// The event is currently unsupported for this use case.
     #[error("Unsupported event")]

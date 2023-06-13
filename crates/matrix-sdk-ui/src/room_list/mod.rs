@@ -57,14 +57,15 @@
 //! [`RoomList::entries`] provides a way to get a stream of room list entry.
 //! This stream can be filtered, and the filter can be changed over time.
 //!
-//! [`RoomList::state_stream`] provides a way to get a stream of the state
-//! machine's state, which can be pretty helpful for the client app.
+//! [`RoomList::state`] provides a way to get a stream of the state machine's
+//! state, which can be pretty helpful for the client app.
 
 use std::{future::ready, sync::Arc};
 
+use async_once_cell::OnceCell as AsyncOnceCell;
 use async_stream::stream;
 use async_trait::async_trait;
-use eyeball::shared::Observable;
+use eyeball::{shared::Observable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, Stream, StreamExt};
 use imbl::Vector;
@@ -74,7 +75,7 @@ use matrix_sdk::{
     SlidingSyncMode, SlidingSyncRoom,
 };
 use once_cell::sync::Lazy;
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{api::client::sync::sync_events::v4::AccountDataConfig, assign, OwnedRoomId, RoomId};
 use thiserror::Error;
 
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -95,18 +96,25 @@ impl RoomList {
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
-            .sliding_sync("room-list")
-            .map_err(Error::SlidingSync)?
-            .enable_caching()
-            .map_err(Error::SlidingSync)?
-            .add_cached_list(
+        let mut sliding_sync_builder =
+            client.sliding_sync("room-list").map_err(Error::SlidingSync)?;
+
+        if let Some(sliding_sync_proxy_url) = client.sliding_sync_proxy() {
+            sliding_sync_builder = sliding_sync_builder.sliding_sync_proxy(sliding_sync_proxy_url);
+        }
+
+        let sliding_sync = sliding_sync_builder
+            // Enable the account data extension.
+            .with_account_data_extension(
+                assign! { AccountDataConfig::default(), { enabled: Some(true) }},
+            )
+            // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
+            // fast
+            .add_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
                     .timeline_limit(1),
             )
-            .await
-            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map_err(Error::SlidingSync)?;
@@ -142,11 +150,9 @@ impl RoomList {
             //
             // So the sync is done after the machine _has entered_ into a new state.
             loop {
-                {
-                    let next_state = self.state.read().next(&self.sliding_sync).await?;
+                let next_state = self.state.get().next(&self.sliding_sync).await?;
 
-                    Observable::set(&self.state, next_state);
-                }
+                Observable::set(&self.state, next_state);
 
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
@@ -175,13 +181,8 @@ impl RoomList {
         }
     }
 
-    /// Get the current state of the state machine.
-    pub fn state(&self) -> State {
-        self.state.get()
-    }
-
-    /// Get a [`Stream`] of [`State`]s.
-    pub fn state_stream(&self) -> impl Stream<Item = State> {
+    /// Get a subscriber to the state.
+    pub fn state(&self) -> Subscriber<State> {
         Observable::subscribe(&self.state)
     }
 
@@ -193,7 +194,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_stream()))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -208,7 +209,7 @@ impl RoomList {
         self.sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
     /// Pass an [`Input`] onto the state machine.
@@ -268,11 +269,11 @@ struct RoomInner {
     room: matrix_sdk::room::Room,
 
     /// The timeline of the room.
-    timeline: Timeline,
+    timeline: AsyncOnceCell<Timeline>,
 
     /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
     /// read marker nor the receipts.
-    sneaky_timeline: Timeline,
+    sneaky_timeline: AsyncOnceCell<Timeline>,
 }
 
 impl Room {
@@ -283,19 +284,13 @@ impl Room {
             .get_room(sliding_sync_room.room_id())
             .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
 
-        let timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .track_read_marker_and_receipts()
-            .build()
-            .await;
-
-        let sneaky_timeline = Timeline::builder(&room)
-            .events(sliding_sync_room.prev_batch(), sliding_sync_room.timeline_queue())
-            .build()
-            .await;
-
         Ok(Self {
-            inner: Arc::new(RoomInner { sliding_sync_room, room, timeline, sneaky_timeline }),
+            inner: Arc::new(RoomInner {
+                sliding_sync_room,
+                room,
+                timeline: AsyncOnceCell::new(),
+                sneaky_timeline: AsyncOnceCell::new(),
+            }),
         })
     }
 
@@ -311,8 +306,20 @@ impl Room {
     }
 
     /// Get the timeline of the room.
-    pub fn timeline(&self) -> &Timeline {
-        &self.inner.timeline
+    pub async fn timeline(&self) -> &Timeline {
+        self.inner
+            .timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .track_read_marker_and_receipts()
+                    .build()
+                    .await
+            })
+            .await
     }
 
     /// Get the latest event of the timeline.
@@ -320,7 +327,20 @@ impl Room {
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.sneaky_timeline.latest_event().await
+        self.inner
+            .sneaky_timeline
+            .get_or_init(async {
+                Timeline::builder(&self.inner.room)
+                    .events(
+                        self.inner.sliding_sync_room.prev_batch(),
+                        self.inner.sliding_sync_room.timeline_queue(),
+                    )
+                    .build()
+                    .await
+            })
+            .await
+            .latest_event()
+            .await
     }
 }
 
@@ -358,7 +378,7 @@ pub enum State {
 
     /// This state is the cruising speed, i.e. the “normal” state, where nothing
     /// fancy happens: all rooms are syncing, and life is great.
-    Enjoy,
+    CarryOn,
 
     /// At this state, the sync has been stopped (because it was requested, or
     /// because it has errored too many times previously).
@@ -374,8 +394,8 @@ impl State {
         let (next_state, actions) = match self {
             Init => (FirstRooms, Actions::none()),
             FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
-            AllRooms => (Enjoy, Actions::none()),
-            Enjoy => (Enjoy, Actions::none()),
+            AllRooms => (CarryOn, Actions::none()),
+            CarryOn => (CarryOn, Actions::none()),
             // If the state was `Terminated` but the next state is calculated again, it means the
             // sync has been restarted. In this case, let's jump back on the previous state that led
             // to the termination. No action is required in this scenario.
@@ -386,7 +406,7 @@ impl State {
                         (state.to_owned(), Actions::none())
                     }
 
-                    state @ AllRooms | state @ Enjoy => {
+                    state @ AllRooms | state @ CarryOn => {
                         // Refresh the lists.
                         (state.to_owned(), Actions::refresh_lists())
                     }
@@ -443,7 +463,7 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
                 ready(())
             })
             .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_string()))?;
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
 
         Ok(())
     }
@@ -513,7 +533,7 @@ pub enum Input {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::{config::RequestConfig, Session};
+    use matrix_sdk::{config::RequestConfig, reqwest::Url, Session};
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
     use wiremock::MockServer;
@@ -545,6 +565,28 @@ mod tests {
         let (client, _) = new_client().await;
 
         RoomList::new(client).await
+    }
+
+    #[async_test]
+    async fn test_sliding_sync_proxy_url() -> Result<(), Error> {
+        let (client, _) = new_client().await;
+
+        {
+            let room_list = RoomList::new(client.clone()).await?;
+
+            assert!(room_list.sliding_sync().sliding_sync_proxy().is_none());
+        }
+
+        {
+            let url = Url::parse("https://foo.matrix/").unwrap();
+            client.set_sliding_sync_proxy(Some(url.clone()));
+
+            let room_list = RoomList::new(client.clone()).await?;
+
+            assert_eq!(room_list.sliding_sync().sliding_sync_proxy(), Some(url));
+        }
+
+        Ok(())
     }
 
     #[async_test]
@@ -605,24 +647,24 @@ mod tests {
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::Enjoy);
+        assert_eq!(state, State::CarryOn);
 
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::Enjoy);
+            assert_eq!(state, State::CarryOn);
         }
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::Enjoy);
+        assert_eq!(state, State::CarryOn);
 
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::Enjoy);
+            assert_eq!(state, State::CarryOn);
         }
 
         Ok(())

@@ -85,6 +85,28 @@ impl OwnUserIdentity {
 
         future_to_promise(async move { Ok(me.trusts_our_own_device().await?) })
     }
+
+    /// Get the master key of the identity.
+    #[wasm_bindgen(getter, js_name = "masterKey")]
+    pub fn master_key(&self) -> Result<String, JsError> {
+        let master_key = self.inner.master_key().as_ref();
+        Ok(serde_json::to_string(master_key)?)
+    }
+
+    /// Get the self-signing key of the identity.
+    #[wasm_bindgen(getter, js_name = "selfSigningKey")]
+    pub fn self_signing_key(&self) -> Result<String, JsError> {
+        let self_signing_key = self.inner.self_signing_key().as_ref();
+        Ok(serde_json::to_string(self_signing_key)?)
+    }
+
+    /// Get the user-signing key of the identity, this is only present for our
+    /// own user identity..
+    #[wasm_bindgen(getter, js_name = "userSigningKey")]
+    pub fn user_signing_key(&self) -> Result<String, JsError> {
+        let user_signing_key = self.inner.user_signing_key().as_ref();
+        Ok(serde_json::to_string(user_signing_key)?)
+    }
 }
 
 /// Struct representing a cross signing identity of a user.
@@ -168,5 +190,19 @@ impl UserIdentity {
         Ok(future_to_promise(async move {
             Ok(serde_json::to_string(&me.verification_request_content(methods).await)?)
         }))
+    }
+
+    /// Get the master key of the identity.
+    #[wasm_bindgen(getter, js_name = "masterKey")]
+    pub fn master_key(&self) -> Result<String, JsError> {
+        let master_key = self.inner.master_key().as_ref();
+        Ok(serde_json::to_string(master_key)?)
+    }
+
+    /// Get the self-signing key of the identity.
+    #[wasm_bindgen(getter, js_name = "selfSigningKey")]
+    pub fn self_signing_key(&self) -> Result<String, JsError> {
+        let self_signing_key = self.inner.self_signing_key().as_ref();
+        Ok(serde_json::to_string(self_signing_key)?)
     }
 }

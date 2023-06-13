@@ -9,7 +9,7 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, RoomMemberships, RoomState,
+    Client, RoomMemberships, RoomState, StateStoreExt,
 };
 use tokio::sync::Notify;
 

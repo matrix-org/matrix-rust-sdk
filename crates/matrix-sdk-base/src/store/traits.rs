@@ -130,19 +130,6 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>, Self::Error>;
 
-    /// Get the `MemberEvent` for the given state key in the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The room id the member event belongs to.
-    ///
-    /// * `state_key` - The user id that the member event defines the state for.
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>, Self::Error>;
-
     /// Get the user ids of members for a given room with the given memberships,
     /// for stripped and regular rooms alike.
     async fn get_user_ids(
@@ -390,14 +377,6 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_profile(room_id, user_id).await.map_err(Into::into)
     }
 
-    async fn get_member_event(
-        &self,
-        room_id: &RoomId,
-        state_key: &UserId,
-    ) -> Result<Option<RawMemberEvent>, Self::Error> {
-        self.0.get_member_event(room_id, state_key).await.map_err(Into::into)
-    }
-
     async fn get_user_ids(
         &self,
         room_id: &RoomId,
@@ -607,6 +586,21 @@ pub trait StateStoreExt: StateStore {
         C: StaticEventContent + RoomAccountDataEventContent,
     {
         Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
+    }
+
+    /// Get the `MemberEvent` for the given state key in the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id the member event belongs to.
+    ///
+    /// * `state_key` - The user id that the member event defines the state for.
+    async fn get_member_event(
+        &self,
+        room_id: &RoomId,
+        state_key: &UserId,
+    ) -> Result<Option<RawMemberEvent>, Self::Error> {
+        self.get_state_event_static_for_key(room_id, state_key).await
     }
 }
 
