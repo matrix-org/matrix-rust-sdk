@@ -917,6 +917,13 @@ impl VerificationRequest {
         self.inner.is_done()
     }
 
+    /// Get the current phase of this request.
+    ///
+    /// Returns a `VerificationRequestPhase`.
+    pub fn phase(&self) -> VerificationRequestPhase {
+        return self.inner.state().into();
+    }
+
     /// Has the verification flow that was started with this request
     /// been cancelled.
     #[wasm_bindgen(js_name = "isCancelled")]
@@ -1068,5 +1075,44 @@ impl TryFrom<OutgoingVerificationRequest> for JsValue {
                 JsValue::from(requests::RoomMessageRequest::try_from((request_id, &request))?)
             }
         })
+    }
+}
+
+/// List of VerificationRequestState phases
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum VerificationRequestPhase {
+    /// The verification request has been newly created by us.
+    Created = 0,
+
+    /// The verification request was received from the other party.
+    Requested = 1,
+
+    /// The verification request is ready to start a verification flow.
+    Ready = 2,
+
+    /// The verification request has transitioned into a concrete verification
+    /// flow. For example it transitioned into the emoji based SAS
+    /// verification.
+    Transitioned = 3,
+
+    /// The verification flow that was started with this request has finished.
+    Done = 4,
+
+    /// The verification process has been cancelled.
+    Cancelled = 5,
+}
+
+impl From<VerificationRequestState> for VerificationRequestPhase {
+    fn from(value: VerificationRequestState) -> Self {
+        use matrix_sdk_crypto::VerificationRequestState::*;
+        match value {
+            Created { .. } => Self::Created,
+            Requested { .. } => Self::Requested,
+            Transitioned { .. } => Self::Transitioned,
+            Ready { .. } => Self::Ready,
+            Done => Self::Done,
+            Cancelled(_) => Self::Cancelled,
+        }
     }
 }
