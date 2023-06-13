@@ -1,5 +1,7 @@
 # v0.7.0
 
+- Add support for the `hkdf-hmac-sha256.v2` SAS message authentication code.
+
 - Add a new optional `message-ids` feature which adds a unique ID to the content
   of `m.room.encrypted` event contents which get sent out.
 
