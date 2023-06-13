@@ -18,13 +18,10 @@ use matrix_sdk::{
     },
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
 };
-use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use matrix_sdk_ui::{
     notifications::NotificationSync as MatrixNotificationSync, timeline::SlidingSyncRoomExt,
 };
-use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
-use url::Url;
+use tracing::{error, warn};
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room::TimelineLock, Client,

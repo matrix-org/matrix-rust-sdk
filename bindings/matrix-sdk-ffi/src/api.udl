@@ -171,7 +171,7 @@ callback interface SessionVerificationControllerDelegate {
 
 callback interface NotificationSyncListener {
     void did_terminate();
-}
+};
 
 enum RoomListState {
     "Init",
