@@ -21,7 +21,9 @@ use futures_core::Stream;
 use imbl::Vector;
 pub(super) use request_generator::*;
 pub use room_list_entry::RoomListEntry;
-use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
+use ruma::{
+    api::client::sync::sync_events::v4, assign, OwnedRoomId, OwnedTransactionId, TransactionId,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
@@ -197,7 +199,7 @@ impl SlidingSyncList {
     /// ([`SlidingSyncListRequestGenerator`]).
     pub(super) fn next_request(
         &self,
-        txn_id: &TransactionId,
+        txn_id: &mut Option<OwnedTransactionId>,
     ) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request(txn_id)
     }
@@ -343,7 +345,10 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self, txn_id: &TransactionId) -> Result<v4::SyncRequestList, Error> {
+    fn next_request(
+        &self,
+        txn_id: &mut Option<OwnedTransactionId>,
+    ) -> Result<v4::SyncRequestList, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -358,7 +363,11 @@ impl SlidingSyncListInner {
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges, txn_id: &TransactionId) -> v4::SyncRequestList {
+    fn request(
+        &self,
+        ranges: Ranges,
+        txn_id: &mut Option<OwnedTransactionId>,
+    ) -> v4::SyncRequestList {
         use ruma::UInt;
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
@@ -989,7 +998,7 @@ mod tests {
         let room1 = room_id!("!room1:bar.org");
 
         // Simulate a request.
-        let _ = list.next_request("tid".into());
+        let _ = list.next_request(&mut None);
 
         // A new response.
         let sync0: v4::SyncOp = serde_json::from_value(json!({
@@ -1025,7 +1034,7 @@ mod tests {
             $(
                 {
                     // Generate a new request.
-                    let request = $list.next_request("tid".into()).unwrap();
+                    let request = $list.next_request(&mut None).unwrap();
 
                     assert_eq!(
                         request.ranges,
@@ -1482,7 +1491,7 @@ mod tests {
         // Initial range.
         for _ in 0..=1 {
             // Simulate a request.
-            let _ = list.next_request("tid".into());
+            let _ = list.next_request(&mut None);
 
             // A new response.
             let sync: v4::SyncOp = serde_json::from_value(json!({
@@ -1525,7 +1534,7 @@ mod tests {
         });
 
         // Simulate a request.
-        let _ = list.next_request("tid".into());
+        let _ = list.next_request(&mut None);
 
         // A new response.
         let sync: v4::SyncOp = serde_json::from_value(json!({

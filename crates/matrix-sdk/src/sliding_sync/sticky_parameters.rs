@@ -72,9 +72,13 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
     /// After receiving the response from this sliding sync, the caller MUST
     /// also call [`Self::maybe_commit`] with the transaction id from the
     /// server's response.
-    pub fn maybe_apply(&mut self, req: &mut D::Request, txn_id: &TransactionId) {
+    ///
+    /// If no `txn_id` is provided, it will generate one that can be reused
+    /// later.
+    pub fn maybe_apply(&mut self, req: &mut D::Request, txn_id: &mut Option<OwnedTransactionId>) {
         if self.invalidated {
-            self.txn_id = Some(txn_id.to_owned());
+            let txn_id = txn_id.get_or_insert_with(TransactionId::new);
+            self.txn_id = Some(txn_id.clone());
             self.data.apply(req);
         }
     }
@@ -116,23 +120,28 @@ mod tests {
         assert!(sticky.is_invalidated());
 
         let mut applied = false;
-        sticky.maybe_apply(&mut applied, "tid123".into());
+        let mut txn_id = None;
+        sticky.maybe_apply(&mut applied, &mut txn_id);
         assert!(applied);
         assert!(sticky.is_invalidated());
+        assert!(txn_id.is_some(), "a transaction id was lazily generated");
 
         // Committing with the wrong transaction id won't commit.
         sticky.maybe_commit("tid456".into());
         assert!(sticky.is_invalidated());
 
         // Providing the correct transaction id will commit.
-        sticky.maybe_commit("tid123".into());
+        sticky.maybe_commit(txn_id.as_ref().unwrap());
         assert!(!sticky.is_invalidated());
 
-        // Applying without being invalidated won't do anything.
+        // Applying without being invalidated won't do anything, and not generate a
+        // transaction id.
+        let mut txn_id = None;
         let mut applied = false;
-        sticky.maybe_apply(&mut applied, "tid123".into());
+        sticky.maybe_apply(&mut applied, &mut txn_id);
 
         assert!(!applied);
         assert!(!sticky.is_invalidated());
+        assert!(txn_id.is_none());
     }
 }
