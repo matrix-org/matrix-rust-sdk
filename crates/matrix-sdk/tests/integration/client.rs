@@ -521,13 +521,13 @@ async fn get_media_file() {
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
         mxc_uri!("mxc://example.org/image").to_owned(),
-        Some(Box::new(assign!(ImageInfo::new(), {
-            height: Some(uint!(398)),
-            width: Some(uint!(394)),
-            mimetype: Some("image/jpeg".into()),
-            size: Some(uint!(31037)),
-        }))),
-    );
+    )
+    .info(Box::new(assign!(ImageInfo::new(), {
+        height: Some(uint!(398)),
+        width: Some(uint!(394)),
+        mimetype: Some("image/jpeg".into()),
+        size: Some(uint!(31037)),
+    })));
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/download/example.org/image"))
