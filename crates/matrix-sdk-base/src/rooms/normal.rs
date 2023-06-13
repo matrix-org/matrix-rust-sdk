@@ -650,7 +650,8 @@ impl RoomInfo {
         self.room_state = RoomState::Invited;
     }
 
-    pub(crate) fn set_state(&mut self, room_state: RoomState) {
+    /// Set the membership RoomState of this Room
+    pub fn set_state(&mut self, room_state: RoomState) {
         self.room_state = room_state;
     }
 
