@@ -924,6 +924,22 @@ impl VerificationRequest {
         return self.inner.state().into();
     }
 
+    /// If this request has transitioned into a concrete verification
+    /// flow (and not yet been completed or cancelled), returns a `Verification`
+    /// object.
+    ///
+    /// Returns: a `Sas`, a `Qr`, or `undefined`.
+    #[wasm_bindgen(js_name = "getVerification")]
+    pub fn get_verification(&self) -> JsValue {
+        let result: Option<JsValue> =
+            if let VerificationRequestState::Transitioned { verification } = self.inner.state() {
+                Verification(verification).try_into().ok()
+            } else {
+                None
+            };
+        result.into()
+    }
+
     /// Has the verification flow that was started with this request
     /// been cancelled.
     #[wasm_bindgen(js_name = "isCancelled")]
