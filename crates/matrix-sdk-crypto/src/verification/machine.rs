@@ -125,7 +125,7 @@ impl VerificationMachine {
         device: ReadOnlyDevice,
     ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
         let identities = self.store.get_identities(device.clone()).await?;
-        let (sas, content) = Sas::start(identities, TransactionId::new(), true, None);
+        let (sas, content) = Sas::start(identities, TransactionId::new(), true, None, None);
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
@@ -564,7 +564,8 @@ mod tests {
             bob_store.get_device(alice_id(), alice_device_id()).await.unwrap().unwrap();
 
         let identities = bob_store.get_identities(alice_device).await.unwrap();
-        let (bob_sas, start_content) = Sas::start(identities, TransactionId::new(), true, None);
+        let (bob_sas, start_content) =
+            Sas::start(identities, TransactionId::new(), true, None, None);
 
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
@@ -672,7 +673,7 @@ mod tests {
 
         // Start the first sas verification.
         let (bob_sas, start_content) =
-            Sas::start(identities.clone(), TransactionId::new(), true, None);
+            Sas::start(identities.clone(), TransactionId::new(), true, None, None);
 
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
@@ -686,7 +687,7 @@ mod tests {
 
         let second_transaction_id = TransactionId::new();
         let (bob_sas, start_content) =
-            Sas::start(identities, second_transaction_id.clone(), true, None);
+            Sas::start(identities, second_transaction_id.clone(), true, None, None);
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
             .await
