@@ -21,10 +21,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::SystemTime,
 };
 
 use atomic::Atomic;
+use matrix_sdk_common::instant::SystemTime;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -71,7 +71,7 @@ pub enum MaybeEncryptedRoomKey {
     },
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(from = "u64", into = "u64")]
 struct SecondsSinceUnixEpoch(u64);
 
@@ -83,12 +83,6 @@ impl SecondsSinceUnixEpoch {
                 .map_or(0f64, |t| t.as_secs_f64())
                 .to_bits(),
         )
-    }
-}
-
-impl Default for SecondsSinceUnixEpoch {
-    fn default() -> Self {
-        SecondsSinceUnixEpoch(0u64)
     }
 }
 
