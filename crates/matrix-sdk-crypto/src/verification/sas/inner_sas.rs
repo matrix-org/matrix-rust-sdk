@@ -63,6 +63,7 @@ impl InnerSas {
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: FlowId,
         started_from_request: bool,
+        short_auth_string: Option<Vec<ShortAuthenticationString>>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(
             account,
@@ -71,6 +72,7 @@ impl InnerSas {
             other_identity,
             transaction_id,
             started_from_request,
+            short_auth_string,
         );
         let content = sas.as_content();
         (InnerSas::Created(sas), content.into())

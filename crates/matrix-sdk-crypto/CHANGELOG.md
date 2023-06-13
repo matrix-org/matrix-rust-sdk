@@ -1,5 +1,8 @@
 # v0.7.0
 
+- Ensure that the correct short authentication strings are used when accepting a
+  SAS verification with the `Sas::accept()` method.
+
 - Add a new optional `message-ids` feature which adds a unique ID to the content
   of `m.room.encrypted` event contents which get sent out.
 
