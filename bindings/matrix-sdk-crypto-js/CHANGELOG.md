@@ -1,3 +1,7 @@
+# v0.1.0-alpha.11
+
+- Simplify the respionse type of `Sas.confirm()`.
+
 # v0.1.0-alpha.10
 
 -   Add `masterKey`, `userSigningKey`, `selfSigningKey` to `UserIdentity` and `OwnUserIdentity`
