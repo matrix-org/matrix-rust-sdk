@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 
@@ -25,7 +25,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{StateChanges, StateStore, StoreError},
-    MinimalStateEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
+    StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -103,7 +104,6 @@ mod keys {
     pub const PRESENCE: &str = "presence";
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
 
-    pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
 
@@ -125,7 +125,6 @@ mod keys {
         ROOM_INFOS,
         PRESENCE,
         ROOM_ACCOUNT_DATA,
-        STRIPPED_ROOM_INFOS,
         STRIPPED_ROOM_STATE,
         STRIPPED_USER_IDS,
         ROOM_USER_RECEIPTS,
@@ -510,8 +509,8 @@ impl_state_store!({
             stores.extend([keys::ROOM_STATE, keys::ROOM_INFOS]);
         }
 
-        if !changes.room_infos.is_empty() || !changes.stripped_room_infos.is_empty() {
-            stores.extend([keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS]);
+        if !changes.room_infos.is_empty() {
+            stores.insert(keys::ROOM_INFOS);
         }
 
         if !changes.stripped_state.is_empty() {
@@ -622,13 +621,11 @@ impl_state_store!({
 
         if !changes.room_infos.is_empty() {
             let room_infos = tx.object_store(keys::ROOM_INFOS)?;
-            let stripped_room_infos = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
                 room_infos.put_key_val(
                     &self.encode_key(keys::ROOM_INFOS, room_id),
                     &self.serialize_event(&room_info)?,
                 )?;
-                stripped_room_infos.delete(&self.encode_key(keys::STRIPPED_ROOM_INFOS, room_id))?;
             }
         }
 
@@ -639,18 +636,6 @@ impl_state_store!({
                     &self.encode_key(keys::PRESENCE, sender),
                     &self.serialize_event(&event)?,
                 )?;
-            }
-        }
-
-        if !changes.stripped_room_infos.is_empty() {
-            let stripped_room_infos = tx.object_store(keys::STRIPPED_ROOM_INFOS)?;
-            let room_infos = tx.object_store(keys::ROOM_INFOS)?;
-            for (room_id, info) in &changes.stripped_room_infos {
-                stripped_room_infos.put_key_val(
-                    &self.encode_key(keys::STRIPPED_ROOM_INFOS, room_id),
-                    &self.serialize_event(&info)?,
-                )?;
-                room_infos.delete(&self.encode_key(keys::ROOM_INFOS, room_id))?;
             }
         }
 
@@ -811,35 +796,46 @@ impl_state_store!({
             .transpose()
     }
 
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::PRESENCE, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::PRESENCE)?;
+
+        let mut events = Vec::with_capacity(user_ids.len());
+
+        for user_id in user_ids {
+            if let Some(event) = store
+                .get(&self.encode_key(keys::PRESENCE, user_id))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                events.push(event)
+            }
+        }
+
+        Ok(events)
+    }
+
     async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_ROOM_STATE)?
-            .get(&self.encode_key(keys::STRIPPED_ROOM_STATE, (room_id, &event_type, state_key)))?
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
             .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
-        } else if let Some(e) = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?
-            .object_store(keys::ROOM_STATE)?
-            .get(&self.encode_key(keys::ROOM_STATE, (room_id, event_type, state_key)))?
-            .await?
-            .map(|f| self.deserialize_event(&f))
-            .transpose()?
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
-        } else {
-            Ok(None)
-        }
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -877,11 +873,69 @@ impl_state_store!({
             .collect::<Vec<_>>())
     }
 
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        if state_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut events = Vec::with_capacity(state_keys.len());
+
+        {
+            let txn = self.inner.transaction_on_one_with_mode(
+                keys::STRIPPED_ROOM_STATE,
+                IdbTransactionMode::Readonly,
+            )?;
+            let store = txn.object_store(keys::STRIPPED_ROOM_STATE)?;
+
+            for state_key in state_keys {
+                if let Some(event) =
+                    store
+                        .get(&self.encode_key(
+                            keys::STRIPPED_ROOM_STATE,
+                            (room_id, &event_type, state_key),
+                        ))?
+                        .await?
+                        .map(|f| self.deserialize_event(&f))
+                        .transpose()?
+                {
+                    events.push(RawAnySyncOrStrippedState::Stripped(event));
+                }
+            }
+
+            if !events.is_empty() {
+                return Ok(events);
+            }
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::ROOM_STATE)?;
+
+        for state_key in state_keys {
+            if let Some(event) = store
+                .get(&self.encode_key(keys::ROOM_STATE, (room_id, &event_type, state_key)))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                events.push(RawAnySyncOrStrippedState::Sync(event));
+            }
+        }
+
+        Ok(events)
+    }
+
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MinimalStateEvent<RoomMemberEventContent>>> {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         self.inner
             .transaction_on_one_with_mode(keys::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(keys::PROFILES)?
@@ -889,6 +943,35 @@ impl_state_store!({
             .await?
             .map(|f| self.deserialize_event(&f))
             .transpose()
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        if user_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::PROFILES, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::PROFILES)?;
+
+        let mut profiles = BTreeMap::new();
+        for user_id in user_ids {
+            if let Some(profile) = store
+                .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
+                .await?
+                .map(|f| self.deserialize_event(&f))
+                .transpose()?
+            {
+                profiles.insert(user_id.as_ref(), profile);
+            }
+        }
+
+        Ok(profiles)
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
@@ -906,17 +989,30 @@ impl_state_store!({
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let entries = self
+        let txn = self
             .inner
-            .transaction_on_one_with_mode(keys::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
-            .object_store(keys::STRIPPED_ROOM_INFOS)?
-            .get_all()?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok())
-            .collect::<Vec<_>>();
+            .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::ROOM_INFOS)?;
 
-        Ok(entries)
+        let mut infos = Vec::new();
+        let cursor = store.open_cursor()?.await?;
+
+        if let Some(cursor) = cursor {
+            loop {
+                let value = cursor.value();
+                let info = self.deserialize_event::<RoomInfo>(&value)?;
+
+                if info.state() == RoomState::Invited {
+                    infos.push(info);
+                }
+
+                if !cursor.continue_cursor()?.await? {
+                    break;
+                }
+            }
+        }
+
+        Ok(infos)
     }
 
     async fn get_users_with_display_name(
@@ -931,6 +1027,35 @@ impl_state_store!({
             .await?
             .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        if display_names.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::DISPLAY_NAMES, IdbTransactionMode::Readonly)?;
+        let store = txn.object_store(keys::DISPLAY_NAMES)?;
+
+        let mut map = BTreeMap::new();
+        for display_name in display_names {
+            if let Some(user_ids) = store
+                .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
+                .await?
+                .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
+                .transpose()?
+            {
+                map.insert(display_name.as_ref(), user_ids);
+            }
+        }
+
+        Ok(map)
     }
 
     async fn get_account_data_event(
@@ -1092,7 +1217,7 @@ impl_state_store!({
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        let direct_stores = [keys::ROOM_INFOS, keys::STRIPPED_ROOM_INFOS];
+        let direct_stores = [keys::ROOM_INFOS];
 
         let prefixed_stores = [
             keys::PROFILES,

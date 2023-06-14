@@ -60,11 +60,12 @@
 //! [`RoomList::state`] provides a way to get a stream of the state machine's
 //! state, which can be pretty helpful for the client app.
 
-use std::{future::ready, sync::Arc};
+mod room;
+mod state;
 
-use async_once_cell::OnceCell as AsyncOnceCell;
+use std::future::ready;
+
 use async_stream::stream;
-use async_trait::async_trait;
 use eyeball::{shared::Observable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, Stream, StreamExt};
@@ -72,16 +73,15 @@ use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode, SlidingSyncRoom,
+    SlidingSyncMode,
 };
-use once_cell::sync::Lazy;
-use ruma::{api::client::sync::sync_events::v4::AccountDataConfig, assign, OwnedRoomId, RoomId};
+pub use room::*;
+use ruma::{
+    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    OwnedRoomId, RoomId,
+};
+pub use state::*;
 use thiserror::Error;
-
-use crate::{timeline::EventTimelineItem, Timeline};
-
-pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
-pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
 /// The [`RoomList`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -96,24 +96,26 @@ impl RoomList {
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let mut sliding_sync_builder =
-            client.sliding_sync("room-list").map_err(Error::SlidingSync)?;
-
-        if let Some(sliding_sync_proxy_url) = client.sliding_sync_proxy() {
-            sliding_sync_builder = sliding_sync_builder.sliding_sync_proxy(sliding_sync_proxy_url);
-        }
-
-        let sliding_sync = sliding_sync_builder
-            // Enable the account data extension.
-            .with_account_data_extension(
-                assign! { AccountDataConfig::default(), { enabled: Some(true) }},
-            )
+        let sliding_sync = client
+            .sliding_sync("room-list")
+            .map_err(Error::SlidingSync)?
+            .with_common_extensions()
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
-                    .timeline_limit(1),
+                    .timeline_limit(1)
+                    .required_state(vec![
+                        (StateEventType::RoomAvatar, "".to_owned()),
+                        (StateEventType::RoomEncryption, "".to_owned()),
+                        (StateEventType::RoomPowerLevels, "".to_owned()),
+                    ])
+                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                        is_invite: Some(false),
+                        is_tombstoned: Some(false),
+                        not_room_types: vec!["m.space".to_owned()],
+                    }))),
             )
             .build()
             .await
@@ -252,98 +254,6 @@ impl RoomList {
     }
 }
 
-/// A room in the room list.
-///
-/// It's cheap to clone this type.
-#[derive(Clone, Debug)]
-pub struct Room {
-    inner: Arc<RoomInner>,
-}
-
-#[derive(Debug)]
-struct RoomInner {
-    /// The Sliding Sync room.
-    sliding_sync_room: SlidingSyncRoom,
-
-    /// The underlying client room.
-    room: matrix_sdk::room::Room,
-
-    /// The timeline of the room.
-    timeline: AsyncOnceCell<Timeline>,
-
-    /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
-    /// read marker nor the receipts.
-    sneaky_timeline: AsyncOnceCell<Timeline>,
-}
-
-impl Room {
-    /// Create a new `Room`.
-    async fn new(sliding_sync_room: SlidingSyncRoom) -> Result<Self, Error> {
-        let room = sliding_sync_room
-            .client()
-            .get_room(sliding_sync_room.room_id())
-            .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
-
-        Ok(Self {
-            inner: Arc::new(RoomInner {
-                sliding_sync_room,
-                room,
-                timeline: AsyncOnceCell::new(),
-                sneaky_timeline: AsyncOnceCell::new(),
-            }),
-        })
-    }
-
-    /// Get the best possible name for the room.
-    ///
-    /// If the sliding sync room has received a name from the server, then use
-    /// it, otherwise, let's calculate a name.
-    pub async fn name(&self) -> Option<String> {
-        Some(match self.inner.sliding_sync_room.name() {
-            Some(name) => name,
-            None => self.inner.room.display_name().await.ok()?.to_string(),
-        })
-    }
-
-    /// Get the timeline of the room.
-    pub async fn timeline(&self) -> &Timeline {
-        self.inner
-            .timeline
-            .get_or_init(async {
-                Timeline::builder(&self.inner.room)
-                    .events(
-                        self.inner.sliding_sync_room.prev_batch(),
-                        self.inner.sliding_sync_room.timeline_queue(),
-                    )
-                    .track_read_marker_and_receipts()
-                    .build()
-                    .await
-            })
-            .await
-    }
-
-    /// Get the latest event of the timeline.
-    ///
-    /// It's different from `Self::timeline().latest_event()` as it won't track
-    /// the read marker and receipts.
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner
-            .sneaky_timeline
-            .get_or_init(async {
-                Timeline::builder(&self.inner.room)
-                    .events(
-                        self.inner.sliding_sync_room.prev_batch(),
-                        self.inner.sliding_sync_room.timeline_queue(),
-                    )
-                    .build()
-                    .await
-            })
-            .await
-            .latest_event()
-            .await
-    }
-}
-
 /// [`RoomList`]'s errors.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -362,159 +272,6 @@ pub enum Error {
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
-}
-
-/// The state of the [`RoomList`]' state machine.
-#[derive(Clone, Debug, PartialEq)]
-pub enum State {
-    /// That's the first initial state.
-    Init,
-
-    /// At this state, the first rooms start to be synced.
-    FirstRooms,
-
-    /// At this state, all rooms start to be synced.
-    AllRooms,
-
-    /// This state is the cruising speed, i.e. the “normal” state, where nothing
-    /// fancy happens: all rooms are syncing, and life is great.
-    CarryOn,
-
-    /// At this state, the sync has been stopped (because it was requested, or
-    /// because it has errored too many times previously).
-    Terminated { from: Box<State> },
-}
-
-impl State {
-    /// Transition to the next state, and execute the associated transition's
-    /// [`Actions`].
-    async fn next(&self, sliding_sync: &SlidingSync) -> Result<Self, Error> {
-        use State::*;
-
-        let (next_state, actions) = match self {
-            Init => (FirstRooms, Actions::none()),
-            FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
-            AllRooms => (CarryOn, Actions::none()),
-            CarryOn => (CarryOn, Actions::none()),
-            // If the state was `Terminated` but the next state is calculated again, it means the
-            // sync has been restarted. In this case, let's jump back on the previous state that led
-            // to the termination. No action is required in this scenario.
-            Terminated { from: previous_state } => {
-                match previous_state.as_ref() {
-                    state @ Init | state @ FirstRooms => {
-                        // Do nothing.
-                        (state.to_owned(), Actions::none())
-                    }
-
-                    state @ AllRooms | state @ CarryOn => {
-                        // Refresh the lists.
-                        (state.to_owned(), Actions::refresh_lists())
-                    }
-
-                    Terminated { .. } => {
-                        // Having `Terminated { from: Terminated { … } }` is not allowed.
-                        unreachable!("It's impossible to reach `Terminated` from `Terminated`");
-                    }
-                }
-            }
-        };
-
-        for action in actions.iter() {
-            action.run(sliding_sync).await?;
-        }
-
-        Ok(next_state)
-    }
-}
-
-/// A trait to define what an `Action` is.
-#[async_trait]
-trait Action {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
-}
-
-struct AddVisibleRoomsList;
-
-#[async_trait]
-impl Action for AddVisibleRoomsList {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .add_list(
-                SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective())
-                    .timeline_limit(20),
-            )
-            .await
-            .map_err(Error::SlidingSync)?;
-
-        Ok(())
-    }
-}
-
-struct SetAllRoomsListToGrowingSyncMode;
-
-#[async_trait]
-impl Action for SetAllRoomsListToGrowingSyncMode {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(50));
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
-
-        Ok(())
-    }
-}
-
-/// Type alias to represent one action.
-type OneAction = Box<dyn Action + Send + Sync>;
-
-/// Type alias to represent many actions.
-type ManyActions = Vec<OneAction>;
-
-/// A type to represent multiple actions.
-///
-/// It contains helper methods to create pre-configured set of actions.
-struct Actions {
-    actions: &'static Lazy<ManyActions>,
-}
-
-macro_rules! actions {
-    (
-        $(
-            $action_group_name:ident => [
-                $( $action_name:ident ),* $(,)?
-            ]
-        ),*
-        $(,)?
-    ) => {
-        $(
-            fn $action_group_name () -> Self {
-                static ACTIONS: Lazy<ManyActions> = Lazy::new(|| {
-                    vec![
-                        $( Box::new( $action_name ) ),*
-                    ]
-                });
-
-                Self { actions: &ACTIONS }
-            }
-        )*
-    };
-}
-
-impl Actions {
-    actions! {
-        none => [],
-        first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList],
-        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
-    }
-
-    fn iter(&self) -> &[OneAction] {
-        self.actions.as_slice()
-    }
 }
 
 /// An input for the [`RoomList`]' state machine.
@@ -561,7 +318,7 @@ mod tests {
         (client, server)
     }
 
-    async fn new_room_list() -> Result<RoomList, Error> {
+    pub(super) async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
         RoomList::new(client).await
@@ -600,126 +357,6 @@ mod tests {
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
                     SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
-                )))
-                .await,
-            Some(true)
-        );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_states() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // First state.
-        let state = State::Init;
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::Init);
-        }
-
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::FirstRooms);
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::FirstRooms);
-        }
-
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::AllRooms);
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::AllRooms);
-        }
-
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
-        }
-
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
-        }
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_action_add_visible_rooms_list() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
-
-        // Run the action!
-        AddVisibleRoomsList.run(sliding_sync).await?;
-
-        // List is present!
-        assert_eq!(
-            sliding_sync
-                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(matches!(
-                    list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges.is_empty()
-                )))
-                .await,
-            Some(true)
-        );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_action_set_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // List is present, in Selective mode.
-        assert_eq!(
-            sliding_sync
-                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
-                    list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
-                )))
-                .await,
-            Some(true)
-        );
-
-        // Run the action!
-        SetAllRoomsListToGrowingSyncMode.run(sliding_sync).await.unwrap();
-
-        // List is still present, in Growing mode.
-        assert_eq!(
-            sliding_sync
-                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
-                    list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 50, .. }
                 )))
                 .await,
             Some(true)

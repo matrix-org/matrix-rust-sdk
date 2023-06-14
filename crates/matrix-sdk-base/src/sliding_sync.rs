@@ -296,7 +296,7 @@ impl BaseClient {
         changes: &mut StateChanges,
     ) -> (Room, RoomInfo, Option<InvitedRoom>) {
         if let Some(invite_state) = &room_data.invite_state {
-            let room = store.get_or_create_stripped_room(room_id).await;
+            let room = store.get_or_create_room(room_id, RoomState::Invited).await;
             let mut room_info = room.clone_info();
 
             // We don't actually know what events are inside invite_state. In theory, they

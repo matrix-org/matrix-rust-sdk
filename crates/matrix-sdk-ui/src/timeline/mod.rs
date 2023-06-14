@@ -118,26 +118,26 @@ impl Timeline {
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
-        if start_lock.is_none() {
-            if self.inner.items().await.front().is_some_and(|item| item.is_timeline_start()) {
-                warn!("Start of timeline reached, ignoring backwards-pagination request");
-                return Ok(());
-            }
-
-            if options.wait_for_token {
-                info!("No prev_batch token, waiting");
-                (start_lock, _) = self
-                    .start_token_condvar
-                    .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
-                    .await;
-
-                if start_lock.is_none() {
-                    debug!("Waiting for prev_batch token timed out after 3s");
-                }
-            }
+        if start_lock.is_none()
+            && self.inner.items().await.front().is_some_and(|item| item.is_timeline_start())
+        {
+            warn!("Start of timeline reached, ignoring backwards-pagination request");
+            return Ok(());
         }
 
         self.inner.add_loading_indicator().await;
+
+        if start_lock.is_none() && options.wait_for_token {
+            info!("No prev_batch token, waiting");
+            (start_lock, _) = self
+                .start_token_condvar
+                .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
+                .await;
+
+            if start_lock.is_none() {
+                debug!("Waiting for prev_batch token timed out after 3s");
+            }
+        }
 
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();

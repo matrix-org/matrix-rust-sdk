@@ -24,6 +24,9 @@ impl_from_to_inner!(matrix_sdk_crypto::Device => Device);
 #[wasm_bindgen]
 impl Device {
     /// Request an interactive verification with this device.
+    ///
+    /// Returns a Promise for a 2-element array `[VerificationRequest,
+    /// ToDeviceRequest]`.
     #[wasm_bindgen(js_name = "requestVerification")]
     pub fn request_verification(&self, methods: Option<Array>) -> Result<Promise, JsError> {
         let methods =

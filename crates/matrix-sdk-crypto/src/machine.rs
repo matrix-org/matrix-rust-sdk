@@ -2757,7 +2757,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_verication_states_multiple_device() {
+    async fn test_verification_states_multiple_device() {
         let (bob, _) = get_prepared_machine().await;
 
         let other_user_id = user_id!("@web2:localhost:8482");

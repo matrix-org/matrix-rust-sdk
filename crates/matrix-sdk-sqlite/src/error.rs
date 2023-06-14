@@ -46,7 +46,7 @@ pub enum OpenStoreError {
 
     /// Failed to apply migrations.
     #[error("Failed to run migrations")]
-    Migration(#[source] rusqlite::Error),
+    Migration(#[from] Error),
 
     /// Failed to get a DB connection from the pool.
     #[error(transparent)]

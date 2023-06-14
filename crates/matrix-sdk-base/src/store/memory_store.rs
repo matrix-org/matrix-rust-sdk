@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
+    iter,
     sync::{Arc, RwLock},
 };
 
@@ -38,7 +39,7 @@ use tracing::{debug, warn};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState, media::MediaRequest, MinimalRoomMemberEvent,
-    RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-Memory, non-persistent implementation of the `StateStore`
@@ -59,7 +60,6 @@ pub struct MemoryStore {
         Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
     room_account_data:
         Arc<DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_infos: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     stripped_room_state: Arc<
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
@@ -101,7 +101,6 @@ impl MemoryStore {
             room_info: Default::default(),
             room_state: Default::default(),
             room_account_data: Default::default(),
-            stripped_room_infos: Default::default(),
             stripped_room_state: Default::default(),
             stripped_members: Default::default(),
             presence: Default::default(),
@@ -245,16 +244,10 @@ impl MemoryStore {
 
         for (room_id, room_info) in &changes.room_infos {
             self.room_info.insert(room_id.clone(), room_info.clone());
-            self.stripped_room_infos.remove(room_id);
         }
 
         for (sender, event) in &changes.presence {
             self.presence.insert(sender.clone(), event.clone());
-        }
-
-        for (room_id, info) in &changes.stripped_room_infos {
-            self.stripped_room_infos.insert(room_id.clone(), info.clone());
-            self.room_info.remove(room_id);
         }
 
         for (room, event_types) in &changes.stripped_state {
@@ -367,35 +360,17 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self.presence.get(user_id).map(|p| p.clone()))
-    }
-
-    async fn get_state_event(
-        &self,
-        room_id: &RoomId,
-        event_type: StateEventType,
-        state_key: &str,
-    ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        if let Some(e) = self
-            .stripped_room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&event_type))
-            .and_then(|m| m.get(state_key).map(|m| m.clone()))
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Stripped(e)))
-        } else if let Some(e) = self
-            .room_state
-            .get(room_id)
-            .as_ref()
-            .and_then(|events| events.get(&event_type))
-            .and_then(|m| m.get(state_key).map(|m| m.clone()))
-        {
-            Ok(Some(RawAnySyncOrStrippedState::Sync(e)))
-        } else {
-            Ok(None)
+    async fn get_presence_events<'a, I>(&self, user_ids: I) -> Result<Vec<Raw<PresenceEvent>>>
+    where
+        I: IntoIterator<Item = &'a UserId>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let user_ids = user_ids.into_iter();
+        if user_ids.len() == 0 {
+            return Ok(Vec::new());
         }
+
+        Ok(user_ids.filter_map(|user_id| self.presence.get(user_id).map(|p| p.clone())).collect())
     }
 
     async fn get_state_events(
@@ -420,12 +395,61 @@ impl MemoryStore {
         }
     }
 
-    async fn get_profile(
+    async fn get_state_events_for_keys(
         &self,
         room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<Option<MinimalRoomMemberEvent>> {
-        Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        if let Some(stripped_state_events) = self
+            .stripped_room_state
+            .get(room_id)
+            .as_ref()
+            .and_then(|events| events.get(&event_type))
+        {
+            Ok(state_keys
+                .iter()
+                .filter_map(|k| {
+                    stripped_state_events
+                        .get(*k)
+                        .map(|e| RawAnySyncOrStrippedState::Stripped(e.clone()))
+                })
+                .collect())
+        } else if let Some(sync_state_events) =
+            self.room_state.get(room_id).as_ref().and_then(|events| events.get(&event_type))
+        {
+            Ok(state_keys
+                .iter()
+                .filter_map(|k| {
+                    sync_state_events.get(*k).map(|e| RawAnySyncOrStrippedState::Sync(e.clone()))
+                })
+                .collect())
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    async fn get_profiles<'a, I>(
+        &self,
+        room_id: &RoomId,
+        user_ids: I,
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>>
+    where
+        I: IntoIterator<Item = &'a UserId>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let user_ids = user_ids.into_iter();
+        if user_ids.len() == 0 {
+            return Ok(BTreeMap::new());
+        }
+
+        let Some(room_profiles) = self.profiles.get(room_id) else {
+            return Ok(BTreeMap::new());
+        };
+
+        Ok(user_ids
+            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (user_id, p.clone())))
+            .collect())
     }
 
     /// Get the user IDs for the given room with the given memberships and
@@ -455,7 +479,34 @@ impl MemoryStore {
     }
 
     fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
-        self.stripped_room_infos.iter().map(|r| r.clone()).collect()
+        self.room_info
+            .iter()
+            .filter_map(|r| match r.state() {
+                RoomState::Invited => Some(r.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn get_users_with_display_names<'a, I>(
+        &self,
+        room_id: &RoomId,
+        display_names: I,
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>>
+    where
+        I: IntoIterator<Item = &'a str>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let display_names = display_names.into_iter();
+        if display_names.len() == 0 {
+            return Ok(BTreeMap::new());
+        }
+
+        let Some(room_names) = self.display_names.get(room_id) else {
+            return Ok(BTreeMap::new());
+        };
+
+        Ok(display_names.filter_map(|n| room_names.get(n).map(|d| (n, d.clone()))).collect())
     }
 
     async fn get_account_data_event(
@@ -541,7 +592,6 @@ impl MemoryStore {
         self.room_info.remove(room_id);
         self.room_state.remove(room_id);
         self.room_account_data.remove(room_id);
-        self.stripped_room_infos.remove(room_id);
         self.stripped_room_state.remove(room_id);
         self.stripped_members.remove(room_id);
         self.room_user_receipts.remove(room_id);
@@ -577,7 +627,14 @@ impl StateStore for MemoryStore {
     }
 
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        self.get_presence_event(user_id).await
+        Ok(self.get_presence_events(iter::once(user_id)).await?.into_iter().next())
+    }
+
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>> {
+        self.get_presence_events(user_ids.iter().map(AsRef::as_ref)).await
     }
 
     async fn get_state_event(
@@ -586,7 +643,11 @@ impl StateStore for MemoryStore {
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
-        self.get_state_event(room_id, event_type, state_key).await
+        Ok(self
+            .get_state_events_for_keys(room_id, event_type, &[state_key])
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn get_state_events(
@@ -597,12 +658,29 @@ impl StateStore for MemoryStore {
         self.get_state_events(room_id, event_type).await
     }
 
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        self.get_state_events_for_keys(room_id, event_type, state_keys).await
+    }
+
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>> {
-        self.get_profile(room_id, user_id).await
+        Ok(self.get_profiles(room_id, iter::once(user_id)).await?.into_values().next())
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        self.get_profiles(room_id, user_ids.iter().map(AsRef::as_ref)).await
     }
 
     async fn get_user_ids(
@@ -639,10 +717,21 @@ impl StateStore for MemoryStore {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>> {
         Ok(self
-            .display_names
-            .get(room_id)
-            .and_then(|d| d.get(display_name).map(|d| d.clone()))
+            .get_users_with_display_names(room_id, iter::once(display_name))
+            .await?
+            .into_values()
+            .next()
             .unwrap_or_default())
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        Ok(self
+            .get_users_with_display_names(room_id, display_names.iter().map(AsRef::as_ref))
+            .await?)
     }
 
     async fn get_account_data_event(

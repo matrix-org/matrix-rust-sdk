@@ -65,7 +65,7 @@ use crate::{
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    Session, SessionMeta, SessionTokens,
+    RoomStateFilter, Session, SessionMeta, SessionTokens,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -168,6 +168,11 @@ impl BaseClient {
         self.store.get_rooms()
     }
 
+    /// Get all the rooms this client knows about, filtered by room state.
+    pub fn get_rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
+        self.store.get_rooms_filtered(filter)
+    }
+
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
     pub async fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
@@ -175,8 +180,9 @@ impl BaseClient {
     }
 
     /// Get all the rooms this client knows about.
+    #[deprecated = "Use get_rooms_filtered with RoomStateFilter::INVITED instead."]
     pub fn get_stripped_rooms(&self) -> Vec<Room> {
-        self.store.get_stripped_rooms()
+        self.get_rooms_filtered(RoomStateFilter::INVITED)
     }
 
     /// Get a reference to the store.
@@ -838,19 +844,14 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in response.rooms.invite {
-            let room = self.store.get_or_create_stripped_room(&room_id).await;
+            let room = self.store.get_or_create_room(&room_id, RoomState::Invited).await;
             let mut room_info = room.clone_info();
-
-            if let Some(r) = self.store.get_room(&room_id) {
-                let mut room_info = r.clone_info();
-                room_info.mark_as_invited();
-                room_info.mark_state_fully_synced();
-                changes.add_room(room_info);
-            }
+            room_info.mark_as_invited();
+            room_info.mark_state_fully_synced();
 
             self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
 
-            changes.add_stripped_room(room_info);
+            changes.add_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
         }
@@ -905,12 +906,6 @@ impl BaseClient {
         }
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
-                room.update_summary(room_info.clone())
-            }
-        }
-
-        for (room_id, room_info) in &changes.stripped_room_infos {
-            if let Some(room) = self.store.get_stripped_room(room_id) {
                 room.update_summary(room_info.clone())
             }
         }

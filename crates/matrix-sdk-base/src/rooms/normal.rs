@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     sync::{Arc, RwLock as SyncRwLock},
 };
 
+use bitflags::bitflags;
 use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
@@ -26,7 +27,7 @@ use ruma::{
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            member::MembershipState, name::RoomNameEventContent,
+            member::MembershipState, member::RoomMemberEventContent, name::RoomNameEventContent,
             redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
@@ -40,7 +41,10 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 
-use super::{BaseRoomInfo, DisplayName, RoomMember};
+use super::{
+    members::{MemberInfo, MemberRoomInfo},
+    BaseRoomInfo, DisplayName, RoomMember,
+};
 use crate::{
     deserialized_responses::MemberEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
@@ -341,14 +345,47 @@ impl Room {
     /// given memberships.
     pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
         let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
+
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let member_events = self
+            .store
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                self.room_id(),
+                &user_ids,
+            )
+            .await?
+            .into_iter()
+            .map(|raw_event| raw_event.deserialize())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
+
+        let mut presences = self
+            .store
+            .get_presence_events(&user_ids)
+            .await?
+            .into_iter()
+            .filter_map(|e| {
+                e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let display_names =
+            member_events.iter().map(|e| e.display_name().to_owned()).collect::<Vec<_>>();
+        let room_info = self.member_room_info(&display_names).await?;
+
         let mut members = Vec::new();
 
-        for u in user_ids {
-            let m = self.get_member(&u).await?;
+        for event in member_events {
+            let profile = profiles.remove(event.user_id());
+            let presence = presences.remove(event.user_id());
 
-            if let Some(member) = m {
-                members.push(member);
-            }
+            let member_info = MemberInfo { event, profile, presence };
+
+            members.push(RoomMember::from_parts(member_info, &room_info))
         }
 
         Ok(members)
@@ -471,51 +508,52 @@ impl Room {
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
             return Ok(None);
         };
-        let member_event = raw_event.deserialize()?;
+        let event = raw_event.deserialize()?;
 
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
-        let max_power_level = self.max_power_level();
-        let is_room_creator = self.inner.read().unwrap().creator() == Some(user_id);
 
-        let power = self
+        let display_names = [event.display_name().to_owned()];
+        let room_info = self.member_room_info(&display_names).await?;
+
+        let member_info = MemberInfo { event, profile, presence };
+
+        Ok(Some(RoomMember::from_parts(member_info, &room_info)))
+    }
+
+    /// The current `MemberRoomInfo` for this room.
+    async fn member_room_info<'a>(
+        &self,
+        display_names: &'a [String],
+    ) -> StoreResult<MemberRoomInfo<'a>> {
+        let max_power_level = self.max_power_level();
+        let room_creator = self.inner.read().unwrap().creator().map(ToOwned::to_owned);
+
+        let power_levels = self
             .store
             .get_state_event_static(self.room_id())
             .await?
             .and_then(|e| e.deserialize().ok());
 
-        let ambiguous = self
-            .store
-            .get_users_with_display_name(
-                self.room_id(),
-                member_event
-                    .original_content()
-                    .and_then(|c| c.displayname.as_deref())
-                    .unwrap_or_else(|| user_id.localpart()),
-            )
-            .await?
-            .len()
-            > 1;
+        let users_display_names =
+            self.store.get_users_with_display_names(self.room_id(), display_names).await?;
 
-        let is_ignored = self
+        let ignored_users = self
             .store
             .get_account_data_event_static::<IgnoredUserListEventContent>()
             .await?
             .map(|c| c.deserialize())
             .transpose()?
-            .is_some_and(|e| e.content.ignored_users.contains_key(member_event.user_id()));
+            .map(|e| e.content.ignored_users.into_keys().collect());
 
-        Ok(Some(RoomMember {
-            event: Arc::new(member_event),
-            profile: profile.into(),
-            presence: presence.into(),
-            power_levels: power.into(),
+        Ok(MemberRoomInfo {
+            power_levels: power_levels.into(),
             max_power_level,
-            is_room_creator,
-            display_name_ambiguous: ambiguous,
-            is_ignored,
-        }))
+            room_creator,
+            users_display_names,
+            ignored_users,
+        })
     }
 
     /// Get the `Tags` for this room.
@@ -864,6 +902,56 @@ impl RoomInfo {
 
     fn topic(&self) -> Option<&str> {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
+    }
+}
+
+bitflags! {
+    /// Room state filter as a bitset.
+    ///
+    /// Note that [`RoomStateFilter::empty()`] doesn't filter the results and
+    /// is equivalent to [`RoomStateFilter::all()`].
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RoomStateFilter: u16 {
+        /// The room is in a joined state.
+        const JOINED   = 0b00000001;
+        /// The room is in an invited state.
+        const INVITED  = 0b00000010;
+        /// The room is in a left state.
+        const LEFT     = 0b00000100;
+    }
+}
+
+impl RoomStateFilter {
+    /// Whether the given room state matches this `RoomStateFilter`.
+    pub fn matches(&self, state: RoomState) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        let bit_state = match state {
+            RoomState::Joined => Self::JOINED,
+            RoomState::Left => Self::LEFT,
+            RoomState::Invited => Self::INVITED,
+        };
+
+        self.contains(bit_state)
+    }
+
+    /// Get this `RoomStateFilter` as a list of matching [`RoomState`]s.
+    pub fn as_vec(&self) -> Vec<RoomState> {
+        let mut states = Vec::new();
+
+        if self.contains(Self::JOINED) {
+            states.push(RoomState::Joined);
+        }
+        if self.contains(Self::LEFT) {
+            states.push(RoomState::Left);
+        }
+        if self.contains(Self::INVITED) {
+            states.push(RoomState::Invited);
+        }
+
+        states
     }
 }
 
