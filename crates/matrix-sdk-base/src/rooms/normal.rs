@@ -85,11 +85,13 @@ pub enum RoomState {
 
 impl From<&MembershipState> for RoomState {
     fn from(membership_state: &MembershipState) -> Self {
+        // We consider Ban, Knock and Leave to be Left, because they all mean we are not
+        // in the room.
         match membership_state {
-            MembershipState::Ban => Self::Left, // TODO: is this right?
+            MembershipState::Ban => Self::Left,
             MembershipState::Invite => Self::Invited,
             MembershipState::Join => Self::Joined,
-            MembershipState::Knock => Self::Left, // TODO: is this right?
+            MembershipState::Knock => Self::Left,
             MembershipState::Leave => Self::Left,
             _ => panic!("Unexpected MembershipState: {}", membership_state),
         }

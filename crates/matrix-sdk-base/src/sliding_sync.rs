@@ -497,7 +497,7 @@ mod test {
         set_room_left(&mut room, user_id);
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
-        // (sanity: state is invite)
+        // (sanity: state is left)
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
         // And then get invited back
