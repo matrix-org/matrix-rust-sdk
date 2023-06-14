@@ -549,7 +549,7 @@ impl ReadOnlyAccount {
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
             creation_local_time_ts: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .map_or(0f64, Duration::as_secs_f64)
+                .map_or(0f64, |duration| duration.as_secs_f64())
                 .to_bits(),
         }
     }
@@ -1270,6 +1270,7 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         ops::Deref,
+        time::SystemTime,
     };
 
     use anyhow::Result;
@@ -1386,6 +1387,29 @@ mod tests {
 
         let device = ReadOnlyDevice::from_account(&account).await;
         device.verify_one_time_key(&key).expect("The device can verify its own signature");
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_account_and_device_creation_timestamp() -> Result<()> {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            .to_bits();
+        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let then = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            .to_bits();
+
+        assert!(account.creation_local_time_ts() >= now);
+        assert!(account.creation_local_time_ts() <= then);
+
+        let device = ReadOnlyDevice::from_account(&account).await;
+        assert_eq!(account.creation_local_time_ts(), device.first_time_seen_ts());
 
         Ok(())
     }

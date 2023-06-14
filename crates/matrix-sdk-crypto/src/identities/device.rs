@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    cmp,
     collections::{BTreeMap, HashMap},
     convert::{TryFrom, TryInto},
     ops::Deref,
