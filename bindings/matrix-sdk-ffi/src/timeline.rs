@@ -631,9 +631,7 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
 
 #[derive(Clone, uniffi::Record)]
 pub struct AudioInfo {
-    // FIXME: duration should be a std::time::Duration once the UniFFI proc-macro API adds support
-    // for that
-    pub duration: Option<u64>,
+    pub duration: Option<Duration>,
     pub size: Option<u64>,
     pub mimetype: Option<String>,
 }
@@ -642,8 +640,7 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
     type Error = TimelineError;
 
     fn try_from(value: &AudioInfo) -> Result<Self, TimelineError> {
-        let duration =
-            value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
+        let duration = value.duration.ok_or(TimelineError::MissingMediaInfoField)?;
         let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
             .map_err(|_| TimelineError::InvalidMediaInfoField)?;
 
@@ -653,7 +650,7 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
 
 #[derive(Clone, uniffi::Record)]
 pub struct VideoInfo {
-    pub duration: Option<u64>,
+    pub duration: Option<Duration>,
     pub height: Option<u64>,
     pub width: Option<u64>,
     pub mimetype: Option<String>,
@@ -667,8 +664,7 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
     type Error = TimelineError;
 
     fn try_from(value: &VideoInfo) -> Result<Self, TimelineError> {
-        let duration =
-            value.duration.map(Duration::from_secs).ok_or(TimelineError::MissingMediaInfoField)?;
+        let duration = value.duration.ok_or(TimelineError::MissingMediaInfoField)?;
         let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
             .map_err(|_| TimelineError::InvalidMediaInfoField)?;
         let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
@@ -789,7 +785,7 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
 impl From<&matrix_sdk::ruma::events::room::message::AudioInfo> for AudioInfo {
     fn from(info: &matrix_sdk::ruma::events::room::message::AudioInfo) -> Self {
         Self {
-            duration: info.duration.map(|d| d.as_millis() as u64),
+            duration: info.duration,
             size: info.size.map(Into::into),
             mimetype: info.mimetype.clone(),
         }
@@ -806,7 +802,7 @@ impl From<&matrix_sdk::ruma::events::room::message::VideoInfo> for VideoInfo {
         });
 
         Self {
-            duration: info.duration.map(|d| d.as_secs()),
+            duration: info.duration,
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
             mimetype: info.mimetype.clone(),
