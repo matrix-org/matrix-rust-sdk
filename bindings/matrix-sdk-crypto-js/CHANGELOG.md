@@ -1,7 +1,7 @@
 # v0.1.0-alpha.11
 
--   Add `VerificationRequest.register_changes_callback()`,
-    `Sas.register_changes_callback()`, and `Qr.register_changes_callback()`.
+-   Add `VerificationRequest.registerChangesCallback()`,
+    `Sas.registerChangesCallback()`, and `Qr.registerChangesCallback()`.
 
 # v0.1.0-alpha.10
 
