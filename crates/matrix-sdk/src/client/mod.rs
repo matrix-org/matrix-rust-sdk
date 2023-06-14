@@ -29,8 +29,8 @@ use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomState, SendOutsideWasm, Session, SessionMeta,
-    SessionTokens, SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, Session,
+    SessionMeta, SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]
@@ -887,10 +887,19 @@ impl Client {
             .collect()
     }
 
+    /// Get all the rooms the client knows about, filtered by room state.
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<room::Room> {
+        self.base_client()
+            .get_rooms_filtered(filter)
+            .into_iter()
+            .map(|room| room::Common::new(self.clone(), room).into())
+            .collect()
+    }
+
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<room::Joined> {
         self.base_client()
-            .get_rooms()
+            .get_rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
             .filter_map(|room| room::Joined::new(self, room))
             .collect()
@@ -899,7 +908,7 @@ impl Client {
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<room::Invited> {
         self.base_client()
-            .get_stripped_rooms()
+            .get_rooms_filtered(RoomStateFilter::INVITED)
             .into_iter()
             .filter_map(|room| room::Invited::new(self, room))
             .collect()
@@ -908,7 +917,7 @@ impl Client {
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<room::Left> {
         self.base_client()
-            .get_rooms()
+            .get_rooms_filtered(RoomStateFilter::LEFT)
             .into_iter()
             .filter_map(|room| room::Left::new(self, room))
             .collect()

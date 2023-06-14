@@ -1,6 +1,7 @@
 # v0.1.0-alpha.11
 
--   Simplify the respionse type of `Sas.confirm()`.
+-   Simplify the response type of `Sas.confirm()`.
+-   Add `VerificationRequest.phase()` and `VerificationRequest.getVerification()`.
 
 # v0.1.0-alpha.10
 

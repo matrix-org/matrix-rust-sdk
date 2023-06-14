@@ -5,7 +5,7 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, RoomListEntry, TaskHandle, TimelineDiff, TimelineItem,
+    Client, EventTimelineItem, Room, RoomListEntry, TaskHandle, TimelineDiff, TimelineItem,
     TimelineListener, RUNTIME,
 };
 
@@ -196,6 +196,10 @@ pub struct RoomListItem {
 impl RoomListItem {
     fn name(&self) -> Option<String> {
         RUNTIME.block_on(async { self.inner.name().await })
+    }
+
+    fn full_room(&self) -> Arc<Room> {
+        Arc::new(Room::new(self.inner.inner_room().clone()))
     }
 
     async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListItemTimelineResult {

@@ -262,6 +262,10 @@ impl SlidingSyncBuilder {
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
 
+        // Use the configured sliding sync proxy, or if not set, try to use the one
+        // auto-discovered by the client, if any.
+        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
+
         // Always enable to-device events and the e2ee-extension on the initial request,
         // no matter what the caller wants.
         let mut extensions = self.extensions.unwrap_or_default();
@@ -270,7 +274,7 @@ impl SlidingSyncBuilder {
 
         Ok(SlidingSync::new(SlidingSyncInner {
             _id: Some(self.id),
-            sliding_sync_proxy: self.sliding_sync_proxy,
+            sliding_sync_proxy,
             client,
             storage_key: self.storage_key,
 

@@ -43,7 +43,9 @@ pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
-pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomMemberships, RoomState};
+pub use rooms::{
+    DisplayName, Room, RoomInfo, RoomMember, RoomMemberships, RoomState, RoomStateFilter,
+};
 pub use store::{StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError};
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,

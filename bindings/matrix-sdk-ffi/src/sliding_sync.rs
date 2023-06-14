@@ -865,12 +865,7 @@ impl Client {
     ///
     /// Note: the identifier must be less than 16 chars long.
     pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
-        let mut inner = self.inner.sliding_sync(id)?;
-
-        if let Some(sliding_sync_proxy) = self.inner.sliding_sync_proxy() {
-            inner = inner.sliding_sync_proxy(sliding_sync_proxy);
-        }
-
+        let inner = self.inner.sliding_sync(id)?;
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
     }
 }

@@ -84,6 +84,8 @@ fn the_protocol_definitions(
         message_authentication_codes: vec![
             #[allow(deprecated)]
             MessageAuthenticationCode::HkdfHmacSha256,
+            MessageAuthenticationCode::HkdfHmacSha256V2,
+            // TODO: Remove this soon.
             MessageAuthenticationCode::from("org.matrix.msc3783.hkdf-hmac-sha256"),
         ],
         hashes: HASHES.to_vec(),
@@ -105,15 +107,18 @@ const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
 pub enum SupportedMacMethod {
     #[serde(rename = "hkdf-hmac-sha256")]
     HkdfHmacSha256,
-    #[serde(rename = "org.matrix.msc3783.hkdf-hmac-sha256")]
+    #[serde(rename = "hkdf-hmac-sha256.v2")]
     HkdfHmacSha256V2,
+    #[serde(rename = "org.matrix.msc3783.hkdf-hmac-sha256")]
+    Msc3783HkdfHmacSha256V2,
 }
 
 impl AsRef<str> for SupportedMacMethod {
     fn as_ref(&self) -> &str {
         match self {
             SupportedMacMethod::HkdfHmacSha256 => "hkdf-hmac-sha256",
-            SupportedMacMethod::HkdfHmacSha256V2 => "org.matrix.msc3783.hkdf-hmac-sha256",
+            SupportedMacMethod::HkdfHmacSha256V2 => "hkdf-hmac-sha256.v2",
+            SupportedMacMethod::Msc3783HkdfHmacSha256V2 => "org.matrix.msc3783.hkdf-hmac-sha256",
         }
     }
 }
@@ -130,7 +135,8 @@ impl TryFrom<&MessageAuthenticationCode> for SupportedMacMethod {
     fn try_from(value: &MessageAuthenticationCode) -> Result<Self, Self::Error> {
         match value.as_str() {
             "hkdf-hmac-sha256" => Ok(Self::HkdfHmacSha256),
-            "org.matrix.msc3783.hkdf-hmac-sha256" => Ok(Self::HkdfHmacSha256V2),
+            "org.matrix.msc3783.hkdf-hmac-sha256" => Ok(Self::Msc3783HkdfHmacSha256V2),
+            "hkdf-hmac-sha256.v2" => Ok(Self::HkdfHmacSha256V2),
             _ => Err(()),
         }
     }
@@ -161,7 +167,7 @@ impl SupportedMacMethod {
                     Ok(())
                 }
             }
-            SupportedMacMethod::HkdfHmacSha256V2 => {
+            SupportedMacMethod::HkdfHmacSha256V2 | SupportedMacMethod::Msc3783HkdfHmacSha256V2 => {
                 let mac = Mac::from_slice(mac.as_bytes());
                 sas.verify_mac(input, info, &mac).map_err(|_| CancelCode::MismatchedSas)
             }
@@ -179,7 +185,7 @@ impl SupportedMacMethod {
                 Base64::parse(sas.calculate_mac_invalid_base64(input, info))
                     .expect("We can always decode our newly generated Mac")
             }
-            SupportedMacMethod::HkdfHmacSha256V2 => {
+            SupportedMacMethod::HkdfHmacSha256V2 | SupportedMacMethod::Msc3783HkdfHmacSha256V2 => {
                 let mac = sas.calculate_mac(input, info);
                 Base64::new(mac.as_bytes().to_vec())
             }
@@ -255,6 +261,8 @@ impl TryFrom<&SasV1Content> for AcceptedProtocols {
             let message_auth_code =
                 if mac_methods.contains(&SupportedMacMethod::HkdfHmacSha256V2) {
                     Some(SupportedMacMethod::HkdfHmacSha256V2)
+                } else if mac_methods.contains(&SupportedMacMethod::Msc3783HkdfHmacSha256V2) {
+                    Some(SupportedMacMethod::Msc3783HkdfHmacSha256V2)
                 } else {
                     mac_methods.first().copied()
                 }
@@ -1592,6 +1600,7 @@ mod tests {
                 #[allow(deprecated)]
                 MessageAuthenticationCode::HkdfHmacSha256,
                 MessageAuthenticationCode::from("org.matrix.msc3783.hkdf-hmac-sha256"),
+                MessageAuthenticationCode::HkdfHmacSha256V2,
             ],
             short_authentication_string: vec![
                 ShortAuthenticationString::Emoji,
@@ -1606,6 +1615,17 @@ mod tests {
         assert_eq!(
             accepted_protocols.key_agreement_protocol,
             KeyAgreementProtocol::Curve25519HkdfSha256
+        );
+
+        start_content.message_authentication_codes = vec![
+            #[allow(deprecated)]
+            MessageAuthenticationCode::HkdfHmacSha256,
+            MessageAuthenticationCode::from("org.matrix.msc3783.hkdf-hmac-sha256"),
+        ];
+        let accepted_protocols = AcceptedProtocols::try_from(&start_content).unwrap();
+        assert_eq!(
+            accepted_protocols.message_auth_code,
+            SupportedMacMethod::Msc3783HkdfHmacSha256V2
         );
 
         start_content.key_agreement_protocols = vec![KeyAgreementProtocol::Curve25519];
@@ -1660,7 +1680,18 @@ mod tests {
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
 
+        assert_eq!(
+            bob.state.accepted_protocols.message_auth_code, mac_method,
+            "Bob should be using the specified MAC method."
+        );
+
         let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), &content).unwrap();
+
+        assert_eq!(
+            alice.state.accepted_protocols.message_auth_code, mac_method,
+            "Alice should use the our specified MAC method.",
+        );
+
         let content = alice.as_content();
         let request_id = content.1.request_id;
         let content = KeyContent::try_from(&content.0).unwrap();
@@ -1706,6 +1737,11 @@ mod tests {
     #[async_test]
     async fn full_flow_hkdf_hmac_sha_v2() {
         full_flow_helper(SupportedMacMethod::HkdfHmacSha256V2).await
+    }
+
+    #[async_test]
+    async fn full_flow_hkdf_msc3783() {
+        full_flow_helper(SupportedMacMethod::Msc3783HkdfHmacSha256V2).await
     }
 
     #[async_test]
