@@ -939,7 +939,7 @@ impl ReadOnlyDevice {
     }
 
     /// Get the local timestamp of when this device was first persisted, in
-    /// seconds since epoch.
+    /// seconds since epoch (client local time).
     pub fn first_time_seen_ts(&self) -> u64 {
         self.first_time_seen_ts.into()
     }
