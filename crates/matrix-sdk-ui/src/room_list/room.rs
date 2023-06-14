@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
-use ruma::api::client::sync::sync_events::v4::RoomSubscription;
+use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
 
 use super::Error;
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -56,6 +56,11 @@ impl Room {
                 sneaky_timeline: AsyncOnceCell::new(),
             }),
         })
+    }
+
+    /// Get the room ID.
+    pub fn id(&self) -> &RoomId {
+        self.inner.room.room_id()
     }
 
     /// Get the best possible name for the room.

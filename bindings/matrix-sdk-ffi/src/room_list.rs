@@ -194,6 +194,10 @@ pub struct RoomListItem {
 
 #[uniffi::export]
 impl RoomListItem {
+    fn id(&self) -> String {
+        self.inner.id().to_string()
+    }
+
     fn name(&self) -> Option<String> {
         RUNTIME.block_on(async { self.inner.name().await })
     }
