@@ -352,7 +352,7 @@ impl AppService {
         });
 
         let client = self.user(None).await?;
-        client.register(request).await?;
+        client.matrix_auth().register(request).await?;
         self.set_user_registered(localpart).await?;
 
         Ok(())

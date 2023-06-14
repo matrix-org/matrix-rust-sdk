@@ -58,7 +58,8 @@ pub async fn get_client_for_user(username: String, use_sqlite_store: bool) -> Re
 
     // safe to assume we have not registered this user yet, but ignore if we did
 
-    if let Err(resp) = client.register(RegistrationRequest::new()).await {
+    let auth = client.matrix_auth();
+    if let Err(resp) = auth.register(RegistrationRequest::new()).await {
         // FIXME: do actually check the registration types...
         if let Some(_response) = resp.as_uiaa_response() {
             let request = assign!(RegistrationRequest::new(), {
@@ -68,10 +69,10 @@ pub async fn get_client_for_user(username: String, use_sqlite_store: bool) -> Re
                 auth: Some(uiaa::AuthData::Dummy(uiaa::Dummy::new())),
             });
             // we don't care if this failed, then we just try to login anyways
-            let _ = client.register(request).await;
+            let _ = auth.register(request).await;
         }
     }
-    client.login_username(&username, &username).await?;
+    auth.login_username(&username, &username).await?;
     users.insert(username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
     Ok(client)
