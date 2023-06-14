@@ -26,7 +26,7 @@ pub struct Device {
     /// device.
     pub cross_signing_trusted: bool,
     /// The first time this device was seen in local timestamp, seconds since
-    /// epoch
+    /// epoch.
     pub first_time_seen_ts: u64,
 }
 
