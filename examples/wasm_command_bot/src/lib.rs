@@ -71,6 +71,7 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let client = Client::new(homeserver_url).await.unwrap();
 
     client
+        .matrix_auth()
         .login_username(username, password)
         .initial_device_display_name("rust-sdk-wasm")
         .await

@@ -179,6 +179,7 @@ async fn login(cli: Cli) -> Result<Client> {
     let client = builder.build().await?;
 
     client
+        .matrix_auth()
         .login_username(&cli.user_name, &cli.password)
         .initial_device_display_name("rust-sdk")
         .await?;

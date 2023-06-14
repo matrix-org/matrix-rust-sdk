@@ -194,7 +194,7 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            let mut builder = self.inner.login_username(&username, &password);
+            let mut builder = self.inner.matrix_auth().login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
                 builder = builder.initial_device_display_name(initial_device_name);
             }
@@ -291,7 +291,7 @@ impl Client {
 
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.inner.get_login_types().await?;
+        let login_types = self.inner.matrix_auth().get_login_types().await?;
         let supports_password = login_types
             .flows
             .iter()
@@ -501,7 +501,7 @@ impl Client {
 
     /// Log out the current user
     pub fn logout(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(self.inner.logout())?;
+        RUNTIME.block_on(self.inner.matrix_auth().logout())?;
         Ok(())
     }
 

@@ -35,8 +35,13 @@ async fn login_username_refresh_token() {
         .mount(&server)
         .await;
 
-    let res =
-        client.login_username("example", "wordpass").request_refresh_token().send().await.unwrap();
+    let res = client
+        .matrix_auth()
+        .login_username("example", "wordpass")
+        .request_refresh_token()
+        .send()
+        .await
+        .unwrap();
 
     let logged_in = client.logged_in();
     assert!(logged_in, "Client should be logged in");
@@ -64,6 +69,7 @@ async fn login_sso_refresh_token() {
         "idp-name".to_owned(),
     );
     let res = client
+        .matrix_auth()
         .login_sso(|sso_url| async move {
             let sso_url = url::Url::parse(&sso_url).unwrap();
 
@@ -111,7 +117,7 @@ async fn register_refresh_token() {
         refresh_token: true,
     });
 
-    let res = client.register(req).await.unwrap();
+    let res = client.matrix_auth().register(req).await.unwrap();
 
     res.refresh_token.unwrap();
 }
@@ -165,7 +171,7 @@ async fn refresh_token() {
         .mount(&server)
         .await;
 
-    client.refresh_access_token().await.unwrap().unwrap();
+    client.refresh_access_token().await.unwrap();
     let tokens = client.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "5678");
     assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
@@ -182,7 +188,7 @@ async fn refresh_token() {
         .mount(&server)
         .await;
 
-    client.refresh_access_token().await.unwrap().unwrap();
+    client.refresh_access_token().await.unwrap();
     let tokens = client.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "9012");
     assert_eq!(tokens.refresh_token.as_deref(), Some("wxyz"));

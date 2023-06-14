@@ -48,7 +48,11 @@ async fn login_and_sync(
     // See the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await?;
 
-    client.login_username(username, password).initial_device_display_name("autojoin bot").await?;
+    client
+        .matrix_auth()
+        .login_username(username, password)
+        .initial_device_display_name("autojoin bot")
+        .await?;
 
     println!("logged in as {username}");
 
