@@ -387,20 +387,23 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
 
 #[cfg(test)]
 mod test {
+    use std::collections::{BTreeMap, HashSet};
+
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, event_id,
         events::{
+            direct::DirectEventContent,
             room::{
                 avatar::RoomAvatarEventContent,
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent},
             },
-            AnySyncStateEvent, StateEventContent,
+            AnySyncStateEvent, GlobalAccountDataEventContent, StateEventContent,
         },
         mxc_uri, room_alias_id, room_id,
         serde::Raw,
-        uint, user_id, MxcUri, RoomAliasId, RoomId, UserId,
+        uint, user_id, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
     };
     use serde_json::json;
 
@@ -511,6 +514,55 @@ mod test {
     }
 
     #[async_test]
+    async fn other_person_leaving_a_dm_is_reflected_in_their_membership_and_direct_targets() {
+        let room_id = room_id!("!r:e.uk");
+        let user_a_id = user_id!("@a:e.uk");
+        let user_b_id = user_id!("@b:e.uk");
+
+        // Given we have a DM with B, who is joined
+        let client = logged_in_client().await;
+        create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
+
+        // (Sanity: B is a direct target, and is in Join state)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
+
+        // When B leaves
+        update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
+
+        // Then B is still a direct target, and is in Leave state (B is a direct target
+        // because we want to return to our old DM in the UI even if the other
+        // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
+    }
+
+    #[async_test]
+    async fn other_person_refusing_invite_to_a_dm_is_reflected_in_their_membership_and_direct_targets(
+    ) {
+        let room_id = room_id!("!r:e.uk");
+        let user_a_id = user_id!("@a:e.uk");
+        let user_b_id = user_id!("@b:e.uk");
+
+        // Given I have invited B to a DM
+        let client = logged_in_client().await;
+        create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
+
+        // (Sanity: B is a direct target, and is in Invite state)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
+
+        // When B declines the invitation (i.e. leaves)
+        update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
+
+        // Then B is still a direct target, and is in Leave state (B is a direct target
+        // because we want to return to our old DM in the UI even if the other
+        // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
+    }
+
+    #[async_test]
     async fn avatar_is_found_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_client().await;
@@ -594,6 +646,65 @@ mod test {
         assert_eq!(client_room.canonical_alias(), Some(room_alias_id.to_owned()));
     }
 
+    async fn membership(
+        client: &BaseClient,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> MembershipState {
+        let room = client.get_room(room_id).expect("Room not found!");
+        let member = room.get_member(user_id).await.unwrap().expect("B not in room");
+        member.membership().clone()
+    }
+
+    fn direct_targets(client: &BaseClient, room_id: &RoomId) -> HashSet<OwnedUserId> {
+        let room = client.get_room(room_id).expect("Room not found!");
+        room.direct_targets()
+    }
+
+    /// Create a DM with the other user, setting our membership to Join and
+    /// theirs to other_state
+    async fn create_dm(
+        client: &BaseClient,
+        room_id: &RoomId,
+        my_id: &UserId,
+        their_id: &UserId,
+        other_state: MembershipState,
+    ) {
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_joined(&mut room, my_id);
+        room.required_state.push(make_membership_event(their_id, other_state));
+        let mut response = response_with_room(room_id, room).await;
+        set_direct_with(&mut response, their_id.to_owned(), vec![room_id.to_owned()]);
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+    }
+
+    /// Set this user's membership within this room to new_state
+    async fn update_room_membership(
+        client: &BaseClient,
+        room_id: &RoomId,
+        user_id: &UserId,
+        new_state: MembershipState,
+    ) {
+        let mut room = v4::SlidingSyncRoom::new();
+        room.required_state.push(make_membership_event(user_id, new_state));
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+    }
+
+    fn set_direct_with(
+        response: &mut v4::Response,
+        user_id: OwnedUserId,
+        room_ids: Vec<OwnedRoomId>,
+    ) {
+        let mut direct_content = BTreeMap::new();
+        direct_content.insert(user_id, room_ids);
+        response
+            .extensions
+            .account_data
+            .global
+            .push(make_global_account_data_event(DirectEventContent(direct_content)));
+    }
+
     async fn logged_in_client() -> BaseClient {
         let client = BaseClient::new();
         client
@@ -669,6 +780,15 @@ mod test {
 
     fn make_membership_event(user_id: &UserId, state: MembershipState) -> Raw<AnySyncStateEvent> {
         make_state_event(user_id, user_id.as_str(), RoomMemberEventContent::new(state), None)
+    }
+
+    fn make_global_account_data_event<C: GlobalAccountDataEventContent, E>(content: C) -> Raw<E> {
+        Raw::new(&json!({
+            "type": content.event_type(),
+            "content": content,
+        }))
+        .expect("Failed to create account data event")
+        .cast()
     }
 
     fn make_state_event<C: StateEventContent, E>(
