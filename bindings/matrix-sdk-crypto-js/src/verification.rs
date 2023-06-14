@@ -6,6 +6,7 @@ use std::fmt;
 #[cfg(feature = "qrcode")]
 use js_sys::Uint8ClampedArray;
 use js_sys::{Array, JsString, Promise};
+use matrix_sdk_crypto::VerificationRequestState;
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
