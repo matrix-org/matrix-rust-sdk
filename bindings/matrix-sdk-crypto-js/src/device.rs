@@ -190,7 +190,7 @@ impl Device {
     /// Is the device deleted?
     #[wasm_bindgen(js_name = "firstTimeSeen")]
     pub fn first_time_seen(&self) -> u64 {
-        self.inner.first_time_seen_ts()
+        self.inner.first_time_seen_ts().0.into()
     }
 }
 
