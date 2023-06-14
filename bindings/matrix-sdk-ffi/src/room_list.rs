@@ -5,8 +5,8 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, Room, RoomListEntry, TaskHandle, TimelineDiff, TimelineItem,
-    TimelineListener, RUNTIME,
+    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle, TimelineDiff,
+    TimelineItem, TimelineListener, RUNTIME,
 };
 
 #[uniffi::export]
@@ -200,6 +200,14 @@ impl RoomListItem {
 
     fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::new(self.inner.inner_room().clone()))
+    }
+
+    fn subscribe(&self, settings: Option<RoomSubscription>) {
+        self.inner.subscribe(settings.map(Into::into));
+    }
+
+    fn unsubscribe(&self) {
+        self.inner.unsubscribe();
     }
 
     async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListItemTimelineResult {
