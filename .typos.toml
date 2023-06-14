@@ -1,17 +1,17 @@
-[default.extend-words]
-# Remove this once base64 gets correctly ignored by typos
-# Or if we're able to ignore certain lines.
-Fo = "Fo"
-BA = "BA"
-UE = "UE"
-Ure = "Ure"
-OFO = "OFO"
-Ot = "Ot"
-ket = "ket"
-# This is the thead html tag, remove this once typos is updated in the github
-# action. 1.3.1 seems to work correctly, while 1.11.0 on the CI seems to get
-# this wrong
-thead = "thead"
+[default]
+extend-ignore-re = [
+    # base 58 strings with spaces every four chars.
+    # this would also match regular sentence parts with eight or more words of
+    # exactly four characters in row, but that doesn't really happen.
+    "[1-9A-Za-z]{4}( [1-9A-Za-z]{4}){7,}",
+    # some heuristics for base64 strings with no false matches found at the
+    # time of writing.
+    "[A-Za-z0-9+=]{72,}",
+    "([A-Za-z0-9+=]|\\\\\\s\\*){72,}",
+    "[0-9+][A-Za-z0-9+]{30,}[a-z0-9+]",
+    "\\$[A-Z0-9+][A-Za-z0-9+]{6,}[a-z0-9+]",
+    "\\b[a-z0-9+/=][A-Za-z0-9+/=]{7,}[a-z0-9+/=][A-Z]\\b",
+]
 
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
