@@ -205,7 +205,7 @@ pub struct RoomEncryptedEventContent {
     #[serde(rename = "m.relates_to", skip_serializing_if = "Option::is_none")]
     pub relates_to: Option<Value>,
 
-    /// The other data of the encryped content.
+    /// The other data of the encrypted content.
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
 }
@@ -318,7 +318,7 @@ pub struct MegolmV2AesSha2Content {
 pub struct UnknownEncryptedContent {
     /// The algorithm that was used to encrypt the given event content.
     pub algorithm: EventEncryptionAlgorithm,
-    /// The other data of the unknown encryped content.
+    /// The other data of the unknown encrypted content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }

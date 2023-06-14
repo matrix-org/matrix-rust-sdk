@@ -1066,7 +1066,7 @@ mod tests {
 
         // If there's a to-device `since` token, we make sure we put the token
         // into the extension config. The rest doesn't need to be re-enabled due to
-        // stickyness.
+        // stickiness.
         let since_token = "since";
         sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
 

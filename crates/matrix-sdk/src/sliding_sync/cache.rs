@@ -186,7 +186,7 @@ pub(super) async fn restore_sliding_sync_state(
         // state.
         Some(Err(_)) => {
             warn!(
-                "failed to deserialize `SlidingSync` from the cache, it is obsolote; removing the cache entry!"
+                "failed to deserialize `SlidingSync` from the cache, it is obsolete; removing the cache entry!"
             );
 
             // Let's clear everything and stop here.
