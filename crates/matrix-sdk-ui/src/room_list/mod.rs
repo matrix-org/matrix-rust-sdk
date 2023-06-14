@@ -63,7 +63,7 @@
 mod room;
 mod state;
 
-use std::future::ready;
+use std::{future::ready, sync::Arc};
 
 use async_stream::stream;
 use eyeball::{shared::Observable, Subscriber};
@@ -86,7 +86,7 @@ use thiserror::Error;
 /// The [`RoomList`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomList {
-    sliding_sync: SlidingSync,
+    sliding_sync: Arc<SlidingSync>,
     state: Observable<State>,
 }
 
@@ -119,6 +119,7 @@ impl RoomList {
             )
             .build()
             .await
+            .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
         Ok(Self { sliding_sync, state: Observable::new(State::Init) })
@@ -243,7 +244,7 @@ impl RoomList {
     /// Get a [`Room`] if it exists.
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(room).await,
+            Some(room) => Room::new(self.sliding_sync.clone(), room).await,
             None => Err(Error::RoomNotFound(room_id.to_owned())),
         }
     }

@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::SlidingSyncRoom;
+use matrix_sdk::{SlidingSync, SlidingSyncRoom};
+use ruma::api::client::sync::sync_events::v4::RoomSubscription;
 
 use super::Error;
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -18,6 +19,9 @@ pub struct Room {
 
 #[derive(Debug)]
 struct RoomInner {
+    /// The Sliding Sync where everything comes from.
+    sliding_sync: Arc<SlidingSync>,
+
     /// The Sliding Sync room.
     sliding_sync_room: SlidingSyncRoom,
 
@@ -34,7 +38,10 @@ struct RoomInner {
 
 impl Room {
     /// Create a new `Room`.
-    pub(super) async fn new(sliding_sync_room: SlidingSyncRoom) -> Result<Self, Error> {
+    pub(super) async fn new(
+        sliding_sync: Arc<SlidingSync>,
+        sliding_sync_room: SlidingSyncRoom,
+    ) -> Result<Self, Error> {
         let room = sliding_sync_room
             .client()
             .get_room(sliding_sync_room.room_id())
@@ -42,6 +49,7 @@ impl Room {
 
         Ok(Self {
             inner: Arc::new(RoomInner {
+                sliding_sync,
                 sliding_sync_room,
                 room,
                 timeline: AsyncOnceCell::new(),
@@ -64,6 +72,21 @@ impl Room {
     /// Get the underlying [`matrix_sdk::room::Room`].
     pub fn inner_room(&self) -> &matrix_sdk::room::Room {
         &self.inner.room
+    }
+
+    /// Subscribe to this room.
+    ///
+    /// It means that all events from this room will be received everytime, no
+    /// matter how the `RoomList` is configured.
+    pub fn subscribe(&self, settings: Option<RoomSubscription>) {
+        self.inner.sliding_sync.subscribe_to_room(self.inner.room.room_id().to_owned(), settings)
+    }
+
+    /// Unsubscribe to this room.
+    ///
+    /// It's the opposite method of [Self::subscribe`].
+    pub fn unsubscribe(&self) {
+        self.inner.sliding_sync.unsubscribe_from_room(self.inner.room.room_id().to_owned())
     }
 
     /// Get the timeline of the room.
