@@ -1011,7 +1011,6 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use std::time::SystemTime;
 
     use ruma::user_id;
