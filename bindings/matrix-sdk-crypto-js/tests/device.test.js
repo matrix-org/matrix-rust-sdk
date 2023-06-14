@@ -30,6 +30,7 @@ const {
     QrCodeScan,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { zip, addMachineToMachine } = require("./helper");
+const { VerificationRequestPhase } = require("../pkg");
 
 describe("LocalTrust", () => {
     test("has the correct variant values", () => {
@@ -208,6 +209,7 @@ describe("Key Verification", () => {
             expect(verificationRequest1.weStarted()).toStrictEqual(true);
             expect(verificationRequest1.isDone()).toStrictEqual(false);
             expect(verificationRequest1.isCancelled()).toStrictEqual(false);
+            expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Created);
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.request");
@@ -254,6 +256,7 @@ describe("Key Verification", () => {
             expect(verificationRequest2.weStarted()).toStrictEqual(false);
             expect(verificationRequest2.isDone()).toStrictEqual(false);
             expect(verificationRequest2.isCancelled()).toStrictEqual(false);
+            expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Requested);
 
             const verificationRequests = m2.getVerificationRequests(userId1);
             expect(verificationRequests).toHaveLength(1);
@@ -286,6 +289,8 @@ describe("Key Verification", () => {
         test("verification requests are synchronized and automatically updated", () => {
             expect(verificationRequest1.isReady()).toStrictEqual(true);
             expect(verificationRequest2.isReady()).toStrictEqual(true);
+            expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Ready);
+            expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Ready);
 
             expect(verificationRequest1.theirSupportedMethods).toEqual(
                 expect.arrayContaining([VerificationMethod.SasV1, VerificationMethod.ReciprocateV1]),
@@ -330,6 +335,7 @@ describe("Key Verification", () => {
             expect(sas2.emoji()).toBeUndefined();
             expect(sas2.emojiIndex()).toBeUndefined();
             expect(sas2.decimals()).toBeUndefined();
+            expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Transitioned);
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.start");
@@ -352,6 +358,8 @@ describe("Key Verification", () => {
         let sas1;
 
         test("can fetch and accept an ongoing SAS verification (`m.key.verification.accept`)", async () => {
+            expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Transitioned);
+
             // Let's fetch the ongoing SAS verification.
             sas1 = await m1.getVerification(userId2, flowId);
 
@@ -376,6 +384,11 @@ describe("Key Verification", () => {
             expect(sas1.emoji()).toBeUndefined();
             expect(sas1.emojiIndex()).toBeUndefined();
             expect(sas1.decimals()).toBeUndefined();
+
+            // we should also be able to get the verification via the request
+            const sas1Again = await verificationRequest1.getVerification();
+            expect(sas1Again).toBeInstanceOf(Sas);
+            expect(sas1Again.flowId).toStrictEqual(flowId);
 
             // Let's accept thet SAS start request.
             let outgoingVerificationRequest = sas1.accept();
@@ -602,6 +615,9 @@ describe("Key Verification", () => {
 
             expect(sas1.isDone()).toStrictEqual(true);
             expect(sas2.isDone()).toStrictEqual(true);
+
+            expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Done);
+            expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Done);
         });
     });
 
