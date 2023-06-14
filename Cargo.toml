@@ -69,6 +69,7 @@ sha2 = { opt-level = 2 }
 # Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]
 inherits = "dev"
+opt-level = 3
 debug = 2
 
 # Custom profile for use in (debug) builds of the binding crates, use
