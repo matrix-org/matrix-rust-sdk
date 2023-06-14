@@ -549,7 +549,7 @@ impl ReadOnlyAccount {
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
             creation_local_time_ts: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .map_or(0f64, |t| t.as_secs_f64())
+                .map_or(0f64, Duration::as_secs_f64)
                 .to_bits(),
         }
     }
