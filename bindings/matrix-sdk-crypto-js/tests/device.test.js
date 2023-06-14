@@ -499,9 +499,8 @@ describe("Key Verification", () => {
 
         test("can confirm keys match (`m.key.verification.mac`)", async () => {
             // `m1` confirms.
-            const [outgoingVerificationRequests, signatureUploadRequest] = await sas1.confirm();
-
-            expect(signatureUploadRequest).toBeUndefined();
+            const outgoingVerificationRequests = await sas1.confirm();
+            // there should be a single ToDeviceRequest, and no SignatureUploadRequest.
             expect(outgoingVerificationRequests).toHaveLength(1);
 
             let outgoingVerificationRequest = outgoingVerificationRequests[0];
@@ -525,9 +524,9 @@ describe("Key Verification", () => {
 
         test("can confirm back keys match (`m.key.verification.done`)", async () => {
             // `m2` confirms.
-            const [outgoingVerificationRequests, signatureUploadRequest] = await sas2.confirm();
+            const outgoingVerificationRequests = await sas2.confirm();
 
-            expect(signatureUploadRequest).toBeUndefined();
+            // there should be a m.key.verification.mac and a m.key.verification.done, but no SignatureUploadRequest
             expect(outgoingVerificationRequests).toHaveLength(2);
 
             // `.mac`
