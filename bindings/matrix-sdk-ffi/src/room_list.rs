@@ -5,8 +5,7 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle, TimelineDiff,
-    TimelineItem, TimelineListener, RUNTIME,
+    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle, RUNTIME,
 };
 
 #[uniffi::export]
@@ -214,31 +213,9 @@ impl RoomListItem {
         self.inner.unsubscribe();
     }
 
-    async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListItemTimelineResult {
-        let timeline = self.inner.timeline().await;
-        let (items, items_stream) = timeline.subscribe().await;
-
-        RoomListItemTimelineResult {
-            items: items.into_iter().map(TimelineItem::from_arc).collect(),
-            items_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(items_stream);
-
-                while let Some(diff) = items_stream.next().await {
-                    listener.on_update(Arc::new(TimelineDiff::new(diff)))
-                }
-            }))),
-        }
-    }
-
     fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         RUNTIME.block_on(async {
             self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
         })
     }
-}
-
-#[derive(uniffi::Record)]
-pub struct RoomListItemTimelineResult {
-    pub items: Vec<Arc<TimelineItem>>,
-    pub items_stream: Arc<TaskHandle>,
 }
