@@ -7,7 +7,6 @@ use futures_util::StreamExt;
 #[cfg(feature = "qrcode")]
 use js_sys::Uint8ClampedArray;
 use js_sys::{Array, Function, JsString, Promise};
-use matrix_sdk_crypto::VerificationRequestState;
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
