@@ -88,7 +88,7 @@ impl SecondsSinceUnixEpoch {
 
 impl From<u64> for SecondsSinceUnixEpoch {
     fn from(value: u64) -> Self {
-        SecondsSinceUnixEpoch(cmp::max(0, value))
+        Self(value)
     }
 }
 impl From<SecondsSinceUnixEpoch> for u64 {
