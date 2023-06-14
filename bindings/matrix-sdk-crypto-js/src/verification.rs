@@ -922,7 +922,7 @@ impl VerificationRequest {
     ///
     /// Returns a `VerificationRequestPhase`.
     pub fn phase(&self) -> VerificationRequestPhase {
-        return self.inner.state().into();
+        self.inner.state().into()
     }
 
     /// If this request has transitioned into a concrete verification
