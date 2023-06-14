@@ -319,6 +319,7 @@ impl Sas {
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: Option<RequestHandle>,
+        short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             identities.store.account.clone(),
@@ -327,6 +328,7 @@ impl Sas {
             identities.identity_being_verified.clone(),
             flow_id.clone(),
             request_handle.is_some(),
+            short_auth_strings,
         );
 
         let account = identities.store.account.clone();
@@ -359,10 +361,11 @@ impl Sas {
         transaction_id: OwnedTransactionId,
         we_started: bool,
         request_handle: Option<RequestHandle>,
+        short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> (Sas, OutgoingContent) {
         let flow_id = FlowId::ToDevice(transaction_id);
 
-        Self::start_helper(flow_id, identities, we_started, request_handle)
+        Self::start_helper(flow_id, identities, we_started, request_handle, short_auth_strings)
     }
 
     /// Start a new SAS auth flow with the given device inside the given room.
@@ -384,7 +387,7 @@ impl Sas {
         request_handle: RequestHandle,
     ) -> (Sas, OutgoingContent) {
         let flow_id = FlowId::InRoom(room_id, flow_id);
-        Self::start_helper(flow_id, identities, we_started, Some(request_handle))
+        Self::start_helper(flow_id, identities, we_started, Some(request_handle), None)
     }
 
     /// Create a new Sas object from a m.key.verification.start request.
@@ -431,7 +434,15 @@ impl Sas {
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
     pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
-        self.accept_with_settings(Default::default())
+        match self.state() {
+            SasState::Started { protocols } => {
+                let settings =
+                    AcceptSettings { allowed_methods: protocols.short_authentication_string };
+
+                self.accept_with_settings(settings)
+            }
+            _ => None,
+        }
     }
 
     /// Accept the SAS verification customizing the accept method.
@@ -855,7 +866,11 @@ impl AcceptSettings {
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
+    use ruma::{
+        device_id,
+        events::key::verification::{accept::AcceptMethod, ShortAuthenticationString},
+        user_id, DeviceId, TransactionId, UserId,
+    };
     use tokio::sync::Mutex;
 
     use super::Sas;
@@ -885,8 +900,8 @@ mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    #[async_test]
-    async fn sas_wrapper_full() {
+    async fn machine_pair() -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice)
+    {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
@@ -908,9 +923,16 @@ mod tests {
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };
 
+        (alice_store, alice_device, bob_store, bob_device)
+    }
+
+    #[async_test]
+    async fn sas_wrapper_full() {
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
-        let (alice, content) = Sas::start(identities, TransactionId::new(), true, None);
+        let (alice, content) = Sas::start(identities, TransactionId::new(), true, None, None);
 
         assert_matches!(alice.state(), SasState::Started { .. });
 
@@ -976,5 +998,30 @@ mod tests {
         assert!(bob.verified_devices().unwrap().contains(bob.other_device()));
         assert_matches!(alice.state(), SasState::Done { .. });
         assert_matches!(bob.state(), SasState::Done { .. });
+    }
+
+    #[async_test]
+    async fn sas_with_restricted_methods() {
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair().await;
+        let identities = alice_store.get_identities(bob_device).await.unwrap();
+
+        let short_auth_strings = vec![ShortAuthenticationString::Decimal];
+        let (alice, content) =
+            Sas::start(identities, TransactionId::new(), true, None, Some(short_auth_strings));
+
+        let flow_id = alice.flow_id().to_owned();
+        let content = StartContent::try_from(&content).unwrap();
+
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+        let bob = Sas::from_start_event(flow_id, &content, identities, None, false).unwrap();
+
+        let request = bob.accept().unwrap();
+
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = AcceptContent::try_from(&content).unwrap();
+        let content = assert_matches!(content.method(), AcceptMethod::SasV1(content) => content);
+
+        assert!(content.short_authentication_string.contains(&ShortAuthenticationString::Decimal));
+        assert!(!content.short_authentication_string.contains(&ShortAuthenticationString::Emoji));
     }
 }

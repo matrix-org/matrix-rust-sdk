@@ -75,9 +75,11 @@ const HASHES: &[HashAlgorithm] = &[HashAlgorithm::Sha256];
 const STRINGS: &[ShortAuthenticationString] =
     &[ShortAuthenticationString::Decimal, ShortAuthenticationString::Emoji];
 
-fn the_protocol_definitions() -> SasV1Content {
+fn the_protocol_definitions(
+    short_auth_strings: Option<Vec<ShortAuthenticationString>>,
+) -> SasV1Content {
     SasV1ContentInit {
-        short_authentication_string: STRINGS.to_vec(),
+        short_authentication_string: short_auth_strings.unwrap_or_else(|| STRINGS.to_owned()),
         key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
         message_authentication_codes: vec![
             #[allow(deprecated)]
@@ -547,6 +549,7 @@ impl SasState<Created> {
         other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
         started_from_request: bool,
+        short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> SasState<Created> {
         Self::new_helper(
             flow_id,
@@ -555,6 +558,7 @@ impl SasState<Created> {
             own_identity,
             other_identity,
             started_from_request,
+            short_auth_strings,
         )
     }
 
@@ -565,9 +569,12 @@ impl SasState<Created> {
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
+        short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> SasState<Created> {
         let sas = Sas::new();
         let our_public_key = sas.public_key();
+
+        let protocol_definitions = the_protocol_definitions(short_auth_strings);
 
         SasState {
             inner: Arc::new(Mutex::new(Some(sas))),
@@ -579,7 +586,7 @@ impl SasState<Created> {
             last_event_time: Arc::new(Instant::now()),
             started_from_request,
 
-            state: Arc::new(Created { protocol_definitions: the_protocol_definitions() }),
+            state: Arc::new(Created { protocol_definitions }),
         }
     }
 
@@ -785,14 +792,14 @@ impl SasState<Started> {
                 OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
                     self.device_id().into(),
                     s.clone(),
-                    StartMethod::SasV1(the_protocol_definitions()),
+                    StartMethod::SasV1(self.state.protocol_definitions.to_owned()),
                 ))
             }
             FlowId::InRoom(r, e) => OwnedStartContent::Room(
                 r.clone(),
                 KeyVerificationStartEventContent::new(
                     self.device_id().into(),
-                    StartMethod::SasV1(the_protocol_definitions()),
+                    StartMethod::SasV1(self.state.protocol_definitions.to_owned()),
                     Reference::new(e.clone()),
                 ),
             ),
@@ -1552,7 +1559,7 @@ mod tests {
 
         let flow_id = TransactionId::new().into();
         let alice_sas =
-            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false);
+            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false, None);
 
         let start_content = alice_sas.as_content();
         let flow_id = start_content.flow_id();
@@ -1790,7 +1797,7 @@ mod tests {
 
         let flow_id = TransactionId::new().into();
         let alice_sas =
-            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false);
+            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false, None);
 
         let mut start_content = alice_sas.as_content();
         let method = start_content.method_mut();
