@@ -23,7 +23,7 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{
-                    Changes, CryptoStore, DeviceChanges,
+                    BackupKeys, Changes, CryptoStore, DeviceChanges,
                     GossipRequest, IdentityChanges, RecoveryKey, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
@@ -834,6 +834,30 @@ macro_rules! cryptostore_integration_tests {
 
                 let loaded_settings_3 = store.get_room_settings(room_3).await.unwrap();
                 assert_eq!(None, loaded_settings_3);
+            }
+
+            #[async_test]
+            async fn backup_keys_saving() {
+                let (account, store) = get_loaded_store("backup_keys_saving").await;
+
+                let restored = store.load_backup_keys().await.unwrap();
+                assert!(restored.recovery_key.is_none(), "Initially no backup recovery key should be present");
+
+                let recovery_key = Some(RecoveryKey::new().unwrap());
+
+                let changes = Changes { recovery_key, ..Default::default() };
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.load_backup_keys().await.unwrap();
+                assert!(restored.recovery_key.is_some(), "We should be able to restore a backup recovery key");
+                assert!(restored.backup_version.is_none(), "The backup version should still be None");
+
+                let changes = Changes { backup_version: Some("some_version".to_owned()), ..Default::default() };
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.load_backup_keys().await.unwrap();
+                assert!(restored.recovery_key.is_some(), "The backup recovery key should still be known");
+                assert!(restored.backup_version.is_some(), "The backup version should now be Some as well");
             }
 
             #[async_test]

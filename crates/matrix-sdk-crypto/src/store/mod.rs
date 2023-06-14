@@ -133,6 +133,10 @@ struct StoreInner {
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
     room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
+
+    /// The sender side of a broadcast channel which sends out secrets we
+    /// received as a `m.secret.send` event.
+    secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 }
 
 #[derive(Default, Debug)]
@@ -204,7 +208,7 @@ pub struct DeviceChanges {
 }
 
 /// The private part of a backup key.
-#[derive(Zeroize, Deserialize, Serialize)]
+#[derive(Clone, Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct RecoveryKey {
@@ -261,7 +265,7 @@ pub struct RoomKeyCounts {
 }
 
 /// Stored versions of the backup keys.
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct BackupKeys {
     /// The recovery key, the one used to decrypt backed up room keys.
     pub recovery_key: Option<RecoveryKey>,
@@ -381,6 +385,8 @@ impl Store {
         verification_machine: VerificationMachine,
     ) -> Self {
         let (room_keys_received_sender, _) = broadcast::channel(10);
+        let (secrets_broadcaster, _) = broadcast::channel(10);
+
         let inner = Arc::new(StoreInner {
             user_id,
             identity,
@@ -392,7 +398,9 @@ impl Store {
             tracked_users_loaded: AtomicBool::new(false),
             tracked_user_loading_lock: Mutex::new(()),
             room_keys_received_sender,
+            secrets_broadcaster,
         });
+
         Self { inner }
     }
 
@@ -433,11 +441,17 @@ impl Store {
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
+        let secrets = changes.secrets.to_owned();
+
         self.inner.store.save_changes(changes).await?;
 
         if !room_key_updates.is_empty() {
             // Ignore the result. It can only fail if there are no listeners.
             let _ = self.inner.room_keys_received_sender.send(room_key_updates);
+        }
+
+        for secret in secrets {
+            let _ = self.inner.secrets_broadcaster.send(secret);
         }
 
         Ok(())
@@ -1001,6 +1015,62 @@ impl Store {
     /// key and value when hold.
     pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
         CryptoStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
+    }
+
+    /// Receive notifications of gossipped secrets being received and stored in
+    /// the secret inbox as a [`Stream`].
+    ///
+    /// The gossipped secrets are received using the `m.secret.send` event type
+    /// and are guaranteed to have been received over a 1-to-1 Olm
+    /// [`Session`] from a verified [`Device`].
+    ///
+    /// The [`GossippedSecret`] can also be later found in the secret inbox and
+    /// retrieved using the [`CryptoStore::get_secrets_from_inbox()`] method.
+    ///
+    /// After a suitable secret of a certain type has been found it can be
+    /// removed from the store
+    /// using the [`CryptoStore::delete_secrets_from_inbox()`] method.
+    ///
+    /// The only secret this will currently broadcast is the
+    /// `m.megolm_backup.v1`.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # futures_executor::block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    ///
+    /// let secret_stream = machine.store().secrets_stream();
+    /// pin_mut!(secret_stream);
+    ///
+    /// for secret in secret_stream.next().await {
+    ///     // Accept the secret if it's valid, then delete all the secrets of this type.
+    ///     machine.store().delete_secrets_from_inbox(&secret.secret_name);
+    /// }
+    /// # });
+    /// ```
+    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
+        let stream = BroadcastStream::new(self.inner.secrets_broadcaster.subscribe());
+
+        // the raw BroadcastStream gives us Results which can fail with
+        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
+        // with, so here we just drop the errors.
+        stream.filter_map(|result| async move {
+            match result {
+                Ok(r) => Some(r),
+                Err(BroadcastStreamRecvError::Lagged(lag)) => {
+                    warn!("secrets_stream missed {lag} updates");
+                    None
+                }
+            }
+        })
     }
 }
 

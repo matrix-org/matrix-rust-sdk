@@ -25,7 +25,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 
 use super::{
@@ -64,6 +64,7 @@ pub struct MemoryStore {
     custom_values: DashMap<String, Vec<u8>>,
     leases: DashMap<String, (String, Instant)>,
     secret_inbox: DashMap<String, Vec<GossippedSecret>>,
+    backup_keys: RwLock<BackupKeys>,
 }
 
 impl Default for MemoryStore {
@@ -79,6 +80,7 @@ impl Default for MemoryStore {
             direct_withheld_info: Default::default(),
             custom_values: Default::default(),
             leases: Default::default(),
+            backup_keys: Default::default(),
             secret_inbox: Default::default(),
         }
     }
@@ -161,6 +163,14 @@ impl CryptoStore for MemoryStore {
             self.key_requests_by_info.insert(info_string, id);
         }
 
+        if let Some(key) = changes.recovery_key {
+            self.backup_keys.write().await.recovery_key = Some(key);
+        }
+
+        if let Some(version) = changes.backup_version {
+            self.backup_keys.write().await.backup_version = Some(version);
+        }
+
         for secret in changes.secrets {
             self.secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
         }
@@ -233,7 +243,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        Ok(BackupKeys::default())
+        Ok(self.backup_keys.read().await.to_owned())
     }
 
     async fn get_outbound_group_session(&self, _: &RoomId) -> Result<Option<OutboundGroupSession>> {
