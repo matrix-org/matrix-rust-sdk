@@ -468,6 +468,9 @@ impl OlmMachine {
     }
 
     /// Get the cross signing user identity of a user.
+    ///
+    /// Returns a promise for an `OwnUserIdentity`, a `UserIdentity`, or
+    /// `undefined`.
     #[wasm_bindgen(js_name = "getIdentity")]
     pub fn get_identity(&self, user_id: &identifiers::UserId) -> Promise {
         let me = self.inner.clone();

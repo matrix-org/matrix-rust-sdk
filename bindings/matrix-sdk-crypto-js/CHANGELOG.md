@@ -2,6 +2,7 @@
 
 -   Add `VerificationRequest.registerChangesCallback()`,
     `Sas.registerChangesCallback()`, and `Qr.registerChangesCallback()`.
+-   Add `VerificationRequest.phase()` and `VerificationRequest.getVerification()`.
 
 # v0.1.0-alpha.10
 
