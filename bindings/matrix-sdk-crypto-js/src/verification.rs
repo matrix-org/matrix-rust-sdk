@@ -6,6 +6,7 @@ use std::fmt;
 #[cfg(feature = "qrcode")]
 use js_sys::Uint8ClampedArray;
 use js_sys::{Array, JsString, Promise};
+use matrix_sdk_crypto::VerificationRequestState;
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
@@ -935,6 +936,29 @@ impl VerificationRequest {
         self.inner.is_done()
     }
 
+    /// Get the current phase of this request.
+    ///
+    /// Returns a `VerificationRequestPhase`.
+    pub fn phase(&self) -> VerificationRequestPhase {
+        self.inner.state().into()
+    }
+
+    /// If this request has transitioned into a concrete verification
+    /// flow (and not yet been completed or cancelled), returns a `Verification`
+    /// object.
+    ///
+    /// Returns: a `Sas`, a `Qr`, or `undefined`.
+    #[wasm_bindgen(js_name = "getVerification")]
+    pub fn get_verification(&self) -> JsValue {
+        let result: Option<JsValue> =
+            if let VerificationRequestState::Transitioned { verification } = self.inner.state() {
+                Verification(verification).try_into().ok()
+            } else {
+                None
+            };
+        result.into()
+    }
+
     /// Has the verification flow that was started with this request
     /// been cancelled?
     #[wasm_bindgen(js_name = "isCancelled")]
@@ -1086,5 +1110,44 @@ impl TryFrom<OutgoingVerificationRequest> for JsValue {
                 JsValue::from(requests::RoomMessageRequest::try_from((request_id, &request))?)
             }
         })
+    }
+}
+
+/// List of VerificationRequestState phases
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum VerificationRequestPhase {
+    /// The verification request has been newly created by us.
+    Created = 0,
+
+    /// The verification request was received from the other party.
+    Requested = 1,
+
+    /// The verification request is ready to start a verification flow.
+    Ready = 2,
+
+    /// The verification request has transitioned into a concrete verification
+    /// flow. For example it transitioned into the emoji based SAS
+    /// verification.
+    Transitioned = 3,
+
+    /// The verification flow that was started with this request has finished.
+    Done = 4,
+
+    /// The verification process has been cancelled.
+    Cancelled = 5,
+}
+
+impl From<VerificationRequestState> for VerificationRequestPhase {
+    fn from(value: VerificationRequestState) -> Self {
+        use matrix_sdk_crypto::VerificationRequestState::*;
+        match value {
+            Created { .. } => Self::Created,
+            Requested { .. } => Self::Requested,
+            Transitioned { .. } => Self::Transitioned,
+            Ready { .. } => Self::Ready,
+            Done => Self::Done,
+            Cancelled(_) => Self::Cancelled,
+        }
     }
 }

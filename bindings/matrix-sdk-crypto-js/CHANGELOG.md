@@ -1,3 +1,7 @@
+# v0.1.0-alpha.11
+
+-   Add `VerificationRequest.phase()` and `VerificationRequest.getVerification()`.
+
 # v0.1.0-alpha.10
 
 -   Add `masterKey`, `userSigningKey`, `selfSigningKey` to `UserIdentity` and `OwnUserIdentity`
