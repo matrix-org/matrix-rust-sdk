@@ -170,6 +170,9 @@ describe("Key Verification", () => {
         // Verification request for `m1`.
         let verificationRequest1;
 
+        /** registerChangesCallback function for `verificationRequest1` */
+        const verificationRequest1ChangesCallback = jest.fn().mockImplementation(() => Promise.resolve());
+
         // The flow ID.
         let flowId;
 
@@ -211,6 +214,9 @@ describe("Key Verification", () => {
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.request");
+
+            // add an onChange listener so we can check it is called at the right times
+            verificationRequest1.registerChangesCallback(verificationRequest1ChangesCallback);
 
             const toDeviceEvents = [
                 {
@@ -279,11 +285,15 @@ describe("Key Verification", () => {
                 },
             ];
 
+            expect(verificationRequest1ChangesCallback).not.toHaveBeenCalled();
+
             // Let's send the verification ready to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
         });
 
         test("verification requests are synchronized and automatically updated", () => {
+            // receiving the update should have caused a call to the callback
+            expect(verificationRequest1ChangesCallback).toHaveBeenCalledTimes(1);
             expect(verificationRequest1.isReady()).toStrictEqual(true);
             expect(verificationRequest2.isReady()).toStrictEqual(true);
 
@@ -351,6 +361,9 @@ describe("Key Verification", () => {
         // SAS verification for the second machine.
         let sas1;
 
+        /** registerChangesCallback function for `sas1` */
+        const sas1ChangesCallback = jest.fn().mockImplementation(() => Promise.resolve());
+
         test("can fetch and accept an ongoing SAS verification (`m.key.verification.accept`)", async () => {
             // Let's fetch the ongoing SAS verification.
             sas1 = await m1.getVerification(userId2, flowId);
@@ -377,7 +390,10 @@ describe("Key Verification", () => {
             expect(sas1.emojiIndex()).toBeUndefined();
             expect(sas1.decimals()).toBeUndefined();
 
-            // Let's accept thet SAS start request.
+            // add an onChange listener so we can check it is called at the right times
+            sas1.registerChangesCallback(sas1ChangesCallback);
+
+            // Let's accept that SAS start request.
             let outgoingVerificationRequest = sas1.accept();
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
@@ -393,8 +409,15 @@ describe("Key Verification", () => {
                 },
             ];
 
+            // The changes callback should not yet have been called
+            expect(sas1ChangesCallback).not.toHaveBeenCalled();
+
             // Let's send the SAS accept to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+
+            // ... which should trigger the changes callback
+            expect(sas1ChangesCallback).toHaveBeenCalledTimes(1);
+            sas1ChangesCallback.mockClear();
         });
 
         test("emojis are supported by both sides", () => {
@@ -418,10 +441,12 @@ describe("Key Verification", () => {
                 },
             ];
 
-            // Let's send te SAS key to `m1`.
+            // Let's send the SAS key to `m1`.
             await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
-
             m2.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
+
+            // ... which should trigger the changes callback
+            expect(sas1ChangesCallback).toHaveBeenCalledTimes(1);
         });
 
         test("other side sends back verification key (`m.key.verification.key`)", async () => {
@@ -768,6 +793,9 @@ describe("Key Verification", () => {
         // QR verification for the second machine.
         let qr2;
 
+        /** registerChangesCallback function for `qr1` */
+        const qr2ChangesCallback = jest.fn().mockImplementation(() => Promise.resolve());
+
         test("can generate a QR code", async () => {
             qr2 = await verificationRequest2.generateQrCode();
 
@@ -786,6 +814,8 @@ describe("Key Verification", () => {
             expect(qr2.reciprocated()).toStrictEqual(false);
             expect(qr2.flowId).toMatch(/^[a-f0-9]+$/);
             expect(qr2.roomId).toBeUndefined();
+
+            qr2.registerChangesCallback(qr2ChangesCallback);
         });
 
         test("can read QR code's bytes", async () => {
@@ -913,8 +943,14 @@ describe("Key Verification", () => {
                 },
             ];
 
+            // qr2's changes callback should not yet have been called
+            expect(qr2ChangesCallback).not.toHaveBeenCalled();
+
             // Let's send the verification request to `m2`.
             await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+
+            // ... which should trigger its changes callback
+            expect(qr2ChangesCallback).toHaveBeenCalledTimes(1);
         });
 
         test("can confirm QR code has been scanned", () => {
