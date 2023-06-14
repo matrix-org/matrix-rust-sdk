@@ -281,7 +281,7 @@ mod tests {
 
     use indoc::indoc;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{room_id, user_id};
 
     use super::{
         decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
@@ -330,7 +330,8 @@ mod tests {
 
     #[async_test]
     async fn test_session_encrypt() {
-        let (machine, _) = get_prepared_machine(false).await;
+        let user_id = user_id!("@alice:localhost");
+        let (machine, _) = get_prepared_machine(user_id, false).await;
         let room_id = room_id!("!test:localhost");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
@@ -353,7 +354,9 @@ mod tests {
 
     #[async_test]
     async fn test_importing_better_session() -> OlmResult<()> {
-        let (machine, _) = get_prepared_machine(false).await;
+        let user_id = user_id!("@alice:localhost");
+
+        let (machine, _) = get_prepared_machine(user_id, false).await;
         let room_id = room_id!("!test:localhost");
         let session = machine.create_inbound_session(room_id).await?;
 

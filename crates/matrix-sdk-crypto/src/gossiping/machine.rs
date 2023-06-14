@@ -819,6 +819,7 @@ impl GossipMachine {
             //
             // So we put the secret into our inbox. Later users can inspect the contents of
             // the inbox and decide if they want to activate the backup.
+            info!("Received a backup recovery key, storing it into the secret inbox.");
             changes.secrets.push(secret);
         }
 
@@ -1044,8 +1045,6 @@ mod tests {
         serde::Raw,
         user_id, DeviceId, RoomId, UserId,
     };
-    #[cfg(feature = "automatic-room-key-forwarding")]
-    use serde::{de::DeserializeOwned, Serialize};
     use serde_json::json;
     use tokio::sync::Mutex;
 
@@ -1054,16 +1053,14 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
-        store::Changes,
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
-                olm_v1::DecryptedOlmV1Event, room::encrypted::EncryptedToDeviceEvent, EventType,
-                ToDeviceEvent,
+                olm_v1::DecryptedOlmV1Event,
             },
             EventEncryptionAlgorithm,
         },
-        EncryptionSettings, OutgoingRequest, OutgoingRequests,
+        EncryptionSettings, OutgoingRequests,
     };
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
@@ -1073,6 +1070,8 @@ mod tests {
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
         verification::VerificationMachine,
     };
+    #[cfg(any(feature = "automatic-room-key-forwarding", feature = "backups_v1"))]
+    use crate::{store::Changes, types::events::room::encrypted::EncryptedToDeviceEvent};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -1226,10 +1225,10 @@ mod tests {
         (alice_machine, alice_account, group_session, bob_machine)
     }
 
-    #[cfg(feature = "automatic-room-key-forwarding")]
+    #[cfg(any(feature = "automatic-room-key-forwarding", feature = "backups_v1"))]
     fn extract_content<'a>(
         recipient: &UserId,
-        request: &'a OutgoingRequest,
+        request: &'a crate::OutgoingRequest,
     ) -> &'a Raw<ruma::events::AnyToDeviceEventContent> {
         request
             .request()
@@ -1259,21 +1258,24 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "automatic-room-key-forwarding")]
+    #[cfg(any(feature = "automatic-room-key-forwarding", feature = "backups_v1"))]
     fn request_to_event<C>(
         recipient: &UserId,
         sender: &UserId,
-        request: &OutgoingRequest,
-    ) -> ToDeviceEvent<C>
+        request: &crate::OutgoingRequest,
+    ) -> crate::types::events::ToDeviceEvent<C>
     where
-        C: EventType + DeserializeOwned + Serialize + std::fmt::Debug,
+        C: crate::types::events::EventType
+            + serde::de::DeserializeOwned
+            + serde::ser::Serialize
+            + std::fmt::Debug,
     {
         let content = extract_content(recipient, request);
-        let content: C = content
-            .deserialize_as()
-            .expect("We can always deserialize the to-device event content");
+        let content: C = content.deserialize_as().unwrap_or_else(|_| {
+            panic!("We can always deserialize the to-device event content {content:?}")
+        });
 
-        ToDeviceEvent::new(sender.to_owned(), content)
+        crate::types::events::ToDeviceEvent::new(sender.to_owned(), content)
     }
 
     #[async_test]
@@ -1749,6 +1751,88 @@ mod tests {
         alice_machine.receive_incoming_secret_request(&event);
         alice_machine.collect_incoming_key_requests().await.unwrap();
         assert!(!alice_machine.inner.outgoing_requests.is_empty());
+    }
+
+    #[async_test]
+    #[cfg(feature = "backups_v1")]
+    async fn secret_broadcasting() {
+        use futures_util::{pin_mut, FutureExt};
+        use ruma::api::client::to_device::send_event_to_device::v3::Response as ToDeviceResponse;
+        use serde_json::value::to_raw_value;
+        use tokio_stream::StreamExt;
+
+        use crate::machine::tests::get_machine_pair_with_setup_sessions;
+
+        let alice_id = user_id!("@alice:localhost");
+
+        let (alice_machine, bob_machine) =
+            get_machine_pair_with_setup_sessions(alice_id, alice_id, false).await;
+
+        let key_requests = GossipMachine::request_missing_secrets(
+            bob_machine.user_id(),
+            vec![SecretName::RecoveryKey],
+        );
+        let mut changes = Changes::default();
+        let request_id = key_requests.first().unwrap().request_id.to_owned();
+        changes.key_requests = key_requests;
+        bob_machine.store().save_changes(changes).await.unwrap();
+        for request in bob_machine.outgoing_requests().await.unwrap() {
+            bob_machine
+                .mark_request_as_sent(request.request_id(), &ToDeviceResponse::new())
+                .await
+                .unwrap();
+        }
+
+        let event = RumaToDeviceEvent {
+            sender: alice_machine.user_id().to_owned(),
+            content: ToDeviceSecretRequestEventContent::new(
+                RequestAction::Request(SecretName::RecoveryKey),
+                bob_machine.device_id().to_owned(),
+                request_id,
+            ),
+        };
+
+        let bob_device = alice_machine
+            .get_device(alice_id, bob_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        let alice_device = bob_machine
+            .get_device(alice_id, alice_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // We need a trusted device, otherwise we won't serve nor accept secrets.
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_devices(&[bob_device.inner]).await.unwrap();
+        bob_machine.store().save_devices(&[alice_device.inner]).await.unwrap();
+
+        let recovery_key = crate::store::RecoveryKey::new().unwrap();
+        alice_machine.backup_machine().save_recovery_key(Some(recovery_key), None).await.unwrap();
+        alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event);
+        alice_machine.inner.key_request_machine.collect_incoming_key_requests().await.unwrap();
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 1);
+        let request = requests.first().expect("We should have an outgoing to-device request");
+
+        let event: EncryptedToDeviceEvent =
+            request_to_event(bob_machine.user_id(), alice_machine.user_id(), request);
+        let event = Raw::from_json(to_raw_value(&event).unwrap());
+
+        let stream = bob_machine.store().secrets_stream();
+        pin_mut!(stream);
+
+        bob_machine
+            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .await
+            .unwrap();
+
+        stream.next().now_or_never().expect("The broadcaster should have sent out the secret");
     }
 
     #[async_test]
