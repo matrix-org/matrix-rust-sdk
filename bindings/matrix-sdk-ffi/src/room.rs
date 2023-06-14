@@ -33,8 +33,8 @@ use tracing::{error, info};
 use super::RUNTIME;
 use crate::{
     error::{ClientError, RoomError},
-    AudioInfo, FileInfo, ImageInfo, RoomMember, ThumbnailInfo, TimelineDiff, TimelineItem,
-    TimelineListener, VideoInfo,
+    AudioInfo, FileInfo, ImageInfo, RoomMember, TaskHandle, ThumbnailInfo, TimelineDiff,
+    TimelineItem, TimelineListener, VideoInfo,
 };
 
 #[derive(uniffi::Enum)]
@@ -223,7 +223,7 @@ impl Room {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Vec<Arc<TimelineItem>> {
+    ) -> RoomTimelineListenerResult {
         let timeline = self
             .timeline
             .write()
@@ -240,19 +240,24 @@ impl Room {
             let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
             let listener: Arc<dyn TimelineListener> = listener.into();
-            RUNTIME.spawn(timeline_stream.for_each(move |diff| {
-                let listener = listener.clone();
-                let fut = RUNTIME
-                    .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+            let timeline_stream =
+                Arc::new(TaskHandle::new(RUNTIME.spawn(timeline_stream.for_each(move |diff| {
+                    let listener = listener.clone();
+                    let fut = RUNTIME.spawn_blocking(move || {
+                        listener.on_update(Arc::new(TimelineDiff::new(diff)))
+                    });
 
-                async move {
-                    if let Err(e) = fut.await {
-                        error!("Timeline listener error: {e}");
+                    async move {
+                        if let Err(e) = fut.await {
+                            error!("Timeline listener error: {e}");
+                        }
                     }
-                }
-            }));
+                }))));
 
-            timeline_items.into_iter().map(TimelineItem::from_arc).collect()
+            RoomTimelineListenerResult {
+                items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+                items_stream: timeline_stream,
+            }
         })
     }
 
@@ -839,6 +844,12 @@ impl Room {
             Ok(())
         })
     }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomTimelineListenerResult {
+    pub items: Vec<Arc<TimelineItem>>,
+    pub items_stream: Arc<TaskHandle>,
 }
 
 pub enum PaginationOptions {
