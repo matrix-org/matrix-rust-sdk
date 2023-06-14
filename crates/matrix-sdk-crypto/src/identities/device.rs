@@ -77,7 +77,7 @@ struct SecondsSinceUnixEpoch(u64);
 
 impl SecondsSinceUnixEpoch {
     fn now() -> Self {
-        SecondsSinceUnixEpoch(
+        Self(
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map_or(0f64, |t| t.as_secs_f64())
