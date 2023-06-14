@@ -931,9 +931,11 @@ impl ReadOnlyDevice {
     /// replicated locally.
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        let from_keys = ReadOnlyDevice::try_from(&device_keys)
+        let mut device = ReadOnlyDevice::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");
-        ReadOnlyDevice { first_time_seen_ts: account.creation_local_time_ts().into(), ..from_keys }
+        device.first_time_seen_ts = account.creation_local_time_ts().into();
+
+        device
     }
 
     /// Get the local timestamp of when this device was first persisted, in
