@@ -51,7 +51,7 @@ You can stay informed about updates on the access token by listening to `client.
  - [`MessageOptions`][message options] has been updated to Matrix 1.3 by making the `from` parameter optional (and function signatures have been updated, too). You can now request the server sends you messages from the first one you are allowed to have received.
  - `client.user_id()` is not a `future` anymore. Remove any `.await` you had behind it.
  - `verified()`, `blacklisted()` and `deleted()` on `matrix_sdk::encryption::identities::Device` have been renamed with a `is_` prefix.
- - `verified()` on `matrix_sdk::encryption::identities::UserIdentity`, too has been prefixed with `is_` and thus is onw called `is_verified()`.
+ - `verified()` on `matrix_sdk::encryption::identities::UserIdentity`, too has been prefixed with `is_` and thus is now called `is_verified()`.
  - The top-level crypto and state-store types of Indexeddb and Sled have been renamed to unique types>
  - `state_store` and `crypto_store` do not need to be boxed anymore when passed to the [`StoreConfig`][store config]
  - Indexeddb's `SerializationError` is now `IndexedDBStoreError`
