@@ -5,7 +5,8 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle, RUNTIME,
+    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle,
+    UnreadNotificationsCount, RUNTIME,
 };
 
 #[uniffi::export]
@@ -217,5 +218,13 @@ impl RoomListItem {
         RUNTIME.block_on(async {
             self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
         })
+    }
+
+    fn has_unread_notifications(&self) -> bool {
+        self.inner.has_unread_notifications()
+    }
+
+    fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
+        Arc::new(self.inner.unread_notifications().into())
     }
 }

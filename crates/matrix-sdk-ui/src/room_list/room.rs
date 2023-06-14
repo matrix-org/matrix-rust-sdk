@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
-use ruma::{api::client::sync::sync_events::v4::RoomSubscription, RoomId};
+use ruma::{
+    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
+    RoomId,
+};
 
 use super::Error;
 use crate::{timeline::EventTimelineItem, Timeline};
@@ -130,5 +133,15 @@ impl Room {
             .await
             .latest_event()
             .await
+    }
+
+    /// Is there any unread notifications?
+    pub fn has_unread_notifications(&self) -> bool {
+        self.inner.sliding_sync_room.has_unread_notifications()
+    }
+
+    /// Get unread notifications.
+    pub fn unread_notifications(&self) -> UnreadNotificationsCount {
+        self.inner.sliding_sync_room.unread_notifications()
     }
 }
