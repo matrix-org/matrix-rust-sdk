@@ -19,11 +19,12 @@ use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tracing::{error, warn};
 
 use crate::{
+    client::Client,
     error::ClientError,
     helpers::unwrap_or_clone_arc,
     room::{Room, TimelineLock},
     timeline::{EventTimelineItem, TimelineDiff, TimelineItem, TimelineListener},
-    Client, TaskHandle, RUNTIME,
+    TaskHandle, RUNTIME,
 };
 
 #[derive(uniffi::Object)]

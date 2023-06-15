@@ -44,8 +44,11 @@ use matrix_sdk::{
 };
 
 use self::{
-    client::*, error::ClientError, event::*, platform::*, session_verification::*,
-    task_handle::TaskHandle, timeline::MediaSourceExt,
+    client::{CreateRoomParameters, RoomPreset, RoomVisibility},
+    error::ClientError,
+    session_verification::{SessionVerificationControllerDelegate, SessionVerificationEmoji},
+    task_handle::TaskHandle,
+    timeline::MediaSourceExt,
 };
 
 uniffi::include_scaffolding!("api");
