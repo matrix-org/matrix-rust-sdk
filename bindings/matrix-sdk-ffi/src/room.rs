@@ -852,6 +852,7 @@ pub struct RoomTimelineListenerResult {
     pub items_stream: Arc<TaskHandle>,
 }
 
+#[derive(uniffi::Enum)]
 pub enum PaginationOptions {
     SingleRequest { event_limit: u16, wait_for_token: bool },
     UntilNumItems { event_limit: u16, items: u16, wait_for_token: bool },

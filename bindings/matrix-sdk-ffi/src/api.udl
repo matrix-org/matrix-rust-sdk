@@ -123,27 +123,6 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-interface RoomMember { };
-
-callback interface TimelineListener {
-    void on_update(TimelineDiff update);
-};
-
-interface TimelineItem {};
-
-interface TimelineDiff {};
-
-dictionary MoveData {
-    u32 old_index;
-    u32 new_index;
-};
-
-[Enum]
-interface PaginationOptions {
-    SingleRequest(u16 event_limit, boolean wait_for_token);
-    UntilNumItems(u16 event_limit, u16 items, boolean wait_for_token);
-};
-
 interface RoomMessageEventContent {};
 
 [Error]
