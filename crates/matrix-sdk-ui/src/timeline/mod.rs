@@ -233,6 +233,17 @@ impl Timeline {
         self.inner.retry_event_decryption(self.room(), None).await;
     }
 
+    /// Get the current timeline item for the given event ID, if any.
+    ///
+    /// It's preferable to store the timeline items in the model for your UI, if
+    /// possible, instead of just storing IDs and coming back to the timeline
+    /// object to look up items.
+    pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
+        let items = self.inner.items().await;
+        let (_, item) = rfind_event_by_id(&items, event_id)?;
+        Some(item.to_owned())
+    }
+
     /// Get the current list of timeline items. Do not use this in production!
     #[cfg(feature = "testing")]
     pub async fn items(&self) -> Vector<Arc<TimelineItem>> {

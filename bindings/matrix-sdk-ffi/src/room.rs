@@ -805,6 +805,36 @@ impl Room {
             }
         });
     }
+
+    pub fn get_timeline_event_content_by_event_id(
+        &self,
+        event_id: String,
+    ) -> Result<Arc<RoomMessageEventContent>, ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .unwrap()
+            .clone()
+            .context("Timeline not set up, can't get event content")?;
+
+        let event_id = EventId::parse(event_id)?;
+
+        RUNTIME.block_on(async move {
+            let item = timeline
+                .item_by_event_id(&event_id)
+                .await
+                .context("Item with given event ID not found")?;
+
+            let msgtype = item
+                .content()
+                .as_message()
+                .context("Item with given event ID is not a message")?
+                .msgtype()
+                .to_owned();
+
+            Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
+        })
+    }
 }
 
 impl Room {
