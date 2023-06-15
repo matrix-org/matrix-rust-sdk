@@ -41,8 +41,8 @@ use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
 use self::{
-    client::*, error::ClientError, event::*, notification::*, platform::*, room_list::*,
-    session_verification::*, sliding_sync::*, task_handle::TaskHandle, timeline::MediaSourceExt,
+    client::*, error::ClientError, event::*, notification::*, platform::*, session_verification::*,
+    sliding_sync::*, task_handle::TaskHandle, timeline::MediaSourceExt,
 };
 
 uniffi::include_scaffolding!("api");
