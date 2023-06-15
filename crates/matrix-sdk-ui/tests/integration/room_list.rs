@@ -20,6 +20,7 @@ use ruma::{
     room_id, uint,
 };
 use serde_json::json;
+use stream_assert::{assert_next_eq, assert_pending};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
 use crate::{
@@ -295,10 +296,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(
-        entries_loading_state_stream.next().now_or_never(),
+    assert_next_eq!(
+        entries_loading_state_stream,
         // It's `FullyLoaded` because it was a `Selective` sync-mode.
-        Some(Some(EntriesLoadingState::FullyLoaded)),
+        EntriesLoadingState::FullyLoaded
     );
 
     sync_then_assert_request_and_fake_response! {
@@ -347,11 +348,11 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(
-        entries_loading_state_stream.next().now_or_never(),
+    assert_next_eq!(
+        entries_loading_state_stream,
         // It's `PartiallyLoaded` because it's in `Growing` sync-mode,
         // and it's not finished.
-        Some(Some(EntriesLoadingState::PartiallyLoaded))
+        EntriesLoadingState::PartiallyLoaded
     );
 
     sync_then_assert_request_and_fake_response! {
@@ -387,11 +388,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(
-        entries_loading_state_stream.next().now_or_never(),
-        // The loading state is the same.
-        None,
-    );
+    assert_pending!(entries_loading_state_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -426,11 +423,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(
-        entries_loading_state_stream.next().now_or_never(),
-        // The loading state is the same.
-        None,
-    );
+    assert_pending!(entries_loading_state_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -465,10 +458,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(
-        entries_loading_state_stream.next().now_or_never(),
+    assert_next_eq!(
+        entries_loading_state_stream,
         // Finally, it's `FullyLoaded`!.
-        Some(Some(EntriesLoadingState::FullyLoaded)),
+        EntriesLoadingState::FullyLoaded
     );
 
     Ok(())
