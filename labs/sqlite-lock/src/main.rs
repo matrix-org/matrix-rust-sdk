@@ -1,10 +1,7 @@
 use std::{env::temp_dir, path::Path, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use matrix_sdk_crypto::store::{
-    locks::{CryptoStoreLock, CryptoStoreLockGuard},
-    DynCryptoStore, IntoCryptoStore as _,
-};
+use matrix_sdk_crypto::store::{locks::CryptoStoreLock, DynCryptoStore, IntoCryptoStore as _};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use nix::{
     libc::rand,
@@ -89,7 +86,6 @@ async fn parent_main(path: &Path, write_pipe: i32) -> Result<()> {
     let mut lock = CryptoStoreLock::new(store.clone(), lock_key.clone(), "parent".to_owned(), None);
 
     loop {
-        //while generation <= 254 {
         // Write a command.
         let val = unsafe { rand() } % 2;
 
@@ -147,53 +143,7 @@ async fn parent_main(path: &Path, write_pipe: i32) -> Result<()> {
         }
     }
 
-    //simple_parent_test(write_pipe, &store, lock_key).await?;
-
     #[allow(unreachable_code)]
-    Ok(())
-}
-
-#[allow(unused)]
-async fn simple_parent_test(
-    write_pipe: i32,
-    store: &Arc<DynCryptoStore>,
-    lock_key: String,
-) -> Result<()> {
-    {
-        write_command(write_pipe, Command::WriteValue("Hi there".into()))?;
-        sleep(Duration::from_millis(300)).await;
-
-        eprintln!("parent waits for lock");
-        let _lock =
-            CryptoStoreLockGuard::new(store.clone(), lock_key.clone(), "parent".to_owned(), None)
-                .await?;
-
-        eprintln!("parent got the lock, checking custom value");
-
-        let val = store.get_custom_value(KEY).await?;
-        assert_eq!(val, Some("Hi there".as_bytes().to_vec()));
-
-        store.set_custom_value(KEY, "Yo dawg".as_bytes().to_vec()).await?;
-    }
-
-    eprintln!("parent releases the lock");
-
-    write_command(write_pipe, Command::ReadValue("Yo dawg".into()))?;
-    sleep(Duration::from_millis(300)).await;
-
-    {
-        eprintln!("parent waits for lock 2");
-        let _lock =
-            CryptoStoreLockGuard::new(store.clone(), lock_key.clone(), "parent2".to_owned(), None)
-                .await?;
-
-        eprintln!("parent got the lock 2, checking no more value");
-
-        let val = store.get_custom_value(KEY).await?;
-        assert_eq!(val, None);
-    }
-
-    eprintln!("parent released the lock 2");
     Ok(())
 }
 
