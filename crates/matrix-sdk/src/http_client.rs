@@ -25,6 +25,7 @@ use std::{
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
+use eyeball::shared::Observable as SharedObservable;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::{
@@ -57,12 +58,16 @@ pub trait HttpSend: AsyncTraitDeps {
     ///   `Request`.
     ///
     /// * `timeout` - A timeout for the full request > response cycle.
+    ///
     /// # Examples
     ///
     /// ```
     /// use std::time::Duration;
     ///
-    /// use matrix_sdk::{async_trait, bytes::Bytes, HttpError, HttpSend};
+    /// use eyeball::shared::Observable as SharedObservable;
+    /// use matrix_sdk::{
+    ///     async_trait, bytes::Bytes, HttpError, HttpSend, TransmissionProgress,
+    /// };
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -83,6 +88,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///         &self,
     ///         request: http::Request<Bytes>,
     ///         timeout: Duration,
+    ///         _send_progress: SharedObservable<TransmissionProgress>,
     ///     ) -> Result<http::Response<Bytes>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
@@ -98,6 +104,7 @@ pub trait HttpSend: AsyncTraitDeps {
         &self,
         request: http::Request<Bytes>,
         timeout: Duration,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<http::Response<Bytes>, HttpError>;
 }
 
@@ -170,27 +177,60 @@ impl HttpClient {
         &self,
         request: http::Request<Bytes>,
         config: RequestConfig,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // There's a bunch of state here, factor out a pinned inner future to
-        // reduce this size of futures that await this function.
+        // There's a bunch of state in send_request_with_retries, factor
+        // out a pinned inner future to reduce this size of futures that
+        // await this function.
         #[cfg(not(target_arch = "wasm32"))]
-        let (status_code, response_size, response) = Box::pin(async move {
-            use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-            use ruma::api::client::error::{
-                ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
-            };
+        let response =
+            Box::pin(self.send_request_with_retries::<R>(config, request, send_progress)).await?;
 
-            use crate::RumaApiError;
+        #[cfg(target_arch = "wasm32")]
+        let response = {
+            let response = self.inner.send_request(request, config.timeout, send_progress).await?;
 
-            let backoff =
-                ExponentialBackoff { max_elapsed_time: config.retry_timeout, ..Default::default() };
-            let retry_count = AtomicU64::new(1);
+            let status_code = response.status();
+            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+            tracing::Span::current()
+                .record("status", status_code.as_u16())
+                .record("response_size", response_size.to_string_as(true));
 
-            let send_request = || async {
+            R::IncomingResponse::try_from_http_response(response)?
+        };
+
+        Ok(response)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn send_request_with_retries<R>(
+        &self,
+        config: RequestConfig,
+        request: http::Request<Bytes>,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<R::IncomingResponse, HttpError>
+    where
+        R: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<R::EndpointError>>,
+    {
+        use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+        use ruma::api::client::error::{
+            ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind,
+        };
+
+        use crate::RumaApiError;
+
+        let backoff =
+            ExponentialBackoff { max_elapsed_time: config.retry_timeout, ..Default::default() };
+        let retry_count = AtomicU64::new(1);
+
+        let send_request = || {
+            let send_progress = send_progress.clone();
+            async {
                 let stop = if let Some(retry_limit) = config.retry_limit {
                     retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
                 } else {
@@ -233,42 +273,27 @@ impl HttpClient {
 
                 let response = self
                     .inner
-                    .send_request(clone_request(&request), config.timeout)
+                    .send_request(clone_request(&request), config.timeout, send_progress)
                     .await
                     .map_err(error_type)?;
 
                 let status_code = response.status();
-                let response_size = response.body().len();
+                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+                tracing::Span::current()
+                    .record("status", status_code.as_u16())
+                    .record("response_size", response_size.to_string_as(true));
 
-                let response = R::IncomingResponse::try_from_http_response(response)
-                    .map_err(|e| error_type(HttpError::from(e)))?;
-
-                Ok((status_code, response_size, response))
-            };
-
-            retry::<_, HttpError, _, _, _>(backoff, send_request).await
-        })
-        .await?;
-
-        #[cfg(target_arch = "wasm32")]
-        let (status_code, response_size, response) = {
-            let response = self.inner.send_request(request, config.timeout).await?;
-            let status_code = response.status();
-            let response_size = response.body().len();
-
-            (status_code, response_size, R::IncomingResponse::try_from_http_response(response)?)
+                R::IncomingResponse::try_from_http_response(response)
+                    .map_err(|e| error_type(HttpError::from(e)))
+            }
         };
 
-        let response_bytesize = ByteSize(response_size.try_into().unwrap_or(u64::MAX));
-        tracing::Span::current()
-            .record("status", status_code.as_u16())
-            .record("response_size", response_bytesize.to_string_as(true));
-
-        Ok(response)
+        retry::<_, HttpError, _, _, _>(backoff, send_request).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[instrument(
-        skip(self, access_token, config, request, user_id),
+        skip(self, access_token, config, request, user_id, send_progress),
         fields(
             config,
             path,
@@ -288,6 +313,7 @@ impl HttpClient {
         access_token: Option<&str>,
         user_id: Option<&UserId>,
         server_versions: &[MatrixVersion],
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
@@ -350,7 +376,7 @@ impl HttpClient {
         };
 
         debug!("Sending request");
-        match self.send_request::<R>(request, config).await {
+        match self.send_request::<R>(request, config, send_progress).await {
             Ok(response) => {
                 debug!("Got response");
                 Ok(response)
@@ -417,6 +443,15 @@ impl HttpSettings {
     }
 }
 
+/// Progress of sending or receiving a payload.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TransmissionProgress {
+    /// How many bytes were already transferred.
+    pub current: usize,
+    /// How many bytes there are in total.
+    pub total: usize,
+}
+
 // Clones all request parts except the extensions which can't be cloned.
 // See also https://github.com/hyperium/http/issues/395
 #[cfg(not(target_arch = "wasm32"))]
@@ -455,18 +490,108 @@ impl HttpSend for reqwest::Client {
         &self,
         request: http::Request<Bytes>,
         _timeout: Duration,
+        _send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<http::Response<Bytes>, HttpError> {
-        #[allow(unused_mut)]
-        let mut request = reqwest::Request::try_from(request)?;
-
-        // reqwest's timeout functionality is not available on WASM
         #[cfg(not(target_arch = "wasm32"))]
-        {
+        let request = {
+            use std::convert::Infallible;
+
+            use futures_util::stream;
+
+            let mut request = if _send_progress.subscriber_count() != 0 {
+                _send_progress.update(|p| p.total += request.body().len());
+                reqwest::Request::try_from(request.map(|body| {
+                    let chunks = stream::iter(BytesChunks::new(body, 8192).map(
+                        move |chunk| -> Result<_, Infallible> {
+                            _send_progress.update(|p| p.current += chunk.len());
+                            Ok(chunk)
+                        },
+                    ));
+                    reqwest::Body::wrap_stream(chunks)
+                }))?
+            } else {
+                reqwest::Request::try_from(request)?
+            };
+
             *request.timeout_mut() = Some(_timeout);
-        }
+            request
+        };
+
+        // Both reqwest::Body::wrap_stream and the timeout functionality are
+        // not available on WASM
+        #[cfg(target_arch = "wasm32")]
+        let request = reqwest::Request::try_from(request)?;
 
         let response = self.execute(request).await?;
 
         Ok(response_to_http_response(response).await?)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct BytesChunks {
+    bytes: Bytes,
+    size: usize,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BytesChunks {
+    fn new(bytes: Bytes, size: usize) -> Self {
+        assert_ne!(size, 0);
+        Self { bytes, size }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Iterator for BytesChunks {
+    type Item = Bytes;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use std::mem;
+
+        if self.bytes.is_empty() {
+            None
+        } else if self.bytes.len() < self.size {
+            Some(mem::take(&mut self.bytes))
+        } else {
+            Some(self.bytes.split_to(self.size))
+        }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use bytes::Bytes;
+
+    use super::BytesChunks;
+
+    #[test]
+    fn bytes_chunks() {
+        let bytes = Bytes::new();
+        assert!(BytesChunks::new(bytes, 1).collect::<Vec<_>>().is_empty());
+
+        let bytes = Bytes::from_iter([1, 2]);
+        assert_eq!(BytesChunks::new(bytes, 2).collect::<Vec<_>>(), [Bytes::from_iter([1, 2])]);
+
+        let bytes = Bytes::from_iter([1, 2]);
+        assert_eq!(BytesChunks::new(bytes, 3).collect::<Vec<_>>(), [Bytes::from_iter([1, 2])]);
+
+        let bytes = Bytes::from_iter([1, 2, 3]);
+        assert_eq!(
+            BytesChunks::new(bytes, 1).collect::<Vec<_>>(),
+            [Bytes::from_iter([1]), Bytes::from_iter([2]), Bytes::from_iter([3])]
+        );
+
+        let bytes = Bytes::from_iter([1, 2, 3]);
+        assert_eq!(
+            BytesChunks::new(bytes, 2).collect::<Vec<_>>(),
+            [Bytes::from_iter([1, 2]), Bytes::from_iter([3])]
+        );
+
+        let bytes = Bytes::from_iter([1, 2, 3, 4]);
+        assert_eq!(
+            BytesChunks::new(bytes, 2).collect::<Vec<_>>(),
+            [Bytes::from_iter([1, 2]), Bytes::from_iter([3, 4])]
+        );
     }
 }

@@ -51,11 +51,13 @@ pub mod encryption;
 pub use account::Account;
 #[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, UnknownToken};
+pub use client::{
+    Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, SendRequest, UnknownToken,
+};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
-pub use http_client::HttpSend;
+pub use http_client::{HttpSend, TransmissionProgress};
 pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]

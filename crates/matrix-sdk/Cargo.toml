@@ -16,12 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = [
-    "e2e-encryption",
-    "automatic-room-key-forwarding",
-    "sqlite",
-    "native-tls",
-]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
 testing = []
 
 e2e-encryption = [
@@ -47,15 +42,13 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
-experimental-sliding-sync = ["matrix-sdk-base/experimental-sliding-sync", "reqwest/gzip", "dep:eyeball-im-util"]
-
-docsrs = [
-    "e2e-encryption",
-    "sqlite",
-    "sso-login",
-    "qrcode",
-    "image-proc",
+experimental-sliding-sync = [
+    "matrix-sdk-base/experimental-sliding-sync",
+    "reqwest/gzip",
+    "dep:eyeball-im-util",
 ]
+
+docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -64,6 +57,7 @@ async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
+cfg-vis = "0.3.0"
 dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
@@ -82,7 +76,6 @@ matrix-sdk-sqlite = { version = "0.1.0", path = "../matrix-sdk-sqlite", default-
 mime = "0.3.16"
 mime2ext = "0.1.52"
 rand = { version = "0.8.5", optional = true }
-reqwest = { version = "0.11.10", default_features = false }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965"] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
@@ -116,10 +109,14 @@ optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.2.6", features = ["futures"] }
+reqwest = { version = "0.11.10", default_features = false }
 tokio = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
+# only activate reqwest's stream feature on non-wasm, the wasm part seems to not
+# support *sending* streams, which makes it useless for us.
+reqwest = { version = "0.11.10", default_features = false, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 
 [dev-dependencies]
