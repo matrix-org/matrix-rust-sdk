@@ -5,12 +5,13 @@ use std::{
 
 use matrix_sdk::{
     config::SyncSettings,
+    matrix_auth::Session,
     room::Room,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, Error, LoopCtrl, Session,
+    Client, Error, LoopCtrl,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -96,7 +97,7 @@ async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<
         .build()
         .await?;
 
-    println!("Restoring session for {}…", user_session.user_id);
+    println!("Restoring session for {}…", user_session.meta.user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;

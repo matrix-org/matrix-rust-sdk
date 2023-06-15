@@ -348,7 +348,12 @@ pub type EntriesLoadingState = SlidingSyncListLoadingState;
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::{config::RequestConfig, reqwest::Url, Session};
+    use matrix_sdk::{
+        config::RequestConfig,
+        matrix_auth::{Session, SessionTokens},
+        reqwest::Url,
+    };
+    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
     use wiremock::MockServer;
@@ -357,10 +362,11 @@ mod tests {
 
     async fn new_client() -> (Client, MockServer) {
         let session = Session {
-            access_token: "1234".to_owned(),
-            refresh_token: None,
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let server = MockServer::start().await;

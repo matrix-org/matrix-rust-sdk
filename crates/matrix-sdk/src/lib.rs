@@ -24,7 +24,7 @@ pub use matrix_sdk_base::{
     deserialized_responses,
     store::{DynStateStore, StateStoreExt},
     DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomMemberships,
-    RoomState, Session, StateChanges, StateStore, StoreError,
+    RoomState, SessionMeta, StateChanges, StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
