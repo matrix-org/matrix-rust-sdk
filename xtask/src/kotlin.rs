@@ -4,6 +4,7 @@ use std::{
 };
 
 use clap::{Args, Subcommand, ValueEnum};
+use uniffi_bindgen::bindings::TargetLanguage;
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -140,7 +141,7 @@ fn generate_uniffi_bindings(
     uniffi_bindgen::generate_bindings(
         udl_file,
         None,
-        vec!["kotlin"],
+        vec![TargetLanguage::Kotlin],
         Some(out_dir_overwrite),
         Some(library_file),
         false,

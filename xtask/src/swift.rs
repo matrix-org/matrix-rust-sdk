@@ -4,6 +4,7 @@ use std::{
 };
 
 use clap::{Args, Subcommand};
+use uniffi_bindgen::bindings::TargetLanguage;
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -106,7 +107,7 @@ fn generate_uniffi(library_file: &Path, ffi_directory: &Path) -> Result<()> {
     uniffi_bindgen::generate_bindings(
         udl_file.as_path(),
         None,
-        vec!["swift"],
+        vec![TargetLanguage::Swift],
         Some(outdir_overwrite),
         Some(library_path),
         false,
