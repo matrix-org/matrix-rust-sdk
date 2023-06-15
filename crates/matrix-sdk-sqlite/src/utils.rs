@@ -12,21 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
+use std::{borrow::Borrow, ops::Deref};
 
 use async_trait::async_trait;
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction};
 
 use crate::OpenStoreError;
 
-pub(crate) fn chain<T>(
-    it1: impl IntoIterator<Item = T>,
-    it2: impl IntoIterator<Item = T>,
-) -> impl Iterator<Item = T> {
-    it1.into_iter().chain(it2)
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Key {
     Plain(Vec<u8>),
     Hashed([u8; 32]),
@@ -40,6 +33,12 @@ impl Deref for Key {
             Key::Plain(slice) => slice,
             Key::Hashed(bytes) => bytes,
         }
+    }
+}
+
+impl Borrow<[u8]> for Key {
+    fn borrow(&self) -> &[u8] {
+        self.deref()
     }
 }
 

@@ -8,6 +8,7 @@ use ruma::{
 
 use crate::event::TimelineEvent;
 
+#[derive(uniffi::Record)]
 pub struct NotificationItem {
     pub event: Arc<TimelineEvent>,
     pub room_id: String,

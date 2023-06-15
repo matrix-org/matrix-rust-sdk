@@ -267,6 +267,16 @@ impl MemberEvent {
     pub fn user_id(&self) -> &UserId {
         self.state_key()
     }
+
+    /// The name that should be displayed for this member event.
+    ///
+    /// It there is no `displayname` in the event's content, the localpart or
+    /// the user ID is returned.
+    pub fn display_name(&self) -> &str {
+        self.original_content()
+            .and_then(|c| c.displayname.as_deref())
+            .unwrap_or_else(|| self.user_id().localpart())
+    }
 }
 
 impl SyncOrStrippedState<RoomPowerLevelsEventContent> {

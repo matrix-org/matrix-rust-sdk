@@ -482,7 +482,7 @@ impl Store {
     }
 
     #[cfg(test)]
-    /// Testing helper to allo to save only a set of InboundGroupSession
+    /// Testing helper to allow to save only a set of InboundGroupSession
     pub(crate) async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],

@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
@@ -90,6 +95,16 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<Raw<PresenceEvent>>, Self::Error>;
 
+    /// Get the stored presence events for the given users.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_ids` - The IDs of the users to fetch the presence events for.
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error>;
+
     /// Get a state event out of the state store.
     ///
     /// # Arguments
@@ -117,6 +132,23 @@ pub trait StateStore: AsyncTraitDeps {
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error>;
 
+    /// Get a list of state events for a given room, `StateEventType`, and the
+    /// given state keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    ///
+    /// * `event_type` - The event type.
+    ///
+    /// * `state_keys` - The list of state keys to find.
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error>;
+
     /// Get the current profile for the given user in the given room.
     ///
     /// # Arguments
@@ -129,6 +161,19 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>, Self::Error>;
+
+    /// Get the current profiles for the given users in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room the profiles are used in.
+    ///
+    /// * `user_ids` - The IDs of the users the profiles belong to.
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error>;
 
     /// Get the user ids of members for a given room with the given memberships,
     /// for stripped and regular rooms alike.
@@ -153,6 +198,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
+    #[deprecated = "Use get_room_infos instead and filter by RoomState"]
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the users that use the given display name in the given room.
@@ -168,6 +214,19 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
+
+    /// Get all the users that use the given display names in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to fetch the display names for.
+    ///
+    /// * `display_names` - The display names that the users use.
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error>;
 
     /// Get an event out of the account data store.
     ///
@@ -352,6 +411,13 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_presence_event(user_id).await.map_err(Into::into)
     }
 
+    async fn get_presence_events(
+        &self,
+        user_ids: &[OwnedUserId],
+    ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error> {
+        self.0.get_presence_events(user_ids).await.map_err(Into::into)
+    }
+
     async fn get_state_event(
         &self,
         room_id: &RoomId,
@@ -369,12 +435,29 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_state_events(room_id, event_type).await.map_err(Into::into)
     }
 
+    async fn get_state_events_for_keys(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_keys: &[&str],
+    ) -> Result<Vec<RawAnySyncOrStrippedState>, Self::Error> {
+        self.0.get_state_events_for_keys(room_id, event_type, state_keys).await.map_err(Into::into)
+    }
+
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>, Self::Error> {
         self.0.get_profile(room_id, user_id).await.map_err(Into::into)
+    }
+
+    async fn get_profiles<'a>(
+        &self,
+        room_id: &RoomId,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error> {
+        self.0.get_profiles(room_id, user_ids).await.map_err(Into::into)
     }
 
     async fn get_user_ids(
@@ -400,6 +483,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_room_infos().await.map_err(Into::into)
     }
 
+    #[allow(deprecated)]
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {
         self.0.get_stripped_room_infos().await.map_err(Into::into)
     }
@@ -410,6 +494,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         display_name: &str,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error> {
         self.0.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
+    }
+
+    async fn get_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [String],
+    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error> {
+        self.0.get_users_with_display_names(room_id, display_names).await.map_err(Into::into)
     }
 
     async fn get_account_data_event(
@@ -555,6 +647,39 @@ pub trait StateStoreExt: StateStore {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self
             .get_state_events(room_id, C::TYPE.into())
+            .await?
+            .into_iter()
+            .map(|raw| raw.cast())
+            .collect())
+    }
+
+    /// Get a list of state events of a statically-known type for a given room
+    /// and given state keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    ///
+    /// * `state_keys` - The list of state keys to find.
+    async fn get_state_events_for_keys_static<'a, C, K, I>(
+        &self,
+        room_id: &RoomId,
+        state_keys: I,
+    ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
+    where
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C::StateKey: Borrow<K>,
+        C::Redacted: RedactedStateEventContent,
+        K: AsRef<str> + Sized + Sync + 'a,
+        I: IntoIterator<Item = &'a K> + Send,
+        I::IntoIter: Send,
+    {
+        Ok(self
+            .get_state_events_for_keys(
+                room_id,
+                C::TYPE.into(),
+                &state_keys.into_iter().map(|k| k.as_ref()).collect::<Vec<_>>(),
+            )
             .await?
             .into_iter()
             .map(|raw| raw.cast())

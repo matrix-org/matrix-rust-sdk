@@ -1,38 +1,6 @@
 namespace matrix_sdk_ffi {};
 
-callback interface ClientDelegate {
-    void did_receive_auth_error(boolean is_soft_logout);
-};
-
-callback interface NotificationDelegate {
-    void did_receive_notification(NotificationItem notification);
-};
-
-dictionary NotificationItem {
-    TimelineEvent event;
-    string room_id;
-    string? sender_display_name;
-    string? sender_avatar_url;
-    string room_display_name;
-    string? room_avatar_url;
-    string? room_canonical_alias;
-    boolean is_noisy;
-    boolean is_direct;
-    boolean? is_encrypted;
-};
-
-interface TimelineEvent {};
-
-dictionary UpdateSummary {
-    sequence<string> lists;
-    sequence<string> rooms;
-};
-
-callback interface SlidingSyncObserver {
-    void did_receive_sync_update(UpdateSummary summary);
-};
-
-enum SlidingSyncState {
+enum SlidingSyncListLoadingState {
     /// Sliding Sync has not started to load anything yet.
     "NotLoaded",
     /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
@@ -44,50 +12,6 @@ enum SlidingSyncState {
     /// Updates are received for all the loaded rooms, and all rooms have been
     /// loaded!
     "FullyLoaded",
-};
-
-callback interface SlidingSyncListStateObserver {
-    void did_receive_update(SlidingSyncState new_state);
-};
-
-// Used by `SlidingSync` _and_ `RoomList`. Be careful.
-[Enum]
-interface RoomListEntry {
-    Empty();
-    Invalidated(string room_id);
-    Filled(string room_id);
-};
-
-[Enum]
-interface SlidingSyncListRoomsListDiff {
-    Append(sequence<RoomListEntry> values);
-    Insert(u32 index, RoomListEntry value);
-    Set(u32 index, RoomListEntry value);
-    Remove(u32 index);
-    PushBack(RoomListEntry value);
-    PushFront(RoomListEntry value);
-    PopBack();
-    PopFront();
-    Clear();
-    Reset(sequence<RoomListEntry> values);
-};
-
-callback interface SlidingSyncListRoomListObserver {
-    void did_receive_update(SlidingSyncListRoomsListDiff diff);
-};
-
-callback interface SlidingSyncListRoomsCountObserver {
-    void did_receive_update(u32 count);
-};
-
-callback interface SlidingSyncListRoomItemsObserver {
-    void did_receive_update();
-};
-
-interface SlidingSyncList {};
-
-callback interface SlidingSyncListOnceBuilt {
-    SlidingSyncList update_list(SlidingSyncList list);
 };
 
 dictionary CreateRoomParameters {
@@ -123,27 +47,6 @@ enum RoomPreset {
     "TrustedPrivateChat",
 };
 
-interface RoomMember { };
-
-callback interface TimelineListener {
-    void on_update(TimelineDiff update);
-};
-
-interface TimelineItem {};
-
-interface TimelineDiff {};
-
-dictionary MoveData {
-    u32 old_index;
-    u32 new_index;
-};
-
-[Enum]
-interface PaginationOptions {
-    SingleRequest(u16 event_limit, boolean wait_for_token);
-    UntilNumItems(u16 event_limit, u16 items, boolean wait_for_token);
-};
-
 interface RoomMessageEventContent {};
 
 [Error]
@@ -167,38 +70,4 @@ callback interface SessionVerificationControllerDelegate {
     void did_fail();
     void did_cancel();
     void did_finish();
-};
-
-callback interface NotificationSyncListener {
-    void did_terminate();
-};
-
-enum RoomListState {
-    "Init",
-    "FirstRooms",
-    "AllRooms",
-    "CarryOn",
-    "Terminated",
-};
-
-callback interface RoomListStateListener {
-    void on_update(RoomListState state);
-};
-
-[Enum]
-interface RoomListEntriesUpdate {
-    Append(sequence<RoomListEntry> values);
-    Clear();
-    PushFront(RoomListEntry value);
-    PushBack(RoomListEntry value);
-    PopFront();
-    PopBack();
-    Insert(u32 index, RoomListEntry value);
-    Set(u32 index, RoomListEntry value);
-    Remove(u32 index);
-    Reset(sequence<RoomListEntry> values);
-};
-
-callback interface RoomListEntriesListener {
-    void on_update(RoomListEntriesUpdate room_entries_update);
 };

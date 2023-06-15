@@ -27,7 +27,10 @@ use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
 use self::sticky::SlidingSyncListStickyParameters;
-use super::{sticky_parameters::SlidingSyncStickyManager, Error, SlidingSyncInternalMessage};
+use super::{
+    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
+    Error, SlidingSyncInternalMessage,
+};
 use crate::Result;
 
 /// Should this [`SlidingSyncList`] be stored in the cache, and automatically
@@ -96,7 +99,7 @@ impl SlidingSyncList {
     }
 
     /// Get the current state.
-    pub fn state(&self) -> SlidingSyncState {
+    pub fn state(&self) -> SlidingSyncListLoadingState {
         self.inner.state.read().unwrap().clone()
     }
 
@@ -107,8 +110,17 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
-    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
-        Observable::subscribe(&self.inner.state.read().unwrap())
+    ///
+    /// The first part of the returned tuple is the actual loading state, and
+    /// the second part is the `Stream` to receive updates.
+    pub fn state_stream(
+        &self,
+    ) -> (SlidingSyncListLoadingState, impl Stream<Item = SlidingSyncListLoadingState>) {
+        let read_lock = self.inner.state.read().unwrap();
+        let previous_value = (*read_lock).clone();
+        let subscriber = Observable::subscribe(&read_lock);
+
+        (previous_value, subscriber)
     }
 
     /// Get the timeline limit.
@@ -197,7 +209,7 @@ impl SlidingSyncList {
     /// ([`SlidingSyncListRequestGenerator`]).
     pub(super) fn next_request(
         &self,
-        txn_id: &TransactionId,
+        txn_id: &mut LazyTransactionId,
     ) -> Result<v4::SyncRequestList, Error> {
         self.inner.next_request(txn_id)
     }
@@ -275,7 +287,7 @@ pub(super) struct SlidingSyncListInner {
     name: String,
 
     /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncState>>,
+    state: StdRwLock<Observable<SlidingSyncListLoadingState>>,
 
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
@@ -331,10 +343,11 @@ impl SlidingSyncListInner {
             let mut state = self.state.write().unwrap();
 
             let next_state = match **state {
-                SlidingSyncState::NotLoaded => SlidingSyncState::NotLoaded,
-                SlidingSyncState::Preloaded => SlidingSyncState::Preloaded,
-                SlidingSyncState::PartiallyLoaded | SlidingSyncState::FullyLoaded => {
-                    SlidingSyncState::PartiallyLoaded
+                SlidingSyncListLoadingState::NotLoaded => SlidingSyncListLoadingState::NotLoaded,
+                SlidingSyncListLoadingState::Preloaded => SlidingSyncListLoadingState::Preloaded,
+                SlidingSyncListLoadingState::PartiallyLoaded
+                | SlidingSyncListLoadingState::FullyLoaded => {
+                    SlidingSyncListLoadingState::PartiallyLoaded
                 }
             };
 
@@ -343,7 +356,7 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self, txn_id: &TransactionId) -> Result<v4::SyncRequestList, Error> {
+    fn next_request(&self, txn_id: &mut LazyTransactionId) -> Result<v4::SyncRequestList, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -358,7 +371,7 @@ impl SlidingSyncListInner {
     /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
     /// state of the request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges, txn_id: &TransactionId) -> v4::SyncRequestList {
+    fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> v4::SyncRequestList {
         use ruma::UInt;
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
@@ -745,7 +758,7 @@ fn apply_sync_operations(
 /// If the client has been offline for a while, though, the `SlidingSyncList`
 /// might return back to `PartiallyLoaded` at any point.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SlidingSyncState {
+pub enum SlidingSyncListLoadingState {
     /// Sliding Sync has not started to load anything yet.
     #[default]
     NotLoaded,
@@ -989,7 +1002,7 @@ mod tests {
         let room1 = room_id!("!room1:bar.org");
 
         // Simulate a request.
-        let _ = list.next_request("tid".into());
+        let _ = list.next_request(&mut LazyTransactionId::new());
 
         // A new response.
         let sync0: v4::SyncOp = serde_json::from_value(json!({
@@ -1020,12 +1033,12 @@ mod tests {
             ),*
             $(,)*
         ) => {
-            assert_eq!($list.state(), SlidingSyncState::$first_list_state, "first state");
+            assert_eq!($list.state(), SlidingSyncListLoadingState::$first_list_state, "first state");
 
             $(
                 {
                     // Generate a new request.
-                    let request = $list.next_request("tid".into()).unwrap();
+                    let request = $list.next_request(&mut LazyTransactionId::new()).unwrap();
 
                     assert_eq!(
                         request.ranges,
@@ -1045,7 +1058,7 @@ mod tests {
                     );
                     assert_eq!(
                         $list.state(),
-                        SlidingSyncState::$list_state,
+                        SlidingSyncListLoadingState::$list_state,
                         "state",
                     );
                 }
@@ -1430,8 +1443,8 @@ mod tests {
         // Changing from `Paging` to `Selective`.
         list.set_sync_mode(SlidingSyncMode::new_selective());
 
-        assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
-                                                                     // next request
+        assert_eq!(list.state(), SlidingSyncListLoadingState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
+                                                                                // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
@@ -1482,7 +1495,7 @@ mod tests {
         // Initial range.
         for _ in 0..=1 {
             // Simulate a request.
-            let _ = list.next_request("tid".into());
+            let _ = list.next_request(&mut LazyTransactionId::new());
 
             // A new response.
             let sync: v4::SyncOp = serde_json::from_value(json!({
@@ -1525,7 +1538,7 @@ mod tests {
         });
 
         // Simulate a request.
-        let _ = list.next_request("tid".into());
+        let _ = list.next_request(&mut LazyTransactionId::new());
 
         // A new response.
         let sync: v4::SyncOp = serde_json::from_value(json!({
@@ -1616,10 +1629,10 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_state_serialization() {
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("NotLoaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preloaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("PartiallyLoaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("FullyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::NotLoaded => json!("NotLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::Preloaded => json!("Preloaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::PartiallyLoaded => json!("PartiallyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::FullyLoaded => json!("FullyLoaded"));
     }
 
     macro_rules! entries {

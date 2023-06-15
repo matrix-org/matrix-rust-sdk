@@ -894,7 +894,7 @@ describe(OlmMachine.name, () => {
                 "method": "m.sas.v1",
                 "key_agreement_protocols": [expect.any(String)],
                 "hashes": [expect.any(String)],
-                "message_authentication_codes": [expect.any(String), expect.any(String)],
+                "message_authentication_codes": [expect.any(String), expect.any(String), expect.any(String)],
                 "short_authentication_string": ["decimal", "emoji"],
                 "m.relates_to": {
                     rel_type: "m.reference",

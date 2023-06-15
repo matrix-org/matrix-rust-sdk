@@ -1463,7 +1463,7 @@ async fn start_sas<T: Clone>(
     let (state, sas, content) = match request_state.flow_id.as_ref() {
         FlowId::ToDevice(t) => {
             let (sas, content) =
-                Sas::start(identities, t.to_owned(), we_started, Some(request_handle));
+                Sas::start(identities, t.to_owned(), we_started, Some(request_handle), None);
 
             let state =
                 Transitioned { ready: state.to_owned(), verification: sas.to_owned().into() };

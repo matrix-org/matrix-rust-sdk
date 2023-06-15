@@ -259,12 +259,12 @@ impl SlidingSyncBuilder {
             .await?;
         }
 
-        // Use the provided sliding-sync proxy URL, or try to get the one that was
-        // discovered by the client.
-        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
-
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
+
+        // Use the configured sliding sync proxy, or if not set, try to use the one
+        // auto-discovered by the client, if any.
+        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
 
         Ok(SlidingSync::new(SlidingSyncInner {
             id: self.id,

@@ -21,7 +21,6 @@ use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll, time::Duration};
 use async_std::sync::{Condvar, Mutex};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::TryFutureExt;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
@@ -118,26 +117,26 @@ impl Timeline {
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
-        if start_lock.is_none() {
-            if self.inner.items().await.front().is_some_and(|item| item.is_timeline_start()) {
-                warn!("Start of timeline reached, ignoring backwards-pagination request");
-                return Ok(());
-            }
-
-            if options.wait_for_token {
-                info!("No prev_batch token, waiting");
-                (start_lock, _) = self
-                    .start_token_condvar
-                    .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
-                    .await;
-
-                if start_lock.is_none() {
-                    debug!("Waiting for prev_batch token timed out after 3s");
-                }
-            }
+        if start_lock.is_none()
+            && self.inner.items().await.front().is_some_and(|item| item.is_timeline_start())
+        {
+            warn!("Start of timeline reached, ignoring backwards-pagination request");
+            return Ok(());
         }
 
         self.inner.add_loading_indicator().await;
+
+        if start_lock.is_none() && options.wait_for_token {
+            info!("No prev_batch token, waiting");
+            (start_lock, _) = self
+                .start_token_condvar
+                .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
+                .await;
+
+            if start_lock.is_none() {
+                debug!("Waiting for prev_batch token timed out after 3s");
+            }
+        }
 
         let mut from = start_lock.clone();
         let mut outcome = PaginationOutcome::new();
@@ -232,6 +231,17 @@ impl Timeline {
     #[tracing::instrument(skip(self))]
     async fn retry_decryption_for_all_events(&self) {
         self.inner.retry_event_decryption(self.room(), None).await;
+    }
+
+    /// Get the current timeline item for the given event ID, if any.
+    ///
+    /// It's preferable to store the timeline items in the model for your UI, if
+    /// possible, instead of just storing IDs and coming back to the timeline
+    /// object to look up items.
+    pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
+        let items = self.inner.items().await;
+        let (_, item) = rfind_event_by_id(&items, event_id)?;
+        Some(item.to_owned())
     }
 
     /// Get the current list of timeline items. Do not use this in production!
@@ -351,8 +361,8 @@ impl Timeline {
         let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
 
         room.send_attachment(body, &mime_type, data, config)
-            .map_err(|_| Error::FailedSendingAttachment)
-            .await?;
+            .await
+            .map_err(|_| Error::FailedSendingAttachment)?;
 
         Ok(())
     }

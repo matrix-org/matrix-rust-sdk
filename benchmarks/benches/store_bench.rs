@@ -37,7 +37,7 @@ pub fn restore_session(c: &mut Criterion) {
 
     for i in 0..NUM_STRIPPED_JOINED_ROOMS {
         let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap().to_owned();
-        changes.add_stripped_room(RoomInfo::new(&room_id, RoomState::Joined));
+        changes.add_room(RoomInfo::new(&room_id, RoomState::Invited));
     }
 
     let session = Session {

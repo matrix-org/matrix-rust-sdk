@@ -16,6 +16,8 @@
 //! we do usually.
 
 #[cfg(target_arch = "wasm32")]
+pub use std::convert::Infallible as JoinError;
+#[cfg(target_arch = "wasm32")]
 use std::{
     future::Future,
     pin::Pin,
@@ -25,15 +27,14 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::task::{spawn, JoinHandle};
+pub use tokio::task::{spawn, JoinError, JoinHandle};
 
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
 where
     F: Future<Output = T> + 'static,
 {
-    let fut = future.unit_error();
-    let (fut, handle) = fut.remote_handle();
+    let (fut, handle) = future.remote_handle();
     wasm_bindgen_futures::spawn_local(fut);
 
     JoinHandle { handle }
@@ -42,14 +43,14 @@ where
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    handle: RemoteHandle<Result<T, ()>>,
+    handle: RemoteHandle<T>,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl<T: 'static> Future for JoinHandle<T> {
-    type Output = Result<T, ()>;
+    type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.handle).poll(cx)
+        Pin::new(&mut self.handle).poll(cx).map(Ok)
     }
 }
