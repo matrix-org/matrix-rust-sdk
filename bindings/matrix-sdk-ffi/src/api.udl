@@ -1,7 +1,5 @@
 namespace matrix_sdk_ffi {};
 
-interface TimelineEvent {};
-
 enum SlidingSyncState {
     /// Sliding Sync has not started to load anything yet.
     "NotLoaded",

@@ -8,10 +8,11 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
+    client::Client,
     room::Room,
     sliding_sync::{RoomListEntry, RoomSubscription, UnreadNotificationsCount},
     timeline::EventTimelineItem,
-    Client, TaskHandle, RUNTIME,
+    TaskHandle, RUNTIME,
 };
 
 #[uniffi::export]
