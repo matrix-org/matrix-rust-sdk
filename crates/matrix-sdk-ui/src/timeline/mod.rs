@@ -21,7 +21,6 @@ use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll, time::Duration};
 use async_std::sync::{Condvar, Mutex};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::TryFutureExt;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
@@ -351,8 +350,8 @@ impl Timeline {
         let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
 
         room.send_attachment(body, &mime_type, data, config)
-            .map_err(|_| Error::FailedSendingAttachment)
-            .await?;
+            .await
+            .map_err(|_| Error::FailedSendingAttachment)?;
 
         Ok(())
     }
