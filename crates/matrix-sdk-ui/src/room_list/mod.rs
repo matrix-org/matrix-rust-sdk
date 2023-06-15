@@ -154,8 +154,7 @@ impl RoomList {
             // So the sync is done after the machine _has entered_ into a new state.
             loop {
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
-
-                Observable::set(&self.state, next_state);
+                self.state.set(next_state);
 
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
@@ -164,8 +163,7 @@ impl RoomList {
 
                     Some(Err(error)) => {
                         let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        self.state.set(next_state);
 
                         yield Err(Error::SlidingSync(error));
 
@@ -174,8 +172,7 @@ impl RoomList {
 
                     None => {
                         let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        self.state.set(next_state);
 
                         break;
                     }
@@ -186,7 +183,7 @@ impl RoomList {
 
     /// Get a subscriber to the state.
     pub fn state(&self) -> Subscriber<State> {
-        Observable::subscribe(&self.state)
+        self.state.subscribe()
     }
 
     /// Get all previous room list entries, in addition to a [`Stream`] to room
