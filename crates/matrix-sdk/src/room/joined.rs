@@ -401,7 +401,8 @@ impl Joined {
             // session as using it would end up in undecryptable
             // messages.
             if let Err(r) = response {
-                if let Some(machine) = self.client.olm_machine() {
+                let machine = self.client.olm_machine().await;
+                if let Some(machine) = machine.as_ref() {
                     machine.invalidate_group_session(self.inner.room_id()).await?;
                 }
                 return Err(r);
@@ -633,7 +634,8 @@ impl Joined {
 
                 self.preshare_room_key().await?;
 
-                let olm = self.client.olm_machine().expect("Olm machine wasn't started");
+                let olm = self.client.olm_machine().await;
+                let olm = olm.as_ref().expect("Olm machine wasn't started");
 
                 let encrypted_content =
                     olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;

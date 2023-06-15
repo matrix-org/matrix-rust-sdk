@@ -221,7 +221,8 @@ impl Common {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        if let Some(machine) = self.client.olm_machine() {
+        let machine = self.client.olm_machine().await;
+        if let Some(machine) = machine.as_ref() {
             for event in http_response.chunk {
                 let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
                     AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
@@ -875,7 +876,8 @@ impl Common {
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
     ) -> Result<TimelineEvent> {
-        if let Some(machine) = self.client.olm_machine() {
+        let machine = self.client.olm_machine().await;
+        if let Some(machine) = machine.as_ref() {
             let mut event =
                 machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
 
