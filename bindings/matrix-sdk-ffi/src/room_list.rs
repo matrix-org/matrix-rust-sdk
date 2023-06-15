@@ -5,16 +5,18 @@ use std::{
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
+use matrix_sdk::sliding_sync::SlidingSyncListLoadingState;
 use ruma::RoomId;
 
 use crate::{
     client::Client,
     room::Room,
-    sliding_sync::{RoomListEntry, RoomSubscription, UnreadNotificationsCount},
+    sliding_sync::{
+        RoomListEntry, RoomSubscription, SlidingSyncListStateObserver, UnreadNotificationsCount,
+    },
     timeline::EventTimelineItem,
     TaskHandle, RUNTIME,
 };
-
 #[uniffi::export]
 impl Client {
     /// Get a new `RoomList` instance.
@@ -128,6 +130,25 @@ impl RoomList {
         })
     }
 
+    async fn entries_loading_state(
+        &self,
+        listener: Box<dyn SlidingSyncListStateObserver>,
+    ) -> Result<RoomListEntriesLoadingStateResult, RoomListError> {
+        let (entries_loading_state, entries_loading_state_stream) =
+            self.inner.entries_loading_state().await.map_err(RoomListError::from)?;
+
+        Ok(RoomListEntriesLoadingStateResult {
+            entries_loading_state,
+            entries_loading_state_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_loading_state_stream);
+
+                while let Some(loading_state) = entries_loading_state_stream.next().await {
+                    listener.did_receive_update(loading_state.into());
+                }
+            }))),
+        })
+    }
+
     async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
         self.inner.apply_input(input.into()).await.map_err(Into::into)
     }
@@ -145,6 +166,12 @@ impl RoomList {
 pub struct RoomListEntriesResult {
     pub entries: Vec<RoomListEntry>,
     pub entries_stream: Arc<TaskHandle>,
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomListEntriesLoadingStateResult {
+    pub entries_loading_state: SlidingSyncListLoadingState,
+    pub entries_loading_state_stream: Arc<TaskHandle>,
 }
 
 #[derive(uniffi::Enum)]
