@@ -27,7 +27,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tokio::{runtime::Handle, task::spawn_blocking, time::sleep};
+use tokio::time::sleep;
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -157,58 +157,6 @@ impl CryptoStoreLock {
         } else {
             Err(LockStoreError::MissingLockValue.into())
         }
-    }
-}
-
-/// RAII struct that implements the semantics of taking/release a
-/// `CryptoStoreLock` automatically.
-///
-/// Note: this is dangerous and racy! Releasing the lock takes place in the
-/// `Drop` implementation, but since that can't be async, it means we have to
-/// spawn a new task there to do that. So this may be racy, in case of high
-/// contention.
-///
-/// TODO(bnjbvr) remove this API then?
-#[derive(Debug)]
-pub struct CryptoStoreLockGuard {
-    lock: CryptoStoreLock,
-}
-
-impl CryptoStoreLockGuard {
-    /// Creates a new `CryptoStoreLockGuard` with the given key, in the given
-    /// store.
-    ///
-    /// The drop implementation assumes the code is running in a `tokio`
-    /// environment, so make sure we're inside a tokio runtime when dropping
-    /// this data structure.
-    ///
-    /// See also [`CryptoStoreLock`] to learn more about the lock's properties.
-    pub async fn new(
-        store: Arc<DynCryptoStore>,
-        lock_key: String,
-        lock_holder: String,
-        max_backoff: Option<u32>,
-    ) -> Result<Self, CryptoStoreError> {
-        let mut lock = CryptoStoreLock::new(store, lock_key, lock_holder, max_backoff);
-        lock.lock().await?;
-        Ok(Self { lock })
-    }
-}
-
-impl Drop for CryptoStoreLockGuard {
-    fn drop(&mut self) {
-        // No async drop 😥
-        // 1. Clone the lock as a sacrifice to borrowck (otherwise the `&mut self`
-        // reference would    need to be static),
-        // 2. We'll need to block_on; spawn a blocking task to do just that.
-        let mut lock = self.lock.clone();
-
-        spawn_blocking(move || {
-            if let Err(err) = Handle::current().block_on(lock.unlock()) {
-                tracing::error!("error when releasing a lock: {err:#}");
-                panic!("{err:#}");
-            }
-        });
     }
 }
 
