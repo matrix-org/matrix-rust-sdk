@@ -73,7 +73,7 @@ use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode,
+    SlidingSyncListLoadingState, SlidingSyncMode,
 };
 pub use room::*;
 use ruma::{
@@ -215,6 +215,21 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
+    /// Get the entries loading state.
+    ///
+    /// It's a different state than [`State`]. It's also different than
+    /// [`Self::entries`] which subscribes to room entries updates.
+    ///
+    /// This method is used to subscribe to “loading state”
+    pub async fn entries_loading_state(
+        &self,
+    ) -> Result<(EntriesLoadingState, impl Stream<Item = EntriesLoadingState>), Error> {
+        self.sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.state_stream()))
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+    }
+
     /// Pass an [`Input`] onto the state machine.
     pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
         use Input::*;
@@ -288,6 +303,9 @@ pub enum Input {
     /// range of visible rooms in the room list.
     Viewport(Ranges),
 }
+
+/// Type alias for entries loading state.
+pub type EntriesLoadingState = SlidingSyncListLoadingState;
 
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        EntriesLoadingState, Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
@@ -20,6 +20,7 @@ use ruma::{
     room_id, uint,
 };
 use serde_json::json;
+use stream_assert::{assert_next_eq, assert_pending};
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
 use crate::{
@@ -235,8 +236,13 @@ macro_rules! assert_entries_stream {
 async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
+    let (entries_loading_state, mut entries_loading_state_stream) =
+        room_list.entries_loading_state().await?;
+
     let sync = room_list.sync();
     pin_mut!(sync);
+
+    assert_eq!(entries_loading_state, EntriesLoadingState::NotLoaded);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -290,6 +296,12 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
+    assert_next_eq!(
+        entries_loading_state_stream,
+        // It's `FullyLoaded` because it was a `Selective` sync-mode.
+        EntriesLoadingState::FullyLoaded
+    );
+
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
@@ -336,6 +348,13 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
+    assert_next_eq!(
+        entries_loading_state_stream,
+        // It's `PartiallyLoaded` because it's in `Growing` sync-mode,
+        // and it's not finished.
+        EntriesLoadingState::PartiallyLoaded
+    );
+
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = AllRooms => CarryOn,
@@ -369,6 +388,8 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
         },
     };
 
+    assert_pending!(entries_loading_state_stream);
+
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = CarryOn => CarryOn,
@@ -401,6 +422,47 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
             },
         },
     };
+
+    assert_pending!(entries_loading_state_stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = CarryOn => CarryOn,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 199]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 200,
+                    "ops": [
+                        // let's ignore them for now
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [],
+                },
+            },
+            "rooms": {
+                // let's ignore them for now
+            },
+        },
+    };
+
+    assert_next_eq!(
+        entries_loading_state_stream,
+        // Finally, it's `FullyLoaded`!.
+        EntriesLoadingState::FullyLoaded
+    );
 
     Ok(())
 }

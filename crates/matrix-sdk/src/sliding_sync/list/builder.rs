@@ -19,8 +19,8 @@ use tokio::sync::broadcast::Sender;
 
 use super::{
     super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
-    SlidingSyncListInner, SlidingSyncListRequestGenerator, SlidingSyncListStickyParameters,
-    SlidingSyncMode, SlidingSyncState,
+    SlidingSyncListInner, SlidingSyncListLoadingState, SlidingSyncListRequestGenerator,
+    SlidingSyncListStickyParameters, SlidingSyncMode,
 };
 use crate::{
     sliding_sync::{
@@ -245,7 +245,10 @@ impl SlidingSyncListBuilder {
             self.reloaded_cached_data
         {
             // Mark state as preloaded.
-            Observable::set(&mut list.inner.state.write().unwrap(), SlidingSyncState::Preloaded);
+            Observable::set(
+                &mut list.inner.state.write().unwrap(),
+                SlidingSyncListLoadingState::Preloaded,
+            );
 
             // Reload values.
             Observable::set(

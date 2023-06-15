@@ -13,7 +13,7 @@ use matrix_sdk::{
     },
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncMode, SlidingSyncState,
+    SlidingSyncListLoadingState, SlidingSyncMode,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tracing::{error, warn};
@@ -370,7 +370,7 @@ pub trait SlidingSyncListRoomsCountObserver: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait SlidingSyncListStateObserver: Sync + Send {
-    fn did_receive_update(&self, new_state: SlidingSyncState);
+    fn did_receive_update(&self, new_state: SlidingSyncListLoadingState);
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -560,7 +560,7 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListStateObserver>,
     ) -> Arc<TaskHandle> {
-        let mut state_stream = self.inner.state_stream();
+        let (_, mut state_stream) = self.inner.state_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {

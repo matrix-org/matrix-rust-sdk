@@ -40,7 +40,7 @@ mod tracing;
 use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::{
     ruma::events::room::{message::RoomMessageEventContent, MediaSource},
-    SlidingSyncState,
+    SlidingSyncListLoadingState,
 };
 
 use self::{
