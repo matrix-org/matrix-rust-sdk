@@ -38,11 +38,14 @@ mod timeline;
 mod tracing;
 
 use async_compat::TOKIO1 as RUNTIME;
-use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use matrix_sdk::{
+    ruma::events::room::{message::RoomMessageEventContent, MediaSource},
+    SlidingSyncState,
+};
 
 use self::{
     client::*, error::ClientError, event::*, notification::*, platform::*, session_verification::*,
-    sliding_sync::*, task_handle::TaskHandle, timeline::MediaSourceExt,
+    task_handle::TaskHandle, timeline::MediaSourceExt,
 };
 
 uniffi::include_scaffolding!("api");
