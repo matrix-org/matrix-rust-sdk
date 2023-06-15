@@ -54,6 +54,25 @@ impl From<ruma::IdParseError> for RoomListError {
     }
 }
 
+pub struct RoomListRange {
+    pub start: u32,
+    pub end_inclusive: u32,
+}
+
+pub enum RoomListInput {
+    Viewport { ranges: Vec<RoomListRange> },
+}
+
+impl From<RoomListInput> for matrix_sdk_ui::room_list::Input {
+    fn from(value: RoomListInput) -> Self {
+        match value {
+            RoomListInput::Viewport { ranges } => Self::Viewport(
+                ranges.iter().map(|range| range.start..=range.end_inclusive).collect(),
+            ),
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct RoomList {
     inner: Arc<matrix_sdk_ui::RoomList>,
@@ -102,6 +121,10 @@ impl RoomList {
                 }
             }))),
         })
+    }
+
+    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
+        self.inner.apply_input(input.into()).await.map_err(Into::into)
     }
 
     fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {

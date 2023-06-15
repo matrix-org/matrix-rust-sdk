@@ -198,3 +198,13 @@ interface RoomListEntriesUpdate {
 callback interface RoomListEntriesListener {
     void on_update(RoomListEntriesUpdate room_entries_update);
 };
+
+[Enum]
+interface RoomListInput {
+    Viewport(sequence<RoomListRange> ranges);
+};
+
+dictionary RoomListRange {
+    u32 start;
+    u32 end_inclusive;
+};
