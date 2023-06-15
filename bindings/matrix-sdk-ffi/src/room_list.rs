@@ -54,11 +54,13 @@ impl From<ruma::IdParseError> for RoomListError {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct RoomListRange {
     pub start: u32,
     pub end_inclusive: u32,
 }
 
+#[derive(uniffi::Enum)]
 pub enum RoomListInput {
     Viewport { ranges: Vec<RoomListRange> },
 }
@@ -142,7 +144,7 @@ pub struct RoomListEntriesResult {
     pub entries_stream: Arc<TaskHandle>,
 }
 
-// Also declared in the UDL file.
+#[derive(uniffi::Enum)]
 pub enum RoomListState {
     Init,
     FirstRooms,
@@ -165,11 +167,12 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListState {
     }
 }
 
-// Also declared in the UDL file.
+#[uniffi::export(callback_interface)]
 pub trait RoomListStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListState);
 }
 
+#[derive(uniffi::Enum)]
 pub enum RoomListEntriesUpdate {
     Append { values: Vec<RoomListEntry> },
     Clear,
@@ -208,7 +211,7 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
     }
 }
 
-// Also declared in the UDL file.
+#[uniffi::export(callback_interface)]
 pub trait RoomListEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: RoomListEntriesUpdate);
 }
