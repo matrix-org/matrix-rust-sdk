@@ -258,14 +258,14 @@ async fn refresh_token_handled_success() {
     let session = session();
     auth.restore_session(session).await.unwrap();
 
-    let mut tokens_stream = auth.session_tokens_stream();
+    let mut tokens_stream = auth.session_tokens_stream().unwrap();
     let tokens_join_handle = spawn(async move {
-        let tokens = tokens_stream.next().await.flatten().unwrap();
+        let tokens = tokens_stream.next().await.unwrap();
         assert_eq!(tokens.access_token, "5678");
         assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
     });
 
-    let mut tokens_changed_stream = auth.session_tokens_changed_stream();
+    let mut tokens_changed_stream = auth.session_tokens_changed_stream().unwrap();
     let changed_join_handle = spawn(async move {
         tokens_changed_stream.next().await.unwrap();
     });
