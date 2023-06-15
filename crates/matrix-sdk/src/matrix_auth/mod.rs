@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
 
 use crate::{
+    authentication::AuthData,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     Client, Error, RefreshTokenError, Result, RumaApiError,
@@ -52,9 +53,9 @@ pub use self::login_builder::LoginBuilder;
 #[cfg(feature = "sso-login")]
 pub use self::login_builder::SsoLoginBuilder;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct MatrixAuthData {
-    pub(crate) tokens: SharedObservable<Option<SessionTokens>>,
+    pub(crate) tokens: SharedObservable<SessionTokens>,
 }
 
 impl fmt::Debug for MatrixAuthData {
@@ -74,6 +75,10 @@ pub struct MatrixAuth {
 impl MatrixAuth {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
+    }
+
+    fn data(&self) -> Option<&MatrixAuthData> {
+        self.client.inner.auth_data.get()?.as_matrix()
     }
 
     /// Gets the homeserver’s supported login types.
@@ -397,7 +402,7 @@ impl MatrixAuth {
     /// use url::Url;
     /// # async {
     /// # fn get_credentials() -> (&'static str, &'static str) { ("", "") };
-    /// # fn persist_session(_: Option<matrix_sdk::matrix_auth::Session>) {};
+    /// # fn persist_session(_: Option<matrix_sdk::AuthSession>) {};
     ///
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
@@ -555,12 +560,24 @@ impl MatrixAuth {
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     pub fn session_tokens(&self) -> Option<SessionTokens> {
-        self.client.inner.auth_data.tokens.get()
+        Some(self.data()?.tokens.get())
     }
 
     /// Set the current session tokens
     fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.client.inner.auth_data.tokens.set(Some(tokens));
+        if let Some(auth_data) = self.client.inner.auth_data.get() {
+            let Some(data) = auth_data.as_matrix() else {
+                panic!("Cannot call native Matrix authentication API after logging in with another API");
+            };
+
+            data.tokens.set_if_not_eq(tokens);
+        } else {
+            self.client
+                .inner
+                .auth_data
+                .set(AuthData::Matrix(MatrixAuthData { tokens: SharedObservable::new(tokens) }))
+                .expect("We just checked the value was not set");
+        }
     }
 
     /// Get the current access token for this session.
@@ -601,7 +618,7 @@ impl MatrixAuth {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn persist_session(_: Option<matrix_sdk::matrix_auth::Session>) {};
+    /// # fn persist_session(_: Option<matrix_sdk::AuthSession>) {};
     /// # async {
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
@@ -624,26 +641,29 @@ impl MatrixAuth {
     /// persist_session(client.session());
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let future = auth.session_tokens_changed_stream().for_each(move |_| {
-    ///     let client = client.clone();
-    ///     async move {
-    ///         persist_session(client.session());
-    ///     }
-    /// });
+    /// let future = auth
+    ///     .session_tokens_changed_stream()
+    ///     .expect("Client should be logged in")
+    ///     .for_each(move |_| {
+    ///         let client = client.clone();
+    ///         async move {
+    ///             persist_session(client.session());
+    ///         }
+    ///     });
     ///
     /// tokio::spawn(future);
     /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_changed_stream(&self) -> impl Stream<Item = ()> {
-        self.session_tokens_stream().map(|_| ())
+    pub fn session_tokens_changed_stream(&self) -> Option<impl Stream<Item = ()>> {
+        Some(self.session_tokens_stream()?.map(|_| ()))
     }
 
     /// Get changes to the access token and optional refresh token for this
     /// session as a [`Stream`].
     ///
-    /// The value will be `None` if the client has not been logged in.
+    /// Will be `None` if the client has not been logged in.
     ///
     /// After login, the tokens should only change if support for [refreshing
     /// access tokens] has been enabled.
@@ -673,9 +693,10 @@ impl MatrixAuth {
     /// persist_session(&session);
     ///
     /// // Handle when at least one of the tokens changed.
-    /// let mut tokens_stream = auth.session_tokens_stream();
+    /// let mut tokens_stream =
+    ///     auth.session_tokens_stream().expect("Client should be logged in");
     /// loop {
-    ///     if let Some(tokens) = tokens_stream.next().await.flatten() {
+    ///     if let Some(tokens) = tokens_stream.next().await {
     ///         session.tokens.access_token = tokens.access_token;
     ///
     ///         if let Some(refresh_token) = tokens.refresh_token {
@@ -689,8 +710,8 @@ impl MatrixAuth {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_stream(&self) -> impl Stream<Item = Option<SessionTokens>> {
-        self.client.inner.auth_data.tokens.subscribe()
+    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
+        Some(self.data()?.tokens.subscribe())
     }
 
     /// Get the whole native Matrix authentication session info of this client.
@@ -718,6 +739,10 @@ impl MatrixAuth {
     ///
     /// * `session` - A session that the user already has from a
     /// previous login call.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     ///
     /// # Examples
     ///

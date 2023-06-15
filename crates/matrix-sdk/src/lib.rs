@@ -33,6 +33,7 @@ pub use ruma;
 
 mod account;
 pub mod attachment;
+mod authentication;
 mod client;
 pub mod config;
 mod error;
@@ -51,6 +52,7 @@ pub mod sliding_sync;
 pub mod encryption;
 
 pub use account::Account;
+pub use authentication::{AuthApi, AuthSession};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;

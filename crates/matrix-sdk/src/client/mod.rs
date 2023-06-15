@@ -54,7 +54,7 @@ use ruma::{
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
-            uiaa::AuthData,
+            uiaa,
             user_directory::search_users,
         },
         error::FromHttpResponseError,
@@ -71,16 +71,17 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 use crate::{
+    authentication::AuthData,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
     },
     http_client::HttpClient,
-    matrix_auth::{MatrixAuth, MatrixAuthData, Session},
+    matrix_auth::MatrixAuth,
     room,
     sync::{RoomUpdate, SyncResponse},
-    Account, Error, Media, RefreshTokenError, Result, TransmissionProgress,
+    Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, TransmissionProgress,
 };
 
 mod builder;
@@ -185,7 +186,7 @@ pub(crate) struct ClientInner {
     /// the user when any request fails because of an invalid access token
     pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
     /// Authentication data to keep in memory.
-    pub(crate) auth_data: MatrixAuthData,
+    pub(crate) auth_data: OnceCell<AuthData>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -400,7 +401,16 @@ impl Client {
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        self.matrix_auth().access_token()
+        Some(self.inner.auth_data.get()?.access_token())
+    }
+
+    /// Access the authentication API used to log in this client.
+    ///
+    /// Will be `None` if the client has not been logged in.
+    pub fn auth_api(&self) -> Option<AuthApi> {
+        match self.inner.auth_data.get()? {
+            AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
+        }
     }
 
     /// Get the whole session info of this client.
@@ -409,8 +419,10 @@ impl Client {
     ///
     /// Can be used with [`Client::restore_session`] to restore a previously
     /// logged-in session.
-    pub fn session(&self) -> Option<Session> {
-        self.matrix_auth().session()
+    pub fn session(&self) -> Option<AuthSession> {
+        match self.auth_api()? {
+            AuthApi::Matrix(api) => api.session().map(Into::into),
+        }
     }
 
     /// Get a reference to the state store.
@@ -878,9 +890,16 @@ impl Client {
     ///
     /// See the documentation of the corresponding authentication API's
     /// `restore_session` method for more information.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     #[instrument(skip_all)]
-    pub async fn restore_session(&self, session: Session) -> Result<()> {
-        self.matrix_auth().restore_session(session).await
+    pub async fn restore_session(&self, session: impl Into<AuthSession>) -> Result<()> {
+        let session = session.into();
+        match session {
+            AuthSession::Matrix(s) => self.matrix_auth().restore_session(s).await,
+        }
     }
 
     /// Refresh the access token using the authentication API used to log into
@@ -889,7 +908,16 @@ impl Client {
     /// See the documentation of the authentication API's `refresh_access_token`
     /// method for more information.
     pub async fn refresh_access_token(&self) -> HttpResult<()> {
-        self.matrix_auth().refresh_access_token().await?;
+        let Some(auth_api) = self.auth_api() else {
+            return Err(RefreshTokenError::RefreshTokenRequired.into());
+        };
+
+        match auth_api {
+            AuthApi::Matrix(a) => {
+                a.refresh_access_token().await?;
+            }
+        }
+
         Ok(())
     }
 
@@ -1393,7 +1421,7 @@ impl Client {
     pub async fn delete_devices(
         &self,
         devices: &[OwnedDeviceId],
-        auth_data: Option<AuthData>,
+        auth_data: Option<uiaa::AuthData>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
         request.auth = auth_data;

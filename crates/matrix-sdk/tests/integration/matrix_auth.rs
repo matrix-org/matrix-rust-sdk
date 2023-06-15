@@ -1,6 +1,7 @@
+use assert_matches::assert_matches;
 use matrix_sdk::{
     matrix_auth::{Session, SessionTokens},
-    RumaApiError,
+    AuthApi, AuthSession, RumaApiError,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
@@ -20,7 +21,18 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::no_retry_test_client;
+use crate::{logged_in_client, no_retry_test_client};
+
+#[async_test]
+async fn restore_session() {
+    let (client, _) = logged_in_client().await;
+    let auth = client.matrix_auth();
+
+    assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+    assert_matches!(client.auth_api(), Some(AuthApi::Matrix(_)));
+    assert_matches!(client.session(), Some(AuthSession::Matrix(_)));
+}
 
 #[async_test]
 async fn login() {
@@ -49,10 +61,14 @@ async fn login() {
         .mount(&server)
         .await;
 
-    client.matrix_auth().login_username("example", "wordpass").send().await.unwrap();
+    let auth = client.matrix_auth();
+    auth.login_username("example", "wordpass").send().await.unwrap();
 
-    let logged_in = client.logged_in();
-    assert!(logged_in, "Client should be logged in");
+    assert!(client.logged_in(), "Client should be logged in");
+    assert!(auth.logged_in(), "Client should be logged in with the MatrixAuth API");
+
+    assert_matches!(client.auth_api(), Some(AuthApi::Matrix(_)));
+    assert_matches!(client.session(), Some(AuthSession::Matrix(_)));
 
     assert_eq!(client.homeserver().await, homeserver);
 }

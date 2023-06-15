@@ -22,7 +22,8 @@
 - Move `Session` and `SessionTokens` to the `matrix_auth` module.
   - Move the session methods on `Client` to the `MatrixAuth` API.
   - Split `Session`'s content into several types. Its (de)serialization is still backwards
-    compatible. 
+    compatible.
+- Add methods on `Client` that can handle several authentication APIs.
 
 # 0.6.2
 

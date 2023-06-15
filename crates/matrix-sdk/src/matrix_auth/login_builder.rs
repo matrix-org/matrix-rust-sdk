@@ -159,6 +159,10 @@ impl LoginBuilder {
     ///
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `LoginBuilder` directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     #[instrument(
         target = "matrix_sdk::client",
         name = "login",
@@ -300,6 +304,10 @@ where
     ///
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `SsoLoginBuilder` directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::{
