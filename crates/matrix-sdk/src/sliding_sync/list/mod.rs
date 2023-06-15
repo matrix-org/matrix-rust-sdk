@@ -110,8 +110,14 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
-    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncListLoadingState> {
-        Observable::subscribe(&self.inner.state.read().unwrap())
+    pub fn state_stream(
+        &self,
+    ) -> (SlidingSyncListLoadingState, impl Stream<Item = SlidingSyncListLoadingState>) {
+        let read_lock = self.inner.state.read().unwrap();
+        let previous_value = (*read_lock).clone();
+        let subscriber = Observable::subscribe(&read_lock);
+
+        (previous_value, subscriber)
     }
 
     /// Get the timeline limit.
