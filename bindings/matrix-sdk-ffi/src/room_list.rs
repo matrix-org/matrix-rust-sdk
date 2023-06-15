@@ -1,12 +1,15 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    sync::{Arc, RwLock},
+};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, Room, RoomListEntry, TaskHandle, TimelineDiff, TimelineItem,
-    TimelineListener, RUNTIME,
+    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle,
+    UnreadNotificationsCount, RUNTIME,
 };
 
 #[uniffi::export]
@@ -194,28 +197,27 @@ pub struct RoomListItem {
 
 #[uniffi::export]
 impl RoomListItem {
+    fn id(&self) -> String {
+        self.inner.id().to_string()
+    }
+
     fn name(&self) -> Option<String> {
         RUNTIME.block_on(async { self.inner.name().await })
     }
 
     fn full_room(&self) -> Arc<Room> {
-        Arc::new(Room::new(self.inner.inner_room().clone()))
+        Arc::new(Room::with_timeline(
+            self.inner.inner_room().clone(),
+            Arc::new(RwLock::new(Some(RUNTIME.block_on(async { self.inner.timeline().await })))),
+        ))
     }
 
-    async fn timeline(&self, listener: Box<dyn TimelineListener>) -> RoomListItemTimelineResult {
-        let timeline = self.inner.timeline().await;
-        let (items, items_stream) = timeline.subscribe().await;
+    fn subscribe(&self, settings: Option<RoomSubscription>) {
+        self.inner.subscribe(settings.map(Into::into));
+    }
 
-        RoomListItemTimelineResult {
-            items: items.into_iter().map(TimelineItem::from_arc).collect(),
-            items_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(items_stream);
-
-                while let Some(diff) = items_stream.next().await {
-                    listener.on_update(Arc::new(TimelineDiff::new(diff)))
-                }
-            }))),
-        }
+    fn unsubscribe(&self) {
+        self.inner.unsubscribe();
     }
 
     fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
@@ -223,10 +225,12 @@ impl RoomListItem {
             self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
         })
     }
-}
 
-#[derive(uniffi::Record)]
-pub struct RoomListItemTimelineResult {
-    pub items: Vec<Arc<TimelineItem>>,
-    pub items_stream: Arc<TaskHandle>,
+    fn has_unread_notifications(&self) -> bool {
+        self.inner.has_unread_notifications()
+    }
+
+    fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
+        Arc::new(self.inner.unread_notifications().into())
+    }
 }

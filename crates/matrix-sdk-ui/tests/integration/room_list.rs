@@ -1,3 +1,5 @@
+use std::ops::Not;
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
@@ -11,7 +13,12 @@ use matrix_sdk_ui::{
     timeline::{TimelineItem, VirtualTimelineItem},
     RoomList,
 };
-use ruma::{event_id, room_id};
+use ruma::{
+    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
+    assign, event_id,
+    events::StateEventType,
+    room_id, uint,
+};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -76,7 +83,9 @@ macro_rules! sync_then_assert_request_and_fake_response {
             $(
                 use State::*;
 
-                assert_matches!($room_list.state().get(), $pre_state, "pre state");
+                let mut state = $room_list.state();
+
+                assert_matches!(state.get(), $pre_state, "pre state");
             )?
 
             let next = $room_list_sync_stream.next().await;
@@ -100,7 +109,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 }
             }
 
-            $( assert_matches!($room_list.state().get(), $post_state, "post state"); )?
+            $( assert_matches!(state.next().now_or_never(), Some(Some($post_state)), "post state"); )?
 
             next
         }
@@ -304,8 +313,8 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     },
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 20,
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "1",
@@ -848,8 +857,8 @@ async fn test_entries_stream() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "1",
@@ -976,8 +985,8 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [],
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "1",
@@ -1133,6 +1142,214 @@ async fn test_room_not_found() -> Result<(), Error> {
         room_list.room(room_id).await,
         Err(Error::RoomNotFound(error_room_id)) => {
             assert_eq!(error_room_id, room_id.to_owned());
+        }
+    );
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_subscription() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id_0 = room_id!("!r0:bar.org");
+    let room_id_1 = room_id!("!r1:bar.org");
+    let room_id_2 = room_id!("!r2:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 3,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 2],
+                            "room_ids": [
+                                room_id_0,
+                                room_id_1,
+                                room_id_2,
+                            ],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id_0: {
+                    "name": "Room #0",
+                    "initial": true,
+                },
+                room_id_1: {
+                    "name": "Room #1",
+                    "initial": true,
+                },
+                room_id_2: {
+                    "name": "Room #2",
+                    "initial": true,
+                }
+            },
+        },
+    };
+
+    let room1 = room_list.room(room_id_1).await.unwrap();
+
+    // Subscribe.
+
+    room1.subscribe(Some(assign!(RoomSubscription::default(), {
+        required_state: vec![
+            (StateEventType::RoomName, "".to_owned()),
+            (StateEventType::RoomTopic, "".to_owned()),
+            (StateEventType::RoomAvatar, "".to_owned()),
+            (StateEventType::RoomCanonicalAlias, "".to_owned()),
+        ],
+        timeline_limit: Some(uint!(30)),
+    })));
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                },
+            },
+            "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                    ],
+                    "timeline_limit": 30,
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    // Unsubscribe.
+
+    room1.unsubscribe();
+    room_list.room(room_id_2).await?.unsubscribe(); // unsubscribe from a room that has no subscription.
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                },
+            },
+            "unsubscribe_rooms": [room_id_1, /* `room_id_2` is absent */],
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_unread_notifications() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [room_id],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "name": "Room #0",
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    let room = room_list.room(room_id).await.unwrap();
+
+    assert!(room.has_unread_notifications().not());
+    assert_matches!(
+        room.unread_notifications(),
+        UnreadNotificationsCount { highlight_count: None, notification_count: None, .. }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "timeline": [ /* … */ ],
+                    "notification_count": 2,
+                    "highlight_count": 1,
+                },
+            },
+        },
+    };
+
+    assert!(room.has_unread_notifications());
+    assert_matches!(
+        room.unread_notifications(),
+        UnreadNotificationsCount {
+            highlight_count,
+            notification_count,
+            ..
+        } => {
+            assert_eq!(highlight_count, Some(uint!(1)));
+            assert_eq!(notification_count, Some(uint!(2)));
         }
     );
 
