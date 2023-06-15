@@ -108,6 +108,26 @@ pub trait NotificationDelegate: Sync + Send {
     fn did_receive_notification(&self, notification: NotificationItem);
 }
 
+#[uniffi::export(callback_interface)]
+pub trait ProgressWatcher: Send + Sync {
+    fn transmission_progress(&self, progress: TransmissionProgress);
+}
+
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct TransmissionProgress {
+    pub current: u64,
+    pub total: u64,
+}
+
+impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
+    fn from(value: matrix_sdk::TransmissionProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
@@ -388,12 +408,26 @@ impl Client {
         })
     }
 
-    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> Result<String, ClientError> {
+    pub fn upload_media(
+        &self,
+        mime_type: String,
+        data: Vec<u8>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
+    ) -> Result<String, ClientError> {
         let l = self.inner.clone();
 
         RUNTIME.block_on(async move {
             let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-            let response = l.media().upload(&mime_type, data).await?;
+            let request = l.media().upload(&mime_type, data);
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = request.subscribe_to_send_progress();
+                RUNTIME.spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+            let response = request.await?;
             Ok(String::from(response.content_uri))
         })
     }
