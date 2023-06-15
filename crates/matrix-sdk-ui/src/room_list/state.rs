@@ -3,7 +3,7 @@
 use std::future::ready;
 
 use async_trait::async_trait;
-use matrix_sdk::{SlidingSync, SlidingSyncList, SlidingSyncMode};
+use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncList, SlidingSyncMode};
 use once_cell::sync::Lazy;
 use ruma::{
     api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
@@ -85,13 +85,18 @@ trait Action {
 
 struct AddVisibleRoomsList;
 
+/// Default range for the `VISIBLE_ROOMS_LIST_NAME` list.
+pub const VISIBLE_ROOMS_DEFAULT_RANGE: Range = 0..=19;
+
 #[async_trait]
 impl Action for AddVisibleRoomsList {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective())
+                    .sync_mode(
+                        SlidingSyncMode::new_selective().add_range(VISIBLE_ROOMS_DEFAULT_RANGE),
+                    )
                     .timeline_limit(20)
                     .required_state(vec![(StateEventType::RoomEncryption, "".to_owned())])
                     .filters(Some(assign!(SyncRequestListFilters::default(), {
@@ -257,7 +262,7 @@ mod tests {
             sliding_sync
                 .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges.is_empty()
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![VISIBLE_ROOMS_DEFAULT_RANGE]
                 )))
                 .await,
             Some(true)

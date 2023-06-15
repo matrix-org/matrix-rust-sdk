@@ -302,7 +302,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "timeline_limit": 1,
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                     "required_state": [
                         ["m.room.encryption", ""],
                     ],
@@ -345,7 +345,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "ranges": [[0, 99]],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -378,7 +378,7 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "ranges": [[0, 149]],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -451,7 +451,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ranges": [[0, 9]],
                     },
                     VISIBLE_ROOMS: {
-                        "ranges": [],
+                        "ranges": [[0, 19]],
                     },
                 },
             },
@@ -486,7 +486,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ranges": [[0, 9]],
                     },
                     VISIBLE_ROOMS: {
-                        "ranges": [],
+                        "ranges": [[0, 19]],
                     },
                 },
             },
@@ -580,7 +580,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     // Hello new list.
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -856,7 +856,7 @@ async fn test_entries_stream() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -979,12 +979,10 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         assert request = {
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [
-                        [0, 9],
-                    ],
+                    "ranges": [[0, 9]],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -1571,7 +1569,7 @@ async fn test_input_viewport() -> Result<(), Error> {
                     "ranges": [[0, 49]],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
                     "timeline_limit": 20,
                 },
             },
