@@ -371,6 +371,7 @@ impl ClientBuilder {
                         None,
                         None,
                         &[MatrixVersion::V1_0],
+                        Default::default(),
                     )
                     .await
                     .map_err(|e| match e {

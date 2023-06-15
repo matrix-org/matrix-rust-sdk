@@ -1,9 +1,8 @@
-#[cfg(feature = "image-proc")]
-use std::io::Cursor;
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
+use eyeball::shared::Observable as SharedObservable;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::RoomMemberships;
 use matrix_sdk_common::instant::{Duration, Instant};
@@ -47,13 +46,12 @@ use crate::{
     attachment::AttachmentConfig,
     error::{Error, HttpResult},
     room::Common,
-    BaseRoom, Client, Result, RoomState,
+    BaseRoom, Client, Result, RoomState, TransmissionProgress,
 };
-#[cfg(feature = "image-proc")]
-use crate::{
-    attachment::{generate_image_thumbnail, Thumbnail},
-    error::ImageError,
-};
+
+mod futures;
+
+pub use self::futures::SendAttachment;
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -711,73 +709,14 @@ impl Joined {
     /// [`upload()`]: crate::Media::upload
     /// [`send()`]: Joined::send
     #[instrument(skip_all)]
-    pub async fn send_attachment(
-        &self,
-        body: &str,
-        content_type: &Mime,
+    pub fn send_attachment<'a>(
+        &'a self,
+        body: &'a str,
+        content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
-    ) -> Result<send_message_event::v3::Response> {
-        if config.thumbnail.is_some() {
-            self.prepare_and_send_attachment(body, content_type, data, config).await
-        } else {
-            #[cfg(not(feature = "image-proc"))]
-            let thumbnail = None;
-
-            #[cfg(feature = "image-proc")]
-            let data_slot;
-            #[cfg(feature = "image-proc")]
-            let (data, thumbnail) = if config.generate_thumbnail {
-                let content_type = content_type.clone();
-                let make_thumbnail = move |data| {
-                    let res = generate_image_thumbnail(
-                        &content_type,
-                        Cursor::new(&data),
-                        config.thumbnail_size,
-                    );
-                    (data, res)
-                };
-
-                #[cfg(not(target_arch = "wasm32"))]
-                let (data, res) = tokio::task::spawn_blocking(move || make_thumbnail(data))
-                    .await
-                    .expect("Task join error");
-
-                #[cfg(target_arch = "wasm32")]
-                let (data, res) = make_thumbnail(data);
-
-                let thumbnail = match res {
-                    Ok((thumbnail_data, thumbnail_info)) => {
-                        data_slot = thumbnail_data;
-                        Some(Thumbnail {
-                            data: data_slot,
-                            content_type: mime::IMAGE_JPEG,
-                            info: Some(thumbnail_info),
-                        })
-                    }
-                    Err(
-                        ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
-                    ) => None,
-                    Err(error) => return Err(error.into()),
-                };
-
-                (data, thumbnail)
-            } else {
-                (data, None)
-            };
-
-            let config = AttachmentConfig {
-                txn_id: config.txn_id,
-                info: config.info,
-                thumbnail,
-                #[cfg(feature = "image-proc")]
-                generate_thumbnail: false,
-                #[cfg(feature = "image-proc")]
-                thumbnail_size: None,
-            };
-
-            self.prepare_and_send_attachment(body, content_type, data, config).await
-        }
+    ) -> SendAttachment<'a> {
+        SendAttachment::new(self, body, content_type, data, config)
     }
 
     /// Prepare and send an attachment to this room.
@@ -802,12 +741,13 @@ impl Joined {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    async fn prepare_and_send_attachment(
-        &self,
-        body: &str,
-        content_type: &Mime,
+    async fn prepare_and_send_attachment<'a>(
+        &'a self,
+        body: &'a str,
+        content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
@@ -818,12 +758,20 @@ impl Joined {
                     data,
                     config.info,
                     config.thumbnail,
+                    send_progress,
                 )
                 .await?
         } else {
             self.client
                 .media()
-                .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
+                .prepare_attachment_message(
+                    body,
+                    content_type,
+                    data,
+                    config.info,
+                    config.thumbnail,
+                    send_progress,
+                )
                 .await?
         };
 
@@ -831,7 +779,14 @@ impl Joined {
         let content = self
             .client
             .media()
-            .prepare_attachment_message(body, content_type, data, config.info, config.thumbnail)
+            .prepare_attachment_message(
+                body,
+                content_type,
+                data,
+                config.info,
+                config.thumbnail,
+                send_progress,
+            )
             .await?;
 
         self.send(RoomMessageEventContent::new(content), config.txn_id.as_deref()).await

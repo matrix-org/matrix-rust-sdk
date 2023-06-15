@@ -21,6 +21,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
+use eyeball::shared::Observable as SharedObservable;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 #[cfg(not(target_arch = "wasm32"))]
@@ -38,7 +39,7 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    Client, Result,
+    Client, Result, SendRequest, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -74,6 +75,9 @@ impl MediaFileHandle {
     }
 }
 
+/// `IntoFuture` returned by [`Media::upload`].
+pub type SendUploadRequest = SendRequest<create_content::v3::Request>;
+
 impl Media {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
@@ -106,11 +110,7 @@ impl Media {
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn upload(
-        &self,
-        content_type: &Mime,
-        data: Vec<u8>,
-    ) -> Result<create_content::v3::Response> {
+    pub fn upload(&self, content_type: &Mime, data: Vec<u8>) -> SendUploadRequest {
         let timeout = std::cmp::max(
             Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
             MIN_UPLOAD_REQUEST_TIMEOUT,
@@ -121,7 +121,7 @@ impl Media {
         });
 
         let request_config = self.client.request_config().timeout(timeout);
-        Ok(self.client.send(request, Some(request_config)).await?)
+        self.client.send(request, Some(request_config))
     }
 
     /// Gets a media file by copying it to a temporary location on disk.
@@ -400,9 +400,14 @@ impl Media {
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<ruma::events::room::message::MessageType> {
+        // FIXME: Upload the thumbnail in parallel with the main file
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self.upload(&thumbnail.content_type, thumbnail.data).await?;
+            let response = self
+                .upload(&thumbnail.content_type, thumbnail.data)
+                .with_send_progress_observable(send_progress.clone())
+                .await?;
             let url = response.content_uri;
 
             use ruma::events::room::ThumbnailInfo;
@@ -416,7 +421,8 @@ impl Media {
             (None, None)
         };
 
-        let response = self.upload(content_type, data).await?;
+        let response =
+            self.upload(content_type, data).with_send_progress_observable(send_progress).await?;
 
         let url = response.content_uri;
 
