@@ -20,40 +20,34 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
-mod platform;
-
-pub mod authentication_service;
-pub mod client;
-pub mod client_builder;
+mod authentication_service;
+mod client;
+mod client_builder;
 mod error;
-pub mod event;
+mod event;
 mod helpers;
-pub mod notification;
-pub mod room;
-pub mod room_list;
-pub mod room_member;
-pub mod session_verification;
-pub mod sliding_sync;
-pub mod task_handle;
-pub mod timeline;
-pub mod tracing;
+mod notification;
+mod platform;
+mod room;
+mod room_list;
+mod room_member;
+mod session_verification;
+mod sliding_sync;
+mod task_handle;
+mod timeline;
+mod tracing;
 
 use async_compat::TOKIO1 as RUNTIME;
-pub use matrix_sdk::ruma::{api::client::account::register, UserId};
-pub use matrix_sdk_ui::timeline::PaginationOutcome;
-pub use platform::*;
+use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 
-// Re-exports for more convenient use inside other submodules
-use self::error::ClientError;
-pub use self::{
-    authentication_service::*, client::*, event::*, notification::*, room::*, room_list::*,
-    room_member::*, session_verification::*, sliding_sync::*, task_handle::TaskHandle, timeline::*,
-    tracing::*,
+use self::{
+    client::*, error::ClientError, event::*, notification::*, platform::*, room_list::*,
+    session_verification::*, sliding_sync::*, task_handle::TaskHandle, timeline::MediaSourceExt,
 };
 
 uniffi::include_scaffolding!("api");
 
 #[uniffi::export]
-pub fn sdk_git_sha() -> String {
+fn sdk_git_sha() -> String {
     env!("VERGEN_GIT_SHA").to_owned()
 }

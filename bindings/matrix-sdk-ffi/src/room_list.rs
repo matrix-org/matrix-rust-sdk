@@ -8,7 +8,7 @@ use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
 
 use crate::{
-    Client, EventTimelineItem, Room, RoomListEntry, RoomSubscription, TaskHandle,
+    room::Room, timeline::EventTimelineItem, Client, RoomListEntry, RoomSubscription, TaskHandle,
     UnreadNotificationsCount, RUNTIME,
 };
 

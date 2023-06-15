@@ -180,11 +180,6 @@ pub struct SetData {
     pub item: Arc<TimelineItem>,
 }
 
-pub struct MoveData {
-    pub old_index: u32,
-    pub new_index: u32,
-}
-
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum TimelineChange {
     Append,
