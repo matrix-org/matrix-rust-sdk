@@ -42,11 +42,12 @@ pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventCo
     Arc::new(RoomMessageEventContent::text_markdown(md))
 }
 
+#[uniffi::export(callback_interface)]
 pub trait TimelineListener: Sync + Send {
     fn on_update(&self, diff: Arc<TimelineDiff>);
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub enum TimelineDiff {
     Append { values: Vec<Arc<TimelineItem>> },
     Clear,
@@ -199,7 +200,7 @@ pub enum TimelineChange {
 }
 
 #[repr(transparent)]
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
 
 impl TimelineItem {

@@ -42,6 +42,7 @@ impl From<matrix_sdk::ruma::events::room::member::MembershipState> for Membershi
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct RoomMember {
     inner: SdkRoomMember,
 }
