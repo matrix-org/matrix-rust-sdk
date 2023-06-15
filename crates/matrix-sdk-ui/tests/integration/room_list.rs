@@ -1,3 +1,5 @@
+use std::ops::Not;
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
@@ -12,7 +14,9 @@ use matrix_sdk_ui::{
     RoomList,
 };
 use ruma::{
-    api::client::sync::sync_events::v4::RoomSubscription, assign, event_id, events::StateEventType,
+    api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
+    assign, event_id,
+    events::StateEventType,
     room_id, uint,
 };
 use serde_json::json;
@@ -1259,6 +1263,93 @@ async fn test_room_subscription() -> Result<(), Error> {
             "rooms": {},
         },
     };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_room_unread_notifications() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [room_id],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "name": "Room #0",
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    let room = room_list.room(room_id).await.unwrap();
+
+    assert!(room.has_unread_notifications().not());
+    assert_matches!(
+        room.unread_notifications(),
+        UnreadNotificationsCount { highlight_count: None, notification_count: None, .. }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "timeline": [ /* … */ ],
+                    "notification_count": 2,
+                    "highlight_count": 1,
+                },
+            },
+        },
+    };
+
+    assert!(room.has_unread_notifications());
+    assert_matches!(
+        room.unread_notifications(),
+        UnreadNotificationsCount {
+            highlight_count,
+            notification_count,
+            ..
+        } => {
+            assert_eq!(highlight_count, Some(uint!(1)));
+            assert_eq!(notification_count, Some(uint!(2)));
+        }
+    );
 
     Ok(())
 }
