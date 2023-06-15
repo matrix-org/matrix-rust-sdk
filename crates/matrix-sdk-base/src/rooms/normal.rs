@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    sync::{Arc, RwLock as SyncRwLock},
+    sync::{Arc, LockResult, RwLock as SyncRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use bitflags::bitflags;
@@ -52,13 +52,34 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
+/// Holds a RoomInfo behind a SyncRwLock, and invalidates the cached DisplayName
+/// inside it whenever we take a write lock.
+#[derive(Debug, Clone)]
+struct RoomInfoHolder {
+    inner: Arc<SyncRwLock<RoomInfo>>,
+}
+
+impl RoomInfoHolder {
+    fn read(&self) -> LockResult<RwLockReadGuard<'_, RoomInfo>> {
+        self.inner.read()
+    }
+
+    fn write(&self) -> LockResult<RwLockWriteGuard<'_, RoomInfo>> {
+        // Take the lock and use it to reset display name before returning it
+        self.inner.write().map(|mut room_info| {
+            room_info.display_name = None;
+            room_info
+        })
+    }
+}
+
 /// The underlying room data structure collecting state for joined, left and
 /// invited rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
-    inner: Arc<SyncRwLock<RoomInfo>>,
+    inner: RoomInfoHolder,
     store: Arc<DynStateStore>,
 }
 
@@ -107,7 +128,7 @@ impl Room {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
-            inner: Arc::new(SyncRwLock::new(room_info)),
+            inner: RoomInfoHolder { inner: Arc::new(SyncRwLock::new(room_info)) },
         }
     }
 
@@ -317,7 +338,16 @@ impl Room {
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> StoreResult<DisplayName> {
-        self.calculate_name().await
+        // Briefly take a read lock to find existing display name
+        let cached_display_name = { self.inner.read().unwrap().display_name.clone() };
+        if let Some(n) = cached_display_name {
+            Ok(n)
+        } else {
+            let n = self.calculate_name().await?;
+            // Take a write lock to update the stored value
+            self.inner.write().unwrap().display_name = Some(n.clone());
+            Ok(n)
+        }
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -604,6 +634,9 @@ pub struct RoomInfo {
     /// Whether or not the encryption info was been synced.
     #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
     encryption_state_synced: bool,
+    /// The calculated display name of this room, or None if we haven't
+    /// calculated it yet
+    display_name: Option<DisplayName>,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
@@ -656,6 +689,7 @@ impl RoomInfo {
             last_prev_batch: None,
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
+            display_name: None,
             base_info: BaseRoomInfo::new(),
         }
     }
@@ -741,7 +775,11 @@ impl RoomInfo {
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        self.base_info.handle_state_event(event)
+        let modified = self.base_info.handle_state_event(event);
+        if modified {
+            self.display_name = None;
+        }
+        modified
     }
 
     /// Handle the given stripped state event.
@@ -752,8 +790,6 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
-    ///
-    /// Returns true if the event modified the info, false otherwise.
     pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
         self.base_info.handle_redaction(event);
     }
@@ -764,6 +800,7 @@ impl RoomInfo {
             content: RoomNameEventContent::new(Some(name)),
             event_id: None,
         }));
+        self.display_name = None;
     }
 
     /// Update the notifications count
@@ -792,6 +829,10 @@ impl RoomInfo {
                 self.summary.invited_member_count = invited.into();
                 changed = true;
             }
+        }
+
+        if changed {
+            self.display_name = None;
         }
 
         changed
@@ -986,10 +1027,53 @@ mod test {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
+            display_name: Some(DisplayName::Named("My Name".to_owned())),
             base_info: BaseRoomInfo::new(),
         };
 
         let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": {
+                "Named": "My Name"
+            },
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
+    }
+
+    #[test]
+    fn room_info_roundtrip_without_display_name() {
+        // We can deserialise info stored before we added the display_name property
+
+        let without_display_name = json!({
             "room_id": "!gda78o:server.tld",
             "room_type": "Invited",
             "notification_counts": {
@@ -1021,7 +1105,88 @@ mod test {
             }
         });
 
-        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
+        let none_display_name = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": null,
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<RoomInfo>(without_display_name).unwrap())
+                .unwrap(),
+            none_display_name
+        );
+    }
+
+    #[test]
+    fn room_info_roundtrip_with_display_name() {
+        let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": {
+                "Named": "My Name"
+            },
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<RoomInfo>(info_json.clone()).unwrap())
+                .unwrap(),
+            info_json
+        );
     }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
