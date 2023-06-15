@@ -1,4 +1,7 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    sync::{Arc, RwLock},
+};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
@@ -203,7 +206,10 @@ impl RoomListItem {
     }
 
     fn full_room(&self) -> Arc<Room> {
-        Arc::new(Room::new(self.inner.inner_room().clone()))
+        Arc::new(Room::with_timeline(
+            self.inner.inner_room().clone(),
+            Arc::new(RwLock::new(Some(RUNTIME.block_on(async { self.inner.timeline().await })))),
+        ))
     }
 
     fn subscribe(&self, settings: Option<RoomSubscription>) {

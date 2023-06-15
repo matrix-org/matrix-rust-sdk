@@ -241,7 +241,7 @@ impl Room {
 
             let listener: Arc<dyn TimelineListener> = listener.into();
             let timeline_stream =
-                Arc::new(TaskHandle::new(RUNTIME.spawn(timeline_stream.for_each(move |diff| {
+                TaskHandle::new(RUNTIME.spawn(timeline_stream.for_each(move |diff| {
                     let listener = listener.clone();
                     let fut = RUNTIME.spawn_blocking(move || {
                         listener.on_update(Arc::new(TimelineDiff::new(diff)))
@@ -252,11 +252,11 @@ impl Room {
                             error!("Timeline listener error: {e}");
                         }
                     }
-                }))));
+                })));
 
             RoomTimelineListenerResult {
                 items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-                items_stream: timeline_stream,
+                items_stream: Arc::new(timeline_stream),
             }
         })
     }
