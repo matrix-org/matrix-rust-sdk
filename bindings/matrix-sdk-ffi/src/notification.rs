@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::room::Room;
-use ruma::{
-    api::client::push::get_notifications::v3::Notification, events::AnySyncTimelineEvent,
-    push::Action, EventId,
-};
+use ruma::{events::AnySyncTimelineEvent, EventId};
 
 use crate::event::TimelineEvent;
 
@@ -26,27 +23,12 @@ pub struct NotificationItem {
 }
 
 impl NotificationItem {
-    pub(crate) async fn new_from_notification(
-        notification: Notification,
-        room: Room,
-    ) -> anyhow::Result<Self> {
-        let deserialized_event = notification.event.deserialize()?;
-        Self::new(deserialized_event, room, notification.actions).await
-    }
-
     pub(crate) async fn new_from_event_id(event_id: &str, room: Room) -> anyhow::Result<Self> {
         let event_id = EventId::parse(event_id)?;
         let ruma_event = room.event(&event_id).await?;
 
         let event: AnySyncTimelineEvent = ruma_event.event.deserialize()?.into();
-        Self::new(event, room, ruma_event.push_actions).await
-    }
 
-    async fn new(
-        event: AnySyncTimelineEvent,
-        room: Room,
-        actions: Vec<Action>,
-    ) -> anyhow::Result<Self> {
         let sender = match &room {
             Room::Invited(invited) => invited.invite_details().await?.inviter,
             _ => room.get_member(event.sender()).await?,
@@ -58,7 +40,7 @@ impl NotificationItem {
             sender_avatar_url = sender.avatar_url().map(|s| s.to_string());
         }
 
-        let is_noisy = actions.iter().any(|a| a.sound().is_some());
+        let is_noisy = ruma_event.push_actions.iter().any(|a| a.sound().is_some());
         let item = Self {
             event: Arc::new(TimelineEvent(event)),
             room_id: room.room_id().to_string(),
