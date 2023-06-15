@@ -3,20 +3,22 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use anyhow::bail;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
-use matrix_sdk::attachment::{
-    BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
-};
-pub use matrix_sdk::ruma::events::room::{
-    message::{
-        AudioInfo as RumaAudioInfo, AudioMessageEventContent as RumaAudioMessageEventContent,
-        EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
-        FileMessageEventContent as RumaFileMessageEventContent, FormattedBody as RumaFormattedBody,
-        ImageMessageEventContent as RumaImageMessageEventContent, MessageType as RumaMessageType,
-        NoticeMessageEventContent as RumaNoticeMessageEventContent, RoomMessageEventContent,
-        TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
-        VideoMessageEventContent as RumaVideoMessageEventContent,
+use matrix_sdk::{
+    attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
+    ruma::events::room::{
+        message::{
+            AudioInfo as RumaAudioInfo, AudioMessageEventContent as RumaAudioMessageEventContent,
+            EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
+            FileMessageEventContent as RumaFileMessageEventContent,
+            FormattedBody as RumaFormattedBody,
+            ImageMessageEventContent as RumaImageMessageEventContent,
+            MessageType as RumaMessageType,
+            NoticeMessageEventContent as RumaNoticeMessageEventContent, RoomMessageEventContent,
+            TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
+            VideoMessageEventContent as RumaVideoMessageEventContent,
+        },
+        ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
     },
-    ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
 };
 use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
 use ruma::{assign, UInt};
