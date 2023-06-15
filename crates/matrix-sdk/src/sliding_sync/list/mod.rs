@@ -110,6 +110,9 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
+    ///
+    /// The first part of the returned tuple is the actual loading state, and
+    /// the second part is the `Stream` to receive updates.
     pub fn state_stream(
         &self,
     ) -> (SlidingSyncListLoadingState, impl Stream<Item = SlidingSyncListLoadingState>) {
