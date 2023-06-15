@@ -143,7 +143,7 @@ impl RoomList {
                 pin_mut!(entries_loading_state_stream);
 
                 while let Some(loading_state) = entries_loading_state_stream.next().await {
-                    listener.did_receive_update(loading_state.into());
+                    listener.did_receive_update(loading_state);
                 }
             }))),
         })
