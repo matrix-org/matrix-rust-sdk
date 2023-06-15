@@ -43,7 +43,7 @@
 //!   background”: it will sync the existing rooms and will fetch new rooms, by
 //!   a certain batch size.
 //! * `visible_rooms` (referred by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
-//!   the “reactive” list. It's goal is to react to the client app user actions.
+//!   the “reactive” list. Its goal is to react to the client app user actions.
 //!   If the user scrolls in the room list, the `visible_rooms` will be
 //!   configured to sync for the particular range of rooms the user is actually
 //!   seeing (the rooms in the current viewport). `visible_rooms` has a
