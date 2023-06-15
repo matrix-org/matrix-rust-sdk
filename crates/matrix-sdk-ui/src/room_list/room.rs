@@ -32,11 +32,11 @@ struct RoomInner {
     room: matrix_sdk::room::Room,
 
     /// The timeline of the room.
-    timeline: AsyncOnceCell<Timeline>,
+    timeline: AsyncOnceCell<Arc<Timeline>>,
 
     /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
     /// read marker nor the receipts.
-    sneaky_timeline: AsyncOnceCell<Timeline>,
+    sneaky_timeline: AsyncOnceCell<Arc<Timeline>>,
 }
 
 impl Room {
@@ -98,20 +98,23 @@ impl Room {
     }
 
     /// Get the timeline of the room.
-    pub async fn timeline(&self) -> &Timeline {
+    pub async fn timeline(&self) -> Arc<Timeline> {
         self.inner
             .timeline
             .get_or_init(async {
-                Timeline::builder(&self.inner.room)
-                    .events(
-                        self.inner.sliding_sync_room.prev_batch(),
-                        self.inner.sliding_sync_room.timeline_queue(),
-                    )
-                    .track_read_marker_and_receipts()
-                    .build()
-                    .await
+                Arc::new(
+                    Timeline::builder(&self.inner.room)
+                        .events(
+                            self.inner.sliding_sync_room.prev_batch(),
+                            self.inner.sliding_sync_room.timeline_queue(),
+                        )
+                        .track_read_marker_and_receipts()
+                        .build()
+                        .await,
+                )
             })
             .await
+            .clone()
     }
 
     /// Get the latest event of the timeline.
@@ -122,13 +125,15 @@ impl Room {
         self.inner
             .sneaky_timeline
             .get_or_init(async {
-                Timeline::builder(&self.inner.room)
-                    .events(
-                        self.inner.sliding_sync_room.prev_batch(),
-                        self.inner.sliding_sync_room.timeline_queue(),
-                    )
-                    .build()
-                    .await
+                Arc::new(
+                    Timeline::builder(&self.inner.room)
+                        .events(
+                            self.inner.sliding_sync_room.prev_batch(),
+                            self.inner.sliding_sync_room.timeline_queue(),
+                        )
+                        .build()
+                        .await,
+                )
             })
             .await
             .latest_event()
