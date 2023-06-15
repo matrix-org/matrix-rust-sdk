@@ -1,4 +1,8 @@
-use matrix_sdk::RumaApiError;
+use matrix_sdk::{
+    matrix_auth::{Session, SessionTokens},
+    RumaApiError,
+};
+use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::client::{
@@ -7,8 +11,9 @@ use ruma::{
         session::get_login_types::v3::LoginType,
         uiaa,
     },
-    assign,
+    assign, device_id, user_id,
 };
+use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -233,4 +238,64 @@ async fn register_error() {
     } else {
         panic!("this request should return an `Err` variant")
     }
+}
+
+#[test]
+fn deserialize_session() {
+    // First version, or second version without refresh token.
+    let json = json!({
+        "access_token": "abcd",
+        "user_id": "@user:localhost",
+        "device_id": "EFGHIJ",
+    });
+    let session: Session = from_json_value(json).unwrap();
+    assert_eq!(session.tokens.access_token, "abcd");
+    assert_eq!(session.meta.user_id, "@user:localhost");
+    assert_eq!(session.meta.device_id, "EFGHIJ");
+    assert_eq!(session.tokens.refresh_token, None);
+
+    // Second version with refresh_token.
+    let json = json!({
+        "access_token": "abcd",
+        "refresh_token": "wxyz",
+        "user_id": "@user:localhost",
+        "device_id": "EFGHIJ",
+    });
+    let session: Session = from_json_value(json).unwrap();
+    assert_eq!(session.tokens.access_token, "abcd");
+    assert_eq!(session.meta.user_id, "@user:localhost");
+    assert_eq!(session.meta.device_id, "EFGHIJ");
+    assert_eq!(session.tokens.refresh_token.as_deref(), Some("wxyz"));
+}
+
+#[test]
+fn serialize_session() {
+    // Without refresh token.
+    let mut session = Session {
+        meta: SessionMeta {
+            user_id: user_id!("@user:localhost").to_owned(),
+            device_id: device_id!("EFGHIJ").to_owned(),
+        },
+        tokens: SessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
+    };
+    assert_eq!(
+        to_json_value(session.clone()).unwrap(),
+        json!({
+            "access_token": "abcd",
+            "user_id": "@user:localhost",
+            "device_id": "EFGHIJ",
+        })
+    );
+
+    // With refresh_token.
+    session.tokens.refresh_token = Some("wxyz".to_owned());
+    assert_eq!(
+        to_json_value(session).unwrap(),
+        json!({
+            "access_token": "abcd",
+            "refresh_token": "wxyz",
+            "user_id": "@user:localhost",
+            "device_id": "EFGHIJ",
+        })
+    );
 }

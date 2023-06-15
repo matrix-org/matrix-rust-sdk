@@ -6,7 +6,6 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
-    Session,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
@@ -23,7 +22,7 @@ use ruma::{
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
     mxc_uri, room_id, uint, user_id,
 };
-use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+use serde_json::json;
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
@@ -354,65 +353,6 @@ async fn whoami() {
     let user_id = user_id!("@joe:example.org");
 
     assert_eq!(client.whoami().await.unwrap().user_id, user_id);
-}
-
-#[test]
-fn deserialize_session() {
-    // First version, or second version without refresh token.
-    let json = json!({
-        "access_token": "abcd",
-        "user_id": "@user:localhost",
-        "device_id": "EFGHIJ",
-    });
-    let session: Session = from_json_value(json).unwrap();
-    assert_eq!(session.access_token, "abcd");
-    assert_eq!(session.user_id, "@user:localhost");
-    assert_eq!(session.device_id, "EFGHIJ");
-    assert_eq!(session.refresh_token, None);
-
-    // Second version with refresh_token.
-    let json = json!({
-        "access_token": "abcd",
-        "refresh_token": "wxyz",
-        "user_id": "@user:localhost",
-        "device_id": "EFGHIJ",
-    });
-    let session: Session = from_json_value(json).unwrap();
-    assert_eq!(session.access_token, "abcd");
-    assert_eq!(session.user_id, "@user:localhost");
-    assert_eq!(session.device_id, "EFGHIJ");
-    assert_eq!(session.refresh_token.as_deref(), Some("wxyz"));
-}
-
-#[test]
-fn serialize_session() {
-    // Without refresh token.
-    let mut session = Session {
-        access_token: "abcd".to_owned(),
-        refresh_token: None,
-        user_id: user_id!("@user:localhost").to_owned(),
-        device_id: device_id!("EFGHIJ").to_owned(),
-    };
-    assert_eq!(
-        to_json_value(session.clone()).unwrap(),
-        json!({
-            "access_token": "abcd",
-            "user_id": "@user:localhost",
-            "device_id": "EFGHIJ",
-        })
-    );
-
-    // With refresh_token.
-    session.refresh_token = Some("wxyz".to_owned());
-    assert_eq!(
-        to_json_value(session).unwrap(),
-        json!({
-            "access_token": "abcd",
-            "refresh_token": "wxyz",
-            "user_id": "@user:localhost",
-            "device_id": "EFGHIJ",
-        })
-    );
 }
 
 #[async_test]

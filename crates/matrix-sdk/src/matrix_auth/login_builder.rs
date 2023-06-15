@@ -177,7 +177,7 @@ impl LoginBuilder {
         });
 
         let response = client.send(request, Some(RequestConfig::short_retry())).await?;
-        client.receive_login_response(&response).await?;
+        self.auth.receive_login_response(&response).await?;
 
         Ok(response)
     }

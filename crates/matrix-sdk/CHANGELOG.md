@@ -19,6 +19,10 @@
 - Remove `HttpSend` trait in favor of allowing a custom `reqwest::Client` instance to be supplied
 - Move all the types and methods using the native Matrix login and registration APIs from `Client`
   to the new `matrix_auth::MatrixAuth` API that is accessible via `Client::matrix_auth()`.
+- Move `Session` and `SessionTokens` to the `matrix_auth` module.
+  - Move the session methods on `Client` to the `MatrixAuth` API.
+  - Split `Session`'s content into several types. Its (de)serialization is still backwards
+    compatible. 
 
 # 0.6.2
 

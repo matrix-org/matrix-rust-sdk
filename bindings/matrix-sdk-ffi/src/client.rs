@@ -244,11 +244,12 @@ impl Client {
             sliding_sync_proxy,
         } = session;
 
-        let session = matrix_sdk::Session {
-            access_token,
-            refresh_token,
-            user_id: user_id.try_into()?,
-            device_id: device_id.into(),
+        let session = matrix_sdk::matrix_auth::Session {
+            meta: matrix_sdk::SessionMeta {
+                user_id: user_id.try_into()?,
+                device_id: device_id.into(),
+            },
+            tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
         };
 
         self.restore_session_inner(session)?;
@@ -265,8 +266,11 @@ impl Client {
 }
 
 impl Client {
-    /// Restores the client from a `matrix_sdk::Session`.
-    pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
+    /// Restores the client from a `matrix_sdk::matrix_auth::Session`.
+    pub(crate) fn restore_session_inner(
+        &self,
+        session: matrix_sdk::matrix_auth::Session,
+    ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.inner.restore_session(session).await?;
             Ok(())
@@ -314,8 +318,10 @@ impl Client {
 
     pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
-            let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
-                self.inner.session().context("Missing session")?;
+            let matrix_sdk::matrix_auth::Session {
+                meta: matrix_sdk::SessionMeta { user_id, device_id },
+                tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+            } = self.inner.matrix_auth().session().context("Missing session")?;
             let homeserver_url = self.inner.homeserver().await.into();
             let sliding_sync_proxy =
                 self.discovered_sliding_sync_proxy().map(|url| url.to_string());
