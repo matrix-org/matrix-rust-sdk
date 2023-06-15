@@ -23,15 +23,6 @@ dictionary NotificationItem {
 
 interface TimelineEvent {};
 
-dictionary UpdateSummary {
-    sequence<string> lists;
-    sequence<string> rooms;
-};
-
-callback interface SlidingSyncObserver {
-    void did_receive_sync_update(UpdateSummary summary);
-};
-
 enum SlidingSyncState {
     /// Sliding Sync has not started to load anything yet.
     "NotLoaded",
@@ -44,50 +35,6 @@ enum SlidingSyncState {
     /// Updates are received for all the loaded rooms, and all rooms have been
     /// loaded!
     "FullyLoaded",
-};
-
-callback interface SlidingSyncListStateObserver {
-    void did_receive_update(SlidingSyncState new_state);
-};
-
-// Used by `SlidingSync` _and_ `RoomList`. Be careful.
-[Enum]
-interface RoomListEntry {
-    Empty();
-    Invalidated(string room_id);
-    Filled(string room_id);
-};
-
-[Enum]
-interface SlidingSyncListRoomsListDiff {
-    Append(sequence<RoomListEntry> values);
-    Insert(u32 index, RoomListEntry value);
-    Set(u32 index, RoomListEntry value);
-    Remove(u32 index);
-    PushBack(RoomListEntry value);
-    PushFront(RoomListEntry value);
-    PopBack();
-    PopFront();
-    Clear();
-    Reset(sequence<RoomListEntry> values);
-};
-
-callback interface SlidingSyncListRoomListObserver {
-    void did_receive_update(SlidingSyncListRoomsListDiff diff);
-};
-
-callback interface SlidingSyncListRoomsCountObserver {
-    void did_receive_update(u32 count);
-};
-
-callback interface SlidingSyncListRoomItemsObserver {
-    void did_receive_update();
-};
-
-interface SlidingSyncList {};
-
-callback interface SlidingSyncListOnceBuilt {
-    SlidingSyncList update_list(SlidingSyncList list);
 };
 
 dictionary CreateRoomParameters {
