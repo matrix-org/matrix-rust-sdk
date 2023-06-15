@@ -33,8 +33,12 @@ use tracing::{error, info};
 use super::RUNTIME;
 use crate::{
     error::{ClientError, RoomError},
-    AudioInfo, FileInfo, ImageInfo, RoomMember, TaskHandle, ThumbnailInfo, TimelineDiff,
-    TimelineItem, TimelineListener, VideoInfo,
+    room_member::RoomMember,
+    timeline::{
+        AudioInfo, FileInfo, ImageInfo, ThumbnailInfo, TimelineDiff, TimelineItem,
+        TimelineListener, VideoInfo,
+    },
+    TaskHandle,
 };
 
 #[derive(uniffi::Enum)]

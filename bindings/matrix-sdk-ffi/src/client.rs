@@ -722,6 +722,7 @@ impl From<RoomVisibility> for Visibility {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 pub enum RoomPreset {
     /// `join_rules` is set to `invite` and `history_visibility` is set to
     /// `shared`.
