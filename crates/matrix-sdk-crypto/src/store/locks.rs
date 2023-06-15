@@ -119,14 +119,18 @@ impl CryptoStoreLock {
             // max_backoff.
             let wait = self.backoff;
 
-            if wait == u32::max_value() {
+            // If we've set the sentinel value before, that means this wait would be longer than
+            // the max backoff, so abort.
+            if wait == u32::MAX {
                 // We've reached the maximum backoff, abandon.
                 return Err(LockStoreError::LockTimeout.into());
             }
 
             self.backoff = self.backoff.saturating_mul(2);
             if self.backoff >= self.max_backoff {
-                self.backoff = u32::max_value();
+                // Set the sentinel value that indicates that we should timeout, were we to wait
+                // more.
+                self.backoff = u32::MAX;
             }
 
             sleep(Duration::from_millis(wait.into())).await;
