@@ -1,6 +1,6 @@
 namespace matrix_sdk_ffi {};
 
-enum SlidingSyncState {
+enum SlidingSyncListLoadingState {
     /// Sliding Sync has not started to load anything yet.
     "NotLoaded",
     /// Sliding Sync has been preloaded, i.e. restored from a cache for example.

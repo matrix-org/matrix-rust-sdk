@@ -32,7 +32,7 @@
 use std::cmp::min;
 
 use super::{Range, Ranges, SlidingSyncMode};
-use crate::{sliding_sync::Error, SlidingSyncState};
+use crate::{sliding_sync::Error, SlidingSyncListLoadingState};
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
@@ -198,7 +198,7 @@ impl SlidingSyncListRequestGenerator {
         &mut self,
         list_name: &str,
         maximum_number_of_rooms: u32,
-    ) -> Result<SlidingSyncState, Error> {
+    ) -> Result<SlidingSyncListLoadingState, Error> {
         match &mut self.kind {
             SlidingSyncListRequestGeneratorKind::Paging {
                 requested_end,
@@ -247,7 +247,7 @@ impl SlidingSyncListRequestGenerator {
                     self.ranges = vec![0..=range_end];
 
                     // Finally, return the new state.
-                    Ok(SlidingSyncState::PartiallyLoaded)
+                    Ok(SlidingSyncListLoadingState::PartiallyLoaded)
                 }
                 // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
                 // mode.
@@ -262,13 +262,13 @@ impl SlidingSyncListRequestGenerator {
                     self.ranges = vec![0..=range_maximum];
 
                     // Finally, let's update the list' state.
-                    Ok(SlidingSyncState::FullyLoaded)
+                    Ok(SlidingSyncListLoadingState::FullyLoaded)
                 }
             }
 
             SlidingSyncListRequestGeneratorKind::Selective => {
                 // Selective mode always loads everything.
-                Ok(SlidingSyncState::FullyLoaded)
+                Ok(SlidingSyncListLoadingState::FullyLoaded)
             }
         }
     }

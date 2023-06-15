@@ -99,7 +99,7 @@ impl SlidingSyncList {
     }
 
     /// Get the current state.
-    pub fn state(&self) -> SlidingSyncState {
+    pub fn state(&self) -> SlidingSyncListLoadingState {
         self.inner.state.read().unwrap().clone()
     }
 
@@ -110,7 +110,7 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
-    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncState> {
+    pub fn state_stream(&self) -> impl Stream<Item = SlidingSyncListLoadingState> {
         Observable::subscribe(&self.inner.state.read().unwrap())
     }
 
@@ -278,7 +278,7 @@ pub(super) struct SlidingSyncListInner {
     name: String,
 
     /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncState>>,
+    state: StdRwLock<Observable<SlidingSyncListLoadingState>>,
 
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
@@ -334,10 +334,11 @@ impl SlidingSyncListInner {
             let mut state = self.state.write().unwrap();
 
             let next_state = match **state {
-                SlidingSyncState::NotLoaded => SlidingSyncState::NotLoaded,
-                SlidingSyncState::Preloaded => SlidingSyncState::Preloaded,
-                SlidingSyncState::PartiallyLoaded | SlidingSyncState::FullyLoaded => {
-                    SlidingSyncState::PartiallyLoaded
+                SlidingSyncListLoadingState::NotLoaded => SlidingSyncListLoadingState::NotLoaded,
+                SlidingSyncListLoadingState::Preloaded => SlidingSyncListLoadingState::Preloaded,
+                SlidingSyncListLoadingState::PartiallyLoaded
+                | SlidingSyncListLoadingState::FullyLoaded => {
+                    SlidingSyncListLoadingState::PartiallyLoaded
                 }
             };
 
@@ -748,7 +749,7 @@ fn apply_sync_operations(
 /// If the client has been offline for a while, though, the `SlidingSyncList`
 /// might return back to `PartiallyLoaded` at any point.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SlidingSyncState {
+pub enum SlidingSyncListLoadingState {
     /// Sliding Sync has not started to load anything yet.
     #[default]
     NotLoaded,
@@ -1023,7 +1024,7 @@ mod tests {
             ),*
             $(,)*
         ) => {
-            assert_eq!($list.state(), SlidingSyncState::$first_list_state, "first state");
+            assert_eq!($list.state(), SlidingSyncListLoadingState::$first_list_state, "first state");
 
             $(
                 {
@@ -1048,7 +1049,7 @@ mod tests {
                     );
                     assert_eq!(
                         $list.state(),
-                        SlidingSyncState::$list_state,
+                        SlidingSyncListLoadingState::$list_state,
                         "state",
                     );
                 }
@@ -1433,8 +1434,8 @@ mod tests {
         // Changing from `Paging` to `Selective`.
         list.set_sync_mode(SlidingSyncMode::new_selective());
 
-        assert_eq!(list.state(), SlidingSyncState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
-                                                                     // next request
+        assert_eq!(list.state(), SlidingSyncListLoadingState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
+                                                                                // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.
@@ -1619,10 +1620,10 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_state_serialization() {
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::NotLoaded => json!("NotLoaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::Preloaded => json!("Preloaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::PartiallyLoaded => json!("PartiallyLoaded"));
-        assert_json_roundtrip!(from SlidingSyncState: SlidingSyncState::FullyLoaded => json!("FullyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::NotLoaded => json!("NotLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::Preloaded => json!("Preloaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::PartiallyLoaded => json!("PartiallyLoaded"));
+        assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::FullyLoaded => json!("FullyLoaded"));
     }
 
     macro_rules! entries {
