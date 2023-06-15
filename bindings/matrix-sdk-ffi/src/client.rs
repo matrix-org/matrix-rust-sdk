@@ -36,7 +36,7 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{client, ClientError, NotificationItem};
+use crate::{client, notification::NotificationItem, ClientError};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -98,10 +98,12 @@ impl From<PushFormat> for RumaPushFormat {
     }
 }
 
+#[uniffi::export(callback_interface)]
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
+#[uniffi::export(callback_interface)]
 pub trait NotificationDelegate: Sync + Send {
     fn did_receive_notification(&self, notification: NotificationItem);
 }

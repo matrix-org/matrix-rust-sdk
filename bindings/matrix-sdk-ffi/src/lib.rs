@@ -44,7 +44,7 @@ use matrix_sdk::{
 };
 
 use self::{
-    client::*, error::ClientError, event::*, notification::*, platform::*, session_verification::*,
+    client::*, error::ClientError, event::*, platform::*, session_verification::*,
     task_handle::TaskHandle, timeline::MediaSourceExt,
 };
 
