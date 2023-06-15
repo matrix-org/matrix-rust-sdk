@@ -46,7 +46,7 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
+    assign, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -56,7 +56,7 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use self::sticky_parameters::{SlidingSyncStickyManager, StickyData};
+use self::sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
 use crate::{config::RequestConfig, Client, Result};
 
 /// Number of times a Sliding Sync session can expire before raising an error.
@@ -376,7 +376,7 @@ impl SlidingSync {
 
     async fn generate_sync_request(
         &self,
-        txn_id: OwnedTransactionId,
+        txn_id: &mut LazyTransactionId,
     ) -> Result<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)> {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
@@ -385,7 +385,7 @@ impl SlidingSync {
             let lists = self.inner.lists.read().await;
 
             for (name, list) in lists.iter() {
-                requests_lists.insert(name.clone(), list.next_request(&txn_id)?);
+                requests_lists.insert(name.clone(), list.next_request(txn_id)?);
             }
         }
 
@@ -403,7 +403,6 @@ impl SlidingSync {
         let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
-            txn_id: Some(txn_id.to_string()),
             pos,
             delta_token,
             timeout: Some(timeout),
@@ -414,13 +413,18 @@ impl SlidingSync {
         {
             let mut sticky_params = self.inner.sticky.write().unwrap();
 
-            sticky_params.maybe_apply(&mut request, &txn_id);
+            sticky_params.maybe_apply(&mut request, txn_id);
 
             // Set the to_device token if the extension is enabled.
             if sticky_params.data().extensions.to_device.enabled == Some(true) {
                 request.extensions.to_device.since =
                     self.inner.position.read().unwrap().to_device_token.clone();
             }
+        }
+
+        // Apply the transaction id if one was generated.
+        if let Some(txn_id) = txn_id.get() {
+            request.txn_id = Some(txn_id.to_string());
         }
 
         Ok((
@@ -436,7 +440,7 @@ impl SlidingSync {
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
-            self.generate_sync_request(TransactionId::new()).await?;
+            self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
         debug!("Sending the sliding sync request");
 
@@ -775,7 +779,7 @@ impl StickyData for SlidingSyncStickyParameters {
 mod tests {
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
-    use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id};
+    use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id, TransactionId};
     use serde_json::json;
     use wiremock::{Match, MockServer};
 
@@ -918,7 +922,7 @@ mod tests {
         let mut request = v4::Request::default();
         request.txn_id = Some(txn_id.to_string());
 
-        sticky.maybe_apply(&mut request, txn_id);
+        sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
 
         assert!(request.txn_id.is_some());
         assert_eq!(request.room_subscriptions.len(), 1);
@@ -944,7 +948,7 @@ mod tests {
         let txn_id1: &TransactionId = "tid456".into();
         let mut request1 = v4::Request::default();
         request1.txn_id = Some(txn_id1.to_string());
-        sticky.maybe_apply(&mut request1, txn_id1);
+        sticky.maybe_apply(&mut request1, &mut LazyTransactionId::from_owned(txn_id1.to_owned()));
 
         assert!(sticky.is_invalidated());
         assert_eq!(request1.room_subscriptions.len(), 2);
@@ -953,7 +957,7 @@ mod tests {
         let mut request2 = v4::Request::default();
         request2.txn_id = Some(txn_id2.to_string());
 
-        sticky.maybe_apply(&mut request2, txn_id2);
+        sticky.maybe_apply(&mut request2, &mut LazyTransactionId::from_owned(txn_id2.to_owned()));
         assert!(sticky.is_invalidated());
         assert_eq!(request2.room_subscriptions.len(), 2);
 
@@ -993,7 +997,7 @@ mod tests {
         let txn_id: &TransactionId = "tid123".into();
         let mut request = v4::Request::default();
         request.txn_id = Some(txn_id.to_string());
-        sticky.maybe_apply(&mut request, txn_id);
+        sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
         assert!(sticky.is_invalidated());
         assert_eq!(request.extensions.to_device.enabled, None);
         assert_eq!(request.extensions.to_device.since, None);
@@ -1023,7 +1027,9 @@ mod tests {
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync.generate_sync_request(txn_id.clone()).await?;
+        let (request, _, _) = sync
+            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
+            .await?;
 
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
         assert_eq!(request.extensions.to_device.enabled, Some(true));
@@ -1041,7 +1047,9 @@ mod tests {
 
         // Regenerating a request will yield the same one.
         let txn_id2 = TransactionId::new();
-        let (request, _, _) = sync.generate_sync_request(txn_id2.clone()).await?;
+        let (request, _, _) = sync
+            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id2.to_owned()))
+            .await?;
 
         assert_eq!(request.extensions.e2ee.enabled, Some(true));
         assert_eq!(request.extensions.to_device.enabled, Some(true));
@@ -1059,7 +1067,9 @@ mod tests {
 
         // The next request should contain no sticky parameters.
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
+        let (request, _, _) = sync
+            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
+            .await?;
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
         assert!(request.extensions.to_device.since.is_none());
@@ -1071,7 +1081,9 @@ mod tests {
         sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
 
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync.generate_sync_request(txn_id).await?;
+        let (request, _, _) = sync
+            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
+            .await?;
 
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
@@ -1092,7 +1104,8 @@ mod tests {
             .await?;
 
         // First request asks to enable the extension.
-        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_some());
 
         let sync = sliding_sync.sync();
@@ -1129,7 +1142,8 @@ mod tests {
         assert_matches!(next, Some(Ok(_update_summary)));
 
         // Next request doesn't ask to enable the extension.
-        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_none());
 
         let next = sync.next().await;
@@ -1154,7 +1168,8 @@ mod tests {
         assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
 
         // Next request asks to enable the extension again.
-        let (request, _, _) = sliding_sync.generate_sync_request(TransactionId::new()).await?;
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_some());
 
         Ok(())
