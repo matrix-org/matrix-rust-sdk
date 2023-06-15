@@ -7,6 +7,40 @@
 
 use ruma::{OwnedTransactionId, TransactionId};
 
+/// An `OwnedTransactionId` that is either initialized at creation, or
+/// lazily-generated once.
+#[derive(Debug)]
+pub struct LazyTransactionId {
+    txn_id: Option<OwnedTransactionId>,
+}
+
+impl LazyTransactionId {
+    /// Create a new `LazyTransactionId`, not set.
+    pub fn new() -> Self {
+        Self { txn_id: None }
+    }
+
+    /// Get (or create it, if never set) a `TransactionId`.
+    pub fn get_or_create(&mut self) -> &TransactionId {
+        self.txn_id.get_or_insert_with(TransactionId::new)
+    }
+
+    /// Attempt to get the underlying `TransactionId` without creating it, if
+    /// missing.
+    pub fn get(&self) -> Option<&TransactionId> {
+        self.txn_id.as_deref()
+    }
+}
+
+#[cfg(test)]
+impl LazyTransactionId {
+    /// Create a `LazyTransactionId` for a given known transaction id. For
+    /// testing only.
+    pub fn from_owned(owned: OwnedTransactionId) -> Self {
+        Self { txn_id: Some(owned) }
+    }
+}
+
 /// A trait to implement for data that can be sticky, given a context.
 pub trait StickyData {
     /// Request type that will be applied to, if the sticky parameters have been
@@ -75,10 +109,10 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
     ///
     /// If no `txn_id` is provided, it will generate one that can be reused
     /// later.
-    pub fn maybe_apply(&mut self, req: &mut D::Request, txn_id: &mut Option<OwnedTransactionId>) {
+    pub fn maybe_apply(&mut self, req: &mut D::Request, txn_id: &mut LazyTransactionId) {
         if self.invalidated {
-            let txn_id = txn_id.get_or_insert_with(TransactionId::new);
-            self.txn_id = Some(txn_id.clone());
+            let txn_id = txn_id.get_or_create();
+            self.txn_id = Some(txn_id.to_owned());
             self.data.apply(req);
         }
     }
@@ -120,28 +154,28 @@ mod tests {
         assert!(sticky.is_invalidated());
 
         let mut applied = false;
-        let mut txn_id = None;
+        let mut txn_id = LazyTransactionId::new();
         sticky.maybe_apply(&mut applied, &mut txn_id);
         assert!(applied);
         assert!(sticky.is_invalidated());
-        assert!(txn_id.is_some(), "a transaction id was lazily generated");
+        assert!(txn_id.get().is_some(), "a transaction id was lazily generated");
 
         // Committing with the wrong transaction id won't commit.
         sticky.maybe_commit("tid456".into());
         assert!(sticky.is_invalidated());
 
         // Providing the correct transaction id will commit.
-        sticky.maybe_commit(txn_id.as_ref().unwrap());
+        sticky.maybe_commit(txn_id.get().unwrap());
         assert!(!sticky.is_invalidated());
 
         // Applying without being invalidated won't do anything, and not generate a
         // transaction id.
-        let mut txn_id = None;
+        let mut txn_id = LazyTransactionId::new();
         let mut applied = false;
         sticky.maybe_apply(&mut applied, &mut txn_id);
 
         assert!(!applied);
         assert!(!sticky.is_invalidated());
-        assert!(txn_id.is_none());
+        assert!(txn_id.get().is_none());
     }
 }
