@@ -1573,8 +1573,8 @@ async fn test_input_viewport() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [],
                     "timeline_limit": 20,
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "1",
@@ -1596,8 +1596,8 @@ async fn test_input_viewport() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[10, 15], [20, 25]],
                     "timeline_limit": 20,
-                }
-            }
+                },
+            },
         },
         respond with = {
             "pos": "1",
