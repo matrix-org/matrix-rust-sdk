@@ -1,5 +1,6 @@
 # v0.1.0-alpha.11
 
+-   Simplify the response type of `Sas.confirm()`.
 -   Add `VerificationRequest.registerChangesCallback()`,
     `Sas.registerChangesCallback()`, and `Qr.registerChangesCallback()`.
 -   Add `VerificationRequest.phase()` and `VerificationRequest.getVerification()`.

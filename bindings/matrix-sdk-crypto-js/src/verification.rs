@@ -249,8 +249,9 @@ impl Sas {
     /// This confirms that the short auth strings match on both sides.
     ///
     /// Does nothing if we’re not in a state where we can confirm the
-    /// short auth string, otherwise returns a `MacEventContent` that
-    /// needs to be sent to the server.
+    /// short auth string.
+    ///
+    /// Returns a `Promise` for an array of `OutgoingRequest`s.
     pub fn confirm(&self) -> Promise {
         let me = self.inner.clone();
 
@@ -262,17 +263,14 @@ impl Sas {
                 .map(JsValue::try_from)
                 .collect::<Result<Array, _>>()?;
 
-            let tuple = Array::new();
-            tuple.set(0, outgoing_verification_requests.into());
-            tuple.set(
-                1,
-                signature_upload_request
-                    .map(|request| requests::SignatureUploadRequest::try_from(&request))
-                    .transpose()?
-                    .into(),
-            );
+            // if a signature upload request was returned, push it onto the end of the array
+            // of OutgoingRequests we just built.
+            if let Some(sig_rq) = signature_upload_request {
+                outgoing_verification_requests
+                    .push(&requests::SignatureUploadRequest::try_from(&sig_rq)?.into());
+            }
 
-            Ok(tuple)
+            Ok(outgoing_verification_requests)
         })
     }
 
