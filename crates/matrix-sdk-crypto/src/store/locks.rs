@@ -71,7 +71,7 @@ impl CryptoStoreLock {
     ///   for, between two
     /// attempts. When that time is reached a second time, the lock will stop
     /// attempting to get the lock and will return a timeout error upon
-    /// locking. If not provided, will wait for [`Self::MAX_BACKOFF_MS`].
+    /// locking. If not provided, will wait for `Self::MAX_BACKOFF_MS`.
     pub fn new(
         store: Arc<DynCryptoStore>,
         lock_key: String,
@@ -137,7 +137,7 @@ impl CryptoStoreLock {
         }
     }
 
-    /// Release the lock taken previously with [`lock()`].
+    /// Release the lock taken previously with [`Self::lock()`].
     ///
     /// Will return an error if the lock wasn't taken.
     pub async fn unlock(&mut self) -> Result<(), CryptoStoreError> {
