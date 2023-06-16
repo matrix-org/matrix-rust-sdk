@@ -365,8 +365,8 @@ caching has been enabled before. In this case, during
 `.build()`[`SlidingSyncBuilder::build`] sliding sync will attempt to load their
 latest cached version from storage, as well as some overall information of
 Sliding Sync. If that succeeded the lists `state` has been set to
-[`Preloaded`][SlidingSyncState::Preloaded]. Only room data of rooms present in
-one of the lists is loaded from storage.
+[`Preloaded`][SlidingSyncListLoadingState::Preloaded]. Only room data of rooms
+present in one of the lists is loaded from storage.
 
 Any extension data will not be loaded from the cache, if added after Sliding
 Sync has been built: some extension data (like the to-device-message position)
@@ -448,7 +448,7 @@ let sliding_sync = sliding_sync_builder
 
 // subscribe to the list APIs for updates
 
-let (list_state_stream, list_count_stream, (_, list_stream)) = sliding_sync.on_list(&active_list_name, |list| {
+let ((_, list_state_stream), list_count_stream, (_, list_stream)) = sliding_sync.on_list(&active_list_name, |list| {
     ready((list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream()))
 }).await.unwrap();
 

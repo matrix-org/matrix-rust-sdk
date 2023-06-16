@@ -63,7 +63,7 @@
 mod room;
 mod state;
 
-use std::future::ready;
+use std::{future::ready, sync::Arc};
 
 use async_stream::stream;
 use eyeball::{shared::Observable, Subscriber};
@@ -73,7 +73,7 @@ use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode,
+    SlidingSyncListLoadingState, SlidingSyncMode,
 };
 pub use room::*;
 use ruma::{
@@ -86,7 +86,7 @@ use thiserror::Error;
 /// The [`RoomList`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomList {
-    sliding_sync: SlidingSync,
+    sliding_sync: Arc<SlidingSync>,
     state: Observable<State>,
 }
 
@@ -119,6 +119,7 @@ impl RoomList {
             )
             .build()
             .await
+            .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
         Ok(Self { sliding_sync, state: Observable::new(State::Init) })
@@ -214,6 +215,21 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
+    /// Get the entries loading state.
+    ///
+    /// It's a different state than [`State`]. It's also different than
+    /// [`Self::entries`] which subscribes to room entries updates.
+    ///
+    /// This method is used to subscribe to “loading state”
+    pub async fn entries_loading_state(
+        &self,
+    ) -> Result<(EntriesLoadingState, impl Stream<Item = EntriesLoadingState>), Error> {
+        self.sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.state_stream()))
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+    }
+
     /// Pass an [`Input`] onto the state machine.
     pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
         use Input::*;
@@ -243,7 +259,7 @@ impl RoomList {
     /// Get a [`Room`] if it exists.
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(room).await,
+            Some(room) => Room::new(self.sliding_sync.clone(), room).await,
             None => Err(Error::RoomNotFound(room_id.to_owned())),
         }
     }
@@ -287,6 +303,9 @@ pub enum Input {
     /// range of visible rooms in the room list.
     Viewport(Ranges),
 }
+
+/// Type alias for entries loading state.
+pub type EntriesLoadingState = SlidingSyncListLoadingState;
 
 #[cfg(test)]
 mod tests {

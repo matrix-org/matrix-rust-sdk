@@ -274,9 +274,6 @@ impl Deref for Store {
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
-    /// A user session, containing an access token and information about the
-    /// associated user account.
-    pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.

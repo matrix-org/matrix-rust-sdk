@@ -146,6 +146,11 @@ impl Room {
         self.inner.read().unwrap().members_synced
     }
 
+    /// Mark this Room as still missing member information.
+    pub fn mark_members_missing(&self) {
+        self.inner.write().unwrap().mark_members_missing()
+    }
+
     /// Check if the room states have been synced
     ///
     /// States might be missing if we have only seen the room_id of this Room
@@ -680,22 +685,22 @@ impl RoomInfo {
         self.members_synced = true;
     }
 
-    /// Mark this Room still missing member information.
+    /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    /// Mark this Room still missing some state information.
+    /// Mark this Room as still missing some state information.
     pub fn mark_state_partially_synced(&mut self) {
         self.sync_info = SyncInfo::PartiallySynced;
     }
 
-    /// Mark this Room still having all state synced.
+    /// Mark this Room as still having all state synced.
     pub fn mark_state_fully_synced(&mut self) {
         self.sync_info = SyncInfo::FullySynced;
     }
 
-    /// Mark this Room still having no state synced.
+    /// Mark this Room as still having no state synced.
     pub fn mark_state_not_synced(&mut self) {
         self.sync_info = SyncInfo::NoState;
     }
@@ -705,7 +710,7 @@ impl RoomInfo {
         self.encryption_state_synced = true;
     }
 
-    /// Mark this Room still missing encryption state information.
+    /// Mark this Room as still missing encryption state information.
     pub fn mark_encryption_state_missing(&mut self) {
         self.encryption_state_synced = false;
     }

@@ -33,8 +33,12 @@ use tracing::{error, info};
 use super::RUNTIME;
 use crate::{
     error::{ClientError, RoomError},
-    AudioInfo, FileInfo, ImageInfo, RoomMember, ThumbnailInfo, TimelineDiff, TimelineItem,
-    TimelineListener, VideoInfo,
+    room_member::RoomMember,
+    timeline::{
+        AudioInfo, FileInfo, ImageInfo, ThumbnailInfo, TimelineDiff, TimelineItem,
+        TimelineListener, VideoInfo,
+    },
+    TaskHandle,
 };
 
 #[derive(uniffi::Enum)]
@@ -223,7 +227,7 @@ impl Room {
     pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
-    ) -> Vec<Arc<TimelineItem>> {
+    ) -> RoomTimelineListenerResult {
         let timeline = self
             .timeline
             .write()
@@ -240,19 +244,24 @@ impl Room {
             let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
             let listener: Arc<dyn TimelineListener> = listener.into();
-            RUNTIME.spawn(timeline_stream.for_each(move |diff| {
-                let listener = listener.clone();
-                let fut = RUNTIME
-                    .spawn_blocking(move || listener.on_update(Arc::new(TimelineDiff::new(diff))));
+            let timeline_stream =
+                TaskHandle::new(RUNTIME.spawn(timeline_stream.for_each(move |diff| {
+                    let listener = listener.clone();
+                    let fut = RUNTIME.spawn_blocking(move || {
+                        listener.on_update(Arc::new(TimelineDiff::new(diff)))
+                    });
 
-                async move {
-                    if let Err(e) = fut.await {
-                        error!("Timeline listener error: {e}");
+                    async move {
+                        if let Err(e) = fut.await {
+                            error!("Timeline listener error: {e}");
+                        }
                     }
-                }
-            }));
+                })));
 
-            timeline_items.into_iter().map(TimelineItem::from_arc).collect()
+            RoomTimelineListenerResult {
+                items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+                items_stream: Arc::new(timeline_stream),
+            }
         })
     }
 
@@ -796,6 +805,36 @@ impl Room {
             }
         });
     }
+
+    pub fn get_timeline_event_content_by_event_id(
+        &self,
+        event_id: String,
+    ) -> Result<Arc<RoomMessageEventContent>, ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .unwrap()
+            .clone()
+            .context("Timeline not set up, can't get event content")?;
+
+        let event_id = EventId::parse(event_id)?;
+
+        RUNTIME.block_on(async move {
+            let item = timeline
+                .item_by_event_id(&event_id)
+                .await
+                .context("Item with given event ID not found")?;
+
+            let msgtype = item
+                .content()
+                .as_message()
+                .context("Item with given event ID is not a message")?
+                .msgtype()
+                .to_owned();
+
+            Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
+        })
+    }
 }
 
 impl Room {
@@ -841,6 +880,13 @@ impl Room {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct RoomTimelineListenerResult {
+    pub items: Vec<Arc<TimelineItem>>,
+    pub items_stream: Arc<TaskHandle>,
+}
+
+#[derive(uniffi::Enum)]
 pub enum PaginationOptions {
     SingleRequest { event_limit: u16, wait_for_token: bool },
     UntilNumItems { event_limit: u16, items: u16, wait_for_token: bool },

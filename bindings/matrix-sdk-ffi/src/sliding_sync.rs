@@ -3,27 +3,28 @@ use std::sync::{Arc, RwLock};
 use anyhow::Context;
 use eyeball_im::VectorDiff;
 use futures_util::{future::join3, pin_mut, StreamExt};
-pub use matrix_sdk::{
-    ruma::api::client::sync::sync_events::v4::SyncRequestListFilters, Client as MatrixClient,
-    LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncMode, SlidingSyncState,
-};
 use matrix_sdk::{
     ruma::{
         api::client::sync::sync_events::{
-            v4::RoomSubscription as RumaRoomSubscription,
+            v4::{RoomSubscription as RumaRoomSubscription, SyncRequestListFilters},
             UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
         assign, IdParseError, OwnedRoomId, RoomId,
     },
     sliding_sync::SlidingSyncSelectiveModeBuilder as MatrixSlidingSyncSelectiveModeBuilder,
+    LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
+    SlidingSyncListLoadingState, SlidingSyncMode,
 };
 use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
 use tracing::{error, warn};
 
 use crate::{
-    error::ClientError, helpers::unwrap_or_clone_arc, room::TimelineLock, Client,
-    EventTimelineItem, Room, TaskHandle, TimelineDiff, TimelineItem, TimelineListener, RUNTIME,
+    client::Client,
+    error::ClientError,
+    helpers::unwrap_or_clone_arc,
+    room::{Room, TimelineLock},
+    timeline::{EventTimelineItem, TimelineDiff, TimelineItem, TimelineListener},
+    TaskHandle, RUNTIME,
 };
 
 #[derive(uniffi::Object)]
@@ -247,6 +248,7 @@ pub struct SlidingSyncAddTimelineListenerResult {
     pub task_handle: Arc<TaskHandle>,
 }
 
+#[derive(uniffi::Record)]
 pub struct UpdateSummary {
     /// The lists (according to their name), which have seen an update
     pub lists: Vec<String>,
@@ -285,6 +287,7 @@ impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum SlidingSyncListRoomsListDiff {
     Append { values: Vec<RoomListEntry> },
     Insert { index: u32, value: RoomListEntry },
@@ -324,7 +327,8 @@ impl From<VectorDiff<MatrixRoomEntry>> for SlidingSyncListRoomsListDiff {
     }
 }
 
-#[derive(Clone, Debug)]
+// Used by `SlidingSync` _and_ `RoomList`. Be careful.
+#[derive(Clone, Debug, uniffi::Enum)]
 pub enum RoomListEntry {
     Empty,
     Invalidated { room_id: String },
@@ -349,20 +353,24 @@ impl From<&MatrixRoomEntry> for RoomListEntry {
     }
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncListRoomItemsObserver: Sync + Send {
     fn did_receive_update(&self);
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncListRoomListObserver: Sync + Send {
     fn did_receive_update(&self, diff: SlidingSyncListRoomsListDiff);
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncListRoomsCountObserver: Sync + Send {
     fn did_receive_update(&self, new_count: u32);
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncListStateObserver: Sync + Send {
-    fn did_receive_update(&self, new_state: SlidingSyncState);
+    fn did_receive_update(&self, new_state: SlidingSyncListLoadingState);
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -530,11 +538,12 @@ impl SlidingSyncListBuilder {
     }
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncListOnceBuilt: Sync + Send {
     fn update_list(&self, list: Arc<SlidingSyncList>) -> Arc<SlidingSyncList>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, uniffi::Object)]
 pub struct SlidingSyncList {
     inner: matrix_sdk::SlidingSyncList,
 }
@@ -551,7 +560,7 @@ impl SlidingSyncList {
         &self,
         observer: Box<dyn SlidingSyncListStateObserver>,
     ) -> Arc<TaskHandle> {
-        let mut state_stream = self.inner.state_stream();
+        let (_, mut state_stream) = self.inner.state_stream();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             loop {
@@ -625,6 +634,7 @@ impl SlidingSyncList {
     }
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SlidingSyncObserver: Sync + Send {
     fn did_receive_sync_update(&self, summary: UpdateSummary);
 }

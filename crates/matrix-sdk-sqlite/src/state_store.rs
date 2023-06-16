@@ -847,7 +847,6 @@ impl StateStore for SqliteStateStore {
             .with_transaction(move |txn| {
                 let StateChanges {
                     sync_token,
-                    session: _,
                     account_data,
                     presence,
                     profiles,
