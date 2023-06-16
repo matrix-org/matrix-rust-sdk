@@ -32,8 +32,17 @@ use tokio::time::sleep;
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
 
+/// Small state machine to handle wait times.
+#[derive(Clone, Debug)]
+enum WaitingTime {
+    /// Some time to wait, in milliseconds.
+    Some(u32),
+    /// Stop waiting when seeing this value.
+    Stop,
+}
+
 /// A store-based lock for the `CryptoStore`.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct CryptoStoreLock {
     /// The store we're using to lock.
     store: Arc<DynCryptoStore>,
@@ -45,7 +54,7 @@ pub struct CryptoStoreLock {
     lock_holder: String,
 
     /// Backoff time, in milliseconds.
-    backoff: u32,
+    backoff: WaitingTime,
 
     /// Maximum backoff time, between two attempts.
     max_backoff: u32,
@@ -79,7 +88,13 @@ impl CryptoStoreLock {
         max_backoff: Option<u32>,
     ) -> Self {
         let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
-        Self { store, lock_key, lock_holder, max_backoff, backoff: Self::INITIAL_BACKOFF_MS }
+        Self {
+            store,
+            lock_key,
+            lock_holder,
+            max_backoff,
+            backoff: WaitingTime::Some(Self::INITIAL_BACKOFF_MS),
+        }
     }
 
     /// Attempt to take the lock, with exponential backoff if the lock has
@@ -96,7 +111,7 @@ impl CryptoStoreLock {
 
             if inserted {
                 // Reset backoff before returning, for the next attempt to lock.
-                self.backoff = Self::INITIAL_BACKOFF_MS;
+                self.backoff = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
                 return Ok(());
             }
 
@@ -111,27 +126,26 @@ impl CryptoStoreLock {
                     self.lock_key,
                     self.lock_holder
                 );
-                self.backoff = Self::INITIAL_BACKOFF_MS;
+                self.backoff = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
                 return Ok(());
             }
 
+            let wait = match self.backoff {
+                WaitingTime::Some(val) => val,
+                WaitingTime::Stop => {
+                    // We've reached the maximum backoff, abandon.
+                    return Err(LockStoreError::LockTimeout.into());
+                }
+            };
+
             // Exponential backoff! Multiply by 2 the time we've waited before, cap it to
             // max_backoff.
-            let wait = self.backoff;
-
-            // If we've set the sentinel value before, that means this wait would be longer
-            // than the max backoff, so abort.
-            if wait == u32::MAX {
-                // We've reached the maximum backoff, abandon.
-                return Err(LockStoreError::LockTimeout.into());
-            }
-
-            self.backoff = self.backoff.saturating_mul(2);
-            if self.backoff >= self.max_backoff {
-                // Set the sentinel value that indicates that we should timeout, were we to wait
-                // more.
-                self.backoff = u32::MAX;
-            }
+            let next_value = wait.saturating_mul(2);
+            self.backoff = if next_value >= self.max_backoff {
+                WaitingTime::Stop
+            } else {
+                WaitingTime::Some(next_value)
+            };
 
             sleep(Duration::from_millis(wait.into())).await;
         }
