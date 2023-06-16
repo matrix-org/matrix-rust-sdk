@@ -768,6 +768,90 @@ macro_rules! cryptostore_integration_tests {
                 let loaded_2 = store.get_custom_value("B").await.unwrap();
                 assert_eq!(None, loaded_2);
             }
+
+            #[async_test]
+            async fn test_custom_value_insert_if_missing_remove() {
+                let (_account, store) = get_loaded_store("custom_value_insert_if_missing").await;
+
+                let val = "Hello".as_bytes().to_vec();
+
+                // Removing while the value wasn't present doesn't remove anything.
+                let removed = store.remove_custom_value("A").await.unwrap();
+                assert!(!removed);
+
+                // Inserting while the value wasn't present does something.
+                let inserted = store.insert_custom_value_if_missing("A", val.clone()).await.unwrap();
+                assert!(inserted);
+
+                let loaded = store.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, Some(val.clone()));
+
+                // Inserting while the value was present does nothing.
+                let inserted = store.insert_custom_value_if_missing("A", val.clone()).await.unwrap();
+                assert!(!inserted);
+
+                // …even if we try hard.
+                let inserted = store.insert_custom_value_if_missing("A", val.clone()).await.unwrap();
+                assert!(!inserted);
+
+                // Removing while the value was present does something.
+                let removed = store.remove_custom_value("A").await.unwrap();
+                assert!(removed);
+
+                let loaded = store.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, None);
+
+                // …only the first time.
+                let removed = store.remove_custom_value("A").await.unwrap();
+                assert!(!removed);
+            }
+
+            #[async_test]
+            async fn test_custom_value_multiple_stores() {
+                // Hey, have you heard about my second, mimic store?
+                let val1 = "Hello".as_bytes().to_vec();
+                let (_account, store1) = get_loaded_store("custom_value_multiple_stores").await;
+                let (_account, store2) = get_loaded_store("custom_value_multiple_stores").await;
+
+                // Store1 inserts...
+                let inserted = store1.insert_custom_value_if_missing("A", val1.clone()).await.unwrap();
+                assert!(inserted);
+
+                // Store2 can't!
+                let val2 = "Goodbye".as_bytes().to_vec();
+                let inserted = store2.insert_custom_value_if_missing("A", val2.clone()).await.unwrap();
+                assert!(!inserted);
+
+                // But when reading, both stores must agree.
+                let loaded = store1.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, Some(val1.clone()));
+
+                let loaded = store2.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, Some(val1.clone()));
+
+                // Clean up.
+                let removed = store1.remove_custom_value("A").await.unwrap();
+                assert!(removed);
+
+                let loaded = store1.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, None);
+
+                let loaded = store2.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, None);
+
+                // Now store2 can write, store1 can't, they agree on reading etc.
+                let inserted = store2.insert_custom_value_if_missing("A", val2.clone()).await.unwrap();
+                assert!(inserted);
+
+                let inserted = store1.insert_custom_value_if_missing("A", val1.clone()).await.unwrap();
+                assert!(!inserted);
+
+                let loaded = store1.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, Some(val2.clone()));
+
+                let loaded = store2.get_custom_value("A").await.unwrap();
+                assert_eq!(loaded, Some(val2.clone()));
+            }
         }
     };
 }

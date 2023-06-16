@@ -18,6 +18,7 @@ use ruma::{IdParseError, OwnedDeviceId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
+use super::locks::LockStoreError;
 use crate::olm::SessionCreationError;
 
 /// A `CryptoStore` specific result type.
@@ -78,6 +79,10 @@ pub enum CryptoStoreError {
     /// A problem with the underlying database backend
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An error due to locking.
+    #[error(transparent)]
+    Lock(#[from] LockStoreError),
 }
 
 impl CryptoStoreError {
