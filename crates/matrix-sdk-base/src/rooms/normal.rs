@@ -25,10 +25,15 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            member::RoomMemberEventContent, name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            create::RoomCreateEventContent,
+            encryption::RoomEncryptionEventContent,
+            guest_access::GuestAccess,
+            history_visibility::HistoryVisibility,
+            join_rules::JoinRule,
+            member::{MembershipState, RoomMemberEventContent},
+            name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent,
+            tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -85,6 +90,21 @@ pub enum RoomState {
     Left,
     /// The room is in a invited state.
     Invited,
+}
+
+impl From<&MembershipState> for RoomState {
+    fn from(membership_state: &MembershipState) -> Self {
+        // We consider Ban, Knock and Leave to be Left, because they all mean we are not
+        // in the room.
+        match membership_state {
+            MembershipState::Ban => Self::Left,
+            MembershipState::Invite => Self::Invited,
+            MembershipState::Join => Self::Joined,
+            MembershipState::Knock => Self::Left,
+            MembershipState::Leave => Self::Left,
+            _ => panic!("Unexpected MembershipState: {}", membership_state),
+        }
+    }
 }
 
 impl Room {
@@ -678,6 +698,11 @@ impl RoomInfo {
     /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
         self.room_state = RoomState::Invited;
+    }
+
+    /// Set the membership RoomState of this Room
+    pub fn set_state(&mut self, room_state: RoomState) {
+        self.room_state = room_state;
     }
 
     /// Mark this Room as having all the members synced.

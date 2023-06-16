@@ -20,6 +20,7 @@ use ruma::{
         v3::{self, InvitedRoom, RoomSummary},
         v4::{self, AccountData},
     },
+    events::AnySyncStateEvent,
     RoomId,
 };
 use tracing::{debug, info, instrument};
@@ -191,15 +192,30 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
+        let required_state = Self::deserialize_events(&room_data.required_state);
+
         // Find or create the room in the store
-        let (room, mut room_info, invited_room) =
-            self.process_sliding_sync_room_membership(room_data, store, room_id, changes).await;
+        let (room, mut room_info, invited_room) = self
+            .process_sliding_sync_room_membership(
+                room_data,
+                &required_state,
+                store,
+                room_id,
+                changes,
+            )
+            .await;
 
         room_info.mark_state_partially_synced();
 
-        let mut user_ids = if !room_data.required_state.is_empty() {
-            self.handle_state(&room_data.required_state, &mut room_info, changes, ambiguity_cache)
-                .await?
+        let mut user_ids = if !required_state.is_empty() {
+            self.handle_state(
+                &room_data.required_state,
+                &required_state,
+                &mut room_info,
+                changes,
+                ambiguity_cache,
+            )
+            .await?
         } else {
             Default::default()
         };
@@ -269,10 +285,12 @@ impl BaseClient {
     /// Look through the sliding sync data for this room, find/create it in the
     /// store, and process any invite information.
     /// If any invite_state exists, we take it to mean that we are invited to
-    /// this room https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
+    /// this room, unless that state contains membership events that specify
+    /// otherwise. https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
     async fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
+        required_state: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
         changes: &mut StateChanges,
@@ -285,13 +303,13 @@ impl BaseClient {
             // might not contain an m.room.member event, or they might set the
             // membership to something other than invite. This would be very
             // weird behaviour by the server, because invite_state is supposed
-            // to contain an m.room.member. Later, we will call
-            // handle_invited_state, which will reflect any information found in
-            // the real events inside invite_state, but we default to considering this room
-            // invited simply because invite_state exists. This is needed in the normal
-            // case, because the sliding sync server tries to send minimal
-            // state, meaning that we normally actually just receive {"type":
-            // "m.room.member"} with no content at all.
+            // to contain an m.room.member. We will call handle_invited_state, which will
+            // reflect any information found in the real events inside
+            // invite_state, but we default to considering this room invited
+            // simply because invite_state exists. This is needed in the normal
+            // case, because the sliding sync server tries to send minimal state,
+            // meaning that we normally actually just receive {"type": "m.room.member"} with
+            // no content at all.
             room_info.mark_as_invited();
 
             self.handle_invited_state(invite_state.as_slice(), &mut room_info, changes);
@@ -305,13 +323,42 @@ impl BaseClient {
             let room = store.get_or_create_room(room_id, RoomState::Joined).await;
             let mut room_info = room.clone_info();
 
-            // We default to considering this room joined if it's not an invite, but we
-            // expect to find a m.room.member event in the required_state, so
-            // this should get fixed to the real correct value when we call
-            // self.handle_state below.
+            // We default to considering this room joined if it's not an invite. If it's
+            // actually left (and we remembered to request membership events in
+            // our sync request), then we can find this out from the events in
+            // required_state by calling handle_own_room_membership.
             room_info.mark_as_joined();
 
+            // We don't need to do this in a v2 sync, because the membership of a room can
+            // be figured out by whether the room is in the "join", "leave" etc.
+            // property. In sliding sync we only have invite_state and
+            // required_state, so we must process required_state looking for
+            // relevant membership events.
+            self.handle_own_room_membership(required_state, &mut room_info).await;
+
             (room, room_info, None)
+        }
+    }
+
+    /// Find any m.room.member events that refer to the current user, and update
+    /// the state in room_info to reflect the "membership" property.
+    pub(crate) async fn handle_own_room_membership(
+        &self,
+        required_state: &[AnySyncStateEvent],
+        room_info: &mut RoomInfo,
+    ) {
+        for event in required_state {
+            if let AnySyncStateEvent::RoomMember(member) = &event {
+                // If this event updates the current user's membership, record that in the
+                // room_info.
+                if let Some(meta) = self.session_meta() {
+                    if member.sender() == meta.user_id
+                        && member.state_key() == meta.user_id.as_str()
+                    {
+                        room_info.set_state(member.membership().into());
+                    }
+                }
+            }
         }
     }
 }
@@ -345,9 +392,11 @@ mod test {
         device_id, event_id,
         events::{
             room::{
-                avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
+                avatar::RoomAvatarEventContent,
+                canonical_alias::RoomCanonicalAliasEventContent,
+                member::{MembershipState, RoomMemberEventContent},
             },
-            StateEventContent,
+            AnySyncStateEvent, StateEventContent,
         },
         mxc_uri, room_alias_id, room_id,
         serde::Raw,
@@ -412,10 +461,11 @@ mod test {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@w:e.uk");
 
         // When I send sliding sync response containing a room with a name
         let mut room = v4::SlidingSyncRoom::new();
-        set_room_invited(&mut room);
+        set_room_invited(&mut room, user_id);
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
@@ -423,6 +473,41 @@ mod test {
         // Then the room appears in the client with the expected name
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
+    }
+
+    #[async_test]
+    async fn can_be_reinvited_to_a_left_room() {
+        // See https://github.com/matrix-org/matrix-rust-sdk/issues/1834
+
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I join...
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_joined(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        // (sanity: state is join)
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        // And then leave...
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_left(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        // (sanity: state is left)
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+
+        // And then get invited back
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_invited(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room is in the invite state
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
     }
 
     #[async_test]
@@ -450,10 +535,11 @@ mod test {
         // Given a logged-in client
         let client = logged_in_client().await;
         let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
 
         // When I send sliding sync response containing an invited room
         let mut room = v4::SlidingSyncRoom::new();
-        set_room_invited(&mut room);
+        set_room_invited(&mut room, user_id);
         let response = response_with_room(room_id, room).await;
         let sync_resp =
             client.process_sliding_sync(&response).await.expect("Failed to process sync");
@@ -477,7 +563,7 @@ mod test {
 
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
-        set_room_invited(&mut room);
+        set_room_invited(&mut room, user_id);
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
@@ -499,7 +585,7 @@ mod test {
 
         // When I send sliding sync response containing an invited room with an avatar
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
-        set_room_invited(&mut room);
+        set_room_invited(&mut room, user_id);
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
@@ -556,7 +642,7 @@ mod test {
         room
     }
 
-    fn set_room_invited(room: &mut v4::SlidingSyncRoom) {
+    fn set_room_invited(room: &mut v4::SlidingSyncRoom, user_id: &UserId) {
         // MSC3575 shows an almost-empty event to indicate that we are invited to a
         // room. Just the type is supplied.
 
@@ -567,6 +653,22 @@ mod test {
         .cast();
 
         room.invite_state = Some(vec![evt]);
+
+        // We expect that there will also be an invite event in the required_state,
+        // assuming you've asked for this type of event.
+        room.required_state.push(make_membership_event(user_id, MembershipState::Invite));
+    }
+
+    fn set_room_joined(room: &mut v4::SlidingSyncRoom, user_id: &UserId) {
+        room.required_state.push(make_membership_event(user_id, MembershipState::Join));
+    }
+
+    fn set_room_left(room: &mut v4::SlidingSyncRoom, user_id: &UserId) {
+        room.required_state.push(make_membership_event(user_id, MembershipState::Leave));
+    }
+
+    fn make_membership_event(user_id: &UserId, state: MembershipState) -> Raw<AnySyncStateEvent> {
+        make_state_event(user_id, user_id.as_str(), RoomMemberEventContent::new(state), None)
     }
 
     fn make_state_event<C: StateEventContent, E>(
