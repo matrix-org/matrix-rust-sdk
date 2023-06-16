@@ -386,6 +386,20 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 /// Value: The group of reactions.
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
+pub trait BundledReactionsExt {
+    fn group(&self, key: &str) -> Option<&ReactionGroup>;
+}
+
+impl BundledReactionsExt for BundledReactions {
+    /// Get a reaction group by it's key
+    fn group(&self, key: &str) -> Option<&ReactionGroup> {
+        self.iter().find_map(|(k, v)| match k == key {
+            true => Some(v),
+            false => None,
+        })
+    }
+}
+
 // The long type after a long visibility specified trips up rustfmt currently.
 // This works around. Report: https://github.com/rust-lang/rustfmt/issues/5703
 type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
@@ -401,6 +415,25 @@ impl ReactionGroup {
     /// The senders of the reactions in this group.
     pub fn senders(&self) -> impl Iterator<Item = &UserId> {
         self.values().map(AsRef::as_ref)
+    }
+
+    /// All reactions within this reaction group that were sent by the given user
+    /// Note that it is possible for a user to have sent multiple reactions with the same key
+    pub fn by_sender(
+        &self,
+        user_id: OwnedUserId,
+    ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> {
+        self.as_refs().filter_map(move |(k, v)| match v == &user_id {
+            true => Some(k),
+            false => None,
+        })
+    }
+
+    pub fn as_refs(
+        &self,
+    ) -> impl Iterator<Item = ((Option<&OwnedTransactionId>, Option<&OwnedEventId>), &OwnedUserId)>
+    {
+        self.iter().map(|(k, v)| ((k.0.as_ref(), k.1.as_ref()), v))
     }
 }
 

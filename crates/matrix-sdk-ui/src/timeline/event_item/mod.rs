@@ -29,9 +29,9 @@ mod local;
 mod remote;
 
 pub use self::content::{
-    AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
-    MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
-    RoomMembershipChange, Sticker, TimelineItemContent,
+    AnyOtherFullStateEventContent, BundledReactions, BundledReactionsExt, EncryptedMessage,
+    InReplyToDetails, MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup,
+    RepliedToEvent, RoomMembershipChange, Sticker, TimelineItemContent,
 };
 pub(super) use self::{
     local::LocalEventTimelineItem,

@@ -35,11 +35,13 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     assign,
     events::{
+        reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
-        room::message::sanitize::HtmlSanitizerMode,
+        relation::Annotation,
+        room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, warn};
@@ -60,9 +62,12 @@ mod traits;
 mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;
-use self::inner::{TimelineInner, TimelineInnerState};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
+use self::{
+    event_item::BundledReactionsExt,
+    inner::{TimelineInner, TimelineInnerState},
+};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -331,6 +336,67 @@ impl Timeline {
         self.inner.update_event_send_state(&txn_id, send_state).await;
     }
 
+    /// Toggle a reaction on an event
+    ///
+    /// TODO: Currently does not debounce, so if you spam this function it will
+    ///  spam the homeserver with requests and the result may be unpredictable.
+    ///  In future, we may use the message queue to help with this.
+    ///  - See https://github.com/matrix-org/matrix-rust-sdk/issues/1194
+    ///
+    ///  When redacting an event, the redaction reason is not sent.
+    pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
+        let txn_id = TransactionId::new();
+        let Room::Joined(room) = Room::from(self.room().clone()) else {
+            return Err(Error::RoomNotJoined);
+        };
+
+        // Check if the reaction already exists
+        let event = self
+            .item_by_event_id(&annotation.event_id)
+            .await
+            .ok_or(Error::FailedTogglingReaction)?;
+
+        let key = &annotation.key;
+        let user_id = self.user_id()?;
+        let user_reactions = event.reactions().group(key).map(|group| group.by_sender(user_id));
+
+        let to_redact: Option<&OwnedEventId> = match user_reactions {
+            Some(mut r) => {
+                // FIXME: Handle multiple reactions from the same user
+                r.find_map(|(_txid, event_id)| event_id)
+            }
+            None => None,
+        };
+
+        match to_redact {
+            Some(event_id) => {
+                // Don't send a reason for redacting a reaction
+                let no_reason = RoomRedactionEventContent::default();
+                self.inner
+                    .handle_local_redaction_event(
+                        txn_id.clone(),
+                        event_id.to_owned(),
+                        no_reason.clone(),
+                    )
+                    .await;
+                room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
+                    .await
+                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction)?;
+            }
+            None => {
+                let event_content = AnyMessageLikeEventContent::Reaction(
+                    ReactionEventContent::from(annotation.clone()),
+                );
+                self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;
+                room.send(event_content, Some(&txn_id))
+                    .await
+                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction)?;
+            }
+        };
+
+        Ok(())
+    }
+
     /// Sends an attachment to the room. It does not currently support local
     /// echoes
     ///
@@ -581,6 +647,12 @@ impl Timeline {
 
         room.send_multiple_receipts(receipts).await
     }
+
+    fn user_id(&self) -> Result<OwnedUserId, Error> {
+        let client = self.room().client();
+        let user_id = client.user_id().ok_or(Error::UserIdNotAvailable)?;
+        Ok((*user_id).to_owned())
+    }
 }
 
 #[derive(Debug)]
@@ -755,9 +827,17 @@ pub enum Error {
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 
+    /// The reaction could not be toggled
+    #[error("Failed toggling reaction")]
+    FailedTogglingReaction,
+
     /// The room is not in a joined state.
     #[error("Room is not joined")]
     RoomNotJoined,
+
+    /// Could not get user
+    #[error("User ID is not available")]
+    UserIdNotAvailable,
 }
 
 /// Result of comparing events position in the timeline.

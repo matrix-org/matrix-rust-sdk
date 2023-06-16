@@ -77,7 +77,7 @@ pub(super) struct TimelineEventMetadata {
     pub(super) is_highlighted: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
     Message {
         content: AnyMessageLikeEventContent,

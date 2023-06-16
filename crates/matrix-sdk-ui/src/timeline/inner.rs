@@ -39,6 +39,7 @@ use ruma::{
         fully_read::FullyReadEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
+        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
@@ -260,6 +261,37 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let flow = Flow::Local { txn_id };
         let kind = TimelineEventKind::Message { content, relations: Default::default() };
+
+        let mut state = self.state.lock().await;
+        TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
+            .handle_event(kind);
+    }
+
+    /// Handle the local redaction of an event.
+    #[instrument(skip_all)]
+    pub(super) async fn handle_local_redaction_event(
+        &self,
+        txn_id: OwnedTransactionId,
+        redacts: OwnedEventId,
+        content: RoomRedactionEventContent,
+    ) {
+        // TODO: Refactor duplication with `handle_local_event`.
+        let sender = self.room_data_provider.own_user_id().to_owned();
+        let sender_profile = self.room_data_provider.profile(&sender).await;
+        let event_meta = TimelineEventMetadata {
+            sender,
+            sender_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            is_own_event: true,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+            read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
+        };
+
+        let flow = Flow::Local { txn_id };
+        let kind = TimelineEventKind::Redaction { redacts, content };
 
         let mut state = self.state.lock().await;
         TimelineEventHandler::new(event_meta, flow, &mut state, self.track_read_receipts)
