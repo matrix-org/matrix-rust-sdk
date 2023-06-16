@@ -1004,11 +1004,7 @@ impl VerificationRequest {
         // fire up a promise chain which will call `callback` on each result from the
         // stream
         spawn_local(async move {
-            // take a reference to `callback` (which we then pass into the closure), to stop
-            // the callback being moved into the closure (which would mean we could only
-            // call the closure once)
-            let callback_ref = &callback;
-            stream.for_each(|_| send_change_info_to_callback(callback_ref)).await;
+            stream.for_each(|_| send_change_info_to_callback(&callback)).await;
         });
     }
 
