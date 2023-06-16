@@ -135,8 +135,8 @@ impl SlidingSync {
 
     /// Subscribe to a given room.
     ///
-    /// If the associated [`Room`] exists, it will be marked as members are
-    /// missing, so that it ensures to re-fetch all members.
+    /// If the associated `Room` exists, it will be marked as
+    /// members are missing, so that it ensures to re-fetch all members.
     pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
         if let Some(room) = self.inner.client.get_room(&room_id) {
             room.mark_members_missing();
