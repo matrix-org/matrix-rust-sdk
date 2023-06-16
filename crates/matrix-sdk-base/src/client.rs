@@ -28,8 +28,6 @@ use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
-use once_cell::sync::OnceCell;
-#[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::{
         history_visibility::HistoryVisibility, message::MessageType,
@@ -54,6 +52,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tokio::sync::RwLock;
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
@@ -88,7 +88,7 @@ pub struct BaseClient {
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
-    olm_machine: OnceCell<OlmMachine>,
+    olm_machine: Arc<RwLock<Option<OlmMachine>>>,
     pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
 }
 
@@ -244,9 +244,7 @@ impl BaseClient {
             .await
             .map_err(OlmError::from)?;
 
-            if self.olm_machine.set(olm_machine).is_err() {
-                return Err(Error::BadCryptoStoreState);
-            }
+            *self.olm_machine.write().await = Some(olm_machine);
         }
 
         Ok(())
@@ -264,7 +262,7 @@ impl BaseClient {
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
-        if let Some(olm) = self.olm_machine() {
+        if let Some(olm) = self.olm_machine().await.as_ref() {
             olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
                 .await?;
         }
@@ -278,7 +276,8 @@ impl BaseClient {
         event: &Raw<AnySyncTimelineEvent>,
         room_id: &RoomId,
     ) -> Result<Option<SyncTimelineEvent>> {
-        let Some(olm) = self.olm_machine() else { return Ok(None) };
+        let olm = self.olm_machine().await;
+        let Some(olm) = olm.as_ref() else { return Ok(None) };
 
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id).await?.into();
@@ -604,7 +603,7 @@ impl BaseClient {
         one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
-        if let Some(o) = self.olm_machine() {
+        if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
             // decrypts to-device events, but leaves room events alone.
             // This makes sure that we have the decryption keys for the room
@@ -770,7 +769,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     if !room.is_encrypted() {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
@@ -990,7 +989,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
@@ -1062,7 +1061,7 @@ impl BaseClient {
     /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
-        match self.olm_machine() {
+        match self.olm_machine().await.as_ref() {
             Some(o) => {
                 let (history_visibility, settings) = self
                     .get_room(room_id)
@@ -1099,8 +1098,8 @@ impl BaseClient {
 
     /// Get the olm machine.
     #[cfg(feature = "e2e-encryption")]
-    pub fn olm_machine(&self) -> Option<&OlmMachine> {
-        self.olm_machine.get()
+    pub async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
+        self.olm_machine.read().await
     }
 
     /// Get the push rules.
