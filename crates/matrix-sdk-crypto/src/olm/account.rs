@@ -278,14 +278,13 @@ impl Account {
                     // The message was intended for this session, but we weren't able to decrypt it.
                     //
                     // We're going to return early here since no other session will be able to
-                    // decrypt this message, nor should we try to create a new one since we already
-                    // created a `Session` with such a pre-key message.
+                    // decrypt this message, nor should we try to create a new one since we had
+                    // already previously created a `Session` with such a pre-key message.
                     //
-                    // Creating a new session will likely fail since the one-time key that should be
-                    // used to establish the session will be used up.
-                    //
-                    // The one exception where creating a new session won't fail is if a fallback
-                    // key was used for this `Session`.
+                    // Creating this session would have likely failed anyway since the corresponding
+                    // one-time key would've been already used up in the previous session creation
+                    // operation. The one exception where this would not be so is if the fallback
+                    // key was used for creating the session in lieu of an OTK.
                     return Err(OlmError::SessionWedged(
                         session.user_id.to_owned(),
                         session.sender_key(),
