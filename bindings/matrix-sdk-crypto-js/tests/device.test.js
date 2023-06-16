@@ -220,18 +220,8 @@ describe("Key Verification", () => {
             // add an onChange listener so we can check it is called at the right times
             verificationRequest1.registerChangesCallback(verificationRequest1ChangesCallback);
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][
-                        deviceId2.toString()
-                    ],
-                },
-            ];
-
             // Let's send the verification request to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             flowId = verificationRequest1.flowId;
         });
@@ -278,20 +268,10 @@ describe("Key Verification", () => {
             // The request verification is ready.
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.ready");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                        deviceId1.toString()
-                    ],
-                },
-            ];
-
             expect(verificationRequest1ChangesCallback).not.toHaveBeenCalled();
 
             // Let's send the verification ready to `m1`.
-            await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
         });
 
         test("verification requests are synchronized and automatically updated", () => {
@@ -350,18 +330,8 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.start");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                        deviceId1.toString()
-                    ],
-                },
-            ];
-
             // Let's send the SAS start to `m1`.
-            await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
         });
 
         // SAS verification for the second machine.
@@ -412,21 +382,11 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.accept");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][
-                        deviceId2.toString()
-                    ],
-                },
-            ];
-
             // The changes callback should not yet have been called
             expect(sas1ChangesCallback).not.toHaveBeenCalled();
 
             // Let's send the SAS accept to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             // ... which should trigger the changes callback
             expect(sas1ChangesCallback).toHaveBeenCalledTimes(1);
@@ -446,16 +406,8 @@ describe("Key Verification", () => {
             expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
             expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.key");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId2.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: JSON.parse(toDeviceRequest.body).messages[userId1.toString()][deviceId1.toString()],
-                },
-            ];
-
             // Let's send the SAS key to `m1`.
-            await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId2, m1, toDeviceRequest);
             m2.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
 
             // ... which should trigger the changes callback
@@ -470,16 +422,8 @@ describe("Key Verification", () => {
             expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
             expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.key");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: JSON.parse(toDeviceRequest.body).messages[userId2.toString()][deviceId2.toString()],
-                },
-            ];
-
             // Let's send te SAS key to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId1, m2, toDeviceRequest);
 
             m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
         });
@@ -546,18 +490,8 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.mac");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][
-                        deviceId2.toString()
-                    ],
-                },
-            ];
-
-            // Let's send te SAS confirmation to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            // Let's send the SAS confirmation to `m2`.
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
         });
 
         test("can confirm back keys match (`m.key.verification.done`)", async () => {
@@ -574,18 +508,8 @@ describe("Key Verification", () => {
                 expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
                 expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.mac");
 
-                const toDeviceEvents = [
-                    {
-                        sender: userId2.toString(),
-                        type: outgoingVerificationRequest.event_type,
-                        content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                            deviceId1.toString()
-                        ],
-                    },
-                ];
-
-                // Let's send te SAS confirmation to `m1`.
-                await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+                // Let's send the SAS confirmation to `m1`.
+                await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
             }
 
             // `.done`
@@ -595,18 +519,8 @@ describe("Key Verification", () => {
                 expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
                 expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.done");
 
-                const toDeviceEvents = [
-                    {
-                        sender: userId2.toString(),
-                        type: outgoingVerificationRequest.event_type,
-                        content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                            deviceId1.toString()
-                        ],
-                    },
-                ];
-
-                // Let's send te SAS done to `m1`.
-                await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+                // Let's send the SAS done to `m1`.
+                await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
             }
         });
 
@@ -619,16 +533,8 @@ describe("Key Verification", () => {
             expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
             expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.done");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: toDeviceRequest.event_type,
-                    content: JSON.parse(toDeviceRequest.body).messages[userId2.toString()][deviceId2.toString()],
-                },
-            ];
-
-            // Let's send te SAS key to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            // Let's send the SAS key to `m2`.
+            await forwardToDeviceMessage(userId1, m2, toDeviceRequest);
 
             m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
         });
@@ -712,18 +618,8 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.request");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][
-                        deviceId2.toString()
-                    ],
-                },
-            ];
-
             // Let's send the verification request to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             flowId = verificationRequest1.flowId;
         });
@@ -772,18 +668,8 @@ describe("Key Verification", () => {
             // The request verification is ready.
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.ready");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                        deviceId1.toString()
-                    ],
-                },
-            ];
-
             // Let's send the verification ready to `m1`.
-            await m1.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
         });
 
         test("verification requests are synchronized and automatically updated", () => {
@@ -948,21 +834,11 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.start");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId1.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId2.toString()][
-                        deviceId2.toString()
-                    ],
-                },
-            ];
-
             // qr2's changes callback should not yet have been called
             expect(qr2ChangesCallback).not.toHaveBeenCalled();
 
             // Let's send the verification request to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             // ... which should trigger its changes callback
             expect(qr2ChangesCallback).toHaveBeenCalledTimes(1);
@@ -978,18 +854,8 @@ describe("Key Verification", () => {
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.done");
 
-            const toDeviceEvents = [
-                {
-                    sender: userId2.toString(),
-                    type: outgoingVerificationRequest.event_type,
-                    content: JSON.parse(outgoingVerificationRequest.body).messages[userId1.toString()][
-                        deviceId1.toString()
-                    ],
-                },
-            ];
-
-            // Let's send the verification request to `m2`.
-            await m2.receiveSyncChanges(JSON.stringify(toDeviceEvents), new DeviceLists(), new Map(), new Set());
+            // Let's send the confirmation to `m1`.
+            await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
         });
 
         test("can confirm QR code has been confirmed", () => {
@@ -1006,3 +872,36 @@ describe("VerificationMethod", () => {
         expect(VerificationMethod.ReciprocateV1).toStrictEqual(3);
     });
 });
+
+/**
+ * Forward an outgoing to-device message returned by one OlmMachine into another OlmMachine.
+ */
+async function forwardToDeviceMessage(sendingUser, recipientMachine, outgoingVerificationRequest) {
+    expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+    await sendToDeviceMessageIntoMachine(
+        sendingUser,
+        outgoingVerificationRequest.event_type,
+        JSON.parse(outgoingVerificationRequest.body).messages[recipientMachine.userId.toString()][
+            recipientMachine.deviceId.toString()
+        ],
+        recipientMachine,
+    );
+}
+
+/**
+ * Send a to-device message into an OlmMachine.
+ */
+async function sendToDeviceMessageIntoMachine(sendingUser, eventType, content, recipientMachine) {
+    await recipientMachine.receiveSyncChanges(
+        JSON.stringify([
+            {
+                sender: sendingUser.toString(),
+                type: eventType,
+                content: content,
+            },
+        ]),
+        new DeviceLists(),
+        new Map(),
+        undefined,
+    );
+}
