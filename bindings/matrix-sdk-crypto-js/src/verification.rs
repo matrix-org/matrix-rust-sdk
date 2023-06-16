@@ -1011,7 +1011,7 @@ impl VerificationRequest {
             stream.for_each(|_| send_change_info_to_callback(callback_ref)).await;
         });
     }
-      
+
     /// Has the verification flow that was started with this request
     /// been cancelled?
     #[wasm_bindgen(js_name = "isCancelled")]

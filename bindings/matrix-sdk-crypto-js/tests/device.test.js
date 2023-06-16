@@ -402,7 +402,7 @@ describe("Key Verification", () => {
             const sas1Again = await verificationRequest1.getVerification();
             expect(sas1Again).toBeInstanceOf(Sas);
             expect(sas1Again.flowId).toStrictEqual(flowId);
-          
+
             // add an onChange listener so we can check it is called at the right times
             sas1.registerChangesCallback(sas1ChangesCallback);
 
