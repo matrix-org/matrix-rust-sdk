@@ -344,7 +344,7 @@ impl SessionManager {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(
                     f,
-                    "session_id: {}, algorithm: {}, fallback_key_used {}",
+                    "session_id: {}, algorithm: {}, fallback_key_used: {}",
                     self.session_id, self.algorithm, self.fallback_key_used
                 )
             }
