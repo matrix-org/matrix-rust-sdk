@@ -259,8 +259,8 @@ impl Client {
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub(crate) async fn authentication_issuer(&self) -> Option<String> {
-        self.inner.authentication_issuer().await
+    pub(crate) fn authentication_issuer(&self) -> Option<String> {
+        self.inner.authentication_server_info().map(|i| i.issuer.clone())
     }
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when

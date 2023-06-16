@@ -15,6 +15,8 @@
 - Add `Client::subscribe_to_room_updates` and `room::Common::subscribe_to_updates`
 - `Client::rooms` now returns all rooms, even invited, as advertised.
 - Add `Client::rooms_filtered`
+- Replace `Client::authentication_issuer` with `Client::authentication_server_info` that contains
+  all the fields discovered from the homeserver for authenticating with OIDC
 
 # 0.6.2
 

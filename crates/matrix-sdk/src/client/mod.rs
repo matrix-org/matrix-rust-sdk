@@ -43,6 +43,7 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
+                discover_homeserver::AuthenticationServerInfo,
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
@@ -140,8 +141,8 @@ pub struct Client {
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
-    /// The OIDC Provider that is trusted by the homeserver.
-    authentication_issuer: Option<RwLock<String>>,
+    /// The authentication server info discovered from the homeserver.
+    authentication_server_info: Option<AuthenticationServerInfo>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
@@ -330,10 +331,16 @@ impl Client {
         self.inner.homeserver.read().await.clone()
     }
 
-    /// The OIDC Provider that is trusted by the homeserver.
-    pub async fn authentication_issuer(&self) -> Option<String> {
-        let server = self.inner.authentication_issuer.as_ref()?;
-        Some(server.read().await.clone())
+    /// The authentication server info discovered from the homeserver.
+    ///
+    /// This will only be set if the homeserver supports authenticating via
+    /// OpenID Connect ([MSC3861]) and this `Client` was constructed using
+    /// auto-discovery by setting the homeserver with
+    /// [`ClientBuilder::server_name()`].
+    ///
+    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
+    pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
+        self.inner.authentication_server_info.as_ref()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
