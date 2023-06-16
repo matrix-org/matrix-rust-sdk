@@ -99,6 +99,8 @@ impl RoomList {
         let sliding_sync = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
+            .enable_caching()
+            .map_err(Error::SlidingSync)?
             .with_common_extensions()
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
