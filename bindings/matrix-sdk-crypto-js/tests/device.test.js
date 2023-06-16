@@ -18,12 +18,9 @@ const {
     VerificationRequest,
     ToDeviceRequest,
     DeviceLists,
-    KeysUploadRequest,
     RequestType,
-    KeysQueryRequest,
     Sas,
     Emoji,
-    SigningKeysUploadRequest,
     SignatureUploadRequest,
     Qr,
     QrCode,
@@ -549,6 +546,149 @@ describe("Key Verification", () => {
             expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Done);
             expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Done);
         });
+    });
+
+    it("can verify via SAS without an m.key.verification.request", async () => {
+        // jumping straight to the verification.start was deprecated by MSC3122, but is still supported by the
+        // crypto SDK.
+        const m1 = await machine(userId1, deviceId1);
+        const m2 = await machine(userId2, deviceId2);
+
+        // Make `m1` and `m2` be aware of each other.
+        await addMachineToMachine(m2, m1);
+        await addMachineToMachine(m1, m2);
+
+        // Pick the device we want to start the verification with.
+        const device2 = await m1.getDevice(userId2, deviceId2);
+
+        expect(device2).toBeInstanceOf(Device);
+
+        // Request a verification from `m1` to `device2`.
+        let [verificationRequest1, outgoingVerificationRequest] = await device2.requestVerification();
+
+        expect(verificationRequest1).toBeInstanceOf(VerificationRequest);
+        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+        expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.request");
+        const flowId = verificationRequest1.flowId;
+
+        // since we are testing the pre-MSC3122 behaviour here, we *don't* send the .request onto m2. Instead we
+        // spoof back a `.ready`.
+        await m1.receiveSyncChanges(
+            JSON.stringify([
+                {
+                    sender: userId2.toString(),
+                    type: "m.key.verification.ready",
+                    content: {
+                        from_device: deviceId2.toString(),
+                        transaction_id: flowId,
+                        methods: ["m.sas.v1"],
+                    },
+                },
+            ]),
+            new DeviceLists(),
+            new Map(),
+        );
+
+        // m1 now starts the SAS flow.
+        let sas1;
+        [sas1, outgoingVerificationRequest] = await verificationRequest1.startSas();
+        expect(sas1).toBeInstanceOf(Sas);
+        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+        expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.start");
+        expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Transitioned);
+
+        // and we send the .start to m2.
+        await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
+
+        // ... which should spring straight into life as a Verification.
+        const sas2 = m2.getVerification(userId1, flowId);
+        expect(sas2).toBeInstanceOf(Sas);
+
+        // ... which we accept
+        outgoingVerificationRequest = sas2.accept();
+
+        expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+        expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.accept");
+        await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
+
+        // m1 sends a .key
+        {
+            const outgoingRequests = await m1.outgoingRequests();
+            const toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
+
+            expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
+            expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.key");
+
+            // Forward the SAS key to `m2`.
+            await forwardToDeviceMessage(userId1, m2, toDeviceRequest);
+            m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
+        }
+
+        // so does m2
+        {
+            const outgoingRequests = await m2.outgoingRequests();
+            const toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
+
+            expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
+            expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.key");
+
+            // Forward the SAS key to `m1`.
+            await forwardToDeviceMessage(userId2, m1, toDeviceRequest);
+            m2.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
+        }
+
+        // and m1 now confirms.
+        {
+            const outgoingVerificationRequests = await sas1.confirm();
+            // there should be a single ToDeviceRequest, and no SignatureUploadRequest.
+            expect(outgoingVerificationRequests).toHaveLength(1);
+
+            const outgoingVerificationRequest = outgoingVerificationRequests[0];
+
+            expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+            expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.mac");
+
+            // Forward the SAS confirmation to `m2`.
+            await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
+        }
+
+        // so does m2
+        {
+            const outgoingVerificationRequests = await sas2.confirm();
+
+            // there should be a m.key.verification.mac and a SignatureUploadRequest
+            expect(outgoingVerificationRequests).toHaveLength(2);
+
+            // `.mac`
+            {
+                const outgoingVerificationRequest = outgoingVerificationRequests[0];
+
+                expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
+                expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.mac");
+                // Forward the SAS confirmation to `m1`
+                await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
+            }
+
+            {
+                const outgoingVerificationRequest = outgoingVerificationRequests[1];
+
+                expect(outgoingVerificationRequest).toBeInstanceOf(SignatureUploadRequest);
+                const signatureUploadRequestBody = JSON.parse(outgoingVerificationRequest.body);
+
+                const user1masterKey = Object.values(JSON.parse((await m1.getIdentity(userId1)).masterKey).keys)[0];
+                const signature = signatureUploadRequestBody[userId1.toString()][user1masterKey];
+                expect(signature).toBeDefined();
+            }
+        }
+
+        // m1 is now done
+        {
+            const outgoingRequests = await m1.outgoingRequests();
+            const toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
+
+            expect(toDeviceRequest).toBeInstanceOf(ToDeviceRequest);
+            expect(toDeviceRequest.event_type).toStrictEqual("m.key.verification.done");
+        }
     });
 
     describe("QR Code", () => {
