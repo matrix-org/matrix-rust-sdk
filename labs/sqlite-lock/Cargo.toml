@@ -1,0 +1,15 @@
+[package]
+name = "sqlite-lock"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+matrix-sdk-sqlite = { path = "../../crates/matrix-sdk-sqlite", features = ["crypto-store"] }
+matrix-sdk-crypto = { path = "../../crates/matrix-sdk-crypto" }
+nix = "0.26.2"
+anyhow.workspace = true
+speedy = "0.8.6"
+futures = "0.3.28"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }

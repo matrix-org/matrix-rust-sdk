@@ -77,7 +77,9 @@ use matrix_sdk::{
 };
 pub use room::*;
 use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    api::client::sync::sync_events::v4::SyncRequestListFilters,
+    assign,
+    events::{StateEventType, TimelineEventType},
     OwnedRoomId, RoomId,
 };
 pub use state::*;
@@ -99,6 +101,8 @@ impl RoomList {
         let sliding_sync = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
+            .enable_caching()
+            .map_err(Error::SlidingSync)?
             .with_common_extensions()
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
@@ -115,7 +119,12 @@ impl RoomList {
                         is_invite: Some(false),
                         is_tombstoned: Some(false),
                         not_room_types: vec!["m.space".to_owned()],
-                    }))),
+                    })))
+                    .bump_event_types(&[
+                        TimelineEventType::RoomMessage,
+                        TimelineEventType::RoomEncrypted,
+                        TimelineEventType::Sticker,
+                    ]),
             )
             .build()
             .await
@@ -228,6 +237,19 @@ impl RoomList {
             .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.state_stream()))
             .await
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+    }
+
+    /// Get all previous invites, in addition to a [`Stream`] to invites.
+    ///
+    /// Invites are taking the form of `RoomListEntry`, it's like a “sub” room
+    /// list.
+    pub async fn invites(
+        &self,
+    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
+        self.sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| ready(list.room_list_stream()))
+            .await
+            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))
     }
 
     /// Pass an [`Input`] onto the state machine.

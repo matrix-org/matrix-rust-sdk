@@ -80,6 +80,7 @@ use crate::{
 
 pub mod caches;
 mod error;
+pub mod locks;
 mod memorystore;
 mod traits;
 

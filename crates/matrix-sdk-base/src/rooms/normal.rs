@@ -25,10 +25,15 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            member::RoomMemberEventContent, name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            create::RoomCreateEventContent,
+            encryption::RoomEncryptionEventContent,
+            guest_access::GuestAccess,
+            history_visibility::HistoryVisibility,
+            join_rules::JoinRule,
+            member::{MembershipState, RoomMemberEventContent},
+            name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent,
+            tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -85,6 +90,21 @@ pub enum RoomState {
     Left,
     /// The room is in a invited state.
     Invited,
+}
+
+impl From<&MembershipState> for RoomState {
+    fn from(membership_state: &MembershipState) -> Self {
+        // We consider Ban, Knock and Leave to be Left, because they all mean we are not
+        // in the room.
+        match membership_state {
+            MembershipState::Ban => Self::Left,
+            MembershipState::Invite => Self::Invited,
+            MembershipState::Join => Self::Joined,
+            MembershipState::Knock => Self::Left,
+            MembershipState::Leave => Self::Left,
+            _ => panic!("Unexpected MembershipState: {}", membership_state),
+        }
+    }
 }
 
 impl Room {
@@ -144,6 +164,11 @@ impl Room {
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
         self.inner.read().unwrap().members_synced
+    }
+
+    /// Mark this Room as still missing member information.
+    pub fn mark_members_missing(&self) {
+        self.inner.write().unwrap().mark_members_missing()
     }
 
     /// Check if the room states have been synced
@@ -675,27 +700,32 @@ impl RoomInfo {
         self.room_state = RoomState::Invited;
     }
 
+    /// Set the membership RoomState of this Room
+    pub fn set_state(&mut self, room_state: RoomState) {
+        self.room_state = room_state;
+    }
+
     /// Mark this Room as having all the members synced.
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    /// Mark this Room still missing member information.
+    /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    /// Mark this Room still missing some state information.
+    /// Mark this Room as still missing some state information.
     pub fn mark_state_partially_synced(&mut self) {
         self.sync_info = SyncInfo::PartiallySynced;
     }
 
-    /// Mark this Room still having all state synced.
+    /// Mark this Room as still having all state synced.
     pub fn mark_state_fully_synced(&mut self) {
         self.sync_info = SyncInfo::FullySynced;
     }
 
-    /// Mark this Room still having no state synced.
+    /// Mark this Room as still having no state synced.
     pub fn mark_state_not_synced(&mut self) {
         self.sync_info = SyncInfo::NoState;
     }
@@ -705,7 +735,7 @@ impl RoomInfo {
         self.encryption_state_synced = true;
     }
 
-    /// Mark this Room still missing encryption state information.
+    /// Mark this Room as still missing encryption state information.
     pub fn mark_encryption_state_missing(&mut self) {
         self.encryption_state_synced = false;
     }

@@ -311,6 +311,16 @@ impl CryptoStore for MemoryStore {
         warn!("Method not implemented");
         Ok(())
     }
+
+    async fn insert_custom_value_if_missing(&self, _key: &str, _new: Vec<u8>) -> Result<bool> {
+        warn!("Method insert_custom_value_if_missing not implemented");
+        Ok(false)
+    }
+
+    async fn remove_custom_value(&self, _key: &str) -> Result<bool> {
+        warn!("Method remove_custom_value not implemented");
+        Ok(false)
+    }
 }
 
 #[cfg(test)]

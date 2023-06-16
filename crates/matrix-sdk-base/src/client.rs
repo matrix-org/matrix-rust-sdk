@@ -17,7 +17,7 @@
 use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
+    fmt, iter,
     sync::Arc,
 };
 
@@ -27,8 +27,6 @@ use matrix_sdk_common::instant::Instant;
 use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
-use once_cell::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::{
@@ -54,6 +52,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tokio::sync::RwLock;
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
@@ -88,7 +88,7 @@ pub struct BaseClient {
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
-    olm_machine: OnceCell<OlmMachine>,
+    olm_machine: Arc<RwLock<Option<OlmMachine>>>,
     pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
 }
 
@@ -244,9 +244,7 @@ impl BaseClient {
             .await
             .map_err(OlmError::from)?;
 
-            if self.olm_machine.set(olm_machine).is_err() {
-                return Err(Error::BadCryptoStoreState);
-            }
+            *self.olm_machine.write().await = Some(olm_machine);
         }
 
         Ok(())
@@ -264,7 +262,7 @@ impl BaseClient {
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
-        if let Some(olm) = self.olm_machine() {
+        if let Some(olm) = self.olm_machine().await.as_ref() {
             olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
                 .await?;
         }
@@ -278,7 +276,8 @@ impl BaseClient {
         event: &Raw<AnySyncTimelineEvent>,
         room_id: &RoomId,
     ) -> Result<Option<SyncTimelineEvent>> {
-        let Some(olm) = self.olm_machine() else { return Ok(None) };
+        let olm = self.olm_machine().await;
+        let Some(olm) = olm.as_ref() else { return Ok(None) };
 
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id).await?.into();
@@ -484,10 +483,16 @@ impl BaseClient {
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
+    /// Process the events provided during a sync.
+    ///
+    /// events must be exactly the same list of events that are in raw_events,
+    /// but deserialised. We demand them here to avoid deserialising
+    /// multiple times.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_state(
         &self,
-        events: &[Raw<AnySyncStateEvent>],
+        raw_events: &[Raw<AnySyncStateEvent>],
+        events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
@@ -496,16 +501,8 @@ impl BaseClient {
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
 
-        for raw_event in events {
-            let event = match raw_event.deserialize() {
-                Ok(ev) => ev,
-                Err(e) => {
-                    warn!("Couldn't deserialize state event: {e}");
-                    continue;
-                }
-            };
-
-            room_info.handle_state_event(&event);
+        for (raw_event, event) in iter::zip(raw_events, events) {
+            room_info.handle_state_event(event);
 
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 ambiguity_cache.handle_event(changes, &room_info.room_id, member).await?;
@@ -606,7 +603,7 @@ impl BaseClient {
         one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
-        if let Some(o) = self.olm_machine() {
+        if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
             // decrypts to-device events, but leaves room events alone.
             // This makes sure that we have the decryption keys for the room
@@ -720,9 +717,12 @@ impl BaseClient {
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
 
+            let deserialized_events = Self::deserialize_events(&new_info.state.events);
+
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &deserialized_events,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -769,7 +769,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     if !room.is_encrypted() {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
@@ -806,9 +806,12 @@ impl BaseClient {
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
 
+            let deserialized_events = Self::deserialize_events(&new_info.state.events);
+
             let mut user_ids = self
                 .handle_state(
                     &new_info.state.events,
+                    &deserialized_events,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -986,7 +989,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
@@ -1058,7 +1061,7 @@ impl BaseClient {
     /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
-        match self.olm_machine() {
+        match self.olm_machine().await.as_ref() {
             Some(o) => {
                 let (history_visibility, settings) = self
                     .get_room(room_id)
@@ -1095,8 +1098,8 @@ impl BaseClient {
 
     /// Get the olm machine.
     #[cfg(feature = "e2e-encryption")]
-    pub fn olm_machine(&self) -> Option<&OlmMachine> {
-        self.olm_machine.get()
+    pub async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
+        self.olm_machine.read().await
     }
 
     /// Get the push rules.
@@ -1236,6 +1239,21 @@ impl BaseClient {
     /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
         self.ignore_user_list_changes_tx.subscribe()
+    }
+
+    pub(crate) fn deserialize_events(
+        raw_events: &[Raw<AnySyncStateEvent>],
+    ) -> Vec<AnySyncStateEvent> {
+        raw_events
+            .iter()
+            .filter_map(|raw_event| match raw_event.deserialize() {
+                Ok(ev) => Some(ev),
+                Err(e) => {
+                    warn!("Couldn't deserialize state event: {e}");
+                    None
+                }
+            })
+            .collect()
     }
 }
 

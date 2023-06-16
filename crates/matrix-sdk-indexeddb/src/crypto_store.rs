@@ -1056,6 +1056,40 @@ impl_crypto_store! {
             .put_key_val(&JsValue::from_str(key), &self.serialize_value(&value)?)?;
         Ok(())
     }
+
+    async fn insert_custom_value_if_missing(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+    ) -> Result<bool> {
+        let key = JsValue::from_str(key);
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?;
+        let object_store = txn
+            .object_store(keys::CORE)?;
+        if object_store.get(&key)?.await?.is_none() {
+            object_store.put_key_val(&key, &self.serialize_value(&value)?)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<bool> {
+        let key = JsValue::from_str(key);
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?;
+        let object_store = txn
+            .object_store(keys::CORE)?;
+        if object_store.get(&key)?.await?.is_some() {
+            object_store.delete(&key)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 impl Drop for IndexeddbCryptoStore {

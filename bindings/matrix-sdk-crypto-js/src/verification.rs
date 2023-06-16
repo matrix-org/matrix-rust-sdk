@@ -3,20 +3,24 @@
 #[cfg(feature = "qrcode")]
 use std::fmt;
 
+use futures_util::StreamExt;
 #[cfg(feature = "qrcode")]
 use js_sys::Uint8ClampedArray;
-use js_sys::{Array, JsString, Promise};
+use js_sys::{Array, Function, JsString, Promise};
 use matrix_sdk_crypto::VerificationRequestState;
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
+use tracing::warn;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::{
     future::future_to_promise,
     identifiers::{DeviceId, RoomId, UserId},
     impl_from_to_inner,
     js::try_array_to_vec,
+    machine::promise_result_to_future,
     requests,
 };
 
@@ -369,6 +373,21 @@ impl Sas {
 
         Some(out)
     }
+
+    /// Register a callback which will be called whenever there is an update to
+    /// the request.
+    ///
+    /// The `callback` is called with no parameters.
+    #[wasm_bindgen(js_name = "registerChangesCallback")]
+    pub fn register_changes_callback(&self, callback: Function) {
+        let stream = self.inner.changes();
+
+        // fire up a promise chain which will call `callback` on each result from the
+        // stream
+        spawn_local(async move {
+            stream.for_each(|_| send_change_info_to_callback(&callback)).await;
+        });
+    }
 }
 
 /// QR code based verification.
@@ -560,6 +579,21 @@ impl Qr {
             .transpose()
             .map(JsValue::from)
             .map_err(Into::into)
+    }
+
+    /// Register a callback which will be called whenever there is an update to
+    /// the request
+    ///
+    /// The `callback` is called with no parameters.
+    #[wasm_bindgen(js_name = "registerChangesCallback")]
+    pub fn register_changes_callback(&self, callback: Function) {
+        let stream = self.inner.changes();
+
+        // fire up a promise chain which will call `callback` on each result from the
+        // stream
+        spawn_local(async move {
+            stream.for_each(|_| send_change_info_to_callback(&callback)).await;
+        });
     }
 }
 
@@ -959,6 +993,21 @@ impl VerificationRequest {
         result.into()
     }
 
+    /// Register a callback which will be called whenever there is an update to
+    /// the request.
+    ///
+    /// The `callback` is called with no parameters.
+    #[wasm_bindgen(js_name = "registerChangesCallback")]
+    pub fn register_changes_callback(&self, callback: Function) {
+        let stream = self.inner.changes();
+
+        // fire up a promise chain which will call `callback` on each result from the
+        // stream
+        spawn_local(async move {
+            stream.for_each(|_| send_change_info_to_callback(&callback)).await;
+        });
+    }
+
     /// Has the verification flow that was started with this request
     /// been cancelled?
     #[wasm_bindgen(js_name = "isCancelled")]
@@ -1148,6 +1197,16 @@ impl From<VerificationRequestState> for VerificationRequestPhase {
             Ready { .. } => Self::Ready,
             Done => Self::Done,
             Cancelled(_) => Self::Cancelled,
+        }
+    }
+}
+
+// helper for register_changes_callback: calls the javascript callback
+async fn send_change_info_to_callback(callback: &Function) {
+    match promise_result_to_future(callback.call0(&JsValue::NULL)).await {
+        Ok(_) => (),
+        Err(e) => {
+            warn!("Error calling changes callback: {:?}", e);
         }
     }
 }

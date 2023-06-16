@@ -843,7 +843,9 @@ async fn send_room_key_info_to_callback(
 /// Given a result from a javascript function which returns a Promise (or throws
 /// an exception before returning one), convert the result to a rust Future
 /// which completes with the result of the promise
-async fn promise_result_to_future(res: Result<JsValue, JsValue>) -> Result<JsValue, JsValue> {
+pub(crate) async fn promise_result_to_future(
+    res: Result<JsValue, JsValue>,
+) -> Result<JsValue, JsValue> {
     match res {
         Ok(retval) => {
             if !retval.has_type::<Promise>() {
