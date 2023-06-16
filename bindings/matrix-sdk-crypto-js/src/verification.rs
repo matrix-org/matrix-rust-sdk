@@ -257,7 +257,7 @@ impl Sas {
 
         future_to_promise(async move {
             let (outgoing_verification_requests, signature_upload_request) = me.confirm().await?;
-            let outgoing_verification_requests: Array = outgoing_verification_requests
+            let outgoing_verification_requests = outgoing_verification_requests
                 .into_iter()
                 .map(OutgoingVerificationRequest::from)
                 .map(JsValue::try_from)
