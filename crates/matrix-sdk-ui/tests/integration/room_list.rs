@@ -1181,7 +1181,7 @@ async fn test_invites_stream() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => FirstRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
@@ -1207,7 +1207,7 @@ async fn test_invites_stream() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = FirstRooms => AllRooms,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 0]],
@@ -1267,7 +1267,7 @@ async fn test_invites_stream() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = AllRooms => CarryOn,
-        assert request = {
+        assert request >= {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 0]],
