@@ -273,6 +273,24 @@ impl Account {
             if let Ok(p) = session.decrypt(message).await {
                 decrypted = Some((session.clone(), p));
                 break;
+            } else if let OlmMessage::PreKey(message) = message {
+                if message.session_id() == session.session_id() {
+                    // The message was intended for this session, but we weren't able to decrypt it.
+                    //
+                    // We're going to return early here since no other session will be able to
+                    // decrypt this message, nor should we try to create a new one since we already
+                    // created a `Session` with such a pre-key message.
+                    //
+                    // Creating a new session will likely fail since the one-time key that should be
+                    // used to establish the session will be used up.
+                    //
+                    // The one exception where creating a new session won't fail is if a fallback
+                    // key was used for this `Session`.
+                    return Err(OlmError::SessionWedged(
+                        session.user_id.to_owned(),
+                        session.sender_key(),
+                    ));
+                }
             } else {
                 // An error here is completely normal, after all we don't know
                 // which session was used to encrypt a message. We will log a
