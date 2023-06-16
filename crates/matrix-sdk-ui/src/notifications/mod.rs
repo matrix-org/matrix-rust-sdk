@@ -21,7 +21,7 @@
 //!
 //! Under the hood, this uses a sliding sync instance configured with no lists,
 //! but that enables the e2ee and to-device extensions, so that it can both
-//! handle encryption et manage encryption keys; that's sufficient to decrypt
+//! handle encryption and manage encryption keys; that's sufficient to decrypt
 //! messages received in the notification processes.
 //!
 //! As this may be used across different processes, this also makes sure that
@@ -81,15 +81,12 @@ impl NotificationSync {
                     Some(Ok(update_summary)) => {
                         // This API is only concerned with the e2ee and to-device extensions.
                         // Warn if anything weird has been received from the proxy.
-                        if !update_summary.lists.is_empty() {
-                            error!(?update_summary.lists, "unexpected non-empty list of lists in notification API");
+                        if !update_summary.lists.is_empty() || !update_summary.rooms.is_empty() {
+                            yield Err(Error::UnexpectedNonEmptyListsOrRooms);
+                        } else {
+                            // Cool cool, let's do it again.
+                            yield Ok(());
                         }
-                        if !update_summary.rooms.is_empty() {
-                            error!(?update_summary.rooms, "unexpected non-empty list of rooms in notification API");
-                        }
-
-                        // Cool cool, let's do it again.
-                        yield Ok(());
 
                         continue;
                     }
@@ -112,6 +109,9 @@ impl NotificationSync {
 /// Errors for the [`NotificationSync`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Unexpected rooms or lists in the sliding sync response.")]
+    UnexpectedNonEmptyListsOrRooms,
+
     #[error("Something wrong happened in sliding sync: {0:#}")]
     SlidingSyncError(#[from] matrix_sdk::Error),
 }

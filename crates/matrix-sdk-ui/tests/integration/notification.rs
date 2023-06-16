@@ -1,6 +1,7 @@
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::notifications::NotificationSync;
+use stream_assert::assert_pending;
 
 use crate::{logged_in_client, sliding_sync_then_assert_request_and_fake_response};
 
@@ -100,7 +101,7 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
     };
 
     // The notification stream will stop, as it ran into an error.
-    assert!(notification_stream.next().await.is_none());
+    assert_pending!(notification_stream);
 
     // Start a new sync.
     let notification_stream = notification_api.sync();
