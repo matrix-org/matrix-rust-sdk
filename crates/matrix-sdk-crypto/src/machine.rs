@@ -1853,18 +1853,21 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
+    pub(crate) async fn get_prepared_machine(use_fallback_key: bool) -> (OlmMachine, OneTimeKeys) {
         let machine = OlmMachine::new(user_id(), bob_device_id()).await;
+        machine.account().generate_fallback_key_helper().await;
         machine.account().update_uploaded_key_count(0);
         let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
 
-        (machine, request.one_time_keys)
+        let keys = if use_fallback_key { request.fallback_keys } else { request.one_time_keys };
+
+        (machine, keys)
     }
 
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
-        let (machine, otk) = get_prepared_machine().await;
+        let (machine, otk) = get_prepared_machine(false).await;
         let response = keys_query_response();
         let req_id = TransactionId::new();
 
@@ -1873,8 +1876,8 @@ pub(crate) mod tests {
         (machine, otk)
     }
 
-    async fn get_machine_pair() -> (OlmMachine, OlmMachine, OneTimeKeys) {
-        let (bob, otk) = get_prepared_machine().await;
+    async fn get_machine_pair(use_fallback_key: bool) -> (OlmMachine, OlmMachine, OneTimeKeys) {
+        let (bob, otk) = get_prepared_machine(use_fallback_key).await;
 
         let alice_id = alice_id();
         let alice_device = alice_device_id();
@@ -1888,8 +1891,8 @@ pub(crate) mod tests {
         (alice, bob, otk)
     }
 
-    async fn get_machine_pair_with_session() -> (OlmMachine, OlmMachine) {
-        let (alice, bob, one_time_keys) = get_machine_pair().await;
+    async fn get_machine_pair_with_session(use_fallback_key: bool) -> (OlmMachine, OlmMachine) {
+        let (alice, bob, one_time_keys) = get_machine_pair(use_fallback_key).await;
 
         let mut bob_keys = BTreeMap::new();
 
@@ -1909,7 +1912,7 @@ pub(crate) mod tests {
     }
 
     async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
-        let (alice, bob) = get_machine_pair_with_session().await;
+        let (alice, bob) = get_machine_pair_with_session(false).await;
 
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
@@ -2081,7 +2084,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_keys_query() {
-        let (machine, _) = get_prepared_machine().await;
+        let (machine, _) = get_prepared_machine(false).await;
         let response = keys_query_response();
         let alice_id = user_id!("@alice:example.org");
         let alice_device_id: &DeviceId = device_id!("JLAFKJWSCS");
@@ -2129,7 +2132,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_session_creation() {
-        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair().await;
+        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair(false).await;
         let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         create_session(
@@ -2153,7 +2156,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn getting_most_recent_session() {
-        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair().await;
+        let (alice_machine, bob_machine, mut one_time_keys) = get_machine_pair(false).await;
         let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
         let device = alice_machine
@@ -2225,43 +2228,57 @@ pub(crate) mod tests {
         );
     }
 
-    #[async_test]
-    async fn test_olm_encryption() {
-        let (alice, bob) = get_machine_pair_with_session().await;
+    async fn olm_encryption_test(use_fallback_key: bool) {
+        let (alice, bob) = get_machine_pair_with_session(use_fallback_key).await;
 
         let bob_device =
             alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
+        let (_, content) = bob_device
+            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
+            .await
+            .expect("We should be able to encrypt a dummy event.");
+
         let event = ToDeviceEvent::new(
             alice.user_id().to_owned(),
-            bob_device
-                .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
-                .await
-                .unwrap()
-                .1
+            content
                 .deserialize_as()
-                .unwrap(),
+                .expect("We should be able to deserialize the encrypted content"),
         );
 
-        let event = bob
+        // Decrypting the first time should succeed.
+
+        let decrypted = bob
             .decrypt_to_device_event(&event)
             .await
-            .unwrap()
+            .expect("We should be able to decrypt the event.")
             .result
             .raw_event
             .deserialize()
-            .unwrap();
+            .expect("We should be able to deserialize the decrypted event.");
 
-        if let AnyToDeviceEvent::Dummy(e) = event {
-            assert_eq!(&e.sender, alice.user_id());
-        } else {
-            panic!("Wrong event type found {event:?}");
-        }
+        let decrypted = assert_matches!(decrypted, AnyToDeviceEvent::Dummy(decrypted) => decrypted);
+        assert_eq!(&decrypted.sender, alice.user_id());
+
+        // Replaying the event should now result in a decryption failure.
+        bob.decrypt_to_device_event(&event).await.expect_err(
+            "Decrypting a replayed event should not succeed, even if it's a pre-key message",
+        );
+    }
+
+    #[async_test]
+    async fn olm_encryption() {
+        olm_encryption_test(false).await;
+    }
+
+    #[async_test]
+    async fn olm_encryption_with_fallback_key() {
+        olm_encryption_test(true).await;
     }
 
     #[async_test]
     async fn test_room_key_sharing() {
-        let (alice, bob) = get_machine_pair_with_session().await;
+        let (alice, bob) = get_machine_pair_with_session(false).await;
 
         let room_id = room_id!("!test:example.org");
 
@@ -2758,7 +2775,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_verification_states_multiple_device() {
-        let (bob, _) = get_prepared_machine().await;
+        let (bob, _) = get_prepared_machine(false).await;
 
         let other_user_id = user_id!("@web2:localhost:8482");
 

@@ -676,7 +676,7 @@ impl ReadOnlyAccount {
         }
     }
 
-    async fn generate_fallback_key_helper(&self) {
+    pub(crate) async fn generate_fallback_key_helper(&self) {
         let mut account = self.inner.lock().await;
 
         if account.fallback_key().is_empty() {
