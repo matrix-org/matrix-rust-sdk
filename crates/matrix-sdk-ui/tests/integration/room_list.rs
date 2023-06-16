@@ -8,7 +8,7 @@ use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
         EntriesLoadingState, Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
-        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
     RoomList,
@@ -326,6 +326,22 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "sort": ["by_recency", "by_name"],
                     "timeline_limit": 20,
                 },
+                INVITES: {
+                    "ranges": [[0, 99]],
+                    "required_state": [
+                        ["m.room.avatar", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$ME"],
+                        ["m.room.canonical_alias", ""],
+                    ],
+                    "filters": {
+                        "is_invite": true,
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 0,
+                },
             },
         },
         respond with = {
@@ -339,6 +355,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
+                    "ops": [],
+                },
+                INVITES: {
+                    "count": 2,
                     "ops": [],
                 },
             },
@@ -366,6 +386,9 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
+                INVITES: {
+                    "ranges": [[0, 1]],
+                }
             },
         },
         respond with = {
@@ -379,6 +402,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
+                    "ops": [],
+                },
+                INVITES: {
+                    "count": 3,
                     "ops": [],
                 },
             },
@@ -401,6 +428,9 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
+                INVITES: {
+                    "ranges": [[0, 2]],
+                },
             },
         },
         respond with = {
@@ -416,6 +446,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "count": 0,
                     "ops": [],
                 },
+                INVITES: {
+                    "count": 0,
+                    "ops": [],
+                }
             },
             "rooms": {
                 // let's ignore them for now
@@ -434,7 +468,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
-                    "ranges": [],
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
                 },
             },
         },
@@ -448,6 +485,10 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                     ],
                 },
                 VISIBLE_ROOMS: {
+                    "count": 0,
+                    "ops": [],
+                },
+                INVITES: {
                     "count": 0,
                     "ops": [],
                 },
@@ -466,8 +507,8 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
 
     Ok(())
 }
-#[async_test]
 
+#[async_test]
 async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
@@ -515,6 +556,9 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                     VISIBLE_ROOMS: {
                         "ranges": [[0, 19]],
                     },
+                    INVITES: {
+                        "ranges": [[0, 99]],
+                    },
                 },
             },
             respond with = {
@@ -525,6 +569,10 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ops": [],
                     },
                     VISIBLE_ROOMS: {
+                        "count": 0,
+                        "ops": [],
+                    },
+                    INVITES: {
                         "count": 0,
                         "ops": [],
                     },
@@ -550,6 +598,9 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                     VISIBLE_ROOMS: {
                         "ranges": [[0, 19]],
                     },
+                    INVITES: {
+                        "ranges": [[0, 0]],
+                    },
                 },
             },
             respond with = {
@@ -560,6 +611,10 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ops": [],
                     },
                     VISIBLE_ROOMS: {
+                        "count": 0,
+                        "ops": [],
+                    },
+                    INVITES: {
                         "count": 0,
                         "ops": [],
                     },
@@ -644,6 +699,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // Hello new list.
                     "ranges": [[0, 19]],
                 },
+                INVITES: {
+                    // Hello new list.
+                    "ranges": [[0, 99]],
+                },
             },
         },
         respond with = (code 400) {
@@ -677,6 +736,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
+                INVITES: {
+                    // The range hasn't been modified due to previous error.
+                    "ranges": [[0, 99]],
+                },
             },
         },
         respond with = {
@@ -685,6 +748,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "count": 110,
                 },
+                INVITES: {
+                    "count": 3,
+                }
             },
             "rooms": {},
         },
@@ -705,6 +771,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Despites the error, the range is kept.
                     "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // Despites the error, the range has made progress.
+                    "ranges": [[0, 2]],
                 },
             },
         },
@@ -735,6 +805,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     // Despites the error, the range is kept.
                     "ranges": [[5, 10]],
                 },
+                INVITES: {
+                    // Despites the error, the range is kept.
+                    "ranges": [[0, 2]],
+                }
             },
         },
         respond with = {
@@ -742,6 +816,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "count": 110,
+                },
+                INVITES: {
+                    "count": 0,
                 },
             },
             "rooms": {},
@@ -762,6 +839,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // No error. The range is still here.
                     "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range is making progress.
+                    "ranges": [[0, 0]],
                 },
             },
         },
@@ -791,6 +872,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // The range is still here.
                     "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range is kept as it was.
+                    "ranges": [[0, 0]],
                 },
             },
         },
@@ -822,6 +907,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // The range is still here.
                     "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range is kept as it was.
+                    "ranges": [[0, 0]],
                 },
             },
         },
@@ -905,7 +994,7 @@ async fn test_entries_stream() -> Result<(), Error> {
         set[1] [ F("!r1:bar.org") ];
         set[2] [ F("!r2:bar.org") ];
         pending;
-    }
+    };
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -913,12 +1002,13 @@ async fn test_entries_stream() -> Result<(), Error> {
         assert request = {
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [
-                        [0, 9],
-                    ],
+                    "ranges": [[0, 9]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 99]],
                 },
             },
         },
@@ -939,15 +1029,15 @@ async fn test_entries_stream() -> Result<(), Error> {
                         {
                             "op": "INSERT",
                             "index": 0,
-                            "room_id": "!r3:bar.org"
+                            "room_id": "!r3:bar.org",
                         },
                     ],
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
+                },
+                INVITES: {
+                    "count": 0,
                 },
             },
             "rooms": {
@@ -966,7 +1056,7 @@ async fn test_entries_stream() -> Result<(), Error> {
         remove[0];
         insert[0] [ F("!r3:bar.org") ];
         pending;
-    }
+    };
 
     Ok(())
 }
@@ -1046,6 +1136,9 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
                 },
+                INVITES: {
+                    "ranges": [[0, 99]],
+                },
             },
         },
         respond with = {
@@ -1068,9 +1161,9 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                 },
                 VISIBLE_ROOMS: {
                     "count": 0,
-                    "ops": [
-                        // let's ignore them for now
-                    ],
+                },
+                INVITES: {
+                    "count": 0,
                 },
             },
             "rooms": {
@@ -1103,6 +1196,162 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         [entries_stream]
         insert[1] [ F("!r1:bar.org") ];
         insert[2] [ F("!r4:bar.org") ];
+        pending;
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_invites_stream() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // The invites aren't accessible yet.
+    assert!(room_list.invites().await.is_err());
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => FirstRooms,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 0,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // The invites aren't accessible yet.
+    assert!(room_list.invites().await.is_err());
+
+    let room_id_0 = room_id!("!r0:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = FirstRooms => AllRooms,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 0]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 99]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 0,
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 1,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [0, 0],
+                            "room_ids": [
+                                room_id_0,
+                            ],
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                room_id_0: {
+                    "name": "Invitation for Room #0",
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    let (previous_invites, invites_stream) = room_list.invites().await?;
+    pin_mut!(invites_stream);
+
+    assert_eq!(previous_invites.len(), 1);
+    assert_matches!(&previous_invites[0], RoomListEntry::Filled(room_id) => {
+        assert_eq!(room_id, room_id_0);
+    });
+
+    assert_entries_stream! {
+        [invites_stream]
+        pending;
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = AllRooms => CarryOn,
+        assert request = {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 0]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 0,
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 1,
+                    "ops": [
+                        {
+                            "op": "DELETE",
+                            "index": 0,
+                        },
+                        {
+
+                            "op": "INSERT",
+                            "index": 0,
+                            "room_id": "!r1:bar.org",
+                        },
+                    ],
+                },
+            },
+            "rooms": {
+                "!r1:bar.org": {
+                    "name": "Invitation for Room #1",
+                    "initial": true,
+                },
+            },
+        },
+    };
+
+    assert_entries_stream! {
+        [invites_stream]
+        remove[0];
+        insert[0] [ F("!r1:bar.org") ];
         pending;
     };
 
@@ -1634,6 +1883,9 @@ async fn test_input_viewport() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                     "timeline_limit": 20,
                 },
+                INVITES: {
+                    "ranges": [[0, 99]],
+                },
             },
         },
         respond with = {
@@ -1656,6 +1908,9 @@ async fn test_input_viewport() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     "ranges": [[10, 15], [20, 25]],
                     "timeline_limit": 20,
+                },
+                INVITES: {
+                    "ranges": [[0, 99]],
                 },
             },
         },

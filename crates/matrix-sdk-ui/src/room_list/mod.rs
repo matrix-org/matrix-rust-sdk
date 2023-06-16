@@ -230,6 +230,19 @@ impl RoomList {
             .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
     }
 
+    /// Get all previous invites, in addition to a [`Stream`] to invites.
+    ///
+    /// Invites are taking the form of `RoomListEntry`, it's like a “sub” room
+    /// list.
+    pub async fn invites(
+        &self,
+    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
+        self.sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| ready(list.room_list_stream()))
+            .await
+            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))
+    }
+
     /// Pass an [`Input`] onto the state machine.
     pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
         use Input::*;
