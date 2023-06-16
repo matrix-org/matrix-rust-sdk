@@ -77,7 +77,9 @@ use matrix_sdk::{
 };
 pub use room::*;
 use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    api::client::sync::sync_events::v4::SyncRequestListFilters,
+    assign,
+    events::{StateEventType, TimelineEventType},
     OwnedRoomId, RoomId,
 };
 pub use state::*;
@@ -117,7 +119,12 @@ impl RoomList {
                         is_invite: Some(false),
                         is_tombstoned: Some(false),
                         not_room_types: vec!["m.space".to_owned()],
-                    }))),
+                    })))
+                    .bump_event_types(&[
+                        TimelineEventType::RoomMessage,
+                        TimelineEventType::RoomEncrypted,
+                        TimelineEventType::Sticker,
+                    ]),
             )
             .build()
             .await
