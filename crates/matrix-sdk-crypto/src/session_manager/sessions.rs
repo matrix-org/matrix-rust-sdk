@@ -337,11 +337,16 @@ impl SessionManager {
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,
+            fallback_key_used: bool,
         }
 
         impl std::fmt::Debug for SessionInfo {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "session_id: {}, algorithm: {}", self.session_id, self.algorithm.as_str())
+                write!(
+                    f,
+                    "session_id: {}, algorithm: {}, fallback_key_used {}",
+                    self.session_id, self.algorithm, self.fallback_key_used
+                )
             }
         }
 
@@ -401,6 +406,7 @@ impl SessionManager {
                 let session_info = SessionInfo {
                     session_id: session.session_id().to_owned(),
                     algorithm: session.algorithm().await,
+                    fallback_key_used: session.created_using_fallback_key,
                 };
 
                 changes.sessions.push(session);
