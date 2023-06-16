@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use futures_util::future::join3;
+use futures_util::future::join;
 use matrix_sdk::{
     ruma::{IdParseError, OwnedDeviceId, UserId},
     Session,
@@ -258,16 +258,11 @@ impl AuthenticationService {
         &self,
         client: &Arc<Client>,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let login_details = join3(
-            client.async_homeserver(),
-            client.authentication_issuer(),
-            client.supports_password_login(),
-        )
-        .await;
+        let login_details = join(client.async_homeserver(), client.supports_password_login()).await;
 
         let url = login_details.0;
-        let authentication_issuer = login_details.1;
-        let supports_password_login = login_details.2?;
+        let supports_password_login = login_details.1?;
+        let authentication_issuer = client.authentication_issuer();
 
         Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
     }
