@@ -149,6 +149,24 @@ impl RoomList {
         })
     }
 
+    async fn invites(
+        &self,
+        listener: Box<dyn RoomListEntriesListener>,
+    ) -> Result<RoomListEntriesResult, RoomListError> {
+        let (entries, entries_stream) = self.inner.invites().await.map_err(RoomListError::from)?;
+
+        Ok(RoomListEntriesResult {
+            entries: entries.into_iter().map(Into::into).collect(),
+            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_stream);
+
+                while let Some(diff) = entries_stream.next().await {
+                    listener.on_update(diff.into());
+                }
+            }))),
+        })
+    }
+
     async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
         self.inner.apply_input(input.into()).await.map_err(Into::into)
     }
