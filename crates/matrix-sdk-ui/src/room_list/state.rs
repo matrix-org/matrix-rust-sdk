@@ -13,6 +13,7 @@ use super::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
+pub const INVITES_LIST_NAME: &str = "invites";
 
 /// The state of the [`super::RoomList`]' state machine.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +131,36 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
     }
 }
 
+struct AddInvitesList;
+
+#[async_trait]
+impl Action for AddInvitesList {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .add_list(
+                SlidingSyncList::builder(INVITES_LIST_NAME)
+                    .sync_mode(SlidingSyncMode::new_growing(100))
+                    .timeline_limit(0)
+                    .required_state(vec![
+                        (StateEventType::RoomAvatar, "".to_owned()),
+                        (StateEventType::RoomEncryption, "".to_owned()),
+                        (StateEventType::RoomMember, "$ME".to_owned()),
+                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
+                    ])
+                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                        is_invite: Some(true),
+                        is_tombstoned: Some(false),
+                        not_room_types: vec!["m.space".to_owned()],
+
+                    }))),
+            )
+            .await
+            .map_err(Error::SlidingSync)?;
+
+        Ok(())
+    }
+}
+
 /// Type alias to represent one action.
 type OneAction = Box<dyn Action + Send + Sync>;
 
@@ -169,7 +200,7 @@ macro_rules! actions {
 impl Actions {
     actions! {
         none => [],
-        first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList],
+        first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
         refresh_lists => [SetAllRoomsListToGrowingSyncMode],
     }
 
@@ -296,6 +327,31 @@ mod tests {
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
                     SlidingSyncMode::Growing { batch_size: 50, .. }
+                )))
+                .await,
+            Some(true)
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_action_add_invitess_list() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(INVITES_LIST_NAME, |_list| ready(())).await, None);
+
+        // Run the action!
+        AddInvitesList.run(sliding_sync).await?;
+
+        // List is present!
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 100
                 )))
                 .await,
             Some(true)
