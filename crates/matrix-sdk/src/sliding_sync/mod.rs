@@ -134,7 +134,14 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
+    ///
+    /// If the associated `Room` exists, it will be marked as
+    /// members are missing, so that it ensures to re-fetch all members.
     pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
+        if let Some(room) = self.inner.client.get_room(&room_id) {
+            room.mark_members_missing();
+        }
+
         self.inner
             .sticky
             .write()
@@ -777,16 +784,29 @@ impl StickyData for SlidingSyncStickyParameters {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
+    use matrix_sdk_test::async_test;
     use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id, TransactionId};
     use serde_json::json;
-    use wiremock::{Match, MockServer};
+    use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use super::*;
     use crate::{
         sliding_sync::sticky_parameters::SlidingSyncStickyManager, test_utils::logged_in_client,
     };
+
+    #[derive(Copy, Clone)]
+    struct SlidingSyncMatcher;
+
+    impl Match for SlidingSyncMatcher {
+        fn matches(&self, request: &Request) -> bool {
+            request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+                && request.method == Method::Post
+        }
+    }
 
     async fn new_sliding_sync(
         lists: Vec<SlidingSyncListBuilder>,
@@ -805,47 +825,108 @@ mod tests {
         Ok((server, sliding_sync))
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_subscribe_to_room() -> Result<()> {
-        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+        let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        let _stream = sliding_sync.sync();
-        pin_mut!(_stream);
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
 
-        let room0 = room_id!("!r0:bar.org").to_owned();
-        let room1 = room_id!("!r1:bar.org").to_owned();
-        let room2 = room_id!("!r2:bar.org").to_owned();
-
-        sliding_sync.subscribe_to_room(room0.clone(), None);
-        sliding_sync.subscribe_to_room(room1.clone(), None);
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+        let room_id_2 = room_id!("!r2:bar.org");
 
         {
-            let sticky = sliding_sync.inner.sticky.read().unwrap();
-            let room_subscriptions = &sticky.data().room_subscriptions;
+            let _mock_guard = Mock::given(SlidingSyncMatcher)
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "1",
+                    "lists": {},
+                    "rooms": {
+                        room_id_0: {
+                            "name": "Room #0",
+                            "initial": true,
+                        },
+                        room_id_1: {
+                            "name": "Room #1",
+                            "initial": true,
+                        },
+                        room_id_2: {
+                            "name": "Room #2",
+                            "initial": true,
+                        },
+                    }
+                })))
+                .mount_as_scoped(&server)
+                .await;
 
-            assert!(room_subscriptions.contains_key(&room0));
-            assert!(room_subscriptions.contains_key(&room1));
-            assert!(!room_subscriptions.contains_key(&room2));
+            let _ = stream.next().await.unwrap()?;
         }
 
-        sliding_sync.unsubscribe_from_room(room0.clone());
-        sliding_sync.unsubscribe_from_room(room2.clone());
+        let room0 = sliding_sync.inner.client.get_room(room_id_0).unwrap();
+
+        // Members aren't synced.
+        // We need to make them synced, so that we can test that subscribing to a room
+        // make members not synced. That's a desired feature.
+        assert!(room0.are_members_synced().not());
+
+        {
+            struct MemberMatcher(OwnedRoomId);
+
+            impl Match for MemberMatcher {
+                fn matches(&self, request: &Request) -> bool {
+                    request.url.path()
+                        == format!("/_matrix/client/r0/rooms/{room_id}/members", room_id = self.0)
+                        && request.method == Method::Get
+                }
+            }
+
+            let _mock_guard = Mock::given(MemberMatcher(room_id_0.to_owned()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "chunk": [],
+                })))
+                .mount_as_scoped(&server)
+                .await;
+
+            assert_matches!(room0.request_members().await, Ok(Some(_)));
+        }
+
+        // Members are now synced! We can start subscribing and see how it goes.
+        assert!(room0.are_members_synced());
+
+        sliding_sync.subscribe_to_room(room_id_0.to_owned(), None);
+        sliding_sync.subscribe_to_room(room_id_1.to_owned(), None);
+
+        // OK, we have subscribed to some rooms. Let's check on `room0` if members are
+        // now marked as not synced.
+        assert!(room0.are_members_synced().not());
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
             let room_subscriptions = &sticky.data().room_subscriptions;
 
-            assert!(!room_subscriptions.contains_key(&room0));
-            assert!(room_subscriptions.contains_key(&room1));
-            assert!(!room_subscriptions.contains_key(&room2));
+            assert!(room_subscriptions.contains_key(&room_id_0.to_owned()));
+            assert!(room_subscriptions.contains_key(&room_id_1.to_owned()));
+            assert!(!room_subscriptions.contains_key(&room_id_2.to_owned()));
+        }
+
+        sliding_sync.unsubscribe_from_room(room_id_0.to_owned());
+        sliding_sync.unsubscribe_from_room(room_id_2.to_owned());
+
+        {
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
+
+            assert!(!room_subscriptions.contains_key(&room_id_0.to_owned()));
+            assert!(room_subscriptions.contains_key(&room_id_1.to_owned()));
+            assert!(!room_subscriptions.contains_key(&room_id_2.to_owned()));
 
             let room_unsubscriptions = sliding_sync.inner.room_unsubscriptions.read().unwrap();
 
-            assert!(room_unsubscriptions.contains(&room0));
-            assert!(!room_unsubscriptions.contains(&room1));
-            assert!(!room_unsubscriptions.contains(&room2));
+            assert!(room_unsubscriptions.contains(&room_id_0.to_owned()));
+            assert!(!room_unsubscriptions.contains(&room_id_1.to_owned()));
+            assert!(!room_unsubscriptions.contains(&room_id_2.to_owned()));
         }
 
         // this test also ensures that Tokio is not panicking when calling
@@ -854,7 +935,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_to_device_token_properly_cached() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
@@ -876,7 +957,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_add_list() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
@@ -1005,7 +1086,7 @@ mod tests {
         assert_eq!(request.extensions.account_data.enabled, Some(true));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_sticky_extensions_plus_since() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
@@ -1092,7 +1173,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_sticky_parameters_invalidated_by_reset() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
@@ -1175,7 +1256,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_stop_sync_loop() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
@@ -1204,7 +1285,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_sliding_sync_proxy_url() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
