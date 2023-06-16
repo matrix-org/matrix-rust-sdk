@@ -910,7 +910,7 @@ impl ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         let mut device = ReadOnlyDevice::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");
-        device.first_time_seen_ts = account.creation_local_time_ts();
+        device.first_time_seen_ts = account.creation_local_time();
 
         device
     }

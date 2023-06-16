@@ -487,7 +487,7 @@ pub struct ReadOnlyAccount {
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicU64>,
     // The creation time of the account in milliseconds since epoch.
-    creation_local_time_ts: MilliSecondsSinceUnixEpoch,
+    creation_local_time: MilliSecondsSinceUnixEpoch,
 }
 
 /// A pickled version of an `Account`.
@@ -510,7 +510,7 @@ pub struct PickledAccount {
     /// The local time creation of this account (seconds since epoch), used as
     /// creation time of own device
     #[serde(default)]
-    pub creation_local_time_ts: UInt,
+    pub creation_local_time: UInt,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -546,7 +546,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
-            creation_local_time_ts: MilliSecondsSinceUnixEpoch::now(),
+            creation_local_time: MilliSecondsSinceUnixEpoch::now(),
         }
     }
 
@@ -571,8 +571,8 @@ impl ReadOnlyAccount {
     }
 
     /// Get the local timestamp creation of the account in secs since epoch
-    pub fn creation_local_time_ts(&self) -> MilliSecondsSinceUnixEpoch {
-        self.creation_local_time_ts
+    pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
+        self.creation_local_time
     }
 
     /// Update the uploaded key count.
@@ -774,7 +774,7 @@ impl ReadOnlyAccount {
             pickle,
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
-            creation_local_time_ts: self.creation_local_time_ts.0,
+            creation_local_time: self.creation_local_time.0,
         }
     }
 
@@ -798,7 +798,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
-            creation_local_time_ts: MilliSecondsSinceUnixEpoch(pickle.creation_local_time_ts),
+            creation_local_time: MilliSecondsSinceUnixEpoch(pickle.creation_local_time),
         })
     }
 
@@ -1395,11 +1395,11 @@ mod tests {
         let account = ReadOnlyAccount::new(user_id(), device_id());
         let then = MilliSecondsSinceUnixEpoch::now();
 
-        assert!(account.creation_local_time_ts() >= now);
-        assert!(account.creation_local_time_ts() <= then);
+        assert!(account.creation_local_time() >= now);
+        assert!(account.creation_local_time() <= then);
 
         let device = ReadOnlyDevice::from_account(&account).await;
-        assert_eq!(account.creation_local_time_ts(), device.first_time_seen_ts());
+        assert_eq!(account.creation_local_time(), device.first_time_seen_ts());
 
         Ok(())
     }
