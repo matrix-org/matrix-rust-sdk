@@ -128,9 +128,13 @@ impl SlidingSyncBuilder {
                 cfg.account_data.enabled = Some(true);
             }
 
+            // TODO: Re-enable once a `lists` and `rooms` will support `*`. See
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/2037 for more info.
+            /*
             if cfg.receipts.enabled.is_none() {
                 cfg.receipts.enabled = Some(true);
             }
+            */
         }
         self
     }
