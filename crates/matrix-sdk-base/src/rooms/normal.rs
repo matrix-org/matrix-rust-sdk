@@ -146,6 +146,11 @@ impl Room {
         self.inner.read().unwrap().members_synced
     }
 
+    /// Mark this Room is still missing member information.
+    pub fn mark_members_missing(&self) {
+        self.inner.write().unwrap().mark_members_missing()
+    }
+
     /// Check if the room states have been synced
     ///
     /// States might be missing if we have only seen the room_id of this Room
@@ -680,7 +685,7 @@ impl RoomInfo {
         self.members_synced = true;
     }
 
-    /// Mark this Room still missing member information.
+    /// Mark this Room is still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
