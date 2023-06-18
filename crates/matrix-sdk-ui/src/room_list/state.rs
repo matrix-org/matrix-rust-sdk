@@ -47,7 +47,7 @@ impl State {
             FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
             AllRooms => (CarryOn, Actions::none()),
             CarryOn => (CarryOn, Actions::none()),
-            // If the state was `Terminated` but the next state is calculated again, it means the
+            // If the state was `Terminated`, the next state is calculated again, because it means the
             // sync has been restarted. In this case, let's jump back on the previous state that led
             // to the termination. No action is required in this scenario.
             Terminated { from: previous_state } => {
