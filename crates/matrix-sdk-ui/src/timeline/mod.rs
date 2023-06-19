@@ -26,7 +26,7 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, MessagesOptions, Receipts, Room},
+    room::{self, Joined, MessagesOptions, Receipts, Room},
     Client, Result,
 };
 use mime::Mime;
@@ -41,7 +41,8 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, warn};
@@ -95,6 +96,7 @@ pub struct Timeline {
     start_token_condvar: Arc<Condvar>,
     _end_token: Mutex<Option<String>>,
     drop_handle: Arc<TimelineDropHandle>,
+    reaction_queue: Mutex<usize>,
 }
 
 impl Timeline {
@@ -104,6 +106,13 @@ impl Timeline {
 
     fn room(&self) -> &room::Common {
         self.inner.room()
+    }
+
+    fn joined_room(&self) -> Result<Joined, Error> {
+        match Room::from(self.room().clone()) {
+            Room::Joined(room) => Ok(room),
+            _ => Err(Error::RoomNotJoined),
+        }
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -346,9 +355,6 @@ impl Timeline {
     ///  When redacting an event, the redaction reason is not sent.
     pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
         let txn_id = TransactionId::new();
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            return Err(Error::RoomNotJoined);
-        };
 
         // Check if the reaction already exists
         let event = self
@@ -356,10 +362,9 @@ impl Timeline {
             .await
             .ok_or(Error::FailedTogglingReaction)?;
 
-        let key = &annotation.key;
         let user_id = self.user_id()?;
         let user_reactions =
-            event.reactions().group(key).map(|group| group.by_sender(user_id.clone()));
+            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
 
         let to_redact: Option<&OwnedEventId> = match user_reactions {
             Some(mut r) => {
@@ -369,67 +374,92 @@ impl Timeline {
             None => None,
         };
 
+        let _lock = self.reaction_queue.lock().await;
+
         match to_redact {
-            Some(event_id) => {
-                // Don't send a reason for redacting a reaction
-                let no_reason = RoomRedactionEventContent::default();
-                self.inner
-                    .handle_local_redaction_event(
-                        txn_id.clone(),
-                        event_id.to_owned(),
-                        no_reason.clone(),
-                    )
-                    .await;
-                let response = room
-                    .redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
-                    .await
-                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction);
+            Some(event_id) => self.redact_reaction(annotation, event_id, txn_id.clone()).await?,
+            None => self.add_reaction(annotation, txn_id.clone()).await?,
+        };
 
-                match response {
-                    Ok(_) => {
-                        // redaction successful, nothing to do
-                    }
-                    Err(_) => {
-                        // undo local redaction, add the remote echo back
-                        self.inner
-                            .update_reaction_send_state(annotation, Some(event_id), None)
-                            .await;
-                    }
-                };
+        Ok(())
+    }
 
-                let Ok(_) = response else {
-                    return Err(Error::FailedTogglingReaction);
-                };
+    async fn redact_reaction(
+        &self,
+        annotation: &Annotation,
+        event_id: &EventId,
+        txn_id: OwnedTransactionId,
+    ) -> Result<(), Error> {
+        let event = self
+            .item_by_event_id(&annotation.event_id)
+            .await
+            .ok_or(Error::FailedTogglingReaction)?;
+
+        let user_id = self.user_id()?;
+        let user_reactions =
+            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
+
+        if user_reactions.is_none() {
+            // Reaction already redacted or doesn't exist
+            return Ok(());
+        }
+
+        // Don't send a reason for redacting a reaction
+        let no_reason = RoomRedactionEventContent::default();
+        self.inner
+            .handle_local_redaction_event(txn_id.clone(), event_id.to_owned(), no_reason.clone())
+            .await;
+        let response = self
+            .joined_room()?
+            .redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
+            .await
+            .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction);
+
+        match response {
+            Ok(_) => {
+                // redaction successful, nothing to do
             }
-            None => {
-                let event_content = AnyMessageLikeEventContent::Reaction(
-                    ReactionEventContent::from(annotation.clone()),
-                );
-                self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;
-                let response = room.send(event_content, Some(&txn_id)).await;
+            Err(_) => {
+                // undo local redaction, add the remote echo back
+                self.inner.update_reaction_send_state(annotation, Some(event_id), None).await;
+                return Err(Error::FailedTogglingReaction);
+            }
+        };
 
-                let send_state = match response {
-                    Ok(response) => {
-                        self.inner
-                            .update_reaction_send_state(
-                                annotation,
-                                Some(&response.event_id),
-                                Some(&txn_id),
-                            )
-                            .await;
-                        EventSendState::Sent { event_id: response.event_id }
-                    }
-                    Err(error) => {
-                        self.inner
-                            .update_reaction_send_state(annotation, None, Some(&txn_id))
-                            .await;
-                        EventSendState::SendingFailed { error: Arc::new(error) }
-                    }
-                };
+        Ok(())
+    }
 
-                let EventSendState::Sent { .. } = send_state else {
-                    return Err(Error::FailedTogglingReaction);
-                };
+    async fn add_reaction(
+        &self,
+        annotation: &Annotation,
+        txn_id: OwnedTransactionId,
+    ) -> Result<(), Error> {
+        let event = self
+            .item_by_event_id(&annotation.event_id)
+            .await
+            .ok_or(Error::FailedTogglingReaction)?;
+
+        let user_id = self.user_id()?;
+        let user_reactions =
+            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
+        if user_reactions.is_some() {
+            // Reaction already exists
+            return Ok(());
+        }
+        let event_content =
+            AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
+        self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;
+        let response = self.joined_room()?.send(event_content, Some(&txn_id)).await;
+
+        match response {
+            Ok(response) => {
+                self.inner
+                    .update_reaction_send_state(annotation, Some(&response.event_id), Some(&txn_id))
+                    .await;
+            }
+            Err(_) => {
+                self.inner.update_reaction_send_state(annotation, None, Some(&txn_id)).await;
+                return Err(Error::FailedTogglingReaction);
             }
         };
 

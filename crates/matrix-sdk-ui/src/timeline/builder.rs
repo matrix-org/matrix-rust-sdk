@@ -198,6 +198,7 @@ impl TimelineBuilder {
                 event_handler_handles: handles,
                 room_update_join_handle,
             }),
+            reaction_queue: Mutex::new(0),
         };
 
         #[cfg(feature = "e2e-encryption")]

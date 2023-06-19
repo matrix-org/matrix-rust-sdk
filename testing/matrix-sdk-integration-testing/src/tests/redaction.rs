@@ -5,7 +5,7 @@ use anyhow::{Ok, Result};
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::StreamExt;
+use futures_util::{future::join_all, StreamExt};
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
@@ -253,7 +253,8 @@ async fn test_redacting_reaction() -> Result<()> {
         // Send a reaction
         let reaction = Annotation::new(event_id.clone(), reaction_key.into());
 
-        timeline.toggle_reaction(&reaction).await?;
+        // Add the reaction many times
+        join_all((0..100).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
 
         let message_position = timeline.items().await.len() - 1;
 
@@ -281,8 +282,8 @@ async fn test_redacting_reaction() -> Result<()> {
             reaction_event_id.to_owned()
         };
 
-        // Redact the reaction
-        timeline.toggle_reaction(&reaction).await?;
+        // Redact the reaction many times
+        join_all((0..100).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
 
         // Check the message has no local reaction
         {
