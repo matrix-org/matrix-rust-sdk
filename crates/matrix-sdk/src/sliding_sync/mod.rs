@@ -81,6 +81,13 @@ pub(super) struct SlidingSyncInner {
     /// The HTTP Matrix client.
     client: Client,
 
+    /// Long-polling timeout that appears the sliding sync proxy request.
+    polling_timeout: Duration,
+
+    /// Extra duration for the sliding sync request to timeout. This is added to
+    /// the [`Self::proxy_timeout`].
+    network_timeout: Duration,
+
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
 
@@ -392,13 +399,12 @@ impl SlidingSync {
 
         // Collect other data.
         let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
-        let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
             delta_token,
-            timeout: Some(timeout),
+            timeout: Some(self.inner.polling_timeout),
             lists: requests_lists,
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
@@ -423,9 +429,10 @@ impl SlidingSync {
         Ok((
             // The request itself.
             request,
-            // Configure long-polling. We need 30 seconds for the long-poll itself, in
-            // addition to 30 more extra seconds for the network delays.
-            RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            // Configure long-polling. We need some time for the long-poll itself,
+            // and extra time for the network delays.
+            RequestConfig::default()
+                .timeout(self.inner.polling_timeout + self.inner.network_timeout),
             room_unsubscriptions,
         ))
     }

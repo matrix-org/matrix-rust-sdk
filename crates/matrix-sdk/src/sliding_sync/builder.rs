@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock};
+use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock, time::Duration};
 
 use ruma::{
     api::client::sync::sync_events::v4::{
@@ -32,6 +32,8 @@ pub struct SlidingSyncBuilder {
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    polling_timeout: Duration,
+    network_timeout: Duration,
 }
 
 impl SlidingSyncBuilder {
@@ -48,6 +50,8 @@ impl SlidingSyncBuilder {
                 extensions: None,
                 subscriptions: BTreeMap::new(),
                 rooms: BTreeMap::new(),
+                polling_timeout: Duration::from_secs(30),
+                network_timeout: Duration::from_secs(30),
             })
         }
     }
@@ -231,6 +235,13 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Sets custom timeouts for the sliding sync requests.
+    pub fn with_timeouts(mut self, polling_timeout: Duration, network_timeout: Duration) -> Self {
+        self.polling_timeout = polling_timeout;
+        self.network_timeout = network_timeout;
+        self
+    }
+
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -295,6 +306,9 @@ impl SlidingSyncBuilder {
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
+
+            polling_timeout: self.polling_timeout,
+            network_timeout: self.network_timeout,
         }))
     }
 }
