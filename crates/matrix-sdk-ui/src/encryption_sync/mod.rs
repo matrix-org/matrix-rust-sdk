@@ -26,7 +26,7 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::time::Duration;
+use std::{ops::Not as _, time::Duration};
 
 use async_stream::stream;
 use futures_core::stream::Stream;
@@ -52,25 +52,25 @@ pub struct EncryptionSync {
     client: Client,
     sliding_sync: SlidingSync,
     mode: EncryptionSyncMode,
-    with_lock: bool,
 }
 
 impl EncryptionSync {
     /// Creates a new instance of a `EncryptionSync`.
     ///
     /// This will create and manage an instance of [`matrix_sdk::SlidingSync`].
-    /// The `id` is used as the identifier of that instance, as such make
-    /// sure to not reuse a name used by another Sliding Sync instance, at
-    /// the risk of causing problems.
+    /// The `process_id` is used as the identifier of that instance, as such
+    /// make sure to not reuse a name used by another process, at the risk
+    /// of causing problems.
     pub async fn new(
-        id: impl Into<String>,
+        process_id: String,
         client: Client,
         mode: EncryptionSyncMode,
-        with_lock: bool,
     ) -> Result<Self, Error> {
-        let id = id.into();
+        // Make sure to use the same `conn_id` and caching store identifier, whichever
+        // process is running this sliding sync. There must be at most one
+        // sliding sync instance that enables the e2ee and to-device extensions.
         let mut builder = client
-            .sliding_sync(id.clone())?
+            .sliding_sync("encryption")?
             .enable_caching()?
             .with_to_device_extension(
                 assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
@@ -83,22 +83,20 @@ impl EncryptionSync {
 
         let sliding_sync = builder.build().await?;
 
-        if with_lock {
-            // Gently try to set the cross-process lock on behalf of the user.
-            match client.encryption().enable_cross_process_store_lock(id).await {
-                Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
-                    // Ignore; we've already set the crypto store lock to
-                    // something, and that's sufficient as
-                    // long as it uniquely identifies the process.
-                }
-                Err(err) => {
-                    // Any other error is fatal
-                    return Err(Error::ClientError(err));
-                }
-            };
-        }
+        // Gently try to set the cross-process lock on behalf of the user.
+        match client.encryption().enable_cross_process_store_lock(process_id).await {
+            Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
+                // Ignore; we've already set the crypto store lock to
+                // something, and that's sufficient as
+                // long as it uniquely identifies the process.
+            }
+            Err(err) => {
+                // Any other error is fatal
+                return Err(Error::ClientError(err));
+            }
+        };
 
-        Ok(Self { client, sliding_sync, mode, with_lock })
+        Ok(Self { client, sliding_sync, mode })
     }
 
     /// Start synchronization.
@@ -113,7 +111,7 @@ impl EncryptionSync {
             let mut mode = self.mode;
 
             loop {
-                let must_unlock = match &mut mode {
+                match &mut mode {
                     EncryptionSyncMode::RunFixedIterations(ref mut val) => {
                         if *val == 0 {
                             // The previous attempt was the last one, stop now.
@@ -122,14 +120,21 @@ impl EncryptionSync {
                         // Soon.
                         *val -= 1;
 
-                        self.with_lock && self.client.encryption().try_lock_store_once().await?
+                        if self.client.encryption().try_lock_store_once().await?.not() {
+                            // If we can't acquire the cross-process lock on the first attempt,
+                            // that means the main process is running. Don't even try to sync, in
+                            // that case.
+                            return;
+                        }
                     }
 
                     EncryptionSyncMode::NeverStop => {
                         self.client.encryption().spin_lock_store(Some(60000)).await?;
-                        true
                     }
                 };
+
+                // Force-reload the to-device token from disk, in case it changed.
+                self.sliding_sync.reload_to_device_token().await?;
 
                 match sync.next().await {
                     Some(Ok(update_summary)) => {
@@ -142,9 +147,7 @@ impl EncryptionSync {
                             error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                         }
 
-                        if must_unlock {
-                            self.client.encryption().unlock_store().await?;
-                        }
+                        self.client.encryption().unlock_store().await?;
 
                         // Cool cool, let's do it again.
                         yield Ok(());
@@ -153,9 +156,7 @@ impl EncryptionSync {
                     }
 
                     Some(Err(err)) => {
-                        if must_unlock {
-                            self.client.encryption().unlock_store().await?;
-                        }
+                        self.client.encryption().unlock_store().await?;
 
                         yield Err(err.into());
 
@@ -163,9 +164,7 @@ impl EncryptionSync {
                     }
 
                     None => {
-                        if must_unlock {
-                            self.client.encryption().unlock_store().await?;
-                        }
+                        self.client.encryption().unlock_store().await?;
 
                         break;
                     }

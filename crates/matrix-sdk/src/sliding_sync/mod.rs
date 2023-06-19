@@ -53,7 +53,10 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use self::sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
+use self::{
+    cache::restore_sliding_sync_state,
+    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
+};
 use crate::{config::RequestConfig, Client, Result};
 
 /// The Sliding Sync instance.
@@ -627,6 +630,32 @@ impl SlidingSync {
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
+    }
+
+    /// Force reloading the to-device token, if caching was enabled for this
+    /// instance of sliding sync.
+    ///
+    /// This should only be done if multiple processes may be reading/writing
+    /// into the sliding sync cache.
+    pub async fn reload_to_device_token(&self) -> Result<()> {
+        if let Some(storage_key) = &self.inner.storage_key {
+            let lists = self.inner.lists.read().await;
+            let mut to_device_token = None;
+
+            restore_sliding_sync_state(
+                &self.inner.client,
+                storage_key,
+                &lists,
+                &mut None,
+                &mut to_device_token,
+            )
+            .await?;
+
+            if let Some(token) = to_device_token {
+                self.inner.position.write().unwrap().to_device_token = Some(token);
+            }
+        }
+        Ok(())
     }
 }
 

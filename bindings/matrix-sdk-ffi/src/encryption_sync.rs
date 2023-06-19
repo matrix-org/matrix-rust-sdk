@@ -78,11 +78,9 @@ impl Client {
         id: String,
         listener: Box<dyn EncryptionSyncListener>,
         mode: EncryptionSyncMode,
-        with_lock: bool,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
         RUNTIME.block_on(async move {
-            let inner =
-                Arc::new(MatrixEncryptionSync::new(id, self.inner.clone(), mode, with_lock).await?);
+            let inner = Arc::new(MatrixEncryptionSync::new(id, self.inner.clone(), mode).await?);
 
             let handle = EncryptionSync::start(inner.clone(), listener);
 
@@ -99,37 +97,35 @@ impl Client {
     /// current process. It must not change over time, as it's used as a key
     /// for caching.
     ///
-    /// If the process involves another process that handles notifications (like
-    /// on iOS), then `with_lock` must be set to true. Otherwise, it can be
-    /// false (like on Android).
+    /// This should be avoided, whenever possible, and be used only in
+    /// situations where the encryption sync loop needs to run from multiple
+    /// processes at the same time (on iOS for instance, where notifications
+    /// are handled in a separate process). If you aren't in such a
+    /// situation, prefer using `Client::room_list(true)`.
     pub fn main_encryption_sync(
         &self,
         id: String,
         listener: Box<dyn EncryptionSyncListener>,
-        with_lock: bool,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
-        self.encryption_sync(id, listener, EncryptionSyncMode::NeverStop, with_lock)
+        self.encryption_sync(id, listener, EncryptionSyncMode::NeverStop)
     }
 
     /// Encryption loop for a notification process.
     ///
-    /// Requires that the main process also gets its own encryption sync, with
-    /// `with_lock` set to true.
-    ///
     /// A fixed number of iterations can be given, to limit the time spent in
     /// that loop.
+    ///
+    /// This should be avoided, whenever possible, and be used only in
+    /// situations where the encryption sync loop needs to run from multiple
+    /// processes at the same time (on iOS for instance, where notifications
+    /// are handled in a separate process). If you aren't in such a
+    /// situation, prefer using `Client::room_list(true)`.
     pub fn notification_encryption_sync(
         &self,
         id: String,
         listener: Box<dyn EncryptionSyncListener>,
         num_iters: u8,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
-        let with_lock = true;
-        self.encryption_sync(
-            id,
-            listener,
-            EncryptionSyncMode::RunFixedIterations(num_iters),
-            with_lock,
-        )
+        self.encryption_sync(id, listener, EncryptionSyncMode::RunFixedIterations(num_iters))
     }
 }
