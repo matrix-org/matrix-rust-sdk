@@ -28,9 +28,11 @@ use dashmap::DashMap;
 use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;
 use matrix_sdk_base::{
-    crypto::store::locks::CryptoStoreLock, store::DynStateStore, BaseClient, RoomState,
-    RoomStateFilter, SendOutsideWasm, Session, SessionMeta, SessionTokens, SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, Session,
+    SessionMeta, SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]

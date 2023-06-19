@@ -864,9 +864,8 @@ impl Encryption {
         Ok(())
     }
 
-    /// If a lock was created with
-    /// [`Self::enable_cross_process_crypto_store_lock`], spin-waits
-    /// until the lock is available.
+    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
+    /// spin-waits until the lock is available.
     ///
     /// May reload the `OlmMachine`, after obtaining the lock but not on the
     /// first time.
@@ -890,9 +889,8 @@ impl Encryption {
         Ok(())
     }
 
-    /// If a lock was created with
-    /// [`Self::enable_cross_process_crypto_store_lock`], attempts to
-    /// lock it once.
+    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
+    /// attempts to lock it once.
     ///
     /// Returns whether the lock was obtained or not.
     pub async fn try_lock_store_once(&self) -> Result<bool, Error> {
@@ -902,8 +900,8 @@ impl Encryption {
         Ok(false)
     }
 
-    /// If a lock was created with
-    /// [`Self::enable_cross_process_crypto_store_lock`], unlocks it.
+    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
+    /// unlocks it.
     ///
     /// This may return an error if we were not the lock's owner.
     pub async fn unlock_store(&self) -> Result<(), Error> {
