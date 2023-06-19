@@ -15,13 +15,14 @@ use crate::error::NotificationSettingsError;
 
 /// enum describing the commands required to modify the owner's account data.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) enum Command {
     /// Set a new push rule
-    SetPushRule(RuleScope, NewPushRule),
+    SetPushRule { scope: RuleScope, rule: NewPushRule },
     /// Set whether a push rule is enabled
-    SetPushRuleEnabled(RuleScope, RuleKind, String, bool),
+    SetPushRuleEnabled { scope: RuleScope, kind: RuleKind, rule_id: String, enabled: bool },
     /// Delete a push rule
-    DeletePushRule(RuleScope, RuleKind, String),
+    DeletePushRule { scope: RuleScope, kind: RuleKind, rule_id: String },
 }
 
 pub(crate) struct Rules {
@@ -288,14 +289,14 @@ impl Rules {
                 );
                 let new_rule = NewPushRule::Override(new_rule);
                 self.ruleset.insert(new_rule.clone(), None, None)?;
-                commands.push(Command::SetPushRule(RuleScope::Global, new_rule));
+                commands.push(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             RuleKind::Room => {
                 // Insert a new `Room` push rule for this `room_id`
                 let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
                 let new_rule = NewPushRule::Room(new_rule);
                 self.ruleset.insert(new_rule.clone(), None, None)?;
-                commands.push(Command::SetPushRule(RuleScope::Global, new_rule));
+                commands.push(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             _ => {
                 return Err(NotificationSettingsError::InvalidParameter(
@@ -325,11 +326,11 @@ impl Rules {
                 continue;
             }
             self.ruleset.remove(rule_kind.clone(), rule_id.clone())?;
-            commands.push(Command::DeletePushRule(
-                RuleScope::Global,
-                rule_kind.clone(),
-                rule_id.clone(),
-            ))
+            commands.push(Command::DeletePushRule {
+                scope: RuleScope::Global,
+                kind: rule_kind.clone(),
+                rule_id: rule_id.clone(),
+            })
         }
         Ok(commands)
     }
@@ -359,7 +360,7 @@ impl Rules {
         } else {
             let mut commands: Vec<Command> = vec![];
             self.ruleset.set_enabled(kind.clone(), rule_id.clone(), enabled)?;
-            commands.push(Command::SetPushRuleEnabled(scope, kind, rule_id, enabled));
+            commands.push(Command::SetPushRuleEnabled { scope, kind, rule_id, enabled });
             Ok(commands)
         }
     }
@@ -385,12 +386,12 @@ impl Rules {
             PredefinedOverrideRuleId::IsUserMention,
             enabled,
         )?;
-        commands.push(Command::SetPushRuleEnabled(
-            RuleScope::Global,
-            RuleKind::Override,
-            PredefinedOverrideRuleId::IsUserMention.to_string(),
+        commands.push(Command::SetPushRuleEnabled {
+            scope: RuleScope::Global,
+            kind: RuleKind::Override,
+            rule_id: PredefinedOverrideRuleId::IsUserMention.to_string(),
             enabled,
-        ));
+        });
 
         // For compatibility purpose, we still need to set `ContainsUserName` and
         // `ContainsDisplayName` (deprecated rules).
@@ -402,12 +403,12 @@ impl Rules {
                 PredefinedContentRuleId::ContainsUserName,
                 enabled,
             )?;
-            commands.push(Command::SetPushRuleEnabled(
-                RuleScope::Global,
-                RuleKind::Content,
-                PredefinedContentRuleId::ContainsUserName.to_string(),
+            commands.push(Command::SetPushRuleEnabled {
+                scope: RuleScope::Global,
+                kind: RuleKind::Content,
+                rule_id: PredefinedContentRuleId::ContainsUserName.to_string(),
                 enabled,
-            ));
+            });
 
             // `ContainsDisplayName`
             self.ruleset.set_enabled(
@@ -415,12 +416,12 @@ impl Rules {
                 PredefinedOverrideRuleId::ContainsDisplayName,
                 enabled,
             )?;
-            commands.push(Command::SetPushRuleEnabled(
-                RuleScope::Global,
-                RuleKind::Override,
-                PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
+            commands.push(Command::SetPushRuleEnabled {
+                scope: RuleScope::Global,
+                kind: RuleKind::Override,
+                rule_id: PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
                 enabled,
-            ));
+            });
         }
 
         Ok(commands)
@@ -447,12 +448,12 @@ impl Rules {
             PredefinedOverrideRuleId::IsRoomMention,
             enabled,
         )?;
-        commands.push(Command::SetPushRuleEnabled(
-            RuleScope::Global,
-            RuleKind::Override,
-            PredefinedOverrideRuleId::IsRoomMention.to_string(),
+        commands.push(Command::SetPushRuleEnabled {
+            scope: RuleScope::Global,
+            kind: RuleKind::Override,
+            rule_id: PredefinedOverrideRuleId::IsRoomMention.to_string(),
             enabled,
-        ));
+        });
 
         // For compatibility purpose, we still need to set `RoomNotif` (deprecated
         // rule).
@@ -463,12 +464,12 @@ impl Rules {
                 PredefinedOverrideRuleId::RoomNotif,
                 enabled,
             )?;
-            commands.push(Command::SetPushRuleEnabled(
-                RuleScope::Global,
-                RuleKind::Override,
-                PredefinedOverrideRuleId::RoomNotif.to_string(),
+            commands.push(Command::SetPushRuleEnabled {
+                scope: RuleScope::Global,
+                kind: RuleKind::Override,
+                rule_id: PredefinedOverrideRuleId::RoomNotif.to_string(),
                 enabled,
-            ));
+            });
         }
 
         Ok(commands)
@@ -788,7 +789,7 @@ pub(crate) mod tests {
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            Command::SetPushRule(scope, rule) => {
+            Command::SetPushRule { scope, rule } => {
                 assert_eq!(scope, &RuleScope::Global);
                 match rule {
                     NewPushRule::Override(rule) => {
@@ -833,7 +834,7 @@ pub(crate) mod tests {
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            Command::SetPushRule(scope, rule) => {
+            Command::SetPushRule { scope, rule } => {
                 assert_eq!(scope, &RuleScope::Global);
                 match rule {
                     NewPushRule::Room(rule) => {
@@ -883,7 +884,7 @@ pub(crate) mod tests {
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            Command::DeletePushRule(scope, kind, rule_id) => {
+            Command::DeletePushRule { scope, kind, rule_id } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Room);
                 assert_eq!(rule_id, &room_id.to_string());
@@ -932,7 +933,7 @@ pub(crate) mod tests {
         // The command list should contains only a SetPushRuleEnabled command
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::Reaction.to_string());
@@ -1005,7 +1006,7 @@ pub(crate) mod tests {
         // The command list should contains two SetPushRuleEnabled
         assert_eq!(commands.len(), 2);
         match &commands[0] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::IsRoomMention.to_string());
@@ -1016,7 +1017,7 @@ pub(crate) mod tests {
             }
         }
         match &commands[1] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 #[allow(deprecated)]
@@ -1110,7 +1111,7 @@ pub(crate) mod tests {
         // The command list should contains 3 SetPushRuleEnabled
         assert_eq!(commands.len(), 3);
         match &commands[0] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::IsUserMention.to_string());
@@ -1121,7 +1122,7 @@ pub(crate) mod tests {
             }
         }
         match &commands[1] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Content);
                 #[allow(deprecated)]
@@ -1134,7 +1135,7 @@ pub(crate) mod tests {
             }
         }
         match &commands[2] {
-            Command::SetPushRuleEnabled(scope, kind, rule_id, enabled) => {
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 #[allow(deprecated)]
