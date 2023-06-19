@@ -41,27 +41,24 @@ impl Rules {
     ///
     /// * `room_id` - A `RoomId`
     pub(crate) fn get_custom_rules_for_room(&self, room_id: &RoomId) -> Vec<(RuleKind, String)> {
-        let mut custom_rules: Vec<(RuleKind, String)> = Vec::new();
+        let mut custom_rules = vec![];
 
         // add any `Override` rules matching this `room_id`
         for rule in &self.ruleset.override_ {
             // if the rule_id is the room_id
             if rule.rule_id == *room_id {
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
-                continue;
-            }
-            // if the rule contains a condition matching this `room_id`
-            if rule.conditions.iter().any(|x| matches!(
+            } else if rule.conditions.iter().any(|x| matches!(
                 x,
                 PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
             )) {
+                // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
-                continue;
             }
         }
 
         // add any `Room` rules matching this `room_id`
-        if let Some(rule) = self.ruleset.room.iter().find(|x| x.rule_id == *room_id).cloned() {
+        if let Some(rule) = self.ruleset.room.iter().find(|x| x.rule_id == *room_id) {
             custom_rules.push((RuleKind::Room, rule.rule_id.to_string()));
         }
 
@@ -70,15 +67,12 @@ impl Rules {
             // if the rule_id is the room_id
             if rule.rule_id == *room_id {
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
-                continue;
-            }
-            // if the rule contains a condition matching this `room_id`
-            if rule.conditions.iter().any(|x| matches!(
+            } else if rule.conditions.iter().any(|x| matches!(
                 x,
                 PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
             )) {
+                // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
-                continue;
             }
         }
 
@@ -95,17 +89,18 @@ impl Rules {
         room_id: &RoomId,
     ) -> Option<RoomNotificationMode> {
         // Search for an enabled `Override` rule
-        if let Some(rule) = self.ruleset.override_.iter().find(|x| x.enabled) {
-            // without a Notify action
-            if !rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
-                // with a condition of type `EventMatch` for this `room_id`
-                if rule.conditions.iter().any(|x| matches!(
-                    x,
-                    PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
-                )) {
-                    return Some(RoomNotificationMode::Mute);
-                }
-            }
+        if self.ruleset.override_.iter().any(|x| {
+            // enabled
+            x.enabled &&
+            // with a condition of type `EventMatch` for this `room_id`
+            x.conditions.iter().any(|x| matches!(
+                x,
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+            )) &&
+            // and without a Notify action
+            !x.actions.iter().any(|x| x.should_notify())
+        }) {
+            return Some(RoomNotificationMode::Mute);
         }
 
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
@@ -559,6 +554,25 @@ pub(crate) mod tests {
         rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, true).unwrap();
         let mode = rules.get_user_defined_room_notification_mode(&room_id);
         assert_eq!(mode, Some(RoomNotificationMode::AllMessages));
+    }
+
+    #[async_test]
+    async fn get_user_defined_room_notification_mode_multiple_override_rules() {
+        let room_id_a = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
+        let room_id_b = RoomId::parse("!BBBbBBBBBbbBBbbbbb:matrix.org").unwrap();
+        let user_id = UserId::parse("@user:matrix.org").unwrap();
+        let ruleset = Ruleset::server_default(&user_id);
+
+        let mut rules = Rules::new(ruleset);
+
+        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_a, false).unwrap();
+        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_b, true).unwrap();
+
+        let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
+
+        // The mode should be Mute as there is an Override rule that doesn't notify,
+        // with a condition matching the room_id_a
+        assert_eq!(mode, Some(RoomNotificationMode::Mute));
     }
 
     #[async_test]
