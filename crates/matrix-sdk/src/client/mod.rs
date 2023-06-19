@@ -2345,12 +2345,12 @@ impl Client {
     ///
     /// * `callback` - A callback that will be called every time after a
     ///   response has been received, failure or not. The callback returns a
-    ///   `Result<LoopCtrl, Error>, too. When returning `Ok(LoopCtrl::Continue)`
-    ///   the sync will continue, if the callback returns `Ok(LoopCtrl::Break)`
-    ///   the sync will be stopped and the function returns `Ok(())`. In case
-    ///   the callback can't handle the `Error` or has a different malfunction,
-    ///   it can return an `Err(Error)`, which results in the sync ending and
-    ///   the `Err(Error)` being returned.
+    ///   `Result<LoopCtrl, Error>`, too. When returning
+    ///   `Ok(LoopCtrl::Continue)` the sync will continue, if the callback
+    ///   returns `Ok(LoopCtrl::Break)` the sync will be stopped and the
+    ///   function returns `Ok(())`. In case the callback can't handle the
+    ///   `Error` or has a different malfunction, it can return an `Err(Error)`,
+    ///   which results in the sync ending and the `Err(Error)` being returned.
     ///
     /// # Return
     /// The sync runs until an error occurs that the callback can't handle or
