@@ -280,8 +280,6 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            reset_counter: Default::default(),
-
             position: StdRwLock::new(SlidingSyncPositionMarkers {
                 pos: None,
                 delta_token,
