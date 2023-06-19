@@ -77,7 +77,7 @@ use matrix_sdk::{
 };
 pub use room::*;
 use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters,
+    api::client::sync::sync_events::v4::{E2EEConfig, SyncRequestListFilters, ToDeviceConfig},
     assign,
     events::{StateEventType, TimelineEventType},
     OwnedRoomId, RoomId,
@@ -104,6 +104,9 @@ impl RoomList {
             .enable_caching()
             .map_err(Error::SlidingSync)?
             .with_common_extensions()
+            // TODO different strategy when the encryption sync is in main by default
+            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
