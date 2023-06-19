@@ -71,7 +71,8 @@ impl TimelineBuilder {
     #[tracing::instrument(skip(self))]
     pub(crate) async fn build(self) -> Timeline {
         let Self { room, prev_token, events, track_read_marker_and_receipts } = self;
-        let has_events = !events.is_empty();
+        let number_of_events = events.len();
+        let has_events = number_of_events > 0;
 
         let mut inner =
             TimelineInner::new(room).with_read_receipt_tracking(track_read_marker_and_receipts);
@@ -205,11 +206,20 @@ impl TimelineBuilder {
             // The events we're injecting might be encrypted events, but we might
             // have received the room key to decrypt them while nobody was listening to the
             // `m.room_key` event, let's retry now.
-            //
-            // TODO: We could spawn a task here and put this into the background, though it
-            // might not be worth it depending on the number of events we injected.
-            // Some measuring needs to be done.
-            timeline.retry_decryption_for_all_events().await;
+
+            // If there is more than 5 events to decrypt, let's spawn a task so that it's
+            // not blocking the main flow too much. Everything is async here, but if someone
+            // is calling the `Timeline` builder in a blocking context, it could block for
+            // too long.
+            if number_of_events > 5 {
+                spawn({
+                    let inner = timeline.inner.clone();
+
+                    async move { inner.retry_event_decryption(inner.room(), None).await }
+                });
+            } else {
+                timeline.inner.retry_event_decryption(timeline.inner.room(), None).await;
+            }
         }
 
         timeline

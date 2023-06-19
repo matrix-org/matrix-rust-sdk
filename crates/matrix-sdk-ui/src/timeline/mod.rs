@@ -227,12 +227,6 @@ impl Timeline {
             .await;
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    #[tracing::instrument(skip(self))]
-    async fn retry_decryption_for_all_events(&self) {
-        self.inner.retry_event_decryption(self.room(), None).await;
-    }
-
     /// Get the current timeline item for the given event ID, if any.
     ///
     /// It's preferable to store the timeline items in the model for your UI, if
