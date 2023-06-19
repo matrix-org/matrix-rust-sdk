@@ -411,6 +411,7 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
+            Content::Poll(_) => TimelineItemContentKind::Poll {},
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -473,6 +474,9 @@ pub enum TimelineItemContentKind {
         body: String,
         info: ImageInfo,
         url: String,
+    },
+    Poll {
+        // TODO
     },
     UnableToDecrypt {
         msg: EncryptedMessage,
