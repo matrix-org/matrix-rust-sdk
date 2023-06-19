@@ -294,7 +294,6 @@ impl Rules {
     /// describing the actions to be performed on the user's account data.
     pub(crate) fn set_enabled(
         &mut self,
-        scope: RuleScope,
         kind: RuleKind,
         rule_id: &str,
         enabled: bool,
@@ -306,15 +305,31 @@ impl Rules {
             // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
             self.set_user_mention_enabled(enabled)
         } else {
-            self.ruleset.set_enabled(kind.clone(), rule_id.clone(), enabled)?;
-            let commands = vec![Command::SetPushRuleEnabled {
-                scope,
-                kind,
-                rule_id: rule_id.to_string(),
-                enabled,
-            }];
+            let mut commands = vec![];
+            self.set_rule_enabled(kind, rule_id, enabled, &mut commands)?;
             Ok(commands)
         }
+    }
+
+    /// Helper function to enable or disable a rule and update a list of
+    /// commands to be performed on the user's account data to reflect the
+    /// change.
+    fn set_rule_enabled(
+        &mut self,
+        kind: RuleKind,
+        rule_id: &str,
+        enabled: bool,
+        commands: &mut Vec<Command>,
+    ) -> Result<(), NotificationSettingsError> {
+        self.ruleset.set_enabled(kind.clone(), rule_id, enabled)?;
+        commands.push(Command::SetPushRuleEnabled {
+            scope: RuleScope::Global,
+            kind,
+            rule_id: rule_id.to_owned(),
+            enabled,
+        });
+
+        Ok(())
     }
 
     /// Set whether the `IsUserMention` rule is enabled and returns a list of
@@ -328,47 +343,32 @@ impl Rules {
 
         // Sets the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.ruleset.set_enabled(
+        self.set_rule_enabled(
             RuleKind::Override,
-            PredefinedOverrideRuleId::IsUserMention,
+            PredefinedOverrideRuleId::IsUserMention.as_str(),
             enabled,
+            &mut commands,
         )?;
-        commands.push(Command::SetPushRuleEnabled {
-            scope: RuleScope::Global,
-            kind: RuleKind::Override,
-            rule_id: PredefinedOverrideRuleId::IsUserMention.to_string(),
-            enabled,
-        });
 
         // For compatibility purpose, we still need to set `ContainsUserName` and
         // `ContainsDisplayName` (deprecated rules).
         #[allow(deprecated)]
         {
             // `ContainsUserName`
-            self.ruleset.set_enabled(
+            self.set_rule_enabled(
                 RuleKind::Content,
-                PredefinedContentRuleId::ContainsUserName,
+                PredefinedContentRuleId::ContainsUserName.as_str(),
                 enabled,
+                &mut commands,
             )?;
-            commands.push(Command::SetPushRuleEnabled {
-                scope: RuleScope::Global,
-                kind: RuleKind::Content,
-                rule_id: PredefinedContentRuleId::ContainsUserName.to_string(),
-                enabled,
-            });
 
             // `ContainsDisplayName`
-            self.ruleset.set_enabled(
+            self.set_rule_enabled(
                 RuleKind::Override,
-                PredefinedOverrideRuleId::ContainsDisplayName,
+                PredefinedOverrideRuleId::ContainsDisplayName.as_str(),
                 enabled,
+                &mut commands,
             )?;
-            commands.push(Command::SetPushRuleEnabled {
-                scope: RuleScope::Global,
-                kind: RuleKind::Override,
-                rule_id: PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
-                enabled,
-            });
         }
 
         Ok(commands)
@@ -385,34 +385,22 @@ impl Rules {
 
         // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.ruleset.set_enabled(
+        self.set_rule_enabled(
             RuleKind::Override,
-            PredefinedOverrideRuleId::IsRoomMention,
+            PredefinedOverrideRuleId::IsRoomMention.as_str(),
             enabled,
+            &mut commands,
         )?;
-        commands.push(Command::SetPushRuleEnabled {
-            scope: RuleScope::Global,
-            kind: RuleKind::Override,
-            rule_id: PredefinedOverrideRuleId::IsRoomMention.to_string(),
-            enabled,
-        });
 
         // For compatibility purpose, we still need to set `RoomNotif` (deprecated
         // rule).
         #[allow(deprecated)]
-        {
-            self.ruleset.set_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::RoomNotif,
-                enabled,
-            )?;
-            commands.push(Command::SetPushRuleEnabled {
-                scope: RuleScope::Global,
-                kind: RuleKind::Override,
-                rule_id: PredefinedOverrideRuleId::RoomNotif.to_string(),
-                enabled,
-            });
-        }
+        self.set_rule_enabled(
+            RuleKind::Override,
+            PredefinedOverrideRuleId::RoomNotif.as_str(),
+            enabled,
+            &mut commands,
+        )?;
 
         Ok(commands)
     }
@@ -896,12 +884,7 @@ pub(crate) mod tests {
         assert!(initial_state);
         // Disable the PredefinedOverrideRuleId::Reaction rule
         let commands = rules
-            .set_enabled(
-                RuleScope::Global,
-                RuleKind::Override,
-                PredefinedOverrideRuleId::Reaction.as_str(),
-                false,
-            )
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), false)
             .unwrap();
         let new_enabled_state = rules
             .ruleset
@@ -958,12 +941,7 @@ pub(crate) mod tests {
 
         // Enable the PredefinedOverrideRuleId::IsRoomMention rule
         let commands = rules
-            .set_enabled(
-                RuleScope::Global,
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.as_str(),
-                true,
-            )
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str(), true)
             .unwrap();
 
         // Ensure the new state is `true` for both rules
@@ -1051,12 +1029,7 @@ pub(crate) mod tests {
 
         // Enable the PredefinedOverrideRuleId::IsUserMention rule
         let commands = rules
-            .set_enabled(
-                RuleScope::Global,
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.as_str(),
-                true,
-            )
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str(), true)
             .unwrap();
 
         // Ensure the new state is `true` for all corresponding rules
