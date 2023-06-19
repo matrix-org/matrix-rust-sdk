@@ -44,11 +44,9 @@ impl Rules {
         // add any `Override` rules matching this `room_id`
         for rule in &self.ruleset.override_ {
             // if the rule_id is the room_id
-            if rule.rule_id == *room_id {
-                custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
-            } else if rule.conditions.iter().any(|x| matches!(
+            if &rule.rule_id == room_id || rule.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
             )) {
                 // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
@@ -56,18 +54,16 @@ impl Rules {
         }
 
         // add any `Room` rules matching this `room_id`
-        if let Some(rule) = self.ruleset.room.iter().find(|x| x.rule_id == *room_id) {
+        if let Some(rule) = self.ruleset.room.iter().find(|x| x.rule_id == room_id) {
             custom_rules.push((RuleKind::Room, rule.rule_id.to_string()));
         }
 
         // add any `Underride` rules matching this `room_id`
         for rule in &self.ruleset.underride {
             // if the rule_id is the room_id
-            if rule.rule_id == *room_id {
-                custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
-            } else if rule.conditions.iter().any(|x| matches!(
+            if &rule.rule_id == room_id || rule.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
             )) {
                 // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
@@ -89,7 +85,7 @@ impl Rules {
             // with a condition of type `EventMatch` for this `room_id`
             x.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
             )) &&
             // and without a Notify action
             !x.actions.iter().any(|x| x.should_notify())
@@ -98,7 +94,7 @@ impl Rules {
         }
 
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
-        if let Some(rule) = self.ruleset.room.iter().find(|x| x.enabled && x.rule_id == *room_id) {
+        if let Some(rule) = self.ruleset.room.iter().find(|x| x.enabled && x.rule_id == room_id) {
             // if this rule contains a `Notify` action
             if rule.actions.iter().any(|x| x.should_notify()) {
                 return Some(RoomNotificationMode::AllMessages);
@@ -751,7 +747,7 @@ pub(crate) mod tests {
         let rules = Rules::new(get_server_default_ruleset());
 
         assert_eq!(
-            rules.is_enabled(RuleKind::Override, "unknown_rule_id".into()),
+            rules.is_enabled(RuleKind::Override, "unknown_rule_id"),
             Err(NotificationSettingsError::RuleNotFound)
         );
     }
@@ -772,7 +768,7 @@ pub(crate) mod tests {
                 assert_eq!(rule.rule_id, room_id);
                 assert!(rule.conditions.iter().any(|x| matches!(
                     x,
-                    PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                    PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == room_id
                 )))
             }
         );
@@ -788,7 +784,7 @@ pub(crate) mod tests {
                         assert_eq!(rule.rule_id, room_id);
                         assert!(rule.conditions.iter().any(|x| matches!(
                             x,
-                            PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
+                            PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == room_id
                         )))
                     }
                 )
@@ -844,7 +840,7 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        rules.delete_rules(&vec![(RuleKind::Room, room_id.to_string())], &vec![]).expect_err(
+        rules.delete_rules(&[(RuleKind::Room, room_id.to_string())], &[]).expect_err(
             "A RemovePushRuleError is expected while trying to delete an unknown rule.",
         );
 
@@ -852,8 +848,7 @@ pub(crate) mod tests {
         let new_rule = NewPushRule::Room(new_rule);
         rules.ruleset.insert(new_rule, None, None).unwrap();
 
-        let commands =
-            rules.delete_rules(&vec![(RuleKind::Room, room_id.to_string())], &vec![]).unwrap();
+        let commands = rules.delete_rules(&[(RuleKind::Room, room_id.to_string())], &[]).unwrap();
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
 
