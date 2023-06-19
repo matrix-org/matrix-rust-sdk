@@ -1,5 +1,7 @@
 //! Ruleset utility struct
 
+use std::collections::BTreeSet;
+
 use ruma::{
     api::client::push::RuleScope,
     push::{
@@ -106,35 +108,14 @@ impl Rules {
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
         if let Some(rule) = self.ruleset.room.iter().find(|x| x.enabled && x.rule_id == *room_id) {
             // if this rule contains a `Notify` action
-            if rule.actions.iter().any(|x| matches!(x, Action::Notify)) {
+            if rule.actions.iter().any(|x| x.should_notify()) {
                 return Some(RoomNotificationMode::AllMessages);
-            } else {
-                return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
             }
+            return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
         }
 
         // There is no custom rule matching this `room_id`
         None
-    }
-
-    /// Gets the `PredefinedUnderrideRuleId` corresponding to the given
-    /// criteria.
-    ///
-    /// # Arguments
-    ///
-    /// * `is_encrypted` - `true` if the room is encrypted
-    /// * `members_count` - the room members count
-    fn get_predefined_underride_room_rule_id(
-        &self,
-        is_encrypted: bool,
-        members_count: u64,
-    ) -> PredefinedUnderrideRuleId {
-        match (is_encrypted, members_count) {
-            (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
-            (false, 2) => PredefinedUnderrideRuleId::RoomOneToOne,
-            (true, _) => PredefinedUnderrideRuleId::Encrypted,
-            (false, _) => PredefinedUnderrideRuleId::Message,
-        }
     }
 
     /// Gets the default notification mode for a room.
@@ -149,14 +130,13 @@ impl Rules {
         members_count: u64,
     ) -> RoomNotificationMode {
         // get the correct default rule ID based on `is_encrypted` and `members_count`
-        let rule_id = self.get_predefined_underride_room_rule_id(is_encrypted, members_count);
+        let rule_id =
+            get_predefined_underride_room_rule_id(is_encrypted, members_count).to_string();
 
         // If there is an `Underride` rule that should trigger a notification, the mode
         // is `AllMessages`
         if self.ruleset.underride.iter().any(|r| {
-            r.enabled
-                && r.rule_id == rule_id.to_string()
-                && r.actions.iter().any(|a| a.should_notify())
+            r.enabled && r.rule_id == rule_id && r.actions.iter().any(|a| a.should_notify())
         }) {
             RoomNotificationMode::AllMessages
         } else {
@@ -213,9 +193,10 @@ impl Rules {
 
         // Fallback to deprecated rule for compatibility
         #[allow(deprecated)]
+        let room_notif_rule_id = PredefinedOverrideRuleId::RoomNotif.to_string();
         self.ruleset.override_.iter().any(|r| {
             r.enabled
-                && r.rule_id == PredefinedOverrideRuleId::RoomNotif.to_string()
+                && r.rule_id == room_notif_rule_id
                 && r.actions.iter().any(|a| a.should_notify())
         })
     }
@@ -231,7 +212,7 @@ impl Rules {
     /// # Arguments
     ///
     /// * `kind` - A `RuleKind`
-    /// * `rule_id` - A `PredefinedUnderrideRuleId`
+    /// * `rule_id` - A rule_id
     pub(crate) fn is_enabled(
         &self,
         kind: RuleKind,
@@ -263,8 +244,8 @@ impl Rules {
         kind: RuleKind,
         room_id: &RoomId,
         notify: bool,
-    ) -> Result<Vec<Command>, NotificationSettingsError> {
-        let mut commands: Vec<Command> = vec![];
+    ) -> Result<Option<Command>, NotificationSettingsError> {
+        let command;
         let actions = if notify {
             vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
         } else {
@@ -284,14 +265,14 @@ impl Rules {
                 );
                 let new_rule = NewPushRule::Override(new_rule);
                 self.ruleset.insert(new_rule.clone(), None, None)?;
-                commands.push(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
+                command = Some(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             RuleKind::Room => {
                 // Insert a new `Room` push rule for this `room_id`
                 let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
                 let new_rule = NewPushRule::Room(new_rule);
                 self.ruleset.insert(new_rule.clone(), None, None)?;
-                commands.push(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
+                command = Some(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             _ => {
                 return Err(NotificationSettingsError::InvalidParameter(
@@ -300,7 +281,7 @@ impl Rules {
             }
         }
 
-        Ok(commands)
+        Ok(command)
     }
 
     /// Deletes a list of rules and returns a list of `Command` describing the
@@ -312,14 +293,17 @@ impl Rules {
     /// * `exceptions` - A list of rules to ignore
     pub(crate) fn delete_rules(
         &mut self,
-        rules: Vec<(RuleKind, String)>,
-        exceptions: Vec<(RuleKind, String)>,
+        rules: &[(RuleKind, String)],
+        exceptions: &[(RuleKind, String)],
     ) -> Result<Vec<Command>, RemovePushRuleError> {
         let mut commands: Vec<Command> = vec![];
-        for (rule_kind, rule_id) in &rules {
-            if exceptions.contains(&(rule_kind.clone(), rule_id.clone())) {
-                continue;
-            }
+
+        // Remove exceptions from the rules to delete
+        let to_remove = BTreeSet::from_iter(exceptions);
+        let mut rules = rules.to_vec();
+        rules.retain(|e| !to_remove.contains(e));
+
+        for (rule_kind, rule_id) in rules {
             self.ruleset.remove(rule_kind.clone(), rule_id.clone())?;
             commands.push(Command::DeletePushRule {
                 scope: RuleScope::Global,
@@ -353,9 +337,8 @@ impl Rules {
             // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
             self.set_user_mention_enabled(enabled)
         } else {
-            let mut commands: Vec<Command> = vec![];
             self.ruleset.set_enabled(kind.clone(), rule_id.clone(), enabled)?;
-            commands.push(Command::SetPushRuleEnabled { scope, kind, rule_id, enabled });
+            let commands = vec![Command::SetPushRuleEnabled { scope, kind, rule_id, enabled }];
             Ok(commands)
         }
     }
@@ -471,6 +454,25 @@ impl Rules {
     }
 }
 
+/// Gets the `PredefinedUnderrideRuleId` corresponding to the given
+/// criteria.
+///
+/// # Arguments
+///
+/// * `is_encrypted` - `true` if the room is encrypted
+/// * `members_count` - the room members count
+fn get_predefined_underride_room_rule_id(
+    is_encrypted: bool,
+    members_count: u64,
+) -> PredefinedUnderrideRuleId {
+    match (is_encrypted, members_count) {
+        (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
+        (false, 2) => PredefinedUnderrideRuleId::RoomOneToOne,
+        (true, _) => PredefinedUnderrideRuleId::Encrypted,
+        (false, _) => PredefinedUnderrideRuleId::Message,
+    }
+}
+
 #[cfg(all(test))]
 pub(crate) mod tests {
     use matrix_sdk_test::async_test;
@@ -484,7 +486,10 @@ pub(crate) mod tests {
     };
 
     use super::Command;
-    use crate::notification_settings::{rules::Rules, RoomNotificationMode};
+    use crate::notification_settings::{
+        rules::{self, Rules},
+        RoomNotificationMode,
+    };
 
     #[async_test]
     async fn get_custom_rules_for_room() {
@@ -577,22 +582,20 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn get_predefined_underride_room_rule_id() {
-        let rules = Rules::new(Ruleset::new());
-
         assert_eq!(
-            rules.get_predefined_underride_room_rule_id(false, 3),
+            rules::get_predefined_underride_room_rule_id(false, 3),
             PredefinedUnderrideRuleId::Message
         );
         assert_eq!(
-            rules.get_predefined_underride_room_rule_id(false, 2),
+            rules::get_predefined_underride_room_rule_id(false, 2),
             PredefinedUnderrideRuleId::RoomOneToOne
         );
         assert_eq!(
-            rules.get_predefined_underride_room_rule_id(true, 3),
+            rules::get_predefined_underride_room_rule_id(true, 3),
             PredefinedUnderrideRuleId::Encrypted
         );
         assert_eq!(
-            rules.get_predefined_underride_room_rule_id(true, 2),
+            rules::get_predefined_underride_room_rule_id(true, 2),
             PredefinedUnderrideRuleId::EncryptedRoomOneToOne
         );
     }
@@ -780,7 +783,7 @@ pub(crate) mod tests {
         let ruleset = Ruleset::server_default(&user_id);
         let mut rules = Rules::new(ruleset);
 
-        let commands = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
+        let command = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
         let new_rule = rules
@@ -801,10 +804,9 @@ pub(crate) mod tests {
         }
 
         // The command list should contains only a SetPushRule command
-        assert_eq!(commands.len(), 1);
-        match &commands[0] {
-            Command::SetPushRule { scope, rule } => {
-                assert_eq!(scope, &RuleScope::Global);
+        match command {
+            Some(Command::SetPushRule { scope, rule }) => {
+                assert_eq!(scope, RuleScope::Global);
                 match rule {
                     NewPushRule::Override(rule) => {
                         assert_eq!(rule.rule_id, room_id);
@@ -831,7 +833,7 @@ pub(crate) mod tests {
         let ruleset = Ruleset::server_default(&user_id);
         let mut rules = Rules::new(ruleset);
 
-        let commands = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
+        let command = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
         let new_rule =
@@ -846,10 +848,9 @@ pub(crate) mod tests {
         }
 
         // The command list should contains only a SetPushRule command
-        assert_eq!(commands.len(), 1);
-        match &commands[0] {
-            Command::SetPushRule { scope, rule } => {
-                assert_eq!(scope, &RuleScope::Global);
+        match command {
+            Some(Command::SetPushRule { scope, rule }) => {
+                assert_eq!(scope, RuleScope::Global);
                 match rule {
                     NewPushRule::Room(rule) => {
                         assert_eq!(rule.rule_id, room_id);
