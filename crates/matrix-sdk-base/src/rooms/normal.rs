@@ -1091,40 +1091,65 @@ mod test {
     }
 
     #[async_test]
-    async fn test_display_name_default() {
+    async fn display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room(RoomState::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+    }
 
-        let canonical_alias_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+    #[async_test]
+    async fn display_name_for_joined_room_uses_canonical_alias_if_available() {
+        let (_, room) = make_room(RoomState::Joined);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_joined_room_prefers_name_over_alias() {
+        let (_, room) = make_room(RoomState::Joined);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+        room.inner.write().unwrap().base_info.name = Some(make_name_event().clone());
+        // Display name wasn't cached when we asked for it above, and name overrides
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_is_empty_if_no_info() {
+        let (_, room) = make_room(RoomState::Invited);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_uses_canonical_alias_if_available() {
+        let (_, room) = make_room(RoomState::Invited);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_prefers_name_over_alias() {
+        let (_, room) = make_room(RoomState::Invited);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+        room.inner.write().unwrap().base_info.name = Some(make_name_event().clone());
+        // Display name wasn't cached when we asked for it above, and name overrides
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+    }
+
+    fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: assign!(RoomCanonicalAliasEventContent::new(), {
                 alias: Some(room_alias_id!("#test:example.com").to_owned()),
             }),
             event_id: None,
-        });
+        })
+    }
 
-        let name_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: RoomNameEventContent::new(Some("Test Room".try_into().unwrap())),
             event_id: None,
-        });
-
-        // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event.clone());
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-
-        // has precedence
-        room.inner.write().unwrap().base_info.name = Some(name_event.clone());
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
-
-        let (_, room) = make_room(RoomState::Invited);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
-
-        // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-
-        // has precedence
-        room.inner.write().unwrap().base_info.name = Some(name_event);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+        })
     }
 
     #[async_test]
