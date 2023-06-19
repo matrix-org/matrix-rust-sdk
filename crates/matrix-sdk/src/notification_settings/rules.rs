@@ -28,6 +28,7 @@ pub(crate) struct Rules {
     pub ruleset: Ruleset,
 }
 
+#[allow(dead_code)]
 impl Rules {
     pub(crate) fn new(ruleset: Ruleset) -> Self {
         Rules { ruleset }
