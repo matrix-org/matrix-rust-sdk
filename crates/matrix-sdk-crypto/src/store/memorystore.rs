@@ -56,6 +56,7 @@ pub struct MemoryStore {
     outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
     direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
+    custom_values: Arc<DashMap<String, Vec<u8>>>,
 }
 
 impl Default for MemoryStore {
@@ -69,6 +70,7 @@ impl Default for MemoryStore {
             outgoing_key_requests: Default::default(),
             key_requests_by_info: Default::default(),
             direct_withheld_info: Default::default(),
+            custom_values: Default::default(),
         }
     }
 }
@@ -302,24 +304,27 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn get_custom_value(&self, _key: &str) -> Result<Option<Vec<u8>>> {
-        warn!("Method not implemented");
-        Ok(None)
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom_values.get(key).map(|val| val.clone()))
     }
 
-    async fn set_custom_value(&self, _key: &str, _value: Vec<u8>) -> Result<()> {
-        warn!("Method not implemented");
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self.custom_values.insert(key.to_owned(), value);
         Ok(())
     }
 
-    async fn insert_custom_value_if_missing(&self, _key: &str, _new: Vec<u8>) -> Result<bool> {
-        warn!("Method insert_custom_value_if_missing not implemented");
-        Ok(false)
+    async fn insert_custom_value_if_missing(&self, key: &str, value: Vec<u8>) -> Result<bool> {
+        if self.get_custom_value(key).await?.is_none() {
+            self.set_custom_value(key, value).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
-    async fn remove_custom_value(&self, _key: &str) -> Result<bool> {
-        warn!("Method remove_custom_value not implemented");
-        Ok(false)
+    async fn remove_custom_value(&self, key: &str) -> Result<bool> {
+        let was_there = self.custom_values.remove(key).is_some();
+        Ok(was_there)
     }
 }
 
