@@ -130,8 +130,8 @@ impl Rules {
         members_count: u64,
     ) -> RoomNotificationMode {
         // get the correct default rule ID based on `is_encrypted` and `members_count`
-        let rule_id =
-            get_predefined_underride_room_rule_id(is_encrypted, members_count).to_string();
+        let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, members_count);
+        let rule_id = predefined_rule_id.as_str();
 
         // If there is an `Underride` rule that should trigger a notification, the mode
         // is `AllMessages`
@@ -193,7 +193,7 @@ impl Rules {
 
         // Fallback to deprecated rule for compatibility
         #[allow(deprecated)]
-        let room_notif_rule_id = PredefinedOverrideRuleId::RoomNotif.to_string();
+        let room_notif_rule_id = PredefinedOverrideRuleId::RoomNotif.as_str();
         self.ruleset.override_.iter().any(|r| {
             r.enabled
                 && r.rule_id == room_notif_rule_id
@@ -216,11 +216,11 @@ impl Rules {
     pub(crate) fn is_enabled(
         &self,
         kind: RuleKind,
-        rule_id: String,
+        rule_id: &str,
     ) -> Result<bool, NotificationSettingsError> {
-        if rule_id == PredefinedOverrideRuleId::IsRoomMention.to_string() {
+        if rule_id == PredefinedOverrideRuleId::IsRoomMention.as_str() {
             Ok(self.is_room_mention_enabled())
-        } else if rule_id == PredefinedOverrideRuleId::IsUserMention.to_string() {
+        } else if rule_id == PredefinedOverrideRuleId::IsUserMention.as_str() {
             Ok(self.is_user_mention_enabled())
         } else if let Some(rule) = self.ruleset.get(kind, rule_id) {
             Ok(rule.enabled())
@@ -327,18 +327,23 @@ impl Rules {
         &mut self,
         scope: RuleScope,
         kind: RuleKind,
-        rule_id: String,
+        rule_id: &str,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
-        if rule_id == PredefinedOverrideRuleId::IsRoomMention.to_string() {
+        if rule_id == PredefinedOverrideRuleId::IsRoomMention.as_str() {
             // Handle specific case for `PredefinedOverrideRuleId::IsRoomMention`
             self.set_room_mention_enabled(enabled)
-        } else if rule_id == PredefinedOverrideRuleId::IsUserMention.to_string() {
+        } else if rule_id == PredefinedOverrideRuleId::IsUserMention.as_str() {
             // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
             self.set_user_mention_enabled(enabled)
         } else {
             self.ruleset.set_enabled(kind.clone(), rule_id.clone(), enabled)?;
-            let commands = vec![Command::SetPushRuleEnabled { scope, kind, rule_id, enabled }];
+            let commands = vec![Command::SetPushRuleEnabled {
+                scope,
+                kind,
+                rule_id: rule_id.to_string(),
+                enabled,
+            }];
             Ok(commands)
         }
     }
@@ -660,7 +665,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsUserMention
         assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
             .unwrap());
 
         // If `IsUserMention` is disabled, and one of the deprecated rules is enabled,
@@ -691,7 +696,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsUserMention
         assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
             .unwrap());
 
         // If `IsUserMention` is disabled, and none of the deprecated rules is enabled,
@@ -714,7 +719,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `false` for
         // PredefinedOverrideRuleId::IsUserMention
         assert!(!rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
             .unwrap());
     }
 
@@ -731,7 +736,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
             .unwrap());
 
         // If `IsRoomMention` is not present, and the deprecated rules is enabled,
@@ -755,7 +760,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
             .unwrap());
 
         // If `IsRoomMention` is disabled, and the deprecated rules is disabled,
@@ -774,7 +779,7 @@ pub(crate) mod tests {
         // is_enabled() should also return `false` for
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(!rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
+            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
             .unwrap());
     }
 
@@ -894,7 +899,7 @@ pub(crate) mod tests {
             Command::DeletePushRule { scope, kind, rule_id } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Room);
-                assert_eq!(rule_id, &room_id.to_string());
+                assert_eq!(rule_id, room_id.as_str());
             }
         );
     }
@@ -936,7 +941,7 @@ pub(crate) mod tests {
             .set_enabled(
                 RuleScope::Global,
                 RuleKind::Override,
-                PredefinedOverrideRuleId::Reaction.to_string(),
+                PredefinedOverrideRuleId::Reaction.as_str(),
                 false,
             )
             .unwrap();
@@ -998,7 +1003,7 @@ pub(crate) mod tests {
             .set_enabled(
                 RuleScope::Global,
                 RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.to_string(),
+                PredefinedOverrideRuleId::IsRoomMention.as_str(),
                 true,
             )
             .unwrap();
@@ -1091,7 +1096,7 @@ pub(crate) mod tests {
             .set_enabled(
                 RuleScope::Global,
                 RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.to_string(),
+                PredefinedOverrideRuleId::IsUserMention.as_str(),
                 true,
             )
             .unwrap();
@@ -1147,7 +1152,7 @@ pub(crate) mod tests {
                 assert_eq!(kind, &RuleKind::Override);
                 #[allow(deprecated)]
                 let expected_rule_id = PredefinedOverrideRuleId::ContainsDisplayName;
-                assert_eq!(rule_id, &expected_rule_id.to_string());
+                assert_eq!(rule_id, expected_rule_id.as_str());
                 assert!(enabled);
             }
         );
