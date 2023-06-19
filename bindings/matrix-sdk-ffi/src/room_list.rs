@@ -20,11 +20,18 @@ use crate::{
 #[uniffi::export]
 impl Client {
     /// Get a new `RoomList` instance.
-    pub fn room_list(&self) -> Result<Arc<RoomList>, RoomListError> {
+    ///
+    /// If `with_encryption` is set to true, then the underlying sliding sync
+    /// API will enable encryption (e2ee) and listen to to-device events.
+    /// This should be `true` if and only if there's no active
+    /// `EncryptionSync` at the same time.
+    pub fn room_list(&self, with_encryption: bool) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
             inner: Arc::new(
                 RUNTIME
-                    .block_on(async { matrix_sdk_ui::RoomList::new(self.inner.clone()).await })
+                    .block_on(async {
+                        matrix_sdk_ui::RoomList::new(self.inner.clone(), with_encryption).await
+                    })
                     .map_err(RoomListError::from)?,
             ),
         }))

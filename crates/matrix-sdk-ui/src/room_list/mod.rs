@@ -97,16 +97,28 @@ impl RoomList {
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
-    pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
+    ///
+    /// If `with_encryption` is set to true, then the e2ee and to-device
+    /// extensions will be automatically enabled for this instance of the
+    /// `RoomList` API. It should be set to true if and only if there's no
+    /// `EncryptionSync` API running too.
+    pub async fn new(client: Client, with_encryption: bool) -> Result<Self, Error> {
+        let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .enable_caching()
             .map_err(Error::SlidingSync)?
-            .with_common_extensions()
-            // TODO different strategy when the encryption sync is in main by default
-            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .with_common_extensions();
+
+        if with_encryption {
+            builder = builder
+                .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+                .with_to_device_extension(
+                    assign!(ToDeviceConfig::default(), { enabled: Some(true) }),
+                );
+        }
+
+        let sliding_sync = builder
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
@@ -365,7 +377,7 @@ mod tests {
     pub(super) async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client).await
+        RoomList::new(client, true).await
     }
 
     #[async_test]
@@ -373,7 +385,7 @@ mod tests {
         let (client, _) = new_client().await;
 
         {
-            let room_list = RoomList::new(client.clone()).await?;
+            let room_list = RoomList::new(client.clone(), true).await?;
 
             assert!(room_list.sliding_sync().sliding_sync_proxy().is_none());
         }
@@ -382,7 +394,7 @@ mod tests {
             let url = Url::parse("https://foo.matrix/").unwrap();
             client.set_sliding_sync_proxy(Some(url.clone()));
 
-            let room_list = RoomList::new(client.clone()).await?;
+            let room_list = RoomList::new(client.clone(), true).await?;
 
             assert_eq!(room_list.sliding_sync().sliding_sync_proxy(), Some(url));
         }
