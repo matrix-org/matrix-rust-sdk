@@ -1,9 +1,18 @@
 # v0.1.0-alpha.11
 
+## Changes in the Javascript bindings
+
 -   Simplify the response type of `Sas.confirm()`.
 -   Add `VerificationRequest.registerChangesCallback()`,
     `Sas.registerChangesCallback()`, and `Qr.registerChangesCallback()`.
 -   Add `VerificationRequest.phase()` and `VerificationRequest.getVerification()`.
+
+## Changes in the underlying Rust crate
+
+-   Add support for the `hkdf-hmac-sha256.v2` SAS message authentication code.
+
+-   Ensure that the correct short authentication strings are used when accepting a
+    SAS verification with the `Sas::accept()` method.
 
 # v0.1.0-alpha.10
 
