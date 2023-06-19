@@ -85,7 +85,7 @@ pub(super) struct SlidingSyncInner {
     /// A unique identifier for this instance of sliding sync.
     ///
     /// Used to distinguish different connections to the sliding sync proxy.
-    _id: Option<String>,
+    id: String,
 
     /// Customize the sliding sync proxy URL.
     sliding_sync_proxy: Option<Url>,
@@ -410,6 +410,7 @@ impl SlidingSync {
         let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
+            conn_id: Some(self.inner.id.clone()),
             pos,
             delta_token,
             timeout: Some(timeout),
@@ -463,19 +464,26 @@ impl SlidingSync {
         // Sending the `/sync` request out when end-to-end encryption is enabled means
         // that we need to also send out any outgoing e2ee related request out
         // coming from the `OlmMachine::outgoing_requests()` method.
+
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
+            if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
+                debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
-            let (e2ee_uploads, response) =
-                futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                    .await;
+                let (e2ee_uploads, response) =
+                    futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
+                        .await;
 
-            if let Err(error) = e2ee_uploads {
-                error!(?error, "Error while sending outgoing E2EE requests");
+                if let Err(error) = e2ee_uploads {
+                    error!(?error, "Error while sending outgoing E2EE requests");
+                }
+
+                response
+            } else {
+                debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
+
+                request.await
             }
-
-            response
         }?;
 
         // Send the request and get a response _without_ end-to-end encryption support.
@@ -1091,19 +1099,27 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut ss_builder = client.sliding_sync("test-slidingsync")?;
-        ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .build()
+            .await?;
 
-        let sync = ss_builder.build().await?;
-
-        // We get to-device and e2ee even without requesting it.
-        assert_eq!(
-            sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled,
-            Some(true)
-        );
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, Some(true));
-        // But what we didn't enable... isn't enabled.
+        // No extensions have been explicitly enabled here.
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None,);
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, None);
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
+
+        // Now enable e2ee and to-device.
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
 
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
@@ -1209,7 +1225,7 @@ mod tests {
 
         let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
             .respond_with(|request: &wiremock::Request| {
-                // Repeat with the txn_id in the response, if set.
+                // Repeat the txn_id in the response, if set.
                 let request: PartialRequest = request.body_json().unwrap();
                 wiremock::ResponseTemplate::new(200).set_body_json(json!({
                     "txn_id": request.txn_id,

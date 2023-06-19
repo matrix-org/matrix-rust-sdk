@@ -270,15 +270,10 @@ impl SlidingSyncBuilder {
         // auto-discovered by the client, if any.
         let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
 
-        // Always enable to-device events and the e2ee-extension on the initial request,
-        // no matter what the caller wants.
-        let mut extensions = self.extensions.unwrap_or_default();
-        extensions.to_device.enabled = Some(true);
-        extensions.e2ee.enabled = Some(true);
-
         Ok(SlidingSync::new(SlidingSyncInner {
-            _id: Some(self.id),
+            id: self.id,
             sliding_sync_proxy,
+
             client,
             storage_key: self.storage_key,
 
@@ -294,7 +289,10 @@ impl SlidingSyncBuilder {
             }),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+                SlidingSyncStickyParameters::new(
+                    self.subscriptions,
+                    self.extensions.unwrap_or_default(),
+                ),
             )),
             room_unsubscriptions: Default::default(),
 

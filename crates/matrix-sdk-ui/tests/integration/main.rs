@@ -21,8 +21,11 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+#[cfg(feature = "experimental-notification")]
+mod notification;
 #[cfg(feature = "experimental-room-list")]
 mod room_list;
+mod sliding_sync;
 mod timeline;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

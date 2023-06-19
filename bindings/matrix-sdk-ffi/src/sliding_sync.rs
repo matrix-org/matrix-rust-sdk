@@ -15,7 +15,9 @@ use matrix_sdk::{
     LoopCtrl, RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
     SlidingSyncListLoadingState, SlidingSyncMode,
 };
-use matrix_sdk_ui::timeline::SlidingSyncRoomExt;
+use matrix_sdk_ui::{
+    notifications::NotificationSync as MatrixNotificationSync, timeline::SlidingSyncRoomExt,
+};
 use tracing::{error, warn};
 
 use crate::{
@@ -869,6 +871,55 @@ impl SlidingSyncBuilder {
     }
 }
 
+#[uniffi::export(callback_interface)]
+pub trait NotificationSyncListener: Sync + Send {
+    /// Called whenever the notification sync loop terminates, and must be
+    /// restarted.
+    fn did_terminate(&self);
+}
+
+/// Full context for the notification sync loop.
+#[derive(uniffi::Object)]
+pub struct NotificationSync {
+    /// Unused field, kept for its `Drop` semantics.
+    _handle: TaskHandle,
+}
+
+impl NotificationSync {
+    fn start(
+        notification: MatrixNotificationSync,
+        listener: Box<dyn NotificationSyncListener>,
+    ) -> TaskHandle {
+        TaskHandle::new(RUNTIME.spawn(async move {
+            let stream = notification.sync();
+            pin_mut!(stream);
+
+            loop {
+                match stream.next().await {
+                    Some(Ok(())) => {
+                        // Yay.
+                    }
+
+                    None => {
+                        warn!("Notification sliding sync ended");
+                        break;
+                    }
+
+                    Some(Err(err)) => {
+                        // The internal sliding sync instance already handles retries for us, so if
+                        // we get an error here, it means the maximum number of retries has been
+                        // reached, and there's not much we can do anymore.
+                        warn!("Error when handling notifications: {err}");
+                        break;
+                    }
+                }
+            }
+
+            listener.did_terminate();
+        }))
+    }
+}
+
 #[uniffi::export]
 impl Client {
     /// Creates a new Sliding Sync instance with the given identifier.
@@ -877,5 +928,17 @@ impl Client {
     pub fn sliding_sync(&self, id: String) -> Result<Arc<SlidingSyncBuilder>, ClientError> {
         let inner = self.inner.sliding_sync(id)?;
         Ok(Arc::new(SlidingSyncBuilder { inner, client: self.clone() }))
+    }
+
+    pub fn notification_sliding_sync(
+        &self,
+        id: String,
+        listener: Box<dyn NotificationSyncListener>,
+    ) -> Result<Arc<NotificationSync>, ClientError> {
+        RUNTIME.block_on(async move {
+            let inner = MatrixNotificationSync::new(id, self.inner.clone()).await?;
+            let handle = NotificationSync::start(inner, listener);
+            Ok(Arc::new(NotificationSync { _handle: handle }))
+        })
     }
 }

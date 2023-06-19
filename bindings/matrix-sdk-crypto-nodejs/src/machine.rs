@@ -152,7 +152,7 @@ impl OlmMachine {
     #[napi(constructor)]
     pub fn new() -> napi::Result<Self> {
         Err(napi::Error::from_reason(
-            "To build an `OldMachine`, please use the `initialize` method",
+            "To build an `OlmMachine`, please use the `initialize` method",
         ))
     }
 

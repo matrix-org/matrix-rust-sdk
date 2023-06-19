@@ -4,7 +4,7 @@ version = "0.6.0"
 edition = "2021"
 
 [features]
-default = ["e2e-encryption", "native-tls", "experimental-room-list"]
+default = ["e2e-encryption", "native-tls", "experimental-room-list", "experimental-notification"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
@@ -12,6 +12,7 @@ native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
 experimental-room-list = ["experimental-sliding-sync", "dep:async-stream", "dep:eyeball-im-util"]
+experimental-notification = ["experimental-sliding-sync", "dep:async-stream"]
 experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
 
 testing = ["dep:eyeball-im-util"]
