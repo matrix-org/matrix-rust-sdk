@@ -38,10 +38,6 @@ impl Rules {
     }
 
     /// Gets all user defined rules matching a given `room_id`.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - A `RoomId`
     pub(crate) fn get_custom_rules_for_room(&self, room_id: &RoomId) -> Vec<(RuleKind, String)> {
         let mut custom_rules = vec![];
 
@@ -82,10 +78,6 @@ impl Rules {
     }
 
     /// Gets the user defined notification mode for a room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - A `RoomId`
     pub(crate) fn get_user_defined_room_notification_mode(
         &self,
         room_id: &RoomId,
@@ -208,11 +200,6 @@ impl Rules {
     }
 
     /// Get whether a rule is enabled.
-    ///
-    /// # Arguments
-    ///
-    /// * `kind` - A `RuleKind`
-    /// * `rule_id` - A rule_id
     pub(crate) fn is_enabled(
         &self,
         kind: RuleKind,
@@ -229,16 +216,9 @@ impl Rules {
         }
     }
 
-    /// Insert a new `Room` push rule for a given `room_id` and returns a list
-    /// of `Command` describing the actions to be performed on the user's
-    /// account data.
-    ///
-    /// # Arguments
-    ///
-    /// * `kind` - A `RuleKind`
-    /// * `room_id` - A room ID
-    /// * `notify` - `true` if this rule should have a `Notify` action, `false`
-    ///   otherwise
+    /// Insert a new `Room` push rule for a given `room_id` and return an
+    /// optional `Command` describing the action to be performed on the
+    /// user's account data.
     pub(crate) fn insert_room_rule(
         &mut self,
         kind: RuleKind,
@@ -316,13 +296,6 @@ impl Rules {
 
     /// Sets whether a rule is enabled and returns a list of `Command`
     /// describing the actions to be performed on the user's account data.
-    ///
-    /// # Arguments
-    ///
-    /// * `scope` - A `RuleScope`
-    /// * `kind` - A `RuleKind`
-    /// * `rule_id` - A rule ID
-    /// * `enabled` - A `bool` indicating whether the rule should be activated
     pub(crate) fn set_enabled(
         &mut self,
         scope: RuleScope,
@@ -351,11 +324,6 @@ impl Rules {
     /// Set whether the `IsUserMention` rule is enabled and returns a list of
     /// `Command` describing the actions to be performed on the user's account
     /// data.
-    ///
-    /// # Arguments
-    ///
-    /// * `enabled` - `true` to enable the `IsUserMention` rule, `false`
-    ///   otherwise
     fn set_user_mention_enabled(
         &mut self,
         enabled: bool,
@@ -413,11 +381,6 @@ impl Rules {
     /// Set whether the `IsRoomMention` rule is enabled and returns a list of
     /// `Command` describing the actions to be performed on the user's account
     /// data.
-    ///
-    /// # Arguments
-    ///
-    /// * `enabled` - `true` to enable the `IsRoomMention` rule, `false`
-    ///   otherwise
     fn set_room_mention_enabled(
         &mut self,
         enabled: bool,
