@@ -343,7 +343,8 @@ impl Room {
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> StoreResult<DisplayName> {
-        if let Some(cached) = &self.inner.read().unwrap().display_name {
+        let cached = { &self.inner.read().unwrap().display_name.clone() };
+        if let Some(cached) = cached {
             Ok(cached.clone())
         } else {
             self.calculate_name().await
