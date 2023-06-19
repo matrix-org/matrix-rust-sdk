@@ -369,6 +369,79 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.set(idx, Arc::new(new_item));
     }
 
+    /// Update the send state of a local reaction represented by a transaction ID.
+    ///
+    /// If no local reaction is found, a warning is raised.
+    #[instrument(skip_all, fields(txn_id))]
+    pub(super) async fn update_reaction_send_state(
+        &self,
+        annotation: &Annotation,
+        remote_echo_to_add: Option<&EventId>,
+        local_echo_to_remove: Option<&TransactionId>,
+    ) {
+        let mut state = self.state.lock().await;
+
+        // TODO: Also handle pending reactions?
+        let related = rfind_event_item(&state.items, |it| {
+            it.event_id().is_some_and(|it| it == annotation.event_id)
+        });
+
+        let Some((idx, related)) = related else {
+            // Event isn't found at all.
+            warn!("Timeline item not found, can't update reaction ID");
+            return;
+        };
+        let Some(remote_related) = related.as_remote() else {
+            error!("inconsistent state: reaction received on a non-remote event item");
+            return;
+        };
+
+        let mut reactions = remote_related.reactions.clone();
+
+        let reaction_group = reactions.entry(annotation.key.clone()).or_default();
+
+        // Remove the local echo from the related event.
+        if let Some(txn_id) = local_echo_to_remove {
+            if reaction_group.0.remove(&(Some(txn_id.to_owned()), None)).is_none() {
+                warn!(
+                    "Tried to remove reaction by transaction ID, but didn't \
+                             find matching reaction in the related event's reactions"
+                );
+            }
+        }
+        // Add the remote echo to the related event
+        if let Some(event_id) = remote_echo_to_add {
+            let own_user_id = self.room_data_provider.own_user_id().to_owned();
+            reaction_group.0.insert((None, Some(event_id.to_owned())), own_user_id);
+        };
+
+        if reaction_group.0.is_empty() {
+            reactions.remove(&annotation.key);
+        }
+
+        let new_related = related.with_kind(remote_related.with_reactions(reactions));
+
+        // Remove the local echo from reaction_map
+        // (should the local echo already be up-to-date after event handling?)
+        if let Some(txn_id) = local_echo_to_remove {
+            if state.reaction_map.remove(&(Some(txn_id.to_owned()), None)).is_none() {
+                warn!(
+                    "Tried to remove reaction by transaction ID, but didn't \
+                             find matching reaction in the related event's reactions"
+                );
+            }
+        }
+        // Add the remote echo to the reaction_map
+        if let Some(event_id) = remote_echo_to_add {
+            let own_user_id = self.room_data_provider.own_user_id().to_owned();
+            state
+                .reaction_map
+                .insert((None, Some(event_id.to_owned())), (own_user_id, annotation.clone()));
+        };
+        // Update the related item
+        state.items.set(idx, Arc::new(TimelineItem::Event(new_related)));
+    }
+
     pub(super) async fn prepare_retry(
         &self,
         txn_id: &TransactionId,

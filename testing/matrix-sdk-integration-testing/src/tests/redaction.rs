@@ -252,9 +252,8 @@ async fn test_redacting_reaction() -> Result<()> {
     for _ in 0..3 {
         // Send a reaction
         let reaction = Annotation::new(event_id.clone(), reaction_key.into());
-        {
-            timeline.toggle_reaction(&reaction).await?;
-        }
+
+        timeline.toggle_reaction(&reaction).await?;
 
         let message_position = timeline.items().await.len() - 1;
 
@@ -269,9 +268,6 @@ async fn test_redacting_reaction() -> Result<()> {
             assert_matches!(reaction_tx_id, Some(_));
             assert_matches!(reaction_event_id, None); // Event ID hasn't been received from homeserver yet
         }
-
-        // Sync reaction from remote echo
-        sync_room(&alice, room_id).await?;
 
         // Check we have the remote echo of the reaction
         let _reaction_event_id: OwnedEventId = {

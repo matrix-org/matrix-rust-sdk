@@ -358,7 +358,8 @@ impl Timeline {
 
         let key = &annotation.key;
         let user_id = self.user_id()?;
-        let user_reactions = event.reactions().group(key).map(|group| group.by_sender(user_id));
+        let user_reactions =
+            event.reactions().group(key).map(|group| group.by_sender(user_id.clone()));
 
         let to_redact: Option<&OwnedEventId> = match user_reactions {
             Some(mut r) => {
@@ -379,18 +380,56 @@ impl Timeline {
                         no_reason.clone(),
                     )
                     .await;
-                room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
+                let response = room
+                    .redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
                     .await
-                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction)?;
+                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction);
+
+                match response {
+                    Ok(_) => {
+                        // redaction successful, nothing to do
+                    }
+                    Err(_) => {
+                        // undo local redaction, add the remote echo back
+                        self.inner
+                            .update_reaction_send_state(annotation, Some(event_id), None)
+                            .await;
+                    }
+                };
+
+                let Ok(_) = response else {
+                    return Err(Error::FailedTogglingReaction);
+                };
             }
             None => {
                 let event_content = AnyMessageLikeEventContent::Reaction(
                     ReactionEventContent::from(annotation.clone()),
                 );
                 self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;
-                room.send(event_content, Some(&txn_id))
-                    .await
-                    .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction)?;
+                let response = room.send(event_content, Some(&txn_id)).await;
+
+                let send_state = match response {
+                    Ok(response) => {
+                        self.inner
+                            .update_reaction_send_state(
+                                annotation,
+                                Some(&response.event_id),
+                                Some(&txn_id),
+                            )
+                            .await;
+                        EventSendState::Sent { event_id: response.event_id }
+                    }
+                    Err(error) => {
+                        self.inner
+                            .update_reaction_send_state(annotation, None, Some(&txn_id))
+                            .await;
+                        EventSendState::SendingFailed { error: Arc::new(error) }
+                    }
+                };
+
+                let EventSendState::Sent { .. } = send_state else {
+                    return Err(Error::FailedTogglingReaction);
+                };
             }
         };
 
