@@ -516,7 +516,7 @@ impl<'a> TimelineEventHandler<'a> {
                 Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
             });
 
-            if !self.result.items_updated > 0 {
+            if self.result.items_updated == 0 {
                 if let Some(reactions) = self.pending_reactions.get_mut(&rel.event_id) {
                     if !reactions.remove(&redacts) {
                         error!(
