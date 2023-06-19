@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
-use matrix_sdk_ui::notifications;
+use matrix_sdk_ui::encryption_sync;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -69,8 +69,8 @@ impl From<mime::FromStrError> for ClientError {
     }
 }
 
-impl From<notifications::Error> for ClientError {
-    fn from(e: notifications::Error) -> Self {
+impl From<encryption_sync::Error> for ClientError {
+    fn from(e: encryption_sync::Error) -> Self {
         Self::new(e)
     }
 }

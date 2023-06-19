@@ -241,12 +241,6 @@ async fn test_sync_from_init_to_enjoy() -> Result<(), Error> {
                 },
             },
             "extensions": {
-                "e2ee": {
-                    "enabled": true,
-                },
-                "to_device": {
-                    "enabled": true,
-                },
                 "account_data": {
                     "enabled": true
                 }

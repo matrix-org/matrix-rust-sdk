@@ -14,8 +14,8 @@
 
 mod events;
 
-#[cfg(feature = "experimental-notification")]
-pub mod notifications;
+#[cfg(feature = "experimental-encryption-sync")]
+pub mod encryption_sync;
 #[cfg(feature = "experimental-room-list")]
 pub mod room_list;
 pub mod timeline;
