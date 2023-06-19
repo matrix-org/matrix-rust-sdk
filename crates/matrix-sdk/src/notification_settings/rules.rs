@@ -475,29 +475,41 @@ fn get_predefined_underride_room_rule_id(
 
 #[cfg(all(test))]
 pub(crate) mod tests {
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::push::RuleScope,
         push::{
-            Action, AnyPushRule, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition, RuleKind, Ruleset,
+            Action, AnyPushRule, NewConditionalPushRule, NewPushRule, NewSimplePushRule,
+            PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
+            PushCondition, RuleKind, Ruleset,
         },
-        RoomId, UserId,
+        OwnedRoomId, RoomId, UserId,
     };
 
     use super::Command;
-    use crate::notification_settings::{
-        rules::{self, Rules},
-        RoomNotificationMode,
+    use crate::{
+        error::NotificationSettingsError,
+        notification_settings::{
+            rules::{self, Rules},
+            RoomNotificationMode,
+        },
     };
 
-    #[async_test]
-    async fn get_custom_rules_for_room() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
+    fn get_server_default_ruleset() -> Ruleset {
         let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
+        Ruleset::server_default(&user_id)
+    }
 
-        let mut rules = Rules::new(ruleset);
+    fn get_test_room_id() -> OwnedRoomId {
+        RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
+    }
+
+    #[async_test]
+    async fn test_get_custom_rules_for_room() {
+        let room_id = get_test_room_id();
+
+        let mut rules = Rules::new(get_server_default_ruleset());
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 0);
 
         // Insert an Override rule
@@ -507,27 +519,37 @@ pub(crate) mod tests {
         // Insert a Room rule
         rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, false).unwrap();
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 2);
+    }
 
-        // TODO: Test with a rule where the rule ID doesn't match the room id,
+    #[async_test]
+    async fn test_get_custom_rules_for_room_special_override_rule() {
+        let room_id = get_test_room_id();
+        let mut ruleset = get_server_default_ruleset();
+
+        // Insert an Override rule where the rule ID doesn't match the room id,
         // but with a condition that matches
-    }
+        let new_rule = NewConditionalPushRule::new(
+            "custom_rule_id".to_string(),
+            vec![PushCondition::EventMatch { key: "room_id".into(), pattern: room_id.to_string() }],
+            vec![Action::Notify],
+        );
+        ruleset.insert(NewPushRule::Override(new_rule), None, None).unwrap();
 
-    #[async_test]
-    async fn get_user_defined_room_notification_mode_none() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
         let rules = Rules::new(ruleset);
-        let mode = rules.get_user_defined_room_notification_mode(&room_id);
-        assert!(mode.is_none());
+        assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
     }
 
     #[async_test]
-    async fn get_user_defined_room_notification_mode_mute() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_get_user_defined_room_notification_mode_none() {
+        let room_id = get_test_room_id();
+        let rules = Rules::new(get_server_default_ruleset());
+        assert_eq!(rules.get_user_defined_room_notification_mode(&room_id), None);
+    }
+
+    #[async_test]
+    async fn test_get_user_defined_room_notification_mode_mute() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert an Override rule that doesn't notify
         rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id, false).unwrap();
@@ -536,11 +558,9 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_user_defined_room_notification_mode_mentions_and_keywords() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_get_user_defined_room_notification_mode_mentions_and_keywords() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert a Room rule that doesn't notify
         rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, false).unwrap();
@@ -549,11 +569,9 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_user_defined_room_notification_mode_all_messages() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_get_user_defined_room_notification_mode_all_messages() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert a Room rule that notifies
         rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, true).unwrap();
@@ -562,15 +580,16 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_user_defined_room_notification_mode_multiple_override_rules() {
+    async fn test_get_user_defined_room_notification_mode_multiple_override_rules() {
         let room_id_a = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
         let room_id_b = RoomId::parse("!BBBbBBBBBbbBBbbbbb:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
 
-        let mut rules = Rules::new(ruleset);
+        let mut rules = Rules::new(get_server_default_ruleset());
 
+        // Insert the muting rule
         rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_a, false).unwrap();
+        // Insert another muting rule for another room (it will be inserted before the
+        // previous one)
         rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_b, true).unwrap();
 
         let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
@@ -581,7 +600,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_predefined_underride_room_rule_id() {
+    async fn test_get_predefined_underride_room_rule_id() {
         assert_eq!(
             rules::get_predefined_underride_room_rule_id(false, 3),
             PredefinedUnderrideRuleId::Message
@@ -601,9 +620,8 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_default_room_notification_mode_mentions_and_keywords() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let mut ruleset = Ruleset::server_default(&user_id);
+    async fn test_get_default_room_notification_mode_mentions_and_keywords() {
+        let mut ruleset = get_server_default_ruleset();
         // If the corresponding underride rule is disabled
         ruleset
             .set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, false)
@@ -616,9 +634,8 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_default_room_notification_mode_all_messages() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let mut ruleset = Ruleset::server_default(&user_id);
+    async fn test_get_default_room_notification_mode_all_messages() {
+        let mut ruleset = get_server_default_ruleset();
         // If the corresponding underride rule is enabled
         ruleset
             .set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, true)
@@ -631,12 +648,10 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn is_user_mention_enabled() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-
+    async fn test_is_user_mention_enabled() {
         // If `IsUserMention` is enable, then is_user_mention_enabled() should return
         // `true`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true)
             .unwrap();
@@ -646,11 +661,11 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsUserMention
         assert!(rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
 
         // If `IsUserMention` is disabled, and one of the deprecated rules is enabled,
         // then is_user_mention_enabled() should return `true`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
             .unwrap();
@@ -677,11 +692,11 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsUserMention
         assert!(rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
 
         // If `IsUserMention` is disabled, and none of the deprecated rules is enabled,
         // then is_user_mention_enabled() should return `false`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
             .unwrap();
@@ -700,16 +715,14 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsUserMention
         assert!(!rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
     }
 
     #[async_test]
-    async fn is_room_mention_enabled() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-
+    async fn test_is_room_mention_enabled() {
         // If `IsRoomMention` is enable, then is_room_mention_enabled() should return
         // `true`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, true)
             .unwrap();
@@ -719,11 +732,11 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
 
         // If `IsRoomMention` is not present, and the deprecated rules is enabled,
         // then is_room_mention_enabled() should return `true`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
             .unwrap();
@@ -743,11 +756,11 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
 
         // If `IsRoomMention` is disabled, and the deprecated rules is disabled,
         // then is_room_mention_enabled() should return `false`
-        let mut ruleset = Ruleset::server_default(&user_id);
+        let mut ruleset = get_server_default_ruleset();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
             .unwrap();
@@ -762,35 +775,31 @@ pub(crate) mod tests {
         // PredefinedOverrideRuleId::IsRoomMention
         assert!(!rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.to_string())
-            .expect("A result is expected."));
+            .unwrap());
     }
 
     #[async_test]
-    async fn is_enabled_rule_not_found() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let rules = Rules::new(ruleset);
+    async fn test_is_enabled_rule_not_found() {
+        let rules = Rules::new(get_server_default_ruleset());
 
-        rules
-            .is_enabled(RuleKind::Override, "invalid_rule_id".into())
-            .expect_err("A RuleNotFoundError is expected.");
+        assert_eq!(
+            rules.is_enabled(RuleKind::Override, "unknown_rule_id".into()),
+            Err(NotificationSettingsError::RuleNotFound)
+        );
     }
 
     #[async_test]
-    async fn insert_room_rule_override() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_insert_room_rule_override() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         let command = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
-        let new_rule = rules
-            .ruleset
-            .get(RuleKind::Override, &room_id)
-            .expect("a new Override rule is expected.");
-        match new_rule.to_owned() {
+        let new_rule = rules.ruleset.get(RuleKind::Override, &room_id).unwrap();
+
+        assert_matches!(
+            new_rule.to_owned(),
             AnyPushRule::Override(rule) => {
                 assert_eq!(rule.rule_id, room_id);
                 assert!(rule.conditions.iter().any(|x| matches!(
@@ -798,16 +807,15 @@ pub(crate) mod tests {
                     PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
                 )))
             }
-            _ => {
-                panic!("An AnyPushRule::Override is expected.")
-            }
-        }
+        );
 
         // The command list should contains only a SetPushRule command
-        match command {
+        assert_matches!(
+            command,
             Some(Command::SetPushRule { scope, rule }) => {
                 assert_eq!(scope, RuleScope::Global);
-                match rule {
+                assert_matches!(
+                    rule,
                     NewPushRule::Override(rule) => {
                         assert_eq!(rule.rule_id, room_id);
                         assert!(rule.conditions.iter().any(|x| matches!(
@@ -815,63 +823,48 @@ pub(crate) mod tests {
                             PushCondition::EventMatch { key, pattern } if key == "room_id" && *pattern == *room_id
                         )))
                     }
-                    _ => {
-                        panic!("A NewPushRule::Override is expected.")
-                    }
-                }
+                )
             }
-            _ => {
-                panic!("A Command::SetPushRule is expected.")
-            }
-        }
+        );
     }
 
     #[async_test]
-    async fn insert_room_rule_room() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_insert_room_rule_room() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         let command = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
         let new_rule =
             rules.ruleset.get(RuleKind::Room, &room_id).expect("a new Room rule is expected.");
-        match new_rule.to_owned() {
+
+        assert_matches!(
+            new_rule.to_owned(),
             AnyPushRule::Room(rule) => {
                 assert_eq!(rule.rule_id, room_id);
             }
-            _ => {
-                panic!("An AnyPushRule::Room is expected.")
-            }
-        }
+        );
 
         // The command list should contains only a SetPushRule command
-        match command {
+        assert_matches!(
+            command,
             Some(Command::SetPushRule { scope, rule }) => {
                 assert_eq!(scope, RuleScope::Global);
-                match rule {
+                assert_matches!(
+                    rule,
                     NewPushRule::Room(rule) => {
                         assert_eq!(rule.rule_id, room_id);
                     }
-                    _ => {
-                        panic!("A NewPushRule::Room is expected.")
-                    }
-                }
+                )
             }
-            _ => {
-                panic!("A Command::SetPushRule is expected.")
-            }
-        }
+        );
     }
 
     #[async_test]
-    async fn insert_room_rule_invalid_kind() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_insert_room_rule_invalid_kind() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         rules
             .insert_room_rule(RuleKind::Content, &room_id, true)
@@ -879,53 +872,63 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn delete_rules() {
-        let room_id = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_delete_rules() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
 
-        rules
-            .delete_rules(vec![(RuleKind::Room, room_id.to_string())], vec![])
-            .expect_err("An error is expected while trying to delete an unknown rule.");
+        rules.delete_rules(&vec![(RuleKind::Room, room_id.to_string())], &vec![]).expect_err(
+            "A RemovePushRuleError is expected while trying to delete an unknown rule.",
+        );
 
         let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
         let new_rule = NewPushRule::Room(new_rule);
-        rules.ruleset.insert(new_rule, None, None).expect("Insert should succeed.");
+        rules.ruleset.insert(new_rule, None, None).unwrap();
 
-        let commands = rules
-            .delete_rules(vec![(RuleKind::Room, room_id.to_string())], vec![])
-            .expect("A success is expected");
+        let commands =
+            rules.delete_rules(&vec![(RuleKind::Room, room_id.to_string())], &vec![]).unwrap();
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
-        match &commands[0] {
+
+        assert_matches!(
+            &commands[0],
             Command::DeletePushRule { scope, kind, rule_id } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Room);
                 assert_eq!(rule_id, &room_id.to_string());
             }
-            _ => {
-                panic!("A Command::DeletePushRule is expected.")
-            }
-        }
+        );
     }
 
     #[async_test]
-    async fn set_enabled() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_delete_rules_with_exceptions() {
+        let room_id = get_test_room_id();
+        let mut rules = Rules::new(get_server_default_ruleset());
+
+        let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
+        let new_rule = NewPushRule::Room(new_rule);
+        rules.ruleset.insert(new_rule, None, None).unwrap();
+
+        let rules_to_delete = vec![(RuleKind::Room, room_id.to_string())];
+        let commands = rules.delete_rules(&rules_to_delete, &rules_to_delete).unwrap();
+        // The command list should be empty as the rule to delete is also in the
+        // exceptions.
+        assert_eq!(commands.len(), 0);
+    }
+
+    #[async_test]
+    async fn test_set_enabled() {
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Initialize the PredefinedOverrideRuleId::Reaction rule to enabled
         rules
             .ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction, true)
-            .expect("A success is expected");
+            .unwrap();
         // Ensure the initial state is `true`
         let initial_state = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::Reaction)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(initial_state);
         // Disable the PredefinedOverrideRuleId::Reaction rule
@@ -936,60 +939,57 @@ pub(crate) mod tests {
                 PredefinedOverrideRuleId::Reaction.to_string(),
                 false,
             )
-            .expect("A success is expected");
+            .unwrap();
         let new_enabled_state = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::Reaction)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         // The new enabled state should be `false`
         assert!(!new_enabled_state);
 
         // The command list should contains only a SetPushRuleEnabled command
         assert_eq!(commands.len(), 1);
-        match &commands[0] {
+
+        assert_matches!(
+            &commands[0],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::Reaction.to_string());
                 assert!(!enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
+        );
     }
 
     #[async_test]
-    async fn set_is_room_mention_enabled() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_set_is_room_mention_enabled() {
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Initialize PredefinedOverrideRuleId::IsRoomMention and
         // PredefinedOverrideRuleId::RoomNotif rules to disabled
         rules
             .ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
-            .expect("A success is expected");
+            .unwrap();
         #[allow(deprecated)]
         rules
             .ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif, false)
-            .expect("A success is expected");
+            .unwrap();
 
         // Ensure the initial state is `false`
         let is_room_mention_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(!is_room_mention_enabled);
         #[allow(deprecated)]
         let room_notif_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(!room_notif_enabled);
 
@@ -1001,37 +1001,37 @@ pub(crate) mod tests {
                 PredefinedOverrideRuleId::IsRoomMention.to_string(),
                 true,
             )
-            .expect("A success is expected");
+            .unwrap();
 
         // Ensure the new state is `true` for both rules
         let is_room_mention_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(is_room_mention_enabled);
         #[allow(deprecated)]
         let room_notif_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(room_notif_enabled);
 
         // The command list should contains two SetPushRuleEnabled
         assert_eq!(commands.len(), 2);
-        match &commands[0] {
+        assert_matches!(
+            &commands[0],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::IsRoomMention.to_string());
                 assert!(enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
-        match &commands[1] {
+        );
+
+        assert_matches!(
+            &commands[1],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
@@ -1040,54 +1040,49 @@ pub(crate) mod tests {
                 assert_eq!(rule_id, &expected_rule_id.to_string());
                 assert!(enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
+        );
     }
 
     #[async_test]
-    async fn set_is_user_mention_enabled() {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        let ruleset = Ruleset::server_default(&user_id);
-        let mut rules = Rules::new(ruleset);
+    async fn test_set_is_user_mention_enabled() {
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Initialize PredefinedOverrideRuleId::IsRoomMention and
         // PredefinedOverrideRuleId::RoomNotif rules to disabled
         rules
             .ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
-            .expect("A success is expected");
+            .unwrap();
         #[allow(deprecated)]
         rules
             .ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName, false)
-            .expect("A success is expected");
+            .unwrap();
         #[allow(deprecated)]
         rules
             .ruleset
             .set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, false)
-            .expect("A success is expected");
+            .unwrap();
 
         // Ensure the initial state is `false`
         let is_user_mention_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(!is_user_mention_enabled);
         #[allow(deprecated)]
         let contains_display_name_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(!contains_display_name_enabled);
         #[allow(deprecated)]
         let contains_user_name_enabled = rules
             .ruleset
             .get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(!contains_user_name_enabled);
 
@@ -1099,44 +1094,43 @@ pub(crate) mod tests {
                 PredefinedOverrideRuleId::IsUserMention.to_string(),
                 true,
             )
-            .expect("A success is expected");
+            .unwrap();
 
         // Ensure the new state is `true` for all corresponding rules
         let is_user_mention_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(is_user_mention_enabled);
         #[allow(deprecated)]
         let contains_display_name_enabled = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(contains_display_name_enabled);
         #[allow(deprecated)]
         let contains_user_name_enabled = rules
             .ruleset
             .get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
-            .expect("A rule is expected")
+            .unwrap()
             .enabled();
         assert!(contains_user_name_enabled);
 
         // The command list should contains 3 SetPushRuleEnabled
         assert_eq!(commands.len(), 3);
-        match &commands[0] {
+        assert_matches!(
+            &commands[0],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
                 assert_eq!(rule_id, &PredefinedOverrideRuleId::IsUserMention.to_string());
                 assert!(enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
-        match &commands[1] {
+        );
+        assert_matches!(
+            &commands[1],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Content);
@@ -1145,11 +1139,9 @@ pub(crate) mod tests {
                 assert_eq!(rule_id, &expected_rule_id.to_string());
                 assert!(enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
-        match &commands[2] {
+        );
+        assert_matches!(
+            &commands[2],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
                 assert_eq!(kind, &RuleKind::Override);
@@ -1158,9 +1150,6 @@ pub(crate) mod tests {
                 assert_eq!(rule_id, &expected_rule_id.to_string());
                 assert!(enabled);
             }
-            _ => {
-                panic!("A Command::SetPushRuleEnabled is expected.")
-            }
-        }
+        );
     }
 }
