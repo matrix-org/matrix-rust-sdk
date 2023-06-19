@@ -184,9 +184,9 @@ See
 [`tracing-subscriber`](https://tracing.rs/tracing_subscriber/index.html)
 to learn more about the `RUST_LOG`/`MATRIX_LOG` environment variable.
 
-#### Using tracing in a development environment
+#### Using tracing in dependent projects
 
-To use tracing in client applications that import these bindings, here's how to do it in
+To enable tracing in client applications that import these bindings, here's how to do it in
 a local development environment:
 
 -   In this directory, run `npm link` to make your local build of the bindings available to
