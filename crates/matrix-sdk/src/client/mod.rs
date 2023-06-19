@@ -29,8 +29,8 @@ use eyeball::{unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::{
-    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, Session,
-    SessionMeta, SessionTokens, SyncOutsideWasm,
+    crypto::store::locks::CryptoStoreLock, store::DynStateStore, BaseClient, RoomState,
+    RoomStateFilter, SendOutsideWasm, Session, SessionMeta, SessionTokens, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "appservice")]
@@ -190,6 +190,9 @@ pub(crate) struct ClientInner {
     /// Client API UnknownToken error publisher. Allows the subscriber logout
     /// the user when any request fails because of an invalid access token
     pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
 }
 
 #[cfg(not(tarpaulin_include))]
