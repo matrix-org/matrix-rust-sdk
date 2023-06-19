@@ -22,11 +22,9 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
 use eyeball::shared::Observable as SharedObservable;
-use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::{
         error::{FromHttpResponseError, IntoHttpError},
@@ -41,82 +39,15 @@ use crate::{config::RequestConfig, error::HttpError};
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Abstraction around the http layer. The allows implementors to use different
-/// http libraries.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait HttpSend: AsyncTraitDeps {
-    /// The method abstracting sending request types and receiving response
-    /// types.
-    ///
-    /// This is called by the client every time it wants to send anything to a
-    /// homeserver.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The http request that has been converted from a ruma
-    ///   `Request`.
-    ///
-    /// * `timeout` - A timeout for the full request > response cycle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use eyeball::shared::Observable as SharedObservable;
-    /// use matrix_sdk::{
-    ///     async_trait, bytes::Bytes, HttpError, HttpSend, TransmissionProgress,
-    /// };
-    ///
-    /// #[derive(Debug)]
-    /// struct Client(reqwest::Client);
-    ///
-    /// impl Client {
-    ///     async fn response_to_http_response(
-    ///         &self,
-    ///         mut response: reqwest::Response,
-    ///     ) -> Result<http::Response<Bytes>, HttpError> {
-    ///         // Convert the reqwest response to a http one.
-    ///         todo!()
-    ///     }
-    /// }
-    ///
-    /// #[async_trait]
-    /// impl HttpSend for Client {
-    ///     async fn send_request(
-    ///         &self,
-    ///         request: http::Request<Bytes>,
-    ///         timeout: Duration,
-    ///         _send_progress: SharedObservable<TransmissionProgress>,
-    ///     ) -> Result<http::Response<Bytes>, HttpError> {
-    ///         Ok(self
-    ///             .response_to_http_response(
-    ///                 self.0
-    ///                     .execute(reqwest::Request::try_from(request)?)
-    ///                     .await?,
-    ///             )
-    ///             .await?)
-    ///     }
-    /// }
-    /// ```
-    async fn send_request(
-        &self,
-        request: http::Request<Bytes>,
-        timeout: Duration,
-        send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<http::Response<Bytes>, HttpError>;
-}
-
 #[derive(Debug)]
 pub(crate) struct HttpClient {
-    pub(crate) inner: Arc<dyn HttpSend>,
+    pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
     next_request_id: Arc<AtomicU64>,
 }
 
 impl HttpClient {
-    pub(crate) fn new(inner: Arc<dyn HttpSend>, request_config: RequestConfig) -> Self {
+    pub(crate) fn new(inner: reqwest::Client, request_config: RequestConfig) -> Self {
         HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
@@ -192,7 +123,11 @@ impl HttpClient {
 
         #[cfg(target_arch = "wasm32")]
         let response = {
-            let response = self.inner.send_request(request, config.timeout, send_progress).await?;
+            // Silence unused warning
+            _ = (config, send_progress);
+
+            let request = reqwest::Request::try_from(request)?;
+            let response = response_to_http_response(self.inner.execute(request).await?).await?;
 
             let status_code = response.status();
             let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
@@ -271,11 +206,14 @@ impl HttpClient {
                     }
                 };
 
-                let response = self
-                    .inner
-                    .send_request(clone_request(&request), config.timeout, send_progress)
-                    .await
-                    .map_err(error_type)?;
+                let response = send_request(
+                    &self.inner,
+                    clone_request(&request),
+                    config.timeout,
+                    send_progress,
+                )
+                .await
+                .map_err(error_type)?;
 
                 let status_code = response.status();
                 let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
@@ -389,55 +327,42 @@ impl HttpClient {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub(crate) struct HttpSettings {
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) disable_ssl_verification: bool,
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) proxy: Option<String>,
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) user_agent: Option<String>,
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) timeout: Duration,
 }
 
-#[allow(clippy::derivable_impls)]
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for HttpSettings {
     fn default() -> Self {
         Self {
-            #[cfg(not(target_arch = "wasm32"))]
             disable_ssl_verification: false,
-            #[cfg(not(target_arch = "wasm32"))]
             proxy: None,
-            #[cfg(not(target_arch = "wasm32"))]
             user_agent: None,
-            #[cfg(not(target_arch = "wasm32"))]
             timeout: DEFAULT_REQUEST_TIMEOUT,
         }
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl HttpSettings {
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
-        #[allow(unused_mut)]
-        let mut http_client = reqwest::Client::builder();
+        let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
+        let mut http_client =
+            reqwest::Client::builder().user_agent(user_agent).timeout(self.timeout);
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if self.disable_ssl_verification {
-                http_client = http_client.danger_accept_invalid_certs(true)
-            }
+        if self.disable_ssl_verification {
+            http_client = http_client.danger_accept_invalid_certs(true)
+        }
 
-            if let Some(p) = &self.proxy {
-                http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
-            }
-
-            let user_agent =
-                self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
-
-            http_client = http_client.user_agent(user_agent).timeout(self.timeout);
-        };
+        if let Some(p) = &self.proxy {
+            http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
+        }
 
         Ok(http_client.build()?)
     }
@@ -483,49 +408,39 @@ async fn response_to_http_response(
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl HttpSend for reqwest::Client {
-    async fn send_request(
-        &self,
-        request: http::Request<Bytes>,
-        _timeout: Duration,
-        _send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<http::Response<Bytes>, HttpError> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let request = {
-            use std::convert::Infallible;
+#[cfg(not(target_arch = "wasm32"))]
+async fn send_request(
+    client: &reqwest::Client,
+    request: http::Request<Bytes>,
+    timeout: Duration,
+    send_progress: SharedObservable<TransmissionProgress>,
+) -> Result<http::Response<Bytes>, HttpError> {
+    use std::convert::Infallible;
 
-            use futures_util::stream;
+    use futures_util::stream;
 
-            let mut request = if _send_progress.subscriber_count() != 0 {
-                _send_progress.update(|p| p.total += request.body().len());
-                reqwest::Request::try_from(request.map(|body| {
-                    let chunks = stream::iter(BytesChunks::new(body, 8192).map(
-                        move |chunk| -> Result<_, Infallible> {
-                            _send_progress.update(|p| p.current += chunk.len());
-                            Ok(chunk)
-                        },
-                    ));
-                    reqwest::Body::wrap_stream(chunks)
-                }))?
-            } else {
-                reqwest::Request::try_from(request)?
-            };
-
-            *request.timeout_mut() = Some(_timeout);
-            request
+    let request = {
+        let mut request = if send_progress.subscriber_count() != 0 {
+            send_progress.update(|p| p.total += request.body().len());
+            reqwest::Request::try_from(request.map(|body| {
+                let chunks = stream::iter(BytesChunks::new(body, 8192).map(
+                    move |chunk| -> Result<_, Infallible> {
+                        send_progress.update(|p| p.current += chunk.len());
+                        Ok(chunk)
+                    },
+                ));
+                reqwest::Body::wrap_stream(chunks)
+            }))?
+        } else {
+            reqwest::Request::try_from(request)?
         };
 
-        // Both reqwest::Body::wrap_stream and the timeout functionality are
-        // not available on WASM
-        #[cfg(target_arch = "wasm32")]
-        let request = reqwest::Request::try_from(request)?;
+        *request.timeout_mut() = Some(timeout);
+        request
+    };
 
-        let response = self.execute(request).await?;
-
-        Ok(response_to_http_response(response).await?)
-    }
+    let response = client.execute(request).await?;
+    Ok(response_to_http_response(response).await?)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

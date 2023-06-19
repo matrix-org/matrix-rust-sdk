@@ -28,12 +28,9 @@ use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
-use crate::{
-    config::RequestConfig,
-    error::RumaApiError,
-    http_client::{HttpClient, HttpSend, HttpSettings},
-    HttpError,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http_client::HttpSettings;
+use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
@@ -70,7 +67,7 @@ use crate::{
 ///     .user_agent("MyApp/v3.0");
 ///
 /// let client_builder =
-///     Client::builder().http_client(Arc::new(reqwest_builder.build()?));
+///     Client::builder().http_client(reqwest_builder.build()?);
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
@@ -226,15 +223,13 @@ impl ClientBuilder {
         self
     }
 
-    /// Specify an HTTP client to handle sending requests and receiving
-    /// responses.
+    /// Specify a [`reqwest::Client`] instance to handle sending requests and
+    /// receiving responses.
     ///
-    /// Any type that implements the `HttpSend` trait can be used to send /
-    /// receive `http` types.
-    ///
-    /// This method is mutually exclusive with
-    /// [`user_agent()`][Self::user_agent],
-    pub fn http_client(mut self, client: Arc<dyn HttpSend>) -> Self {
+    /// This method is mutually exclusive with [`proxy()`][Self::proxy],
+    /// [`disable_ssl_verification`][Self::disable_ssl_verification] and
+    /// [`user_agent()`][Self::user_agent].
+    pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http_cfg = Some(HttpConfig::Custom(client));
         self
     }
@@ -325,15 +320,12 @@ impl ClientBuilder {
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
+        #[cfg_attr(target_arch = "wasm32", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[allow(unused_mut)]
+            #[cfg(not(target_arch = "wasm32"))]
             HttpConfig::Settings(mut settings) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    settings.timeout = self.request_config.timeout;
-                }
-
-                Arc::new(settings.make_client()?)
+                settings.timeout = self.request_config.timeout;
+                settings.make_client()?
             }
             HttpConfig::Custom(c) => c,
         };
@@ -449,8 +441,9 @@ enum HomeserverConfig {
 
 #[derive(Clone, Debug)]
 enum HttpConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     Settings(HttpSettings),
-    Custom(Arc<dyn HttpSend>),
+    Custom(reqwest::Client),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -471,7 +464,11 @@ impl HttpConfig {
 
 impl Default for HttpConfig {
     fn default() -> Self {
-        Self::Settings(HttpSettings::default())
+        #[cfg(not(target_arch = "wasm32"))]
+        return Self::Settings(HttpSettings::default());
+
+        #[cfg(target_arch = "wasm32")]
+        return Self::Custom(reqwest::Client::new());
     }
 }
 
