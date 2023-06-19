@@ -20,12 +20,12 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
             "conn_id": "notifs",
             "extensions": {
                 "e2ee": {
-                    "enabled": true
+                    "enabled": true,
                 },
                 "to_device": {
-                    "enabled": true
-                }
-            }
+                    "enabled": true,
+                },
+            },
         },
         respond with = {
             "pos": "0"
@@ -44,9 +44,9 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
             "pos": "1",
             "extensions": {
                 "to_device": {
-                    "next_batch": "nb0"
-                }
-            }
+                    "next_batch": "nb0",
+                },
+            },
         },
     };
 
@@ -59,39 +59,33 @@ async fn test_smoke_test_notification_api() -> anyhow::Result<()> {
             "conn_id": "notifs",
             "extensions": {
                 "to_device": {
-                    "since": "nb0"
-                }
-            }
+                    "since": "nb0",
+                },
+            },
         },
         respond with = {
             "pos": "2",
             "extensions": {
                 "to_device": {
-                    "next_batch": "nb1"
-                }
-            }
+                    "next_batch": "nb1",
+                },
+            },
         },
     };
 
     // The to-device since token is passed from the previous request.
     // The extensions haven't changed, so they're not updated (sticky parameters
-    // ftw)... in the first request. Then, the sliding sync instance will retry
-    // those requests, so it will include them again; as a matter of fact, the
-    // last request that we assert against will contain those.
+    // ftw).
     sliding_sync_then_assert_request_and_fake_response! {
         [server, notification_stream]
         sync matches Some(Err(_)),
         assert request = {
             "conn_id": "notifs",
             "extensions": {
-                "e2ee": {
-                    "enabled": true,
-                },
                 "to_device": {
-                    "enabled": true,
-                    "since": "nb1"
-                }
-            }
+                    "since": "nb1",
+                },
+            },
         },
         respond with = (code 400) {
             "error": "foo",

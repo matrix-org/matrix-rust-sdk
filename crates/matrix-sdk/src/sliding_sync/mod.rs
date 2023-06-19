@@ -27,10 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     future::Future,
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc, RwLock as StdRwLock,
-    },
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
@@ -58,15 +55,6 @@ use url::Url;
 
 use self::sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
 use crate::{config::RequestConfig, Client, Result};
-
-/// Number of times a Sliding Sync session can expire before raising an error.
-///
-/// A Sliding Sync session can expire. In this case, it is reset. However, to
-/// avoid entering an infinite loop of “it's expired, let's reset, it's expired,
-/// let's reset…” (maybe if the network has an issue, or the server, or anything
-/// else), we define a maximum times a session can expire before
-/// raising a proper error.
-const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
 /// The Sliding Sync instance.
 ///
@@ -110,9 +98,6 @@ pub(super) struct SlidingSyncInner {
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
-
-    /// Number of times a Sliding Sync session has been reset.
-    reset_counter: AtomicU8,
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
@@ -590,35 +575,15 @@ impl SlidingSync {
                     update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
                             Ok(updates) => {
-                                self.inner.reset_counter.store(0, Ordering::SeqCst);
-
                                 yield Ok(updates);
                             }
 
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                                    // The session has expired.
-
-                                    // Has it expired too many times?
-                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
-                                        >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
-                                    {
-                                        sync_span.in_scope(|| {
-                                            error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
-                                        });
-
-                                        // The session has expired too many times, let's raise an error!
-                                        yield Err(error);
-
-                                        // Terminates the loop, and terminates the stream.
-                                        break;
-                                    }
-
-                                    // Let's reset the Sliding Sync session.
+                                    // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
                                     sync_span.in_scope(|| async {
-                                        warn!("Session expired. Restarting Sliding Sync.");
+                                        warn!("Session expired; resetting `pos` and sticky parameters");
 
-                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
                                             position_lock.pos = None;
@@ -628,15 +593,12 @@ impl SlidingSync {
                                         let _ = self.inner.sticky.write().unwrap().data_mut();
 
                                         self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
-
-                                        debug!(?self.inner.position, "Sliding Sync has been reset");
                                     }).await;
-
-                                    continue;
                                 }
 
                                 yield Err(error);
 
+                                // Terminates the loop, and terminates the stream.
                                 break;
                             }
                         }
@@ -1190,7 +1152,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_sticky_parameters_invalidated_by_reset() -> Result<()> {
+    async fn test_unknown_pos_resets_pos_and_sticky_parameters() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -1208,26 +1170,19 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        #[derive(Clone)]
-        struct SlidingSyncMatcher;
-
-        impl Match for SlidingSyncMatcher {
-            fn matches(&self, request: &wiremock::Request) -> bool {
-                request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-                    && request.method == wiremock::http::Method::Post
-            }
-        }
+        // `pos` is `None` to start with.
+        assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
 
         #[derive(Deserialize)]
         struct PartialRequest {
             txn_id: Option<String>,
         }
 
-        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
-            .respond_with(|request: &wiremock::Request| {
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(|request: &Request| {
                 // Repeat the txn_id in the response, if set.
                 let request: PartialRequest = request.body_json().unwrap();
-                wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                ResponseTemplate::new(200).set_body_json(json!({
                     "txn_id": request.txn_id,
                     "pos": "0"
                 }))
@@ -1237,6 +1192,9 @@ mod tests {
 
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
+
+        // `pos` has been updated.
+        assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("0".to_owned()));
 
         // Next request doesn't ask to enable the extension.
         let (request, _, _) =
@@ -1250,9 +1208,9 @@ mod tests {
         drop(_mock_guard);
 
         // When responding with M_UNKNOWN_POS, that regenerates the sticky parameters,
-        // so they're reset.
-        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
-            .respond_with(wiremock::ResponseTemplate::new(400).set_body_json(json!({
+        // so they're reset. It also resets the `pos`.
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
                 "error": "foo",
                 "errcode": "M_UNKNOWN_POS",
             })))
@@ -1261,13 +1219,20 @@ mod tests {
 
         let next = sync.next().await;
 
-        // The request will retry a few times, then end in an error eventually.
+        // The expected error is returned.
         assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
+
+        // `pos` has been reset.
+        assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
 
         // Next request asks to enable the extension again.
         let (request, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
         assert!(request.extensions.to_device.enabled.is_some());
+
+        // `sync` has been stopped.
+        assert!(sync.next().await.is_none());
 
         Ok(())
     }
