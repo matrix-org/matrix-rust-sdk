@@ -56,7 +56,10 @@ pub use authentication::{AuthApi, AuthSession};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
+pub use error::{
+    Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
+    RumaApiError,
+};
 pub use http_client::TransmissionProgress;
 pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};

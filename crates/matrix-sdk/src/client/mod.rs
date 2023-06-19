@@ -62,8 +62,10 @@ use ruma::{
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest,
     },
-    assign, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    assign,
+    push::Ruleset,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
@@ -81,6 +83,7 @@ use crate::{
     },
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
+    notification_settings::NotificationSettings,
     room,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, TransmissionProgress,
@@ -1925,6 +1928,12 @@ impl Client {
     pub async fn get_profile(&self, user_id: &UserId) -> Result<get_profile::v3::Response> {
         let request = get_profile::v3::Request::new(user_id.to_owned());
         Ok(self.send(request, Some(RequestConfig::short_retry())).await?)
+    }
+
+    /// Get the notification settings of the current owner of the client.
+    pub async fn notification_settings(&self) -> NotificationSettings {
+        let ruleset = self.account().push_rules().await.unwrap_or_else(|_| Ruleset::new());
+        NotificationSettings::new(self.clone(), ruleset)
     }
 }
 
