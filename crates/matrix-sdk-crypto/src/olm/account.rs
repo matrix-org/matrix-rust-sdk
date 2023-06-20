@@ -507,10 +507,14 @@ pub struct PickledAccount {
     pub shared: bool,
     /// The number of uploaded one-time keys we have on the server.
     pub uploaded_signed_key_count: u64,
-    /// The local time creation of this account (seconds since epoch), used as
-    /// creation time of own device
-    #[serde(default)]
-    pub creation_local_time: UInt,
+    /// The local time creation of this account (milliseconds since epoch), used
+    /// as creation time of own device
+    #[serde(default = "default_account_creation_time")]
+    pub creation_local_time: MilliSecondsSinceUnixEpoch,
+}
+
+fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
+    MilliSecondsSinceUnixEpoch(UInt::default())
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -774,7 +778,7 @@ impl ReadOnlyAccount {
             pickle,
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
-            creation_local_time: self.creation_local_time.0,
+            creation_local_time: self.creation_local_time,
         }
     }
 
@@ -798,7 +802,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
-            creation_local_time: MilliSecondsSinceUnixEpoch(pickle.creation_local_time),
+            creation_local_time: pickle.creation_local_time,
         })
     }
 
