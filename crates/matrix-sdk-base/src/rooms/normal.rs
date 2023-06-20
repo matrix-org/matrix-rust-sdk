@@ -1242,7 +1242,7 @@ mod test {
         let (_, room) = make_room(RoomState::Joined);
         room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-        room.inner.write().unwrap().base_info.name = Some(make_name_event().clone());
+        room.inner.write().unwrap().base_info.name = Some(make_name_event());
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
@@ -1265,7 +1265,7 @@ mod test {
         let (_, room) = make_room(RoomState::Invited);
         room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-        room.inner.write().unwrap().base_info.name = Some(make_name_event().clone());
+        room.inner.write().unwrap().base_info.name = Some(make_name_event());
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
