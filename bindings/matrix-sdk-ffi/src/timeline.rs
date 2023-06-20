@@ -554,9 +554,9 @@ impl From<MessageType> for RumaMessageType {
                     formatted: content.formatted.map(Into::into),
                 }))
             }
-            MessageType::Location { content } => Self::Location(
-                RumaLocationMessageEventContent::new(content.body, content.geo_uri),
-            ),
+            MessageType::Location { content } => {
+                Self::Location(RumaLocationMessageEventContent::new(content.body, content.geo_uri))
+            }
         }
     }
 }
