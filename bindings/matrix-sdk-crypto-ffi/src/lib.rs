@@ -43,7 +43,8 @@ pub use responses::{
 };
 use ruma::{
     events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId, MilliSecondsSinceUnixEpoch,
+    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
