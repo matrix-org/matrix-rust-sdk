@@ -222,8 +222,8 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     let stream = encryption_sync.sync();
     pin_mut!(stream);
 
-    // First iteration fills the whole request; server responds with the to-device token that
-    // should remembered.
+    // First iteration fills the whole request; server responds with the to-device
+    // token that should remembered.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
         assert request = {
@@ -247,8 +247,8 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
         },
     };
 
-    // Second iteration only sends non-sticky parameters, plus the to-device token from the
-    // previous request.
+    // Second iteration only sends non-sticky parameters, plus the to-device token
+    // from the previous request.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
         assert request = {
@@ -269,8 +269,9 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
         },
     };
 
-    // This encryption sync now conceptually goes to sleep, and another encryption sync starts in
-    // another process, runs a sync and changes the to-device token cached on disk.
+    // This encryption sync now conceptually goes to sleep, and another encryption
+    // sync starts in another process, runs a sync and changes the to-device
+    // token cached on disk.
     {
         let sliding_sync = SlidingSync::builder("encryption".to_owned(), client)?
             .enable_caching()?

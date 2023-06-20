@@ -74,7 +74,7 @@ impl CryptoStoreLock {
 
     /// Maximal backoff, in milliseconds. This is the maximum amount of time
     /// we'll wait for the lock, *between two attempts*.
-    const MAX_BACKOFF_MS: u32 = 1000;
+    pub const MAX_BACKOFF_MS: u32 = 1000;
 
     /// Create a new store-based lock implemented as a value in the
     /// crypto-store.
@@ -184,7 +184,7 @@ impl CryptoStoreLock {
         }
     }
 
-    /// Release the lock taken previously with [`lock()`].
+    /// Release the lock taken previously with [`Self::try_lock_once()`].
     ///
     /// Will return an error if the lock wasn't taken.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
