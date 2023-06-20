@@ -96,7 +96,7 @@ pub struct Timeline {
     start_token_condvar: Arc<Condvar>,
     _end_token: Mutex<Option<String>>,
     drop_handle: Arc<TimelineDropHandle>,
-    reaction_queue: Mutex<usize>,
+    reaction_lock: Mutex<()>,
 }
 
 impl Timeline {
@@ -347,39 +347,69 @@ impl Timeline {
 
     /// Toggle a reaction on an event
     ///
-    /// TODO: Currently does not debounce, so if you spam this function it will
-    ///  spam the homeserver with requests and the result may be unpredictable.
-    ///  In future, we may use the message queue to help with this.
-    ///  - See https://github.com/matrix-org/matrix-rust-sdk/issues/1194
+    /// Adds or redacts a reaction based on the state of the reaction at the
+    /// time it is called.
     ///
-    ///  When redacting an event, the redaction reason is not sent.
+    /// When redacting an event, the redaction reason is not sent.
+    ///
+    /// Ensures that only one reaction is sent at a time to avoid race
+    /// conditions and spamming the homeserver with requests.
+    ///
+    /// FIXME: If called multiple times in quick succession on the same
+    /// reaction, the function will drop requests until the previous request
+    /// is complete.
+    ///
     pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
         let txn_id = TransactionId::new();
+        let user_id = self.user_id()?;
 
         // Check if the reaction already exists
-        let event = self
-            .item_by_event_id(&annotation.event_id)
-            .await
-            .ok_or(Error::FailedTogglingReaction)?;
-
-        let user_id = self.user_id()?;
-        let user_reactions =
-            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
-
-        let to_redact: Option<&OwnedEventId> = match user_reactions {
-            Some(mut r) => {
-                // FIXME: Handle multiple reactions from the same user
-                r.find_map(|(_txid, event_id)| event_id)
-            }
-            None => None,
+        let find_related_event = || async {
+            self.item_by_event_id(&annotation.event_id).await.ok_or(Error::FailedTogglingReaction)
         };
 
-        let _lock = self.reaction_queue.lock().await;
+        let related_event = find_related_event().await?;
+
+        let user_reactions = related_event
+            .reactions()
+            .by_key(&annotation.key)
+            .map(|group| group.by_sender(&user_id));
+
+        // Find an existing reaction to redact, if any
+        let to_redact = user_reactions
+            .map(|mut reactions| reactions.find_map(|(_txid, event_id)| event_id))
+            .unwrap_or(None);
+
+        // Wait for any ongoing reaction requests to finish
+        let lock = self.reaction_lock.lock().await;
+
+        // Check the event again, in case it has changed since we last checked
+        let related_event = find_related_event().await?;
+        let user_reactions = related_event
+            .reactions()
+            .by_key(&annotation.key)
+            .map(|group| group.by_sender(&user_id));
 
         match to_redact {
-            Some(event_id) => self.redact_reaction(annotation, event_id, txn_id.clone()).await?,
-            None => self.add_reaction(annotation, txn_id.clone()).await?,
+            Some(event_id) => {
+                if user_reactions.is_none() {
+                    // Reaction already redacted or doesn't exist
+                    return Ok(());
+                }
+
+                self.redact_reaction(annotation, event_id, txn_id.clone()).await?
+            }
+            None => {
+                if user_reactions.is_some() {
+                    // Reaction already exists
+                    return Ok(());
+                }
+                self.add_reaction(annotation, txn_id.clone()).await?
+            }
         };
+
+        // Release only after the request is complete
+        drop(lock);
 
         Ok(())
     }
@@ -390,20 +420,6 @@ impl Timeline {
         event_id: &EventId,
         txn_id: OwnedTransactionId,
     ) -> Result<(), Error> {
-        let event = self
-            .item_by_event_id(&annotation.event_id)
-            .await
-            .ok_or(Error::FailedTogglingReaction)?;
-
-        let user_id = self.user_id()?;
-        let user_reactions =
-            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
-
-        if user_reactions.is_none() {
-            // Reaction already redacted or doesn't exist
-            return Ok(());
-        }
-
         // Don't send a reason for redacting a reaction
         let no_reason = RoomRedactionEventContent::default();
         self.inner
@@ -434,18 +450,6 @@ impl Timeline {
         annotation: &Annotation,
         txn_id: OwnedTransactionId,
     ) -> Result<(), Error> {
-        let event = self
-            .item_by_event_id(&annotation.event_id)
-            .await
-            .ok_or(Error::FailedTogglingReaction)?;
-
-        let user_id = self.user_id()?;
-        let user_reactions =
-            event.reactions().group(&annotation.key).map(|group| group.by_sender(user_id));
-        if user_reactions.is_some() {
-            // Reaction already exists
-            return Ok(());
-        }
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
         self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;

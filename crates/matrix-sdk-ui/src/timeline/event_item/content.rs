@@ -387,12 +387,12 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
 pub trait BundledReactionsExt {
-    fn group(&self, key: &str) -> Option<&ReactionGroup>;
+    fn by_key(&self, key: &str) -> Option<&ReactionGroup>;
 }
 
 impl BundledReactionsExt for BundledReactions {
     /// Get a reaction group by it's key
-    fn group(&self, key: &str) -> Option<&ReactionGroup> {
+    fn by_key(&self, key: &str) -> Option<&ReactionGroup> {
         self.iter().find_map(|(k, v)| match k == key {
             true => Some(v),
             false => None,
@@ -421,8 +421,9 @@ impl ReactionGroup {
     /// Note that it is possible for a user to have sent multiple reactions with the same key
     pub fn by_sender(
         &self,
-        user_id: OwnedUserId,
+        user_id: &UserId,
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> {
+        let user_id = user_id.to_owned();
         self.as_refs().filter_map(move |(k, v)| match v == &user_id {
             true => Some(k),
             false => None,

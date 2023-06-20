@@ -263,7 +263,7 @@ async fn test_redacting_reaction() -> Result<()> {
             let event = assert_event_is_updated(&mut stream, &event_id, message_position).await;
             let (reaction_tx_id, reaction_event_id) = {
                 let reactions = event.reactions().get(reaction_key).unwrap();
-                let reaction = reactions.by_sender(user_id.to_owned()).next().unwrap();
+                let reaction = reactions.by_sender(user_id).next().unwrap();
                 reaction.to_owned()
             };
             assert_matches!(reaction_tx_id, Some(_));
@@ -275,7 +275,7 @@ async fn test_redacting_reaction() -> Result<()> {
             let event = assert_event_is_updated(&mut stream, &event_id, message_position).await;
             let reactions = event.reactions().get(reaction_key).unwrap();
             assert_eq!(reactions.senders().count(), 1);
-            let reaction = reactions.by_sender(user_id.to_owned()).next().unwrap();
+            let reaction = reactions.by_sender(user_id).next().unwrap();
             let (reaction_tx_id, reaction_event_id) = reaction;
             assert_matches!(reaction_tx_id, None);
             let reaction_event_id = assert_matches!(reaction_event_id, Some(value) => value);

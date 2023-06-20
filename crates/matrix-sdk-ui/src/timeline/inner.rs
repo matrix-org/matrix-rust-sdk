@@ -396,48 +396,53 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return;
         };
 
-        let mut reactions = remote_related.reactions.clone();
+        let new_reactions = {
+            let mut reactions = remote_related.reactions.clone();
+            let reaction_group = reactions.entry(annotation.key.clone()).or_default();
 
-        let reaction_group = reactions.entry(annotation.key.clone()).or_default();
-
-        // Remove the local echo from the related event.
-        if let Some(txn_id) = local_echo_to_remove {
-            if reaction_group.0.remove(&(Some(txn_id.to_owned()), None)).is_none() {
-                warn!(
-                    "Tried to remove reaction by transaction ID, but didn't \
+            // Remove the local echo from the related event.
+            if let Some(txn_id) = local_echo_to_remove {
+                if reaction_group.0.remove(&(Some(txn_id.to_owned()), None)).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
                              find matching reaction in the related event's reactions"
-                );
+                    );
+                }
             }
-        }
-        // Add the remote echo to the related event
-        if let Some(event_id) = remote_echo_to_add {
-            let own_user_id = self.room_data_provider.own_user_id().to_owned();
-            reaction_group.0.insert((None, Some(event_id.to_owned())), own_user_id);
-        };
-
-        if reaction_group.0.is_empty() {
-            reactions.remove(&annotation.key);
-        }
-
-        let new_related = related.with_kind(remote_related.with_reactions(reactions));
-
-        // Remove the local echo from reaction_map
-        // (should the local echo already be up-to-date after event handling?)
-        if let Some(txn_id) = local_echo_to_remove {
-            if state.reaction_map.remove(&(Some(txn_id.to_owned()), None)).is_none() {
-                warn!(
-                    "Tried to remove reaction by transaction ID, but didn't \
-                             find matching reaction in the related event's reactions"
-                );
+            // Add the remote echo to the related event
+            if let Some(event_id) = remote_echo_to_add {
+                let own_user_id = self.room_data_provider.own_user_id().to_owned();
+                reaction_group.0.insert((None, Some(event_id.to_owned())), own_user_id);
+            };
+            if reaction_group.0.is_empty() {
+                reactions.remove(&annotation.key);
             }
-        }
-        // Add the remote echo to the reaction_map
-        if let Some(event_id) = remote_echo_to_add {
-            let own_user_id = self.room_data_provider.own_user_id().to_owned();
-            state
-                .reaction_map
-                .insert((None, Some(event_id.to_owned())), (own_user_id, annotation.clone()));
+
+            reactions
         };
+        let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
+
+        // Update the reactions stored in the timeline state
+        {
+            // Remove the local echo from reaction_map
+            // (should the local echo already be up-to-date after event handling?)
+            if let Some(txn_id) = local_echo_to_remove {
+                if state.reaction_map.remove(&(Some(txn_id.to_owned()), None)).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
+                             find matching reaction in the reaction map"
+                    );
+                }
+            }
+            // Add the remote echo to the reaction_map
+            if let Some(event_id) = remote_echo_to_add {
+                let own_user_id = self.room_data_provider.own_user_id().to_owned();
+                state
+                    .reaction_map
+                    .insert((None, Some(event_id.to_owned())), (own_user_id, annotation.clone()));
+            };
+        }
+
         // Update the related item
         state.items.set(idx, Arc::new(TimelineItem::Event(new_related)));
     }
