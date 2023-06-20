@@ -910,6 +910,14 @@ impl Encryption {
         }
         Ok(())
     }
+
+    /// Manually request that the internal crypto caches be reloaded.
+    pub async fn reload_caches(&self) -> Result<(), Error> {
+        // At this time, rleoading the `OlmMachine` ought to be sufficient.
+        self.client.base_client().regenerate_olm().await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

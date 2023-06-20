@@ -280,6 +280,8 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
         sliding_sync.force_cache_to_storage().await?;
     }
 
+    encryption_sync.reload_caches().await?;
+
     // Next iteration must have reloaded the latest to-device token.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]

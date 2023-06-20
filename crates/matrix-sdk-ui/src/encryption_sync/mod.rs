@@ -136,15 +136,6 @@ impl EncryptionSync {
                     }
                 };
 
-                // Force-reload the to-device token from disk, in case it changed.
-                if let Err(err) = self.sliding_sync.reload_to_device_token().await {
-                    // Release the lock first.
-                    self.client.encryption().unlock_store().await?;
-
-                    yield Err(err.into());
-                    break;
-                }
-
                 match sync.next().await {
                     Some(Ok(update_summary)) => {
                         // This API is only concerned with the e2ee and to-device extensions.
@@ -182,10 +173,27 @@ impl EncryptionSync {
         })
     }
 
+    /// Requests that the underlying sliding sync be stopped.
+    ///
+    /// This will unlock the cross-process lock, if taken.
     pub fn stop(&self) -> Result<(), Error> {
         // Stopping the sync loop will cause the next `next()` call to return `None`, so
         // this will also release the cross-process lock automatically.
         self.sliding_sync.stop_sync()?;
+
+        Ok(())
+    }
+
+    /// Request a reload of the internal caches used by this sync.
+    ///
+    /// This must be called every time the process running this loop was suspended and got back
+    /// into the foreground.
+    pub async fn reload_caches(&self) -> Result<(), Error> {
+        // Regenerate the crypto store caches first.
+        self.client.encryption().reload_caches().await?;
+
+        // Reload the to-device token that might have changed on disk.
+        self.sliding_sync.reload_to_device_token().await?;
 
         Ok(())
     }
