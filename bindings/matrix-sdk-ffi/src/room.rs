@@ -15,7 +15,6 @@ use matrix_sdk::{
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
-            reaction::ReactionEventContent,
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
@@ -457,19 +456,15 @@ impl Room {
         })
     }
 
-    pub fn send_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
-        let room = match &self.inner {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => {
-                return Err(
-                    anyhow!("Can't send reaction in a room that isn't in joined state").into()
-                )
-            }
+    pub fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
+        let timeline = match &*self.timeline.read().unwrap() {
+            Some(t) => Arc::clone(t),
+            None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
-            room.send(ReactionEventContent::new(Annotation::new(event_id, key)), None).await?;
+            timeline.toggle_reaction(&Annotation::new(event_id, key)).await?;
             Ok(())
         })
     }
