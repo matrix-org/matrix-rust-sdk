@@ -33,7 +33,7 @@ use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
 use ruma::{api::client::sync::sync_events::v4, assign};
-use tracing::error;
+use tracing::{error, trace};
 
 #[derive(Clone, Copy)]
 pub enum EncryptionSyncMode {
@@ -162,22 +162,23 @@ impl EncryptionSync {
                         self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
                         // Cool cool, let's do it again.
+                        trace!("Encryption sync received an update!");
                         yield Ok(());
-
                         continue;
                     }
 
                     Some(Err(err)) => {
                         self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
+                        trace!("Encryption sync stopped because of an error: {err:#}");
                         yield Err(Error::SlidingSync(err));
-
                         break;
                     }
 
                     None => {
                         self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
+                        trace!("Encryption sync properly terminated.");
                         break;
                     }
                 }

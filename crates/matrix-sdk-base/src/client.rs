@@ -245,6 +245,7 @@ impl BaseClient {
     /// In particular, this will clear all its caches.
     #[cfg(feature = "e2e-encryption")]
     pub async fn regenerate_olm(&self) -> Result<()> {
+        tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
         // Recreate it.

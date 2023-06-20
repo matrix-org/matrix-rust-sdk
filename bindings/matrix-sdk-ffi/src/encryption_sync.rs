@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk_ui::encryption_sync::{EncryptionSync as MatrixEncryptionSync, EncryptionSyncMode};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use crate::{client::Client, error::ClientError, task_handle::TaskHandle, RUNTIME};
 
@@ -45,7 +45,6 @@ impl EncryptionSync {
                     }
 
                     None => {
-                        info!("Encryption sync ended");
                         break None;
                     }
 
@@ -53,7 +52,7 @@ impl EncryptionSync {
                         // The internal sliding sync instance already handles retries for us, so if
                         // we get an error here, it means the maximum number of retries has been
                         // reached, and there's not much we can do anymore.
-                        warn!("Error in encryption sync: {err}");
+                        warn!("Error in encryption sync: {err:#}");
                         break Some(err);
                     }
                 }

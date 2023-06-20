@@ -28,7 +28,7 @@
 use std::{sync::Arc, time::Duration};
 
 use tokio::{sync::Mutex, time::sleep};
-use tracing::instrument;
+use tracing::{instrument, trace, warn};
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -94,7 +94,7 @@ impl CryptoStoreLock {
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
-    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(&self) -> Result<bool, CryptoStoreError> {
         // Hold the num_holders lock for the entire's function lifetime, to avoid
         // internal races if called in a reentrant manner.
@@ -103,6 +103,7 @@ impl CryptoStoreLock {
         // If another thread obtained the lock, make sure to only superficially increase
         // the number of holders, and carry on.
         if *holders > 0 {
+            trace!("We already had the lock, incrementing holder count");
             *holders += 1;
             return Ok(true);
         }
@@ -113,6 +114,7 @@ impl CryptoStoreLock {
             .await?;
 
         if inserted {
+            trace!("Successfully acquired lock through db write");
             *holders += 1;
             return Ok(true);
         }
@@ -121,17 +123,16 @@ impl CryptoStoreLock {
         // lock, and forgot to release it; in that case, we *still* hold it.
         let previous = self.store.get_custom_value(&self.lock_key).await?;
         if previous.as_deref() == Some(self.lock_holder.as_bytes()) {
-            tracing::warn!(
+            warn!(
                 "Crypto-store lock {} was already taken by {}; let's pretend we just acquired it.",
-                self.lock_key,
-                self.lock_holder
+                self.lock_key, self.lock_holder
             );
             *holders += 1;
             return Ok(true);
         }
 
         if let Some(prev_holder) = previous {
-            tracing::trace!("Lock is already taken by {}", String::from_utf8_lossy(&prev_holder));
+            trace!("Lock is already taken by {}", String::from_utf8_lossy(&prev_holder));
         }
 
         Ok(false)
@@ -145,7 +146,7 @@ impl CryptoStoreLock {
     /// reached a second time, the lock will stop attempting to get the lock
     /// and will return a timeout error upon locking. If not provided,
     /// will wait for [`Self::MAX_BACKOFF_MS`].
-    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn spin_lock(&self, max_backoff: Option<u32>) -> Result<(), CryptoStoreError> {
         let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
 
@@ -178,6 +179,7 @@ impl CryptoStoreLock {
                 }
             };
 
+            tracing::debug!("Waiting {wait} before re-attempting to take the lock");
             sleep(Duration::from_millis(wait.into())).await;
         }
     }
@@ -185,7 +187,7 @@ impl CryptoStoreLock {
     /// Release the lock taken previously with [`lock()`].
     ///
     /// Will return an error if the lock wasn't taken.
-    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn unlock(&self) -> Result<(), CryptoStoreError> {
         // Keep the lock for the whole's function lifetime, to avoid races with other
         // threads trying to acquire/release  the lock at the same time.
@@ -195,6 +197,7 @@ impl CryptoStoreLock {
         if *holders > 1 {
             // There's at least one other holder, so just decrease the number of holders.
             *holders -= 1;
+            trace!("not releasing, because another thread holds onto it");
             return Ok(());
         }
 
@@ -213,6 +216,7 @@ impl CryptoStoreLock {
         let removed = self.store.remove_custom_value(&self.lock_key).await?;
         if removed {
             *holders -= 1;
+            trace!("successfully released");
             Ok(())
         } else {
             Err(LockStoreError::MissingLockValue.into())
