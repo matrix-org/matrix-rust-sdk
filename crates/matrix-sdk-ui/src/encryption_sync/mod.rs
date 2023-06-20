@@ -32,7 +32,6 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
-use matrix_sdk_crypto::CryptoStoreError;
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::error;
 
@@ -70,8 +69,10 @@ impl EncryptionSync {
         // process is running this sliding sync. There must be at most one
         // sliding sync instance that enables the e2ee and to-device extensions.
         let mut builder = client
-            .sliding_sync("encryption")?
-            .enable_caching()?
+            .sliding_sync("encryption")
+            .map_err(Error::SlidingSync)?
+            .enable_caching()
+            .map_err(Error::SlidingSync)?
             .with_to_device_extension(
                 assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
             )
@@ -81,7 +82,7 @@ impl EncryptionSync {
             builder = builder.with_timeouts(Duration::from_secs(4), Duration::from_secs(4));
         }
 
-        let sliding_sync = builder.build().await?;
+        let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
         // Gently try to set the cross-process lock on behalf of the user.
         match client.encryption().enable_cross_process_store_lock(process_id).await {
@@ -120,7 +121,14 @@ impl EncryptionSync {
                         // Soon.
                         *val -= 1;
 
-                        if self.client.encryption().try_lock_store_once().await?.not() {
+                        if self
+                            .client
+                            .encryption()
+                            .try_lock_store_once()
+                            .await
+                            .map_err(Error::LockError)?
+                            .not()
+                        {
                             // If we can't acquire the cross-process lock on the first attempt,
                             // that means the main process is running. Don't even try to sync, in
                             // that case.
@@ -132,7 +140,11 @@ impl EncryptionSync {
                     }
 
                     EncryptionSyncMode::NeverStop => {
-                        self.client.encryption().spin_lock_store(Some(60000)).await?;
+                        self.client
+                            .encryption()
+                            .spin_lock_store(Some(60000))
+                            .await
+                            .map_err(Error::LockError)?;
                     }
                 };
 
@@ -147,7 +159,7 @@ impl EncryptionSync {
                             error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                         }
 
-                        self.client.encryption().unlock_store().await?;
+                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
                         // Cool cool, let's do it again.
                         yield Ok(());
@@ -156,15 +168,15 @@ impl EncryptionSync {
                     }
 
                     Some(Err(err)) => {
-                        self.client.encryption().unlock_store().await?;
+                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
-                        yield Err(err.into());
+                        yield Err(Error::SlidingSync(err));
 
                         break;
                     }
 
                     None => {
-                        self.client.encryption().unlock_store().await?;
+                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
 
                         break;
                     }
@@ -179,7 +191,7 @@ impl EncryptionSync {
     pub fn stop(&self) -> Result<(), Error> {
         // Stopping the sync loop will cause the next `next()` call to return `None`, so
         // this will also release the cross-process lock automatically.
-        self.sliding_sync.stop_sync()?;
+        self.sliding_sync.stop_sync().map_err(Error::SlidingSync)?;
 
         Ok(())
     }
@@ -190,10 +202,10 @@ impl EncryptionSync {
     /// into the foreground.
     pub async fn reload_caches(&self) -> Result<(), Error> {
         // Regenerate the crypto store caches first.
-        self.client.encryption().reload_caches().await?;
+        self.client.encryption().reload_caches().await.map_err(Error::ClientError)?;
 
         // Reload the to-device token that might have changed on disk.
-        self.sliding_sync.reload_to_device_token().await?;
+        self.sliding_sync.reload_to_device_token().await.map_err(Error::SlidingSync)?;
 
         Ok(())
     }
@@ -203,16 +215,10 @@ impl EncryptionSync {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Something wrong happened in sliding sync: {0:#}")]
-    SlidingSync(#[from] matrix_sdk::Error),
+    SlidingSync(matrix_sdk::Error),
 
-    #[error("The client was not authenticated")]
-    AuthenticationRequired,
-
-    #[error(transparent)]
-    CryptoStore(#[from] CryptoStoreError),
-
-    #[error("The crypto store state couldn't be reloaded")]
-    ReloadCryptoStoreError,
+    #[error("Locking failed: {0:#}")]
+    LockError(matrix_sdk::Error),
 
     #[error(transparent)]
     ClientError(matrix_sdk::Error),
