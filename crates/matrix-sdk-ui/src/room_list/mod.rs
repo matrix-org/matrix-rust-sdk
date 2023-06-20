@@ -43,7 +43,7 @@
 //!   background”: it will sync the existing rooms and will fetch new rooms, by
 //!   a certain batch size.
 //! * `visible_rooms` (referred by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
-//!   the “reactive” list. It's goal is to react to the client app user actions.
+//!   the “reactive” list. Its goal is to react to the client app user actions.
 //!   If the user scrolls in the room list, the `visible_rooms` will be
 //!   configured to sync for the particular range of rooms the user is actually
 //!   seeing (the rooms in the current viewport). `visible_rooms` has a
@@ -178,8 +178,7 @@ impl RoomList {
             // So the sync is done after the machine _has entered_ into a new state.
             loop {
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
-
-                Observable::set(&self.state, next_state);
+                self.state.set(next_state);
 
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
@@ -188,8 +187,7 @@ impl RoomList {
 
                     Some(Err(error)) => {
                         let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        self.state.set(next_state);
 
                         yield Err(Error::SlidingSync(error));
 
@@ -198,8 +196,7 @@ impl RoomList {
 
                     None => {
                         let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        self.state.set(next_state);
 
                         break;
                     }
@@ -210,7 +207,7 @@ impl RoomList {
 
     /// Get a subscriber to the state.
     pub fn state(&self) -> Subscriber<State> {
-        Observable::subscribe(&self.state)
+        self.state.subscribe()
     }
 
     /// Get all previous room list entries, in addition to a [`Stream`] to room

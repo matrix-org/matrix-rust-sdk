@@ -16,8 +16,6 @@
 #![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
-pub mod identities;
-pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Read, Write},
@@ -26,16 +24,8 @@ use std::{
     path::PathBuf,
 };
 
+use eyeball::shared::Observable as SharedObservable;
 use futures_util::stream::{self, StreamExt};
-pub use matrix_sdk_base::crypto::{
-    olm::{
-        SessionCreationError as MegolmSessionCreationError,
-        SessionExportError as OlmSessionExportError,
-    },
-    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
-    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
-};
 use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
@@ -54,7 +44,6 @@ use ruma::{
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, instrument, trace, warn};
 
-pub use crate::error::RoomKeyImportError;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     encryption::{
@@ -62,8 +51,25 @@ use crate::{
         verification::{SasVerification, Verification, VerificationRequest},
     },
     error::HttpResult,
-    room, Client, Error, Result,
+    room, Client, Error, Result, TransmissionProgress,
 };
+
+mod futures;
+pub mod identities;
+pub mod verification;
+
+pub use matrix_sdk_base::crypto::{
+    olm::{
+        SessionCreationError as MegolmSessionCreationError,
+        SessionExportError as OlmSessionExportError,
+    },
+    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
+    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError, VERSION,
+};
+
+pub use self::futures::PrepareEncryptedFile;
+pub use crate::error::RoomKeyImportError;
 
 impl Client {
     pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
@@ -138,31 +144,12 @@ impl Client {
     /// room.send(CustomEventContent { encrypted_file }, None).await?;
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
-        &self,
-        content_type: &mime::Mime,
+    pub fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
+        &'a self,
+        content_type: &'a mime::Mime,
         reader: &'a mut R,
-    ) -> Result<ruma::events::room::EncryptedFile> {
-        let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
-
-        let mut buf = Vec::new();
-        encryptor.read_to_end(&mut buf)?;
-
-        let response = self.media().upload(content_type, buf).await?;
-
-        let file: ruma::events::room::EncryptedFile = {
-            let keys = encryptor.finish();
-            ruma::events::room::EncryptedFileInit {
-                url: response.content_uri,
-                key: keys.key,
-                iv: keys.iv,
-                hashes: keys.hashes,
-                v: keys.version,
-            }
-            .into()
-        };
-
-        Ok(file)
+    ) -> PrepareEncryptedFile<'a, R> {
+        PrepareEncryptedFile::new(self, content_type, reader)
     }
 
     /// Encrypt and upload the file to be read from `reader` and construct an
@@ -174,11 +161,16 @@ impl Client {
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<ruma::events::room::message::MessageType> {
+        // FIXME: Upload the thumbnail in parallel with the main file
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let mut cursor = Cursor::new(thumbnail.data);
 
-            let file = self.prepare_encrypted_file(content_type, &mut cursor).await?;
+            let file = self
+                .prepare_encrypted_file(content_type, &mut cursor)
+                .with_send_progress_observable(send_progress.clone())
+                .await?;
             use ruma::events::room::ThumbnailInfo;
 
             #[rustfmt::skip]
@@ -193,7 +185,10 @@ impl Client {
         };
 
         let mut cursor = Cursor::new(data);
-        let file = self.prepare_encrypted_file(content_type, &mut cursor).await?;
+        let file = self
+            .prepare_encrypted_file(content_type, &mut cursor)
+            .with_send_progress_observable(send_progress)
+            .await?;
 
         use std::io::Cursor;
 
@@ -922,10 +917,14 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
+    use matrix_sdk_test::{
+        async_test, test_json, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
+        StateTestEvent,
+    };
     use ruma::{
         event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
+        user_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -982,5 +981,75 @@ mod tests {
         room.send_raw(json!({}), "m.reaction", None)
             .await
             .expect("Sending the reaction should not fail");
+    }
+
+    #[async_test]
+    async fn get_dm_room_returns_the_room_we_have_with_this_user() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        // This is the user ID that is inside MemberAdditional.
+        // Note the confusing username, so we can share
+        // GlobalAccountDataTestEvent::Direct with the invited test.
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
+            )
+            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn get_dm_room_still_finds_room_where_participant_is_only_invited() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        // This is the user ID that is inside MemberInvite
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
+            )
+            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn get_dm_room_still_finds_left_room() {
+        // See the discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/2017
+        // and the high-level issue at https://github.com/vector-im/element-x-ios/issues/1077
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        // This is the user ID that is inside MemberAdditional.
+        // Note the confusing username, so we can share
+        // GlobalAccountDataTestEvent::Direct with the invited test.
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
+            )
+            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
     }
 }

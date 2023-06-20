@@ -271,7 +271,9 @@ impl Room {
     ///
     /// *Note*: The member list might have been modified in the meantime and
     /// the targets might not even be in the room anymore. This setting should
-    /// only be considered as guidance.
+    /// only be considered as guidance. We leave members in this list to allow
+    /// us to re-find a DM with a user even if they have left, since we may
+    /// want to re-invite them.
     pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
         self.inner.read().unwrap().base_info.dm_targets.clone()
     }
@@ -335,14 +337,20 @@ impl Room {
         self.inner.read().unwrap().topic().map(ToOwned::to_owned)
     }
 
-    /// Calculate the canonical display name of the room, taking into account
-    /// its name, aliases and members.
+    /// Return the cached display name of the room if it was provided via sync,
+    /// or otherwise calculate it, taking into account its name, aliases and
+    /// members.
     ///
     /// The display name is calculated according to [this algorithm][spec].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> StoreResult<DisplayName> {
-        self.calculate_name().await
+        let cached = self.inner.read().unwrap().display_name.clone();
+        if let Some(cached) = cached {
+            Ok(cached)
+        } else {
+            self.calculate_name().await
+        }
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -629,6 +637,9 @@ pub struct RoomInfo {
     /// Whether or not the encryption info was been synced.
     #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
     encryption_state_synced: bool,
+    /// The calculated display name of this room, or None if we haven't
+    /// calculated it yet
+    display_name: Option<DisplayName>,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
@@ -681,6 +692,7 @@ impl RoomInfo {
             last_prev_batch: None,
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
+            display_name: None,
             base_info: BaseRoomInfo::new(),
         }
     }
@@ -1016,10 +1028,53 @@ mod test {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
+            display_name: Some(DisplayName::Named("My Name".to_owned())),
             base_info: BaseRoomInfo::new(),
         };
 
         let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": {
+                "Named": "My Name"
+            },
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
+    }
+
+    #[test]
+    fn room_info_roundtrip_without_display_name() {
+        // We can deserialise info stored before we added the display_name property
+
+        let without_display_name = json!({
             "room_id": "!gda78o:server.tld",
             "room_type": "Invited",
             "notification_counts": {
@@ -1051,7 +1106,88 @@ mod test {
             }
         });
 
-        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
+        let none_display_name = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": null,
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<RoomInfo>(without_display_name).unwrap())
+                .unwrap(),
+            none_display_name
+        );
+    }
+
+    #[test]
+    fn room_info_roundtrip_with_display_name() {
+        let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_type": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "heroes": ["Somebody"],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "display_name": {
+                "Named": "My Name"
+            },
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<RoomInfo>(info_json.clone()).unwrap())
+                .unwrap(),
+            info_json
+        );
     }
 
     fn make_room(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -1091,40 +1227,65 @@ mod test {
     }
 
     #[async_test]
-    async fn test_display_name_default() {
+    async fn display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room(RoomState::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+    }
 
-        let canonical_alias_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+    #[async_test]
+    async fn display_name_for_joined_room_uses_canonical_alias_if_available() {
+        let (_, room) = make_room(RoomState::Joined);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_joined_room_prefers_name_over_alias() {
+        let (_, room) = make_room(RoomState::Joined);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+        room.inner.write().unwrap().base_info.name = Some(make_name_event());
+        // Display name wasn't cached when we asked for it above, and name overrides
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_is_empty_if_no_info() {
+        let (_, room) = make_room(RoomState::Invited);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_uses_canonical_alias_if_available() {
+        let (_, room) = make_room(RoomState::Invited);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+    }
+
+    #[async_test]
+    async fn display_name_for_invited_room_prefers_name_over_alias() {
+        let (_, room) = make_room(RoomState::Invited);
+        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+        room.inner.write().unwrap().base_info.name = Some(make_name_event());
+        // Display name wasn't cached when we asked for it above, and name overrides
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+    }
+
+    fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: assign!(RoomCanonicalAliasEventContent::new(), {
                 alias: Some(room_alias_id!("#test:example.com").to_owned()),
             }),
             event_id: None,
-        });
+        })
+    }
 
-        let name_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
             content: RoomNameEventContent::new(Some("Test Room".try_into().unwrap())),
             event_id: None,
-        });
-
-        // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event.clone());
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-
-        // has precedence
-        room.inner.write().unwrap().base_info.name = Some(name_event.clone());
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
-
-        let (_, room) = make_room(RoomState::Invited);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
-
-        // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-
-        // has precedence
-        room.inner.write().unwrap().base_info.name = Some(name_event);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+        })
     }
 
     #[async_test]

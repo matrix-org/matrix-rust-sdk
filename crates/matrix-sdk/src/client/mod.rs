@@ -25,7 +25,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use eyeball::{unique::Observable, Subscriber};
+use eyeball::{shared::Observable as SharedObservable, unique::Observable, Subscriber};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
@@ -86,16 +86,18 @@ use crate::{
     http_client::HttpClient,
     room,
     sync::{RoomUpdate, SyncResponse},
-    Account, Error, Media, RefreshTokenError, Result, RumaApiError,
+    Account, Error, Media, RefreshTokenError, Result, RumaApiError, TransmissionProgress,
 };
 
 mod builder;
+mod futures;
 mod login_builder;
 
 #[cfg(feature = "sso-login")]
 pub use self::login_builder::SsoLoginBuilder;
 pub use self::{
     builder::{ClientBuildError, ClientBuilder},
+    futures::SendRequest,
     login_builder::LoginBuilder,
 };
 
@@ -1457,6 +1459,7 @@ impl Client {
                     self.access_token().as_deref(),
                     self.user_id(),
                     self.server_versions().await?,
+                    Default::default(),
                 )
                 .await;
 
@@ -1832,40 +1835,16 @@ impl Client {
     /// // returned
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn send<Request>(
+    pub fn send<Request>(
         &self,
         request: Request,
         config: Option<RequestConfig>,
-    ) -> HttpResult<Request::IncomingResponse>
+    ) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = Box::pin(self.send_inner(request.clone(), config, None)).await;
-
-        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
-        // try to refresh the token and retry the request.
-        if self.inner.handle_refresh_tokens {
-            if let Err(Some(ErrorKind::UnknownToken { .. })) =
-                res.as_ref().map_err(HttpError::client_api_error_kind)
-            {
-                if let Err(refresh_error) = self.refresh_access_token().await {
-                    match &refresh_error {
-                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                            // Refreshing access tokens is not supported by
-                            // this `Session`, ignore.
-                        }
-                        _ => {
-                            return Err(refresh_error);
-                        }
-                    }
-                } else {
-                    return Box::pin(self.send_inner(request, config, None)).await;
-                }
-            }
-        }
-
-        res
+        SendRequest { client: self.clone(), request, config, send_progress: Default::default() }
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
@@ -1881,8 +1860,13 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res =
-            Box::pin(self.send_inner(request.clone(), config, sliding_sync_proxy.clone())).await;
+        let res = Box::pin(self.send_inner(
+            request.clone(),
+            config,
+            sliding_sync_proxy.clone(),
+            Default::default(),
+        ))
+        .await;
 
         // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
         // try to refresh the token and retry the request.
@@ -1901,7 +1885,13 @@ impl Client {
                         }
                     }
                 } else {
-                    return Box::pin(self.send_inner(request, config, sliding_sync_proxy)).await;
+                    return Box::pin(self.send_inner(
+                        request,
+                        config,
+                        sliding_sync_proxy,
+                        Default::default(),
+                    ))
+                    .await;
                 }
             }
         }
@@ -1914,6 +1904,7 @@ impl Client {
         request: Request,
         config: Option<RequestConfig>,
         homeserver: Option<String>,
+        send_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
@@ -1934,6 +1925,7 @@ impl Client {
                 self.access_token().as_deref(),
                 self.user_id(),
                 self.server_versions().await?,
+                send_progress,
             )
             .await;
 
@@ -1962,6 +1954,7 @@ impl Client {
                 None,
                 None,
                 &[MatrixVersion::V1_0],
+                Default::default(),
             )
             .await?
             .known_versions()
