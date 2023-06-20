@@ -124,6 +124,9 @@ impl EncryptionSync {
                             // If we can't acquire the cross-process lock on the first attempt,
                             // that means the main process is running. Don't even try to sync, in
                             // that case.
+                            tracing::debug!(
+                                "Lock was already taken, and we're not the main loop; aborting."
+                            );
                             return;
                         }
                     }

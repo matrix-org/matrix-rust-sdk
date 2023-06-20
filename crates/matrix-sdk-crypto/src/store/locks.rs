@@ -28,6 +28,7 @@
 use std::{sync::Arc, time::Duration};
 
 use tokio::{sync::Mutex, time::sleep};
+use tracing::instrument;
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -93,6 +94,7 @@ impl CryptoStoreLock {
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
+    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(&self) -> Result<bool, CryptoStoreError> {
         // Hold the num_holders lock for the entire's function lifetime, to avoid
         // internal races if called in a reentrant manner.
@@ -128,6 +130,10 @@ impl CryptoStoreLock {
             return Ok(true);
         }
 
+        if let Some(prev_holder) = previous {
+            tracing::trace!("Lock is already taken by {}", String::from_utf8_lossy(&prev_holder));
+        }
+
         Ok(false)
     }
 
@@ -139,6 +145,7 @@ impl CryptoStoreLock {
     /// reached a second time, the lock will stop attempting to get the lock
     /// and will return a timeout error upon locking. If not provided,
     /// will wait for [`Self::MAX_BACKOFF_MS`].
+    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn spin_lock(&self, max_backoff: Option<u32>) -> Result<(), CryptoStoreError> {
         let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
 
@@ -178,6 +185,7 @@ impl CryptoStoreLock {
     /// Release the lock taken previously with [`lock()`].
     ///
     /// Will return an error if the lock wasn't taken.
+    #[instrument(level = "DEBUG", skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn unlock(&self) -> Result<(), CryptoStoreError> {
         // Keep the lock for the whole's function lifetime, to avoid races with other
         // threads trying to acquire/release  the lock at the same time.
