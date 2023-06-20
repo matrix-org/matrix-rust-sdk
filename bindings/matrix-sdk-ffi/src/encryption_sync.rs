@@ -24,36 +24,31 @@ pub struct EncryptionSync {
 
 impl EncryptionSync {
     fn start(
-        notification: Arc<MatrixEncryptionSync>,
+        encryption_sync: Arc<MatrixEncryptionSync>,
         listener: Box<dyn EncryptionSyncListener>,
     ) -> TaskHandle {
         TaskHandle::new(RUNTIME.spawn(async move {
-            let stream = notification.sync();
+            let stream = encryption_sync.sync();
             pin_mut!(stream);
 
             loop {
-                tokio::select! {
-                    biased;
+                let streamed = stream.next().await;
+                match streamed {
+                    Some(Ok(())) => {
+                        // Yay.
+                    }
 
-                    streamed = stream.next() => {
-                        match streamed {
-                            Some(Ok(())) => {
-                                // Yay.
-                            }
+                    None => {
+                        info!("Encryption sync ended");
+                        break;
+                    }
 
-                            None => {
-                                info!("Notification sliding sync ended");
-                                break;
-                            }
-
-                            Some(Err(err)) => {
-                                // The internal sliding sync instance already handles retries for us, so if
-                                // we get an error here, it means the maximum number of retries has been
-                                // reached, and there's not much we can do anymore.
-                                warn!("Error when handling notifications: {err}");
-                                break;
-                            }
-                        }
+                    Some(Err(err)) => {
+                        // The internal sliding sync instance already handles retries for us, so if
+                        // we get an error here, it means the maximum number of retries has been
+                        // reached, and there's not much we can do anymore.
+                        warn!("Error in encryption sync: {err}");
+                        break;
                     }
                 }
             }
@@ -67,7 +62,7 @@ impl EncryptionSync {
 impl EncryptionSync {
     pub fn stop(&self) {
         if let Err(err) = self.sync.stop() {
-            error!("Error when stopping the notification sync: {err}");
+            error!("Error when stopping the encryption sync: {err}");
         }
     }
 
