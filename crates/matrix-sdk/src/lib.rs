@@ -39,6 +39,7 @@ mod error;
 pub mod event_handler;
 mod http_client;
 pub mod media;
+pub mod notification_settings;
 pub mod room;
 pub mod sync;
 
