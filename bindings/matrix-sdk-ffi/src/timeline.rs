@@ -555,7 +555,7 @@ impl From<MessageType> for RumaMessageType {
                 }))
             }
             MessageType::Location { content } => Self::Location(
-                RumaLocationMessageEventContent::new(content.body.clone(), content.geo_uri.clone()),
+                RumaLocationMessageEventContent::new(content.body, content.geo_uri),
             ),
         }
     }
@@ -614,7 +614,7 @@ impl TryFrom<RumaMessageType> for MessageType {
                 },
             },
             RumaMessageType::Location(c) => MessageType::Location {
-                content: LocationContent { body: c.body.clone(), geo_uri: c.geo_uri.clone() },
+                content: LocationContent { body: c.body, geo_uri: c.geo_uri },
             },
             _ => bail!("Unsupported type"),
         };
