@@ -703,6 +703,17 @@ impl SlidingSync {
     pub fn sliding_sync_proxy(&self) -> Option<Url> {
         self.inner.sliding_sync_proxy.clone()
     }
+
+    /// Set a new value for the to-device "since" token.
+    pub fn set_to_device_token(&self, to_device_token: String) {
+        let mut position_lock = self.inner.position.write().unwrap();
+        position_lock.to_device_token = Some(to_device_token);
+    }
+
+    /// Force caching the current sliding sync to storage.
+    pub async fn force_cache_to_storage(&self) -> Result<()> {
+        self.cache_to_storage().await
+    }
 }
 
 #[derive(Debug)]
