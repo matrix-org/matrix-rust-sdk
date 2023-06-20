@@ -6,11 +6,17 @@ use tracing::{error, info, warn};
 
 use crate::{client::Client, error::ClientError, task_handle::TaskHandle, RUNTIME};
 
+#[derive(uniffi::Enum)]
+pub enum EncryptionSyncTerminationReason {
+    Done,
+    Error { msg: String },
+}
+
 #[uniffi::export(callback_interface)]
 pub trait EncryptionSyncListener: Sync + Send {
     /// Called whenever the notification sync loop terminates, and must be
     /// restarted.
-    fn did_terminate(&self);
+    fn did_terminate(&self, reason: EncryptionSyncTerminationReason);
 }
 
 /// Full context for the notification sync loop.
@@ -31,7 +37,7 @@ impl EncryptionSync {
             let stream = encryption_sync.sync();
             pin_mut!(stream);
 
-            loop {
+            let error = loop {
                 let streamed = stream.next().await;
                 match streamed {
                     Some(Ok(())) => {
@@ -40,7 +46,7 @@ impl EncryptionSync {
 
                     None => {
                         info!("Encryption sync ended");
-                        break;
+                        break None;
                     }
 
                     Some(Err(err)) => {
@@ -48,12 +54,15 @@ impl EncryptionSync {
                         // we get an error here, it means the maximum number of retries has been
                         // reached, and there's not much we can do anymore.
                         warn!("Error in encryption sync: {err}");
-                        break;
+                        break Some(err);
                     }
                 }
-            }
+            };
 
-            listener.did_terminate();
+            listener.did_terminate(match error {
+                Some(err) => EncryptionSyncTerminationReason::Error { msg: err.to_string() },
+                None => EncryptionSyncTerminationReason::Done,
+            });
         }))
     }
 }
