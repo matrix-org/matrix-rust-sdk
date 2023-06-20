@@ -1,7 +1,5 @@
 //! Ruleset utility struct
 
-use std::collections::BTreeSet;
-
 use ruma::{
     api::client::push::RuleScope,
     push::{
@@ -272,15 +270,15 @@ impl Rules {
         rules: &[(RuleKind, String)],
         exceptions: &[(RuleKind, String)],
     ) -> Result<Vec<Command>, RemovePushRuleError> {
-        let mut commands: Vec<Command> = vec![];
-
-        // Remove exceptions from the rules to delete
-        let to_remove = BTreeSet::from_iter(exceptions);
-        let mut rules = rules.to_vec();
-        rules.retain(|e| !to_remove.contains(e));
+        let mut commands = vec![];
 
         for (rule_kind, rule_id) in rules {
-            self.ruleset.remove(rule_kind.clone(), rule_id.clone())?;
+            // Ignore rules present in exceptions
+            if exceptions.iter().any(|e| e.0 == *rule_kind && e.1 == *rule_id) {
+                continue;
+            }
+
+            self.ruleset.remove(rule_kind.clone(), rule_id)?;
             commands.push(Command::DeletePushRule {
                 scope: RuleScope::Global,
                 kind: rule_kind.clone(),
@@ -339,7 +337,7 @@ impl Rules {
         &mut self,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
-        let mut commands: Vec<Command> = vec![];
+        let mut commands = vec![];
 
         // Sets the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
@@ -381,7 +379,7 @@ impl Rules {
         &mut self,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
-        let mut commands: Vec<Command> = vec![];
+        let mut commands = vec![];
 
         // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
