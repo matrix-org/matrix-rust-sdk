@@ -12,6 +12,7 @@ use matrix_sdk::{
             FileMessageEventContent as RumaFileMessageEventContent,
             FormattedBody as RumaFormattedBody,
             ImageMessageEventContent as RumaImageMessageEventContent,
+            LocationMessageEventContent as RumaLocationMessageEventContent,
             MessageType as RumaMessageType,
             NoticeMessageEventContent as RumaNoticeMessageEventContent, RoomMessageEventContent,
             TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
@@ -515,6 +516,7 @@ pub enum MessageType {
     File { content: FileMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
+    Location { content: LocationContent },
 }
 
 impl From<MessageType> for RumaMessageType {
@@ -551,6 +553,9 @@ impl From<MessageType> for RumaMessageType {
                 Self::Text(assign!(RumaTextMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),
                 }))
+            }
+            MessageType::Location { content } => {
+                Self::Location(RumaLocationMessageEventContent::new(content.body, content.geo_uri))
             }
         }
     }
@@ -607,6 +612,9 @@ impl TryFrom<RumaMessageType> for MessageType {
                     body: c.body.clone(),
                     formatted: c.formatted.as_ref().map(Into::into),
                 },
+            },
+            RumaMessageType::Location(c) => MessageType::Location {
+                content: LocationContent { body: c.body, geo_uri: c.geo_uri },
             },
             _ => bail!("Unsupported type"),
         };
@@ -848,6 +856,12 @@ pub struct NoticeMessageContent {
 pub struct TextMessageContent {
     pub body: String,
     pub formatted: Option<FormattedBody>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct LocationContent {
+    pub body: String,
+    pub geo_uri: String,
 }
 
 #[derive(Clone, uniffi::Record)]
