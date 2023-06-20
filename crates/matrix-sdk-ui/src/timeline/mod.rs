@@ -66,10 +66,10 @@ mod to_device;
 mod traits;
 mod virtual_item;
 
-pub(crate) use self::builder::TimelineBuilder;
 #[cfg(feature = "experimental-sliding-sync")]
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
+    builder::TimelineBuilder,
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
