@@ -134,7 +134,13 @@ impl EncryptionSync {
                 };
 
                 // Force-reload the to-device token from disk, in case it changed.
-                self.sliding_sync.reload_to_device_token().await?;
+                if let Err(err) = self.sliding_sync.reload_to_device_token().await {
+                    // Release the lock first.
+                    self.client.encryption().unlock_store().await?;
+
+                    yield Err(err.into());
+                    break;
+                }
 
                 match sync.next().await {
                     Some(Ok(update_summary)) => {
