@@ -271,7 +271,9 @@ impl Room {
     ///
     /// *Note*: The member list might have been modified in the meantime and
     /// the targets might not even be in the room anymore. This setting should
-    /// only be considered as guidance.
+    /// only be considered as guidance. We leave members in this list to allow
+    /// us to re-find a DM with a user even if they have left, since we may
+    /// want to re-invite them.
     pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
         self.inner.read().unwrap().base_info.dm_targets.clone()
     }
