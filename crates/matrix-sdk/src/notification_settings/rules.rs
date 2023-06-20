@@ -252,7 +252,7 @@ impl Rules {
             }
             _ => {
                 return Err(NotificationSettingsError::InvalidParameter(
-                    "kind must be either Override or Room.".to_string(),
+                    "kind must be either Override or Room.".to_owned(),
                 ))
             }
         }
