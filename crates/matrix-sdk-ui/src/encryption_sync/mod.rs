@@ -200,7 +200,9 @@ impl EncryptionSync {
     /// Request a reload of the internal caches used by this sync.
     ///
     /// This must be called every time the process running this loop was
-    /// suspended and got back into the foreground.
+    /// suspended and got back into the foreground, and another process may have
+    /// written to the same underlying store (e.g. notification process vs
+    /// main process).
     pub async fn reload_caches(&self) -> Result<(), Error> {
         // Regenerate the crypto store caches first.
         self.client.encryption().reload_caches().await.map_err(Error::ClientError)?;
