@@ -417,8 +417,9 @@ impl ReactionGroup {
         self.values().map(AsRef::as_ref)
     }
 
-    /// All reactions within this reaction group that were sent by the given user
-    /// Note that it is possible for a user to have sent multiple reactions with the same key
+    /// All reactions within this reaction group that were sent by the given
+    /// user Note that it is possible for a user to have sent multiple
+    /// reactions with the same key
     pub fn by_sender(
         &self,
         user_id: &UserId,

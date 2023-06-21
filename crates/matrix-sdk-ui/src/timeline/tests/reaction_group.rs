@@ -14,9 +14,8 @@
 
 use ruma::{server_name, user_id, EventId, OwnedEventId, OwnedTransactionId};
 
-use crate::timeline::ReactionGroup;
-
 use super::{ALICE, BOB};
+use crate::timeline::ReactionGroup;
 
 #[test]
 fn by_sender() {

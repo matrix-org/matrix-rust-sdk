@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches::assert_matches;
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
+use assert_matches::assert_matches;
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -107,7 +107,8 @@ async fn test_toggling_reaction() -> Result<()> {
                 reaction.to_owned()
             };
             assert_matches!(reaction_tx_id, Some(_));
-            assert_matches!(reaction_event_id, None); // Event ID hasn't been received from homeserver yet
+            // Event ID hasn't been received from homeserver yet
+            assert_matches!(reaction_event_id, None);
         }
 
         // Check we have the remote echo of the reaction

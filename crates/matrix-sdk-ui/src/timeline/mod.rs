@@ -360,7 +360,6 @@ impl Timeline {
     /// FIXME: If called multiple times in quick succession on the same
     /// reaction, the function will drop requests until the previous request
     /// is complete.
-    ///
     pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
         let txn_id = TransactionId::new();
         let user_id = self.user_id()?;

@@ -370,7 +370,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.items.set(idx, Arc::new(new_item));
     }
 
-    /// Update the send state of a local reaction represented by a transaction ID.
+    /// Update the send state of a local reaction represented by a transaction
+    /// ID.
     ///
     /// If no local reaction is found, a warning is raised.
     pub(super) async fn update_reaction_send_state(

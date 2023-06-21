@@ -14,9 +14,8 @@
 
 use ruma::{server_name, EventId, OwnedEventId, OwnedTransactionId};
 
-use crate::timeline::{event_item::BundledReactionsExt, BundledReactions, ReactionGroup};
-
 use super::{ALICE, BOB};
+use crate::timeline::{event_item::BundledReactionsExt, BundledReactions, ReactionGroup};
 
 fn create_test_bundle() -> BundledReactions {
     let mut bundle = BundledReactions::new();
