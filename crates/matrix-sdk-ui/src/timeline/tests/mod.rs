@@ -31,6 +31,8 @@ use once_cell::sync::Lazy;
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        relation::Annotation,
+        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnySyncTimelineEvent, EmptyStateKey, MessageLikeEventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticStateEventContent,
@@ -52,7 +54,9 @@ mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
+mod helpers;
 mod invalid;
+mod reactions;
 mod read_receipts;
 mod redaction;
 mod virt;
@@ -86,6 +90,10 @@ impl TestTimeline {
             self.inner.subscribe_filter_map(|item| item.as_event().cloned()).await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
+    }
+
+    async fn len(&self) -> usize {
+        self.inner.items().await.len()
     }
 
     async fn handle_live_message_event<C>(&self, sender: &UserId, content: C)
@@ -163,6 +171,26 @@ impl TestTimeline {
         self.handle_live_event(raw).await;
     }
 
+    async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
+        let event_id = EventId::new(server_name!("dummy.server"));
+        let ev = json!({
+            "type": "m.reaction",
+            "content": {
+                "m.relates_to": {
+                    "rel_type": "m.annotation",
+                    "event_id": annotation.event_id,
+                    "key": annotation.key,
+                },
+            },
+            "event_id": event_id,
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+        });
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.handle_live_event(raw).await;
+        event_id
+    }
+
     async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
         let event = SyncTimelineEvent { event, encryption_info: None, push_actions: vec![] };
         self.inner.handle_live_event(event).await
@@ -171,6 +199,16 @@ impl TestTimeline {
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
         self.inner.handle_local_event(txn_id.clone(), content).await;
+        txn_id
+    }
+
+    async fn handle_local_redaction_event(
+        &self,
+        redacts: &EventId,
+        content: RoomRedactionEventContent,
+    ) -> OwnedTransactionId {
+        let txn_id = TransactionId::new();
+        self.inner.handle_local_redaction_event(txn_id.clone(), redacts.to_owned(), content).await;
         txn_id
     }
 
@@ -185,6 +223,17 @@ impl TestTimeline {
     ) {
         let ev_content = self.make_receipt_event_content(receipts);
         self.inner.handle_read_receipts(ev_content).await;
+    }
+
+    async fn update_reaction_send_state(
+        &self,
+        annotation: &Annotation,
+        remote_echo_to_add: Option<&EventId>,
+        local_echo_to_remove: Option<&TransactionId>,
+    ) {
+        self.inner
+            .update_reaction_send_state(annotation, remote_echo_to_add, local_echo_to_remove)
+            .await;
     }
 
     /// Set the next server timestamp.
