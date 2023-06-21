@@ -196,8 +196,8 @@ impl RoomList {
     /// Force to stop the sync of the room list started by [`Self::sync`].
     ///
     /// It's better to call this method rather than stop polling the `Stream`
-    /// returned by [`Self::sync`] because it will literally force the cancel
-    /// and exit the sync-loop, i.e. it will cancel any in-flight HTTP requests,
+    /// returned by [`Self::sync`] because it will force the cancellation and
+    /// exit the sync-loop, i.e. it will cancel any in-flight HTTP requests,
     /// cancel any pending futures etc.
     ///
     /// Ideally, one wants to consume the `Stream` returned by [`Self::sync`]
