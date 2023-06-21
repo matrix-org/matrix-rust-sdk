@@ -7,7 +7,7 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        EntriesLoadingState, Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
@@ -20,7 +20,6 @@ use ruma::{
     room_id, uint,
 };
 use serde_json::json;
-use stream_assert::{assert_next_eq, assert_pending};
 use wiremock::MockServer;
 
 use crate::{
@@ -204,13 +203,8 @@ macro_rules! assert_entries_stream {
 async fn test_sync_all_states() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
-    let (entries_loading_state, mut entries_loading_state_stream) =
-        room_list.entries_loading_state().await?;
-
     let sync = room_list.sync();
     pin_mut!(sync);
-
-    assert_eq!(entries_loading_state, EntriesLoadingState::NotLoaded);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -268,12 +262,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "extensions": {},
         },
     };
-
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // It's `FullyLoaded` because it was a `Selective` sync-mode.
-        EntriesLoadingState::FullyLoaded
-    );
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -340,13 +328,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
         },
     };
 
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // It's `PartiallyLoaded` because it's in `Growing` sync-mode,
-        // and it's not finished.
-        EntriesLoadingState::PartiallyLoaded
-    );
-
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
@@ -386,8 +367,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
     };
-
-    assert_pending!(entries_loading_state_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -429,8 +408,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
         },
     };
 
-    assert_pending!(entries_loading_state_stream);
-
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
@@ -470,12 +447,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
     };
-
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // Finally, it's `FullyLoaded`!.
-        EntriesLoadingState::FullyLoaded
-    );
 
     Ok(())
 }
@@ -1146,7 +1117,9 @@ async fn test_entries_stream() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let (previous_entries, entries_stream) = room_list.entries().await?;
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (previous_entries, entries_stream) = all_rooms.entries();
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1279,7 +1252,9 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let (previous_entries, entries_stream) = room_list.entries().await?;
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (previous_entries, entries_stream) = all_rooms.entries();
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1326,14 +1301,12 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         pending;
     };
 
-    let (previous_entries, entries_stream) = room_list
-        .entries_filtered(|room_list_entry| {
-            matches!(
-                room_list_entry.as_room_id(),
-                Some(room_id) if room_id.server_name() == "bar.org"
-            )
-        })
-        .await?;
+    let (previous_entries, entries_stream) = all_rooms.entries_filtered(|room_list_entry| {
+        matches!(
+            room_list_entry.as_room_id(),
+            Some(room_id) if room_id.server_name() == "bar.org"
+        )
+    });
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1496,7 +1469,9 @@ async fn test_invites_stream() -> Result<(), Error> {
         },
     };
 
-    let (previous_invites, invites_stream) = room_list.invites().await?;
+    let invites = room_list.invites().await?;
+
+    let (previous_invites, invites_stream) = invites.entries();
     pin_mut!(invites_stream);
 
     assert_eq!(previous_invites.len(), 1);

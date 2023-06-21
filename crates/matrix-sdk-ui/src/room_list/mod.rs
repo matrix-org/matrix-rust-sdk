@@ -12,28 +12,28 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-//! `RoomList` API.
+//! `RoomListService` API.
 //!
-//! The `RoomList` is a UI API dedicated to present a list of Matrix rooms to
-//! the user. The syncing is handled by
+//! The `RoomListService` is a UI API dedicated to present a list of Matrix
+//! rooms to the user. The syncing is handled by
 //! [`SlidingSync`][matrix_sdk::SlidingSync]. The idea is to expose a simple API
 //! to handle most of the client app use cases, like: Showing and updating a
 //! list of rooms, filtering a list of rooms, handling particular updates of a
 //! range of rooms (the ones the client app is showing to the view, i.e. the
 //! rooms present in the viewport) etc.
 //!
-//! As such, the `RoomList` works as an opinionated state machine. The states
-//! are defined by [`State`]. Actions are attached to the each state transition.
-//! Apart from that, one can apply [`Input`]s on the state machine, like
-//! notifying that the client app viewport of the room list has changed (if the
-//! user of the client app has scrolled in the room list for example) etc.
+//! As such, the `RoomListService` works as an opinionated state machine. The
+//! states are defined by [`State`]. Actions are attached to the each state
+//! transition. Apart from that, one can apply [`Input`]s on the state machine,
+//! like notifying that the client app viewport of the room list has changed (if
+//! the user of the client app has scrolled in the room list for example) etc.
 //!
-//! The API is purposely small. Sliding Sync is versatile. `RoomList` is _one_
-//! specific usage of Sliding Sync.
+//! The API is purposely small. Sliding Sync is versatile. `RoomListService` is
+//! _one_ specific usage of Sliding Sync.
 //!
 //! # Basic principle
 //!
-//! `RoomList` works with 2 Sliding Sync List:
+//! `RoomListService` works with 2 Sliding Sync List:
 //!
 //! * `all_rooms` (referred by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
 //!   list. Its goal is to load all the user' rooms. It starts with a
@@ -54,28 +54,30 @@
 //! This behavior has proven to be empirically satisfying to provide a fast and
 //! fluid user experience for a Matrix client.
 //!
-//! [`RoomList::entries`] provides a way to get a stream of room list entry.
-//! This stream can be filtered, and the filter can be changed over time.
+//! [`RoomListService::all_rooms`] provides a way to get a [`RoomList`] for all
+//! the rooms. From that, calling [`RoomList::entries`] provides a way to get a
+//! stream of room list entry. This stream can be filtered, and the filter can
+//! be changed over time.
 //!
-//! [`RoomList::state`] provides a way to get a stream of the state machine's
-//! state, which can be pretty helpful for the client app.
+//! [`RoomListService::state`] provides a way to get a stream of the state
+//! machine's state, which can be pretty helpful for the client app.
 
 mod room;
+mod room_list;
 mod state;
 
 use std::{future::ready, sync::Arc};
 
 use async_stream::stream;
 use eyeball::{shared::Observable, Subscriber};
-use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, Stream, StreamExt};
-use imbl::Vector;
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
     SlidingSyncListLoadingState, SlidingSyncMode,
 };
 pub use room::*;
+pub use room_list::*;
 use ruma::{
     api::client::sync::sync_events::v4::{E2EEConfig, SyncRequestListFilters, ToDeviceConfig},
     assign,
@@ -85,7 +87,7 @@ use ruma::{
 pub use state::*;
 use thiserror::Error;
 
-/// The [`RoomList`] type. See the module's documentation to learn more.
+/// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
     sliding_sync: Arc<SlidingSync>,
@@ -145,7 +147,7 @@ impl RoomListService {
     /// [`Stream`] where produced items only hold an empty value in case of a
     /// sync success, otherwise an error.
     ///
-    /// The `RoomList`' state machine is run by this method.
+    /// The `RoomListService`' state machine is run by this method.
     ///
     /// Stopping the [`Stream`] (i.e. by calling [`Self::stop_sync`]), and
     /// calling [`Self::sync`] again will resume from the previous state of
@@ -193,7 +195,8 @@ impl RoomListService {
         }
     }
 
-    /// Force to stop the sync of the room list started by [`Self::sync`].
+    /// Force to stop the sync of the `RoomListService` started by
+    /// [`Self::sync`].
     ///
     /// It's better to call this method rather than stop polling the `Stream`
     /// returned by [`Self::sync`] because it will force the cancellation and
@@ -215,58 +218,19 @@ impl RoomListService {
         self.state.subscribe()
     }
 
-    /// Get all previous room list entries, in addition to a [`Stream`] to room
-    /// list entry's updates.
-    pub async fn entries(
-        &self,
-    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
-        self.sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_stream()))
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+    async fn list_for(&self, sliding_sync_list_name: &str) -> Result<RoomList, Error> {
+        RoomList::new(&self.sliding_sync, sliding_sync_list_name).await
     }
 
-    /// Similar to [`Self::entries`] except that it's possible to provide a
-    /// filter that will filter out room list entries.
-    pub async fn entries_filtered<F>(
-        &self,
-        filter: F,
-    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error>
-    where
-        F: Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
-    {
-        self.sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.room_list_filtered_stream(filter)))
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+    /// Get a [`RoomList`] for all rooms.
+    pub async fn all_rooms(&self) -> Result<RoomList, Error> {
+        self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
-    /// Get the entries loading state.
-    ///
-    /// It's a different state than [`State`]. It's also different than
-    /// [`Self::entries`] which subscribes to room entries updates.
-    ///
-    /// This method is used to subscribe to “loading state”
-    pub async fn entries_loading_state(
-        &self,
-    ) -> Result<(EntriesLoadingState, impl Stream<Item = EntriesLoadingState>), Error> {
-        self.sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.state_stream()))
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
-    }
-
-    /// Get all previous invites, in addition to a [`Stream`] to invites.
-    ///
-    /// Invites are taking the form of `RoomListEntry`, it's like a “sub” room
-    /// list.
-    pub async fn invites(
-        &self,
-    ) -> Result<(Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>), Error> {
-        self.sliding_sync
-            .on_list(INVITES_LIST_NAME, |list| ready(list.room_list_stream()))
-            .await
-            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))
+    /// Get a [`RoomList`] for invites, i.e. rooms where the user is invited to
+    /// join.
+    pub async fn invites(&self) -> Result<RoomList, Error> {
+        self.list_for(INVITES_LIST_NAME).await
     }
 
     /// Pass an [`Input`] onto the state machine.
