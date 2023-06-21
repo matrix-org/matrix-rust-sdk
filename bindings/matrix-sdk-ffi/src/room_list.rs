@@ -24,7 +24,9 @@ impl Client {
         Ok(Arc::new(RoomList {
             inner: Arc::new(
                 RUNTIME
-                    .block_on(async { matrix_sdk_ui::RoomList::new(self.inner.clone()).await })
+                    .block_on(async {
+                        matrix_sdk_ui::RoomListService::new(self.inner.clone()).await
+                    })
                     .map_err(RoomListError::from)?,
             ),
         }))
@@ -82,7 +84,7 @@ impl From<RoomListInput> for matrix_sdk_ui::room_list::Input {
 
 #[derive(uniffi::Object)]
 pub struct RoomList {
-    inner: Arc<matrix_sdk_ui::RoomList>,
+    inner: Arc<matrix_sdk_ui::RoomListService>,
 }
 
 #[uniffi::export]

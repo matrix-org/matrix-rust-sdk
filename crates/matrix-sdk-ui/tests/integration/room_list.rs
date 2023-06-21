@@ -11,7 +11,7 @@ use matrix_sdk_ui::{
         INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
-    RoomList,
+    RoomListService,
 };
 use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
@@ -28,9 +28,9 @@ use crate::{
     timeline::sliding_sync::{assert_timeline_stream, timeline_event},
 };
 
-async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
+async fn new_room_list() -> Result<(MockServer, RoomListService), Error> {
     let (client, server) = logged_in_client().await;
-    let room_list = RoomList::new(client).await?;
+    let room_list = RoomListService::new(client).await?;
 
     Ok((server, room_list))
 }

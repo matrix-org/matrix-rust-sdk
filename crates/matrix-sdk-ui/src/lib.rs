@@ -21,5 +21,5 @@ pub mod room_list;
 pub mod timeline;
 
 #[cfg(feature = "experimental-room-list")]
-pub use self::room_list::RoomList;
+pub use self::room_list::RoomListService;
 pub use self::timeline::Timeline;

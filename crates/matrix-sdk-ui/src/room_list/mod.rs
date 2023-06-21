@@ -87,12 +87,12 @@ use thiserror::Error;
 
 /// The [`RoomList`] type. See the module's documentation to learn more.
 #[derive(Debug)]
-pub struct RoomList {
+pub struct RoomListService {
     sliding_sync: Arc<SlidingSync>,
     state: Observable<State>,
 }
 
-impl RoomList {
+impl RoomListService {
     /// Create a new `RoomList`.
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
@@ -376,10 +376,10 @@ mod tests {
         (client, server)
     }
 
-    pub(super) async fn new_room_list() -> Result<RoomList, Error> {
+    pub(super) async fn new_room_list() -> Result<RoomListService, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client).await
+        RoomListService::new(client).await
     }
 
     #[async_test]
@@ -387,7 +387,7 @@ mod tests {
         let (client, _) = new_client().await;
 
         {
-            let room_list = RoomList::new(client.clone()).await?;
+            let room_list = RoomListService::new(client.clone()).await?;
 
             assert!(room_list.sliding_sync().sliding_sync_proxy().is_none());
         }
@@ -396,7 +396,7 @@ mod tests {
             let url = Url::parse("https://foo.matrix/").unwrap();
             client.set_sliding_sync_proxy(Some(url.clone()));
 
-            let room_list = RoomList::new(client.clone()).await?;
+            let room_list = RoomListService::new(client.clone()).await?;
 
             assert_eq!(room_list.sliding_sync().sliding_sync_proxy(), Some(url));
         }
