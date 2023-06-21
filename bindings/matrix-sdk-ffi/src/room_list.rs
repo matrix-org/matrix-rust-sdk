@@ -100,6 +100,10 @@ impl RoomList {
         })))
     }
 
+    fn stop_sync(&self) -> Result<(), RoomListError> {
+        self.inner.stop_sync().map_err(Into::into)
+    }
+
     fn state(&self, listener: Box<dyn RoomListStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
