@@ -404,9 +404,6 @@ impl Timeline {
             }
         };
 
-        // Release only after the request is complete
-        drop(lock);
-
         Ok(())
     }
 
