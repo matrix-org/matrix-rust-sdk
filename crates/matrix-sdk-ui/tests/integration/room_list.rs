@@ -600,7 +600,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
 }
 
 #[async_test]
-async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
+async fn test_sync_resumes_from_error() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();
@@ -610,7 +610,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = Init => Terminated { .. },
+        states = Init => Error { .. },
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -632,10 +632,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    // Do a regular sync from the `Terminated` state.
+    // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => SettingUp,
+        states = Error { .. } => SettingUp,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -659,7 +659,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = SettingUp => Terminated { .. },
+        states = SettingUp => Error { .. },
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -693,10 +693,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Update the viewport, just to be sure it's not reset later.
     room_list.apply_input(Input::Viewport(vec![5..=10])).await?;
 
-    // Do a regular sync from the `Terminated` state.
+    // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Error { .. } => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -732,7 +732,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = Running => Terminated { .. },
+        states = Running => Error { .. },
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -763,10 +763,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    // Do a regular sync from the `Terminated` state.
+    // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Error { .. } => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -833,7 +833,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = Running => Terminated { .. },
+        states = Running => Error { .. },
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -864,10 +864,10 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    // Do a regular sync from the `Terminated` state.
+    // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Error { .. } => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -901,7 +901,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 }
 
 #[async_test]
-async fn test_sync_can_be_stopped() -> Result<(), Error> {
+async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     // Let's stop the sync before actually syncing (we never know!).
@@ -911,52 +911,15 @@ async fn test_sync_can_be_stopped() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    // First sync, everything is alright and up and running.
+    // Do a first sync.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => SettingUp,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
+                    // The default range, in selective sync-mode.
                     "ranges": [[0, 19]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "0",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 10,
-                    "ops": []
-                },
-            },
-            "rooms": {},
-        },
-    };
-
-    // Now let's stop the `sync`.
-    room_list.stop_sync()?;
-
-    // `sync` doesn't provide more value.
-    assert!(sync.next().await.is_none());
-
-    // If a new sync is started, it will resume from a `Terminated` state.
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Terminated { .. } => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 9]],
-                },
-                VISIBLE_ROOMS: {
-                    "ranges": [[0, 19]],
-                },
-                INVITES: {
-                    "ranges": [[0, 99]],
                 },
             },
         },
@@ -964,13 +927,209 @@ async fn test_sync_can_be_stopped() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 0,
+                    "count": 110,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Stop the sync.
+    room_list.stop_sync()?;
+    assert!(sync.next().await.is_none());
+
+    // Start a new sync.
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // Do a regular sync from the `Terminated` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Terminated { .. } => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `SettingUp`, the sync-mode has changed to growing, with
+                    // its initial range.
+                    "ranges": [[0, 49]],
                 },
                 VISIBLE_ROOMS: {
-                    "count": 0,
+                    // Hello new list.
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    // Hello new list.
+                    "ranges": [[0, 99]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 110,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Stop the sync.
+    room_list.stop_sync()?;
+    assert!(sync.next().await.is_none());
+
+    // Start a new sync.
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // Update the viewport, just to be sure it's not reset later.
+    room_list.apply_input(Input::Viewport(vec![5..=10])).await?;
+
+    // Do a regular sync from the `Terminated` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Terminated { .. } => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is still growing, but the range
+                    // hasn't been modified due to previous termination.
+                    "ranges": [[0, 49]],
+                },
+                VISIBLE_ROOMS: {
+                    // We have set a viewport, which reflects here.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range hasn't been modified due to previous termination.
+                    "ranges": [[0, 99]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 110,
+                },
+                INVITES: {
+                    "count": 3,
+                }
+            },
+            "rooms": {},
+        },
+    };
+
+    // Stop the sync.
+    room_list.stop_sync()?;
+    assert!(sync.next().await.is_none());
+
+    // Start a new sync.
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // Do a regular sync from the `Terminated` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Terminated { .. } => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is still growing, but the range
+                    // hasn't been modified due to the previous termination.
+                    "ranges": [[0, 49]],
+                },
+                VISIBLE_ROOMS: {
+                    // Despites the termination, the range is kept.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // Despites the error, the range has made progress.
+                    "ranges": [[0, 2]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "3",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 110,
                 },
                 INVITES: {
                     "count": 0,
+                }
+            },
+            "rooms": {},
+        },
+    };
+
+    // Do a regular sync from the `Running` state to update the `ALL_ROOMS` list
+    // again.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // No termination. The range is making progress.
+                    "ranges": [[0, 99]],
+                },
+                VISIBLE_ROOMS: {
+                    // No termination. The range is still here.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range is making progress.
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "4",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 110,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Stop the sync.
+    room_list.stop_sync()?;
+    assert!(sync.next().await.is_none());
+
+    // Start a new sync.
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // Do a regular sync from the `Terminated` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Terminated { .. } => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // A termination was received at the previous sync iteration.
+                    // The list is still in growing sync-mode, but its range has
+                    // been reset.
+                    "ranges": [[0, 49]],
+                },
+                VISIBLE_ROOMS: {
+                    // The range is still here.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range is kept as it was.
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "5",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 110,
                 },
             },
             "rooms": {},

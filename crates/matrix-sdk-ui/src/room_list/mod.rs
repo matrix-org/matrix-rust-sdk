@@ -174,7 +174,7 @@ impl RoomList {
                     }
 
                     Some(Err(error)) => {
-                        let next_state = State::Terminated { from: Box::new(self.state.get()) };
+                        let next_state = State::Error { from: Box::new(self.state.get()) };
                         self.state.set(next_state);
 
                         yield Err(Error::SlidingSync(error));

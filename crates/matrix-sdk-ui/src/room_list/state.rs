@@ -28,8 +28,10 @@ pub enum State {
     /// lists exist.
     Running,
 
-    /// At this state, the sync has been stopped (because it was requested, or
-    /// because it has errored too many times previously).
+    /// At this state, the sync has been stopped because an error happened.
+    Error { from: Box<State> },
+
+    /// At this state, the sync has been stopped because it was requested.
     Terminated { from: Box<State> },
 }
 
@@ -43,11 +45,11 @@ impl State {
             Init => (SettingUp, Actions::none()),
             SettingUp => (Running, Actions::first_rooms_are_loaded()),
             Running => (Running, Actions::none()),
-            // If the state was `Terminated`, the next state is calculated again, because it means
-            // the sync has been restarted. In this case, let's jump back on the
-            // previous state that led to the termination. No action is required in this
-            // scenario.
-            Terminated { from: previous_state } => {
+            // If the state was `Error` or `Terminated`, the next state is calculated again, because
+            // it means the sync has been restarted. In this case, let's jump back on
+            // the previous state that led to the termination. No action is required in
+            // this scenario.
+            Error { from: previous_state } | Terminated { from: previous_state } => {
                 match previous_state.as_ref() {
                     state @ Init | state @ SettingUp => {
                         // Do nothing.
@@ -59,9 +61,10 @@ impl State {
                         (Running, Actions::refresh_lists())
                     }
 
-                    Terminated { .. } => {
-                        // Having `Terminated { from: Terminated { … } }` is not allowed.
-                        unreachable!("It's impossible to reach `Terminated` from `Terminated`");
+                    Error { .. } | Terminated { .. } => {
+                        // Having `Error { from: Error { .. } }` or `Terminated { from: Terminated {
+                        // … } }` is not allowed.
+                        unreachable!("It's impossible to reach `Error` from `Error`, or `Terminated` from `Terminated`");
                     }
                 }
             }
@@ -220,6 +223,12 @@ mod tests {
         // First state.
         let state = State::Init;
 
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Init);
+        }
+
         // Hypothetical termination.
         {
             let state =
@@ -230,6 +239,12 @@ mod tests {
         // Next state.
         let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::SettingUp);
+
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::SettingUp);
+        }
 
         // Hypothetical termination.
         {
@@ -242,6 +257,12 @@ mod tests {
         let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::Running);
 
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Running);
+        }
+
         // Hypothetical termination.
         {
             let state =
@@ -252,6 +273,12 @@ mod tests {
         // Next state.
         let state = state.next(sliding_sync).await?;
         assert_eq!(state, State::Running);
+
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Running);
+        }
 
         // Hypothetical termination.
         {
