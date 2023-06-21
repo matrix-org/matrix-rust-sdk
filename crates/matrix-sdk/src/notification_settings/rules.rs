@@ -423,7 +423,7 @@ fn get_predefined_underride_room_rule_id(
     }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
@@ -479,7 +479,7 @@ pub(crate) mod tests {
         // Insert an Override rule where the rule ID doesn't match the room id,
         // but with a condition that matches
         let new_rule = NewConditionalPushRule::new(
-            "custom_rule_id".to_string(),
+            "custom_rule_id".to_owned(),
             vec![PushCondition::EventMatch { key: "room_id".into(), pattern: room_id.to_string() }],
             vec![Action::Notify],
         );
