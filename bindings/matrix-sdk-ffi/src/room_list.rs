@@ -104,6 +104,12 @@ impl RoomList {
         self.inner.stop_sync().map_err(Into::into)
     }
 
+    fn is_syncing(&self) -> bool {
+        use matrix_sdk_ui::room_list::State;
+
+        matches!(self.inner.state().get(), State::SettingUp | State::Running)
+    }
+
     fn state(&self, listener: Box<dyn RoomListStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
