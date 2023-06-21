@@ -379,7 +379,7 @@ impl Timeline {
             .unwrap_or(None);
 
         // Wait for any ongoing reaction requests to finish
-        let lock = self.reaction_lock.lock().await;
+        let _lock = self.reaction_lock.lock().await;
 
         // Check the event again, in case it has changed since we last checked
         let related_event = find_related_event().await?;
