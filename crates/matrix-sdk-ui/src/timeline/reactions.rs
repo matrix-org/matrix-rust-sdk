@@ -19,10 +19,28 @@ use ruma::{EventId, OwnedEventId, OwnedTransactionId, TransactionId};
 ///
 /// Holds the data required to update the state of the reaction in the timeline
 pub(super) enum ReactionToggleResult {
-    AddSuccess { event_id: OwnedEventId, txn_id: OwnedTransactionId },
-    AddFailure { txn_id: OwnedTransactionId },
+    /// Represents a successful reaction toggle which added a reaction
+    AddSuccess {
+        /// The event ID of the reaction which was added (the remote echo)
+        event_id: OwnedEventId,
+
+        /// The transaction ID of the reaction which was added (the local echo)
+        txn_id: OwnedTransactionId,
+    },
+    /// Represents a failed reaction toggle which did not add a reaction
+    AddFailure {
+        /// The transaction ID of the reaction which failed to be added (the
+        /// local echo)
+        txn_id: OwnedTransactionId,
+    },
+    /// Represents a successful reaction toggle which redacted a reaction
     RedactSuccess,
-    RedactFailure { event_id: OwnedEventId },
+    /// Represents a successful reaction toggle which redacted a reaction
+    RedactFailure {
+        /// The event ID of the reaction which failed to be redacted (the remote
+        /// echo)
+        event_id: OwnedEventId,
+    },
 }
 
 impl ReactionToggleResult {
