@@ -43,7 +43,8 @@ pub use responses::{
 };
 use ruma::{
     events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
+    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -244,6 +245,7 @@ async fn migrate_data(
         pickle,
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
+        creation_local_time: MilliSecondsSinceUnixEpoch(UInt::default()),
     };
     let account = matrix_sdk_crypto::olm::ReadOnlyAccount::from_pickle(pickled_account)?;
 

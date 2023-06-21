@@ -25,6 +25,9 @@ pub struct Device {
     /// Is our cross signing identity trusted and does the identity trust the
     /// device.
     pub cross_signing_trusted: bool,
+    /// The first time this device was seen in local timestamp, seconds since
+    /// epoch.
+    pub first_time_seen_ts: u64,
 }
 
 impl From<InnerDevice> for Device {
@@ -38,6 +41,7 @@ impl From<InnerDevice> for Device {
             is_blocked: d.is_blacklisted(),
             locally_trusted: d.is_locally_trusted(),
             cross_signing_trusted: d.is_cross_signing_trusted(),
+            first_time_seen_ts: d.first_time_seen_ts().0.into(),
         }
     }
 }

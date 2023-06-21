@@ -27,7 +27,8 @@ use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    OwnedDeviceKeyId, UInt, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -91,6 +92,14 @@ pub struct ReadOnlyDevice {
         deserialize_with = "atomic_bool_deserializer"
     )]
     withheld_code_sent: Arc<AtomicBool>,
+    /// First time this device was seen in milliseconds since epoch.
+    /// Default to epoch for migration purpose.
+    #[serde(default = "default_timestamp")]
+    first_time_seen_ts: MilliSecondsSinceUnixEpoch,
+}
+
+fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
+    MilliSecondsSinceUnixEpoch(UInt::default())
 }
 
 impl std::fmt::Debug for ReadOnlyDevice {
@@ -598,6 +607,7 @@ impl ReadOnlyDevice {
             trust_state: Arc::new(Atomic::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
+            first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
         }
     }
 
@@ -898,8 +908,17 @@ impl ReadOnlyDevice {
     /// replicated locally.
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        ReadOnlyDevice::try_from(&device_keys)
-            .expect("Creating a device from our own account should always succeed")
+        let mut device = ReadOnlyDevice::try_from(&device_keys)
+            .expect("Creating a device from our own account should always succeed");
+        device.first_time_seen_ts = account.creation_local_time();
+
+        device
+    }
+
+    /// Get the local timestamp of when this device was first persisted, in
+    /// milliseconds since epoch (client local time).
+    pub fn first_time_seen_ts(&self) -> MilliSecondsSinceUnixEpoch {
+        self.first_time_seen_ts
     }
 }
 
@@ -912,6 +931,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
+            first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
         };
 
         device.verify_device_keys(device_keys)?;
@@ -968,7 +988,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use ruma::user_id;
+
+    use ruma::{user_id, MilliSecondsSinceUnixEpoch};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::testing::{device_keys, get_device};
@@ -976,6 +997,7 @@ pub(crate) mod tests {
 
     #[test]
     fn create_a_device() {
+        let now = MilliSecondsSinceUnixEpoch::now();
         let user_id = user_id!("@example:localhost");
         let device_id = "BNYQQWUMXO";
 
@@ -995,6 +1017,11 @@ pub(crate) mod tests {
             device.ed25519_key().unwrap(),
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
+
+        let then = MilliSecondsSinceUnixEpoch::now();
+
+        assert!(device.first_time_seen_ts() >= now);
+        assert!(device.first_time_seen_ts() <= then);
     }
 
     #[test]
