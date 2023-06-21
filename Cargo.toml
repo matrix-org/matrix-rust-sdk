@@ -75,10 +75,6 @@ debug = 2
 # `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dev"
-incremental = false
-
-# Compile all non-workspace crate in the dependency tree with optimizations
-[profile.reldbg.package."*"]
 opt-level = 3
 
 [patch.crates-io]
