@@ -29,17 +29,29 @@ impl NotificationItem {
     pub(crate) async fn new_from_notification(
         notification: Notification,
         room: Room,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<Option<Self>> {
+        if !notification.actions.iter().any(|a| a.should_notify()) {
+            return Ok(None);
+        }
+
         let deserialized_event = notification.event.deserialize()?;
-        Self::new(deserialized_event, room, notification.actions).await
+
+        Self::new(deserialized_event, room, notification.actions).await.map(Some)
     }
 
-    pub(crate) async fn new_from_event_id(event_id: &str, room: Room) -> anyhow::Result<Self> {
+    pub(crate) async fn new_from_event_id(
+        event_id: &str,
+        room: Room,
+    ) -> anyhow::Result<Option<Self>> {
         let event_id = EventId::parse(event_id)?;
         let ruma_event = room.event(&event_id).await?;
 
+        if !ruma_event.push_actions.iter().any(|a| a.should_notify()) {
+            return Ok(None);
+        }
+
         let event: AnySyncTimelineEvent = ruma_event.event.deserialize()?.into();
-        Self::new(event, room, ruma_event.push_actions).await
+        Self::new(event, room, ruma_event.push_actions).await.map(Some)
     }
 
     async fn new(
