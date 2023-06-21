@@ -60,7 +60,7 @@ async fn reaction_redaction_timeline_filter() {
         .inner
         .add_initial_events(vector![sync_timeline_event(
             timeline.make_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
-        ),])
+        )])
         .await;
     // Timeline items are actually empty.
     assert_eq!(timeline.inner.items().await.len(), 0);
