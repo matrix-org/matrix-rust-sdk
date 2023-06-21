@@ -190,7 +190,8 @@ impl Device {
         self.inner.is_deleted()
     }
 
-    /// Is the device deleted?
+    /// Timestamp representing the first time this device has been seen (in
+    /// milliseconds).
     #[wasm_bindgen(js_name = "firstTimeSeen")]
     pub fn first_time_seen(&self) -> u64 {
         self.inner.first_time_seen_ts().0.into()
