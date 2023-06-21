@@ -78,8 +78,7 @@ where
                     if let Err(refresh_error) = client.refresh_access_token().await {
                         match &refresh_error {
                             HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
-                                // Refreshing access tokens is not supported
-                                // by
+                                // Refreshing access tokens is not supported by
                                 // this `Session`, ignore.
                             }
                             _ => {
