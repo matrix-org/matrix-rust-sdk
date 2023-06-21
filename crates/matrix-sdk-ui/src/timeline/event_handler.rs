@@ -304,17 +304,8 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             },
 
-            TimelineEventKind::RedactedMessage { event_type } => match event_type {
-                MessageLikeEventType::Reaction => {
-                    if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } =
-                        self.flow
-                    {
-                        // Filter out redacted reactions from the timeline.
-                        self.items.remove(idx);
-                        self.result.item_removed = true;
-                    }
-                }
-                _ => {
+            TimelineEventKind::RedactedMessage { event_type } => {
+                if event_type != MessageLikeEventType::Reaction {
                     self.add(NewEventTimelineItem::redacted_message());
                 }
             },
