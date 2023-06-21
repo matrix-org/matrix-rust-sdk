@@ -308,7 +308,7 @@ impl<'a> TimelineEventHandler<'a> {
                 if event_type != MessageLikeEventType::Reaction {
                     self.add(NewEventTimelineItem::redacted_message());
                 }
-            },
+            }
 
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content);
