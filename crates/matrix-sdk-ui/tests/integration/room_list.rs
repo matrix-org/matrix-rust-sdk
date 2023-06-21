@@ -901,6 +901,86 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_sync_can_be_stopped() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    // Let's stop the sync before actually syncing (we never know!).
+    // We get an error, obviously.
+    assert!(room_list.stop_sync().is_err());
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    // First sync, everything is alright and up and running.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => FirstRooms,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": []
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Now let's stop the `sync`.
+    room_list.stop_sync()?;
+
+    // `sync` doesn't provide more value.
+    assert!(sync.next().await.is_none());
+
+    // If a new sync is started, it will resume from a `Terminated` state.
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Terminated { .. } => AllRooms,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 99]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 0,
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 0,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_entries_stream() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 

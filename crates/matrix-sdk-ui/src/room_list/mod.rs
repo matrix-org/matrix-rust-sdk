@@ -147,9 +147,9 @@ impl RoomList {
     ///
     /// The `RoomList`' state machine is run by this method.
     ///
-    /// Stopping the [`Stream`] (i.e. stop polling it) and calling
-    /// [`Self::sync`] again will resume from the previous state of the state
-    /// machine.
+    /// Stopping the [`Stream`] (i.e. by calling [`Self::stop_sync`]), and
+    /// calling [`Self::sync`] again will resume from the previous state of
+    /// the state machine.
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
             let sync = self.sliding_sync.sync();
@@ -191,6 +191,23 @@ impl RoomList {
                 }
             }
         }
+    }
+
+    /// Force to stop the sync of the room list started by [`Self::sync`].
+    ///
+    /// It's better to call this method rather than stop polling the `Stream`
+    /// returned by [`Self::sync`] because it will literally force the cancel
+    /// and exit the sync-loop, i.e. it will cancel any in-flight HTTP requests,
+    /// cancel any pending futures etc.
+    ///
+    /// Ideally, one wants to consume the `Stream` returned by [`Self::sync`]
+    /// until it returns `None`, because of [`Self::stop_sync`], so that it
+    /// ensures the states are correctly placed.
+    ///
+    /// Stopping the sync of the room list via this method will put the
+    /// state-machine into the [`State::Terminated`] state.
+    pub fn stop_sync(&self) -> Result<(), Error> {
+        self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
     }
 
     /// Get a subscriber to the state.
