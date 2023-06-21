@@ -18,7 +18,7 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     iter,
     path::PathBuf,
 };
@@ -38,7 +38,15 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    assign,
+    events::room::{
+        message::{
+            AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent,
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
+    },
+    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, instrument, trace, warn};
@@ -125,12 +133,12 @@ impl Client {
     /// # use url::Url;
     /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
     /// use serde::{Deserialize, Serialize};
-    /// use matrix_sdk::ruma::events::macros::EventContent;
+    /// use matrix_sdk::ruma::events::{macros::EventContent, room::EncryptedFile};
     ///
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
     /// #[ruma_event(type = "com.example.custom", kind = MessageLike)]
     /// struct CustomEventContent {
-    ///     encrypted_file: matrix_sdk::ruma::events::room::EncryptedFile,
+    ///     encrypted_file: EncryptedFile,
     /// }
     ///
     /// # async {
@@ -161,7 +169,7 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<ruma::events::room::message::MessageType> {
+    ) -> Result<MessageType> {
         // FIXME: Upload the thumbnail in parallel with the main file
         let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let mut cursor = Cursor::new(thumbnail.data);
@@ -170,7 +178,6 @@ impl Client {
                 .prepare_encrypted_file(content_type, &mut cursor)
                 .with_send_progress_observable(send_progress.clone())
                 .await?;
-            use ruma::events::room::ThumbnailInfo;
 
             #[rustfmt::skip]
             let thumbnail_info =
@@ -189,59 +196,48 @@ impl Client {
             .with_send_progress_observable(send_progress)
             .await?;
 
-        use std::io::Cursor;
-
-        use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Image(content)
+                let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Image(content)
             }
             mime::AUDIO => {
-                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Audio(content)
+                let content = assign!(AudioMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Audio(content)
             }
             mime::VIDEO => {
-                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Video(content)
+                let content = assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Video(content)
             }
             _ => {
-                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::File(content)
+                let content = assign!(FileMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::File(content)
             }
         })
     }
