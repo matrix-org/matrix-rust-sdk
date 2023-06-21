@@ -83,7 +83,9 @@ pub(super) enum TimelineEventKind {
         content: AnyMessageLikeEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
-    RedactedMessage,
+    RedactedMessage {
+        event_type: MessageLikeEventType,
+    },
     Redaction {
         redacts: OwnedEventId,
         content: RoomRedactionEventContent,
@@ -147,7 +149,7 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
             )) => Self::Redaction { redacts, content },
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(content) => Self::Message { content, relations: ev.relations() },
-                None => Self::RedactedMessage,
+                None => Self::RedactedMessage { event_type: ev.event_type() },
             },
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
@@ -302,8 +304,10 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             },
 
-            TimelineEventKind::RedactedMessage => {
-                self.add(NewEventTimelineItem::redacted_message());
+            TimelineEventKind::RedactedMessage { event_type } => {
+                if event_type != MessageLikeEventType::Reaction {
+                    self.add(NewEventTimelineItem::redacted_message());
+                }
             }
 
             TimelineEventKind::Redaction { redacts, content } => {
