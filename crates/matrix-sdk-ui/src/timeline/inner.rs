@@ -59,6 +59,7 @@ use super::{
         update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
         TimelineEventMetadata, TimelineItemPosition,
     },
+    reactions::ReactionToggleResult,
     rfind_event_by_id, rfind_event_item,
     traits::RoomDataProvider,
     EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile, RelativePosition,
@@ -372,14 +373,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     /// Update the send state of a local reaction represented by a transaction ID.
     ///
     /// If no local reaction is found, a warning is raised.
-    #[instrument(skip_all, fields(txn_id))]
     pub(super) async fn update_reaction_send_state(
         &self,
         annotation: &Annotation,
-        remote_echo_to_add: Option<&EventId>,
-        local_echo_to_remove: Option<&TransactionId>,
+        result: &ReactionToggleResult,
     ) {
         let mut state = self.state.lock().await;
+        let (remote_echo_to_add, local_echo_to_remove) = match result {
+            ReactionToggleResult::AddSuccess { event_id, txn_id } => (Some(event_id), Some(txn_id)),
+            ReactionToggleResult::AddFailure { txn_id } => (None, Some(txn_id)),
+            ReactionToggleResult::RedactSuccess => return, // Nothing to do
+            ReactionToggleResult::RedactFailure { event_id } => (Some(event_id), None),
+        };
 
         // TODO: Also handle pending reactions?
         let related = rfind_event_item(&state.items, |it| {

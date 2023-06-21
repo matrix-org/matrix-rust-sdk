@@ -47,7 +47,10 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{traits::RoomDataProvider, EventTimelineItem, Profile, TimelineInner, TimelineItem};
+use super::{
+    reactions::ReactionToggleResult, traits::RoomDataProvider, EventTimelineItem, Profile,
+    TimelineInner, TimelineItem,
+};
 
 mod basic;
 mod echo;
@@ -228,12 +231,9 @@ impl TestTimeline {
     async fn update_reaction_send_state(
         &self,
         annotation: &Annotation,
-        remote_echo_to_add: Option<&EventId>,
-        local_echo_to_remove: Option<&TransactionId>,
+        result: &ReactionToggleResult,
     ) {
-        self.inner
-            .update_reaction_send_state(annotation, remote_echo_to_add, local_echo_to_remove)
-            .await;
+        self.inner.update_reaction_send_state(annotation, result).await;
     }
 
     /// Set the next server timestamp.

@@ -52,6 +52,7 @@ mod event_handler;
 mod event_item;
 mod inner;
 mod pagination;
+mod reactions;
 mod read_receipts;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
@@ -68,6 +69,7 @@ pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 use self::{
     event_item::BundledReactionsExt,
     inner::{TimelineInner, TimelineInnerState},
+    reactions::ReactionToggleResult,
 };
 pub use self::{
     event_item::{
@@ -434,10 +436,18 @@ impl Timeline {
         match response {
             Ok(_) => {
                 // redaction successful, nothing to do
+                self.inner
+                    .update_reaction_send_state(annotation, &ReactionToggleResult::redact_success())
+                    .await;
             }
             Err(_) => {
                 // undo local redaction, add the remote echo back
-                self.inner.update_reaction_send_state(annotation, Some(event_id), None).await;
+                self.inner
+                    .update_reaction_send_state(
+                        annotation,
+                        &ReactionToggleResult::redact_failure(event_id),
+                    )
+                    .await;
                 return Err(Error::FailedTogglingReaction);
             }
         };
@@ -458,11 +468,19 @@ impl Timeline {
         match response {
             Ok(response) => {
                 self.inner
-                    .update_reaction_send_state(annotation, Some(&response.event_id), Some(&txn_id))
+                    .update_reaction_send_state(
+                        annotation,
+                        &ReactionToggleResult::add_success(&response.event_id, &txn_id),
+                    )
                     .await;
             }
             Err(_) => {
-                self.inner.update_reaction_send_state(annotation, None, Some(&txn_id)).await;
+                self.inner
+                    .update_reaction_send_state(
+                        annotation,
+                        &ReactionToggleResult::add_failure(&txn_id),
+                    )
+                    .await;
                 return Err(Error::FailedTogglingReaction);
             }
         };

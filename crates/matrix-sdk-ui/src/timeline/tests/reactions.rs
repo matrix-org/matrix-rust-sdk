@@ -27,6 +27,7 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use crate::timeline::{
+    reactions::ReactionToggleResult,
     tests::{
         helpers::assert_event_is_updated, helpers::assert_no_more_updates, TestTimeline, ALICE, BOB,
     },
@@ -46,7 +47,9 @@ async fn add_reaction_failed() {
     let txn_id = timeline.handle_local_event(event_content.clone()).await;
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
 
-    timeline.update_reaction_send_state(&reaction, None, Some(&txn_id)).await;
+    timeline
+        .update_reaction_send_state(&reaction, &ReactionToggleResult::add_failure(&txn_id))
+        .await;
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -64,7 +67,12 @@ async fn add_reaction_success() {
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
 
     let event_id = EventId::new(server_name!("example.org"));
-    timeline.update_reaction_send_state(&reaction, Some(&event_id), Some(&txn_id)).await;
+    timeline
+        .update_reaction_send_state(
+            &reaction,
+            &ReactionToggleResult::add_success(&event_id, &txn_id),
+        )
+        .await;
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
 
     assert_no_more_updates(&mut stream).await;
@@ -83,8 +91,7 @@ async fn redact_reaction_success() {
     timeline.handle_local_redaction_event(&event_id, Default::default()).await;
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
-    // TODO, refactor to call this always
-    //timeline.update_reaction_send_state(&reaction, Some(&event_id), Some(&txn_id)).await;
+    timeline.update_reaction_send_state(&reaction, &ReactionToggleResult::redact_success()).await;
 
     assert_no_more_updates(&mut stream).await;
 }
@@ -102,8 +109,11 @@ async fn redact_reaction_failure() {
     timeline.handle_local_redaction_event(&event_id, Default::default()).await;
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
-    timeline.update_reaction_send_state(&reaction, Some(&event_id), None).await;
+    timeline
+        .update_reaction_send_state(&reaction, &ReactionToggleResult::redact_failure(&event_id))
+        .await;
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
+
     assert_no_more_updates(&mut stream).await;
 }
 
