@@ -603,7 +603,7 @@ impl Client {
         let handler = move |notification, room: SdkRoom, _| {
             let notification_delegate = Arc::clone(&notification_delegate);
             async move {
-                if let Ok(notification_item) =
+                if let Ok(Some(notification_item)) =
                     NotificationItem::new_from_notification(notification, room).await
                 {
                     if let Some(notification_delegate) =
@@ -623,7 +623,7 @@ impl Client {
         &self,
         room_id: String,
         event_id: String,
-    ) -> Result<NotificationItem, ClientError> {
+    ) -> Result<Option<NotificationItem>, ClientError> {
         RUNTIME.block_on(async move {
             // We may also need to do a sync here since this may fail if the keys are not
             // valid anymore
