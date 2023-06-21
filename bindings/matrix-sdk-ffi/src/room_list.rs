@@ -124,14 +124,16 @@ impl RoomListService {
         })))
     }
 
-    async fn all_rooms(&self) -> Result<Arc<RoomList>, RoomListError> {
+    async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
+            room_list_service: self.clone(),
             inner: Arc::new(self.inner.all_rooms().await.map_err(RoomListError::from)?),
         }))
     }
 
-    async fn invites(&self) -> Result<Arc<RoomList>, RoomListError> {
+    async fn invites(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
+            room_list_service: self.clone(),
             inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
         }))
     }
@@ -151,6 +153,7 @@ impl RoomListService {
 
 #[derive(uniffi::Object)]
 pub struct RoomList {
+    room_list_service: Arc<RoomListService>,
     inner: Arc<matrix_sdk_ui::room_list::RoomList>,
 }
 
@@ -172,6 +175,10 @@ impl RoomList {
                 }
             }))),
         })
+    }
+
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+        self.room_list_service.room(room_id)
     }
 }
 
