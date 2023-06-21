@@ -417,7 +417,7 @@ impl ReactionGroup {
         })
     }
 
-    pub fn as_refs(
+    fn as_refs(
         &self,
     ) -> impl Iterator<Item = ((Option<&OwnedTransactionId>, Option<&OwnedEventId>), &OwnedUserId)>
     {
