@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     config::SyncSettings,
