@@ -199,9 +199,9 @@ pub struct RoomListEntriesLoadingStateResult {
 #[derive(uniffi::Enum)]
 pub enum RoomListState {
     Init,
-    FirstRooms,
-    AllRooms,
-    CarryOn,
+    SettingUp,
+    Running,
+    Error,
     Terminated,
 }
 
@@ -211,9 +211,9 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListState {
 
         match value {
             Init => Self::Init,
-            FirstRooms => Self::FirstRooms,
-            AllRooms => Self::AllRooms,
-            CarryOn => Self::CarryOn,
+            SettingUp => Self::SettingUp,
+            Running => Self::Running,
+            Error { .. } => Self::Error,
             Terminated { .. } => Self::Terminated,
         }
     }
