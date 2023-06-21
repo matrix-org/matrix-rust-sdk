@@ -87,17 +87,17 @@ pub struct RoomList {
 
 #[uniffi::export]
 impl RoomList {
-    fn sync(&self) -> Arc<TaskHandle> {
+    fn sync(&self) {
         let this = self.inner.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        RUNTIME.spawn(async move {
             let sync_stream = this.sync();
             pin_mut!(sync_stream);
 
             while sync_stream.next().await.is_some() {
                 // keep going!
             }
-        })))
+        });
     }
 
     fn stop_sync(&self) -> Result<(), RoomListError> {
