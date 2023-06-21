@@ -21,18 +21,17 @@ pub enum State {
     /// That's the first initial state.
     Init,
 
-    /// At this state, the first rooms start to be synced.
-    FirstRooms,
+    /// At this state, the first rooms are starting to sync.
+    SettingUp,
 
-    /// At this state, all rooms start to be synced.
-    AllRooms,
+    /// At this state, all rooms are syncing, and the visible rooms + invites
+    /// lists exist.
+    Running,
 
-    /// This state is the cruising speed, i.e. the “normal” state, where nothing
-    /// fancy happens: all rooms are syncing, and life is great.
-    CarryOn,
+    /// At this state, the sync has been stopped because an error happened.
+    Error { from: Box<State> },
 
-    /// At this state, the sync has been stopped (because it was requested, or
-    /// because it has errored too many times previously).
+    /// At this state, the sync has been stopped because it was requested.
     Terminated { from: Box<State> },
 }
 
@@ -43,29 +42,29 @@ impl State {
         use State::*;
 
         let (next_state, actions) = match self {
-            Init => (FirstRooms, Actions::none()),
-            FirstRooms => (AllRooms, Actions::first_rooms_are_loaded()),
-            AllRooms => (CarryOn, Actions::none()),
-            CarryOn => (CarryOn, Actions::none()),
-            // If the state was `Terminated`, the next state is calculated again, because it means
-            // the sync has been restarted. In this case, let's jump back on the
-            // previous state that led to the termination. No action is required in this
-            // scenario.
-            Terminated { from: previous_state } => {
+            Init => (SettingUp, Actions::none()),
+            SettingUp => (Running, Actions::first_rooms_are_loaded()),
+            Running => (Running, Actions::none()),
+            // If the state was `Error` or `Terminated`, the next state is calculated again, because
+            // it means the sync has been restarted. In this case, let's jump back on
+            // the previous state that led to the termination. No action is required in
+            // this scenario.
+            Error { from: previous_state } | Terminated { from: previous_state } => {
                 match previous_state.as_ref() {
-                    state @ Init | state @ FirstRooms => {
+                    state @ Init | state @ SettingUp => {
                         // Do nothing.
                         (state.to_owned(), Actions::none())
                     }
 
-                    state @ AllRooms | state @ CarryOn => {
+                    Running => {
                         // Refresh the lists.
-                        (state.to_owned(), Actions::refresh_lists())
+                        (Running, Actions::refresh_lists())
                     }
 
-                    Terminated { .. } => {
-                        // Having `Terminated { from: Terminated { … } }` is not allowed.
-                        unreachable!("It's impossible to reach `Terminated` from `Terminated`");
+                    Error { .. } | Terminated { .. } => {
+                        // Having `Error { from: Error { .. } }` or `Terminated { from: Terminated {
+                        // … } }` is not allowed.
+                        unreachable!("It's impossible to reach `Error` from `Error`, or `Terminated` from `Terminated`");
                     }
                 }
             }
@@ -224,6 +223,12 @@ mod tests {
         // First state.
         let state = State::Init;
 
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Init);
+        }
+
         // Hypothetical termination.
         {
             let state =
@@ -233,46 +238,53 @@ mod tests {
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::FirstRooms);
+        assert_eq!(state, State::SettingUp);
+
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::SettingUp);
+        }
 
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::FirstRooms);
+            assert_eq!(state, State::SettingUp);
         }
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::AllRooms);
+        assert_eq!(state, State::Running);
+
+        // Hypothetical error.
+        {
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Running);
+        }
 
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::AllRooms);
+            assert_eq!(state, State::Running);
         }
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
+        assert_eq!(state, State::Running);
 
-        // Hypothetical termination.
+        // Hypothetical error.
         {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
+            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Running);
         }
 
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
-
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
+            assert_eq!(state, State::Running);
         }
 
         Ok(())

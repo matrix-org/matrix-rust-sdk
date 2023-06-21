@@ -87,17 +87,27 @@ pub struct RoomList {
 
 #[uniffi::export]
 impl RoomList {
-    fn sync(&self) -> Arc<TaskHandle> {
+    fn sync(&self) {
         let this = self.inner.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        RUNTIME.spawn(async move {
             let sync_stream = this.sync();
             pin_mut!(sync_stream);
 
             while sync_stream.next().await.is_some() {
                 // keep going!
             }
-        })))
+        });
+    }
+
+    fn stop_sync(&self) -> Result<(), RoomListError> {
+        self.inner.stop_sync().map_err(Into::into)
+    }
+
+    fn is_syncing(&self) -> bool {
+        use matrix_sdk_ui::room_list::State;
+
+        matches!(self.inner.state().get(), State::SettingUp | State::Running)
     }
 
     fn state(&self, listener: Box<dyn RoomListStateListener>) -> Arc<TaskHandle> {
@@ -195,9 +205,9 @@ pub struct RoomListEntriesLoadingStateResult {
 #[derive(uniffi::Enum)]
 pub enum RoomListState {
     Init,
-    FirstRooms,
-    AllRooms,
-    CarryOn,
+    SettingUp,
+    Running,
+    Error,
     Terminated,
 }
 
@@ -207,9 +217,9 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListState {
 
         match value {
             Init => Self::Init,
-            FirstRooms => Self::FirstRooms,
-            AllRooms => Self::AllRooms,
-            CarryOn => Self::CarryOn,
+            SettingUp => Self::SettingUp,
+            Running => Self::Running,
+            Error { .. } => Self::Error,
             Terminated { .. } => Self::Terminated,
         }
     }
