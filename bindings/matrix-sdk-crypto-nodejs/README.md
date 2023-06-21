@@ -184,6 +184,20 @@ See
 [`tracing-subscriber`](https://tracing.rs/tracing_subscriber/index.html)
 to learn more about the `RUST_LOG`/`MATRIX_LOG` environment variable.
 
+#### Using tracing in dependent projects
+
+To enable tracing in client applications that import these bindings, here's how to do it in
+a local development environment:
+
+-   In this directory, run `npm link` to make your local build of the bindings available to
+    other Node projects on your system
+-   In your client app's source directory, run `npm link @matrix-org/matrix-sdk-crypto-nodejs`
+    to make it use your trace-enabled local build of the bindings
+-   In your client app's source code, add a call to `initTracing` near startup time
+-   Run your app with the `MATRIX_LOG` environment variable set to the desired log level
+
+Either `npm link` command may be substituted with `yarn link`.
+
 ## Documentation
 
 [The documentation can be found
