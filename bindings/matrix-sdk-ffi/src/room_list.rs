@@ -20,8 +20,8 @@ use crate::{
 #[uniffi::export]
 impl Client {
     /// Get a new `RoomList` instance.
-    pub fn room_list(&self) -> Result<Arc<RoomList>, RoomListError> {
-        Ok(Arc::new(RoomList {
+    pub fn room_list(&self) -> Result<Arc<RoomListService>, RoomListError> {
+        Ok(Arc::new(RoomListService {
             inner: Arc::new(
                 RUNTIME
                     .block_on(async {
@@ -83,12 +83,12 @@ impl From<RoomListInput> for matrix_sdk_ui::room_list::Input {
 }
 
 #[derive(uniffi::Object)]
-pub struct RoomList {
+pub struct RoomListService {
     inner: Arc<matrix_sdk_ui::RoomListService>,
 }
 
 #[uniffi::export]
-impl RoomList {
+impl RoomListService {
     fn sync(&self) {
         let this = self.inner.clone();
 
@@ -112,7 +112,7 @@ impl RoomList {
         matches!(self.inner.state().get(), State::SettingUp | State::Running)
     }
 
-    fn state(&self, listener: Box<dyn RoomListStateListener>) -> Arc<TaskHandle> {
+    fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
@@ -124,59 +124,16 @@ impl RoomList {
         })))
     }
 
-    async fn entries(
-        &self,
-        listener: Box<dyn RoomListEntriesListener>,
-    ) -> Result<RoomListEntriesResult, RoomListError> {
-        let (entries, entries_stream) = self.inner.entries().await.map_err(RoomListError::from)?;
-
-        Ok(RoomListEntriesResult {
-            entries: entries.into_iter().map(Into::into).collect(),
-            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(entries_stream);
-
-                while let Some(diff) = entries_stream.next().await {
-                    listener.on_update(diff.into());
-                }
-            }))),
-        })
+    async fn all_rooms(&self) -> Result<Arc<RoomList>, RoomListError> {
+        Ok(Arc::new(RoomList {
+            inner: Arc::new(self.inner.all_rooms().await.map_err(RoomListError::from)?),
+        }))
     }
 
-    async fn entries_loading_state(
-        &self,
-        listener: Box<dyn SlidingSyncListStateObserver>,
-    ) -> Result<RoomListEntriesLoadingStateResult, RoomListError> {
-        let (entries_loading_state, entries_loading_state_stream) =
-            self.inner.entries_loading_state().await.map_err(RoomListError::from)?;
-
-        Ok(RoomListEntriesLoadingStateResult {
-            entries_loading_state,
-            entries_loading_state_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(entries_loading_state_stream);
-
-                while let Some(loading_state) = entries_loading_state_stream.next().await {
-                    listener.did_receive_update(loading_state);
-                }
-            }))),
-        })
-    }
-
-    async fn invites(
-        &self,
-        listener: Box<dyn RoomListEntriesListener>,
-    ) -> Result<RoomListEntriesResult, RoomListError> {
-        let (entries, entries_stream) = self.inner.invites().await.map_err(RoomListError::from)?;
-
-        Ok(RoomListEntriesResult {
-            entries: entries.into_iter().map(Into::into).collect(),
-            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(entries_stream);
-
-                while let Some(diff) = entries_stream.next().await {
-                    listener.on_update(diff.into());
-                }
-            }))),
-        })
+    async fn invites(&self) -> Result<Arc<RoomList>, RoomListError> {
+        Ok(Arc::new(RoomList {
+            inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
+        }))
     }
 
     async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
@@ -192,20 +149,40 @@ impl RoomList {
     }
 }
 
+#[derive(uniffi::Object)]
+pub struct RoomList {
+    inner: Arc<matrix_sdk_ui::room_list::RoomList>,
+}
+
+#[uniffi::export]
+impl RoomList {
+    fn entries(
+        &self,
+        listener: Box<dyn RoomListEntriesListener>,
+    ) -> Result<RoomListEntriesResult, RoomListError> {
+        let (entries, entries_stream) = self.inner.entries();
+
+        Ok(RoomListEntriesResult {
+            entries: entries.into_iter().map(Into::into).collect(),
+            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_stream);
+
+                while let Some(diff) = entries_stream.next().await {
+                    listener.on_update(diff.into());
+                }
+            }))),
+        })
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct RoomListEntriesResult {
     pub entries: Vec<RoomListEntry>,
     pub entries_stream: Arc<TaskHandle>,
 }
 
-#[derive(uniffi::Record)]
-pub struct RoomListEntriesLoadingStateResult {
-    pub entries_loading_state: SlidingSyncListLoadingState,
-    pub entries_loading_state_stream: Arc<TaskHandle>,
-}
-
 #[derive(uniffi::Enum)]
-pub enum RoomListState {
+pub enum RoomListServiceState {
     Init,
     SettingUp,
     Running,
@@ -213,7 +190,7 @@ pub enum RoomListState {
     Terminated,
 }
 
-impl From<matrix_sdk_ui::room_list::State> for RoomListState {
+impl From<matrix_sdk_ui::room_list::State> for RoomListServiceState {
     fn from(value: matrix_sdk_ui::room_list::State) -> Self {
         use matrix_sdk_ui::room_list::State::*;
 
@@ -228,8 +205,8 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListState {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait RoomListStateListener: Send + Sync + Debug {
-    fn on_update(&self, state: RoomListState);
+pub trait RoomListServiceStateListener: Send + Sync + Debug {
+    fn on_update(&self, state: RoomListServiceState);
 }
 
 #[derive(uniffi::Enum)]
