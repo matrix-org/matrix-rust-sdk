@@ -404,17 +404,15 @@ impl ReactionGroup {
     }
 
     /// All reactions within this reaction group that were sent by the given
-    /// user Note that it is possible for a user to have sent multiple
-    /// reactions with the same key
-    pub fn by_sender(
-        &self,
-        user_id: &UserId,
-    ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> {
-        let user_id = user_id.to_owned();
-        self.as_refs().filter_map(move |(k, v)| match v == &user_id {
-            true => Some(k),
-            false => None,
-        })
+    /// user.
+    ///
+    /// Note that it is possible for multiple reactions by the same user to
+    /// have arrived over federation.
+    pub fn by_sender<'a>(
+        &'a self,
+        user_id: &'a UserId,
+    ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
+        self.as_refs().filter(move |(_, v)| *v == user_id).map(|(k, _)| k)
     }
 
     fn as_refs(
