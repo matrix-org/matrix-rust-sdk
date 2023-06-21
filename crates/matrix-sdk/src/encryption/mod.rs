@@ -24,7 +24,10 @@ use std::{
 };
 
 use eyeball::shared::Observable as SharedObservable;
-use futures_util::stream::{self, StreamExt};
+use futures_util::{
+    future::try_join,
+    stream::{self, StreamExt},
+};
 use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
@@ -170,31 +173,18 @@ impl Client {
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<MessageType> {
-        // FIXME: Upload the thumbnail in parallel with the main file
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let mut cursor = Cursor::new(thumbnail.data);
+        let upload_thumbnail =
+            self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
 
-            let file = self
-                .prepare_encrypted_file(content_type, &mut cursor)
-                .with_send_progress_observable(send_progress.clone())
-                .await?;
-
-            #[rustfmt::skip]
-            let thumbnail_info =
-                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                });
-
-            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
-        } else {
-            (None, None)
+        let upload_attachment = async {
+            let mut cursor = Cursor::new(data);
+            self.prepare_encrypted_file(content_type, &mut cursor)
+                .with_send_progress_observable(send_progress)
+                .await
         };
 
-        let mut cursor = Cursor::new(data);
-        let file = self
-            .prepare_encrypted_file(content_type, &mut cursor)
-            .with_send_progress_observable(send_progress)
-            .await?;
+        let ((thumbnail_source, thumbnail_info), file) =
+            try_join(upload_thumbnail, upload_attachment).await?;
 
         Ok(match content_type.type_() {
             mime::IMAGE => {
@@ -240,6 +230,32 @@ impl Client {
                 MessageType::File(content)
             }
         })
+    }
+
+    async fn upload_encrypted_thumbnail(
+        &self,
+        thumbnail: Option<Thumbnail>,
+        content_type: &mime::Mime,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+        if let Some(thumbnail) = thumbnail {
+            let mut cursor = Cursor::new(thumbnail.data);
+
+            let file = self
+                .prepare_encrypted_file(content_type, &mut cursor)
+                .with_send_progress_observable(send_progress)
+                .await?;
+
+            #[rustfmt::skip]
+            let thumbnail_info =
+                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
+                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
+                });
+
+            Ok((Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info))))
+        } else {
+            Ok((None, None))
+        }
     }
 
     /// Claim one-time keys creating new Olm sessions.

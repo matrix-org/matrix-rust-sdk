@@ -164,6 +164,12 @@ pub(super) async fn send_request(
     let request = {
         let mut request = if send_progress.subscriber_count() != 0 {
             send_progress.update(|p| p.total += request.body().len());
+
+            // Make sure any concurrent futures in the same task get a chance
+            // to also add to the progress total before the first chunks are
+            // pulled out of the body stream.
+            tokio::task::yield_now().await;
+
             reqwest::Request::try_from(request.map(|body| {
                 let chunks = stream::iter(BytesChunks::new(body, 8192).map(
                     move |chunk| -> Result<_, Infallible> {
