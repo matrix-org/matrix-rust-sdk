@@ -66,11 +66,6 @@ mod virtual_item;
 pub(crate) use self::builder::TimelineBuilder;
 #[cfg(feature = "experimental-sliding-sync")]
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
-use self::{
-    event_item::BundledReactionsExt,
-    inner::{TimelineInner, TimelineInnerState},
-    reactions::ReactionToggleResult,
-};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -81,6 +76,10 @@ pub use self::{
     pagination::{PaginationOptions, PaginationOutcome},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
+};
+use self::{
+    inner::{TimelineInner, TimelineInnerState},
+    reactions::ReactionToggleResult,
 };
 
 /// The default sanitizer mode used when sanitizing HTML.
@@ -371,10 +370,8 @@ impl Timeline {
 
         let related_event = find_related_event().await?;
 
-        let user_reactions = related_event
-            .reactions()
-            .by_key(&annotation.key)
-            .map(|group| group.by_sender(&user_id));
+        let user_reactions =
+            related_event.reactions().get(&annotation.key).map(|group| group.by_sender(&user_id));
 
         // Find an existing reaction to redact, if any
         let to_redact = user_reactions
@@ -386,10 +383,8 @@ impl Timeline {
 
         // Check the event again, in case it has changed since we last checked
         let related_event = find_related_event().await?;
-        let user_reactions = related_event
-            .reactions()
-            .by_key(&annotation.key)
-            .map(|group| group.by_sender(&user_id));
+        let user_reactions =
+            related_event.reactions().get(&annotation.key).map(|group| group.by_sender(&user_id));
 
         match to_redact {
             Some(event_id) => {

@@ -53,7 +53,6 @@ use super::{
 };
 
 mod basic;
-mod bundled_reactions;
 mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]

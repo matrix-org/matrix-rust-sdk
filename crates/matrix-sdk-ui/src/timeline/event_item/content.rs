@@ -386,20 +386,6 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 /// Value: The group of reactions.
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
-pub trait BundledReactionsExt {
-    fn by_key(&self, key: &str) -> Option<&ReactionGroup>;
-}
-
-impl BundledReactionsExt for BundledReactions {
-    /// Get a reaction group by it's key
-    fn by_key(&self, key: &str) -> Option<&ReactionGroup> {
-        self.iter().find_map(|(k, v)| match k == key {
-            true => Some(v),
-            false => None,
-        })
-    }
-}
-
 // The long type after a long visibility specified trips up rustfmt currently.
 // This works around. Report: https://github.com/rust-lang/rustfmt/issues/5703
 type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
