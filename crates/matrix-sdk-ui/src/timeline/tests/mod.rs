@@ -53,12 +53,14 @@ use super::{
 };
 
 mod basic;
+mod bundled_reactions;
 mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod helpers;
 mod invalid;
+mod reaction_group;
 mod reactions;
 mod read_receipts;
 mod redaction;

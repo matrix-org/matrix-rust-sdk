@@ -56,6 +56,19 @@ async fn add_reaction_failed() {
 }
 
 #[async_test]
+async fn add_reaction_on_non_existent_event() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+    let msg_id = EventId::new(server_name!("example.org")); // non existent event
+    let reaction = create_reaction(&msg_id);
+    let event_content = create_reaction_event_content(&reaction);
+
+    timeline.handle_local_event(event_content.clone()).await;
+
+    assert_no_more_updates(&mut stream).await;
+}
+
+#[async_test]
 async fn add_reaction_success() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
@@ -113,6 +126,17 @@ async fn redact_reaction_failure() {
         .update_reaction_send_state(&reaction, &ReactionToggleResult::redact_failure(&event_id))
         .await;
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
+
+    assert_no_more_updates(&mut stream).await;
+}
+
+#[async_test]
+async fn redact_reaction_from_non_existent_event() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+    let reaction_id = EventId::new(server_name!("example.org")); // non existent event
+
+    timeline.handle_local_redaction_event(&reaction_id, Default::default()).await;
 
     assert_no_more_updates(&mut stream).await;
 }
