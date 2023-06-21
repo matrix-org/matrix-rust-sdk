@@ -22,6 +22,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use eyeball::shared::Observable as SharedObservable;
+use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,7 +30,13 @@ use mime2ext;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
-    events::room::MediaSource,
+    events::room::{
+        message::{
+            self, AudioInfo, FileInfo, FileMessageEventContent, ImageMessageEventContent,
+            MessageType, VideoInfo, VideoMessageEventContent,
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
+    },
     MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -401,75 +408,87 @@ impl Media {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<ruma::events::room::message::MessageType> {
-        // FIXME: Upload the thumbnail in parallel with the main file
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self
-                .upload(&thumbnail.content_type, thumbnail.data)
-                .with_send_progress_observable(send_progress.clone())
-                .await?;
-            let url = response.content_uri;
+    ) -> Result<MessageType> {
+        let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
-            use ruma::events::room::ThumbnailInfo;
-            let thumbnail_info = assign!(
-                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-            );
-
-            (Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info)))
-        } else {
-            (None, None)
+        let upload_attachment = async move {
+            self.upload(content_type, data)
+                .with_send_progress_observable(send_progress)
+                .await
+                .map_err(crate::Error::from)
         };
 
-        let response =
-            self.upload(content_type, data).with_send_progress_observable(send_progress).await?;
+        let ((thumbnail_source, thumbnail_info), response) =
+            try_join(upload_thumbnail, upload_attachment).await?;
 
         let url = response.content_uri;
 
-        use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info,
                 });
-                message::MessageType::Image(
-                    message::ImageMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::Image(
+                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
             mime::AUDIO => {
-                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
-                message::MessageType::Audio(
+                MessageType::Audio(
                     message::AudioMessageEventContent::plain(body.to_owned(), url)
                         .info(Box::new(info)),
                 )
             }
             mime::VIDEO => {
-                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::Video(
-                    message::VideoMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::Video(
+                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
             _ => {
-                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::File(
-                    message::FileMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::File(
+                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
         })
+    }
+
+    async fn upload_thumbnail(
+        &self,
+        thumbnail: Option<Thumbnail>,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+        if let Some(thumbnail) = thumbnail {
+            let response = self
+                .upload(&thumbnail.content_type, thumbnail.data)
+                .with_send_progress_observable(send_progress)
+                .await?;
+            let url = response.content_uri;
+
+            let thumbnail_info = assign!(
+                thumbnail.info
+                    .as_ref()
+                    .map(|info| ThumbnailInfo::from(info.clone()))
+                    .unwrap_or_default(),
+                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+            );
+
+            Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
+        } else {
+            Ok((None, None))
+        }
     }
 }
