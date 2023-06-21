@@ -28,10 +28,6 @@ pub enum State {
     /// lists exist.
     Running,
 
-    /// This state is the cruising speed, i.e. the “normal” state, where nothing
-    /// fancy happens: all rooms are syncing, and life is great.
-    CarryOn,
-
     /// At this state, the sync has been stopped (because it was requested, or
     /// because it has errored too many times previously).
     Terminated { from: Box<State> },
@@ -46,8 +42,7 @@ impl State {
         let (next_state, actions) = match self {
             Init => (SettingUp, Actions::none()),
             SettingUp => (Running, Actions::first_rooms_are_loaded()),
-            Running => (CarryOn, Actions::none()),
-            CarryOn => (CarryOn, Actions::none()),
+            Running => (Running, Actions::none()),
             // If the state was `Terminated`, the next state is calculated again, because it means
             // the sync has been restarted. In this case, let's jump back on the
             // previous state that led to the termination. No action is required in this
@@ -59,9 +54,9 @@ impl State {
                         (state.to_owned(), Actions::none())
                     }
 
-                    state @ Running | state @ CarryOn => {
+                    Running => {
                         // Refresh the lists.
-                        (state.to_owned(), Actions::refresh_lists())
+                        (Running, Actions::refresh_lists())
                     }
 
                     Terminated { .. } => {
@@ -256,24 +251,13 @@ mod tests {
 
         // Next state.
         let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
+        assert_eq!(state, State::Running);
 
         // Hypothetical termination.
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
-        }
-
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::CarryOn);
-
-        // Hypothetical termination.
-        {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::CarryOn);
+            assert_eq!(state, State::Running);
         }
 
         Ok(())

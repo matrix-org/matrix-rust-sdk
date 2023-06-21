@@ -349,7 +349,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Running => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -391,7 +391,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = CarryOn => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -433,7 +433,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = CarryOn => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -561,7 +561,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
-            states = Running => CarryOn,
+            states = Running => Running,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -766,7 +766,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => CarryOn,
+        states = Terminated { .. } => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -797,11 +797,11 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         },
     };
 
-    // Do a regular sync from the `CarryOn` state to update the `ALL_ROOMS` list
+    // Do a regular sync from the `Running` state to update the `ALL_ROOMS` list
     // again.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = CarryOn => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -829,11 +829,11 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         },
     };
 
-    // Simulate an error from the `CarryOn` state.
+    // Simulate an error from the `Running` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
-        states = CarryOn => Terminated { .. },
+        states = Running => Terminated { .. },
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -867,7 +867,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => CarryOn,
+        states = Terminated { .. } => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -1352,7 +1352,7 @@ async fn test_invites_stream() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Running => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -1952,7 +1952,7 @@ async fn test_input_viewport() -> Result<(), Error> {
     // The `timeline_limit` is not repeated because it's sticky.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Running => CarryOn,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
