@@ -333,8 +333,26 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
+        let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
+
         let new_item = TimelineItem::Event(item.with_kind(local_item.with_send_state(send_state)));
         state.items.set(idx, Arc::new(new_item));
+
+        if is_error {
+            // When there is an error, sending further messages is paused. This
+            // should be reflected in the timeline, so we set all other pending
+            // events to cancelled.
+            let num_items = state.items.len();
+            for idx in 0..num_items {
+                let Some(item) = state.items[idx].as_event() else { continue };
+                let Some(local_item) = item.as_local() else { continue };
+                if matches!(&local_item.send_state, EventSendState::NotSentYet) {
+                    let new_item =
+                        item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
+                    state.items.set(idx, Arc::new(TimelineItem::Event(new_item)));
+                }
+            }
+        }
     }
 
     pub(super) async fn prepare_retry(

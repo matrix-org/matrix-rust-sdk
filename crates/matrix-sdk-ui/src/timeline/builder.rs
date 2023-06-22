@@ -20,12 +20,12 @@ use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
 };
 use ruma::events::receipt::{ReceiptThread, ReceiptType};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{error, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
-use super::{inner::TimelineInner, Timeline, TimelineDropHandle};
+use super::{inner::TimelineInner, queue::send_queued_messages, Timeline, TimelineDropHandle};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -196,11 +196,15 @@ impl TimelineBuilder {
             forwarded_room_key_handle,
         ];
 
+        let (msg_sender, msg_receiver) = mpsc::channel(1);
+        spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
+
         let timeline = Timeline {
             inner,
             start_token,
             start_token_condvar: Default::default(),
             _end_token: Mutex::new(None),
+            msg_sender,
             drop_handle: Arc::new(TimelineDropHandle {
                 client,
                 event_handler_handles: handles,

@@ -42,6 +42,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, instrument, warn};
 
 mod builder;
@@ -50,6 +51,7 @@ mod event_item;
 mod futures;
 mod inner;
 mod pagination;
+mod queue;
 mod read_receipts;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
@@ -61,7 +63,6 @@ mod traits;
 mod virtual_item;
 
 pub(crate) use self::builder::TimelineBuilder;
-use self::inner::{TimelineInner, TimelineInnerState};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
@@ -75,6 +76,10 @@ pub use self::{
     pagination::{PaginationOptions, PaginationOutcome},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
+};
+use self::{
+    inner::{TimelineInner, TimelineInnerState},
+    queue::LocalMessage,
 };
 
 /// The default sanitizer mode used when sanitizing HTML.
@@ -91,6 +96,7 @@ pub struct Timeline {
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
     _end_token: Mutex<Option<String>>,
+    msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
 }
 
@@ -312,25 +318,9 @@ impl Timeline {
     pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
-
-        let send_state = match Room::from(self.room().clone()) {
-            Room::Joined(room) => {
-                let response = room.send(content, Some(&txn_id)).await;
-
-                match response {
-                    Ok(response) => EventSendState::Sent { event_id: response.event_id },
-                    Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
-                }
-            }
-            _ => {
-                EventSendState::SendingFailed {
-                    // FIXME: Probably not exactly right
-                    error: Arc::new(matrix_sdk::Error::InconsistentState),
-                }
-            }
-        };
-
-        self.inner.update_event_send_state(&txn_id, send_state).await;
+        if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
+            error!("Internal error: timeline message receiver is closed");
+        }
     }
 
     /// Sends an attachment to the room. It does not currently support local
