@@ -68,7 +68,15 @@ impl TimelineBuilder {
     }
 
     /// Create a [`Timeline`] with the options set on this builder.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            room_id = ?self.room.room_id(),
+            events_length = self.events.len(),
+            track_read_marker_and_receipts = self.track_read_marker_and_receipts,
+            prev_token = self.prev_token,
+        )
+    )]
     pub(crate) async fn build(self) -> Timeline {
         let Self { room, prev_token, events, track_read_marker_and_receipts } = self;
         let has_events = !events.is_empty();

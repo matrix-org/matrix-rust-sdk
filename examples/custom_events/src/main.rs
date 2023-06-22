@@ -105,6 +105,7 @@ async fn login_and_sync(
 ) -> anyhow::Result<()> {
     let client = Client::builder().homeserver_url(homeserver_url).build().await?;
     client
+        .matrix_auth()
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
         .await?;

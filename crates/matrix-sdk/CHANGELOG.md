@@ -17,6 +17,13 @@
 - Replace `Client::authentication_issuer` with `Client::authentication_server_info` that contains
   all the fields discovered from the homeserver for authenticating with OIDC
 - Remove `HttpSend` trait in favor of allowing a custom `reqwest::Client` instance to be supplied
+- Move all the types and methods using the native Matrix login and registration APIs from `Client`
+  to the new `matrix_auth::MatrixAuth` API that is accessible via `Client::matrix_auth()`.
+- Move `Session` and `SessionTokens` to the `matrix_auth` module.
+  - Move the session methods on `Client` to the `MatrixAuth` API.
+  - Split `Session`'s content into several types. Its (de)serialization is still backwards
+    compatible.
+- Add methods on `Client` that can handle several authentication APIs.
 
 # 0.6.2
 

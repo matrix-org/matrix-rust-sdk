@@ -39,7 +39,11 @@ async fn login_and_sync(
     // able to restore the session with a working encryption setup.
     // See the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
-    client.login_username(&username, &password).initial_device_display_name("command bot").await?;
+    client
+        .matrix_auth()
+        .login_username(&username, &password)
+        .initial_device_display_name("command bot")
+        .await?;
 
     println!("logged in as {username}");
 

@@ -30,7 +30,6 @@ use std::{
     sync::Arc,
 };
 
-use eyeball::{shared::Observable as SharedObservable, Subscriber};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -61,7 +60,7 @@ pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
     rooms::{RoomInfo, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, Session, SessionMeta, SessionTokens,
+    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
@@ -142,7 +141,6 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 pub(crate) struct Store {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
-    pub(super) session_tokens: SharedObservable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
@@ -160,7 +158,6 @@ impl Store {
         Self {
             inner,
             session_meta: Default::default(),
-            session_tokens: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
             sync_lock: Default::default(),
@@ -196,25 +193,6 @@ impl Store {
     /// The current [`SessionMeta`] containing our user ID and device ID.
     pub fn session_meta(&self) -> Option<&SessionMeta> {
         self.session_meta.get()
-    }
-
-    /// The [`SessionTokens`] containing our access token and optional refresh
-    /// token.
-    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
-        self.session_tokens.subscribe()
-    }
-
-    /// Set the current [`SessionTokens`].
-    pub fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.session_tokens.set(Some(tokens));
-    }
-
-    /// The current [`Session`] containing our user id, device ID, access
-    /// token and optional refresh token.
-    pub fn session(&self) -> Option<Session> {
-        let meta = self.session_meta.get()?;
-        let tokens = self.session_tokens().get()?;
-        Some(Session::from_parts(meta.to_owned(), tokens))
     }
 
     /// Get all the rooms this store knows about.

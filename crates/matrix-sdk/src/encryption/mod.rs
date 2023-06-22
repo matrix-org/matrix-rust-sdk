@@ -18,14 +18,17 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     iter,
     ops::Not as _,
     path::PathBuf,
 };
 
 use eyeball::shared::Observable as SharedObservable;
-use futures_util::stream::{self, StreamExt};
+use futures_util::{
+    future::try_join,
+    stream::{self, StreamExt},
+};
 use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
@@ -39,7 +42,15 @@ use ruma::{
         },
         uiaa::AuthData,
     },
-    assign, DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    assign,
+    events::room::{
+        message::{
+            AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+            ImageMessageEventContent, MessageType, VideoInfo, VideoMessageEventContent,
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
+    },
+    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, instrument, trace, warn};
@@ -126,12 +137,12 @@ impl Client {
     /// # use url::Url;
     /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
     /// use serde::{Deserialize, Serialize};
-    /// use matrix_sdk::ruma::events::macros::EventContent;
+    /// use matrix_sdk::ruma::events::{macros::EventContent, room::EncryptedFile};
     ///
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
     /// #[ruma_event(type = "com.example.custom", kind = MessageLike)]
     /// struct CustomEventContent {
-    ///     encrypted_file: matrix_sdk::ruma::events::room::EncryptedFile,
+    ///     encrypted_file: EncryptedFile,
     /// }
     ///
     /// # async {
@@ -162,16 +173,79 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<ruma::events::room::message::MessageType> {
-        // FIXME: Upload the thumbnail in parallel with the main file
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+    ) -> Result<MessageType> {
+        let upload_thumbnail =
+            self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
+
+        let upload_attachment = async {
+            let mut cursor = Cursor::new(data);
+            self.prepare_encrypted_file(content_type, &mut cursor)
+                .with_send_progress_observable(send_progress)
+                .await
+        };
+
+        let ((thumbnail_source, thumbnail_info), file) =
+            try_join(upload_thumbnail, upload_attachment).await?;
+
+        Ok(match content_type.type_() {
+            mime::IMAGE => {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Image(content)
+            }
+            mime::AUDIO => {
+                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                });
+                let content = assign!(AudioMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Audio(content)
+            }
+            mime::VIDEO => {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::Video(content)
+            }
+            _ => {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(FileMessageEventContent::encrypted(body.to_owned(), file), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::File(content)
+            }
+        })
+    }
+
+    async fn upload_encrypted_thumbnail(
+        &self,
+        thumbnail: Option<Thumbnail>,
+        content_type: &mime::Mime,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+        if let Some(thumbnail) = thumbnail {
             let mut cursor = Cursor::new(thumbnail.data);
 
             let file = self
                 .prepare_encrypted_file(content_type, &mut cursor)
-                .with_send_progress_observable(send_progress.clone())
+                .with_send_progress_observable(send_progress)
                 .await?;
-            use ruma::events::room::ThumbnailInfo;
 
             #[rustfmt::skip]
             let thumbnail_info =
@@ -179,72 +253,10 @@ impl Client {
                     mimetype: Some(thumbnail.content_type.as_ref().to_owned())
                 });
 
-            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
+            Ok((Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info))))
         } else {
-            (None, None)
-        };
-
-        let mut cursor = Cursor::new(data);
-        let file = self
-            .prepare_encrypted_file(content_type, &mut cursor)
-            .with_send_progress_observable(send_progress)
-            .await?;
-
-        use std::io::Cursor;
-
-        use ruma::events::room::{self, message, MediaSource};
-        Ok(match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Image(content)
-            }
-            mime::AUDIO => {
-                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Audio(content)
-            }
-            mime::VIDEO => {
-                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::Video(content)
-            }
-            _ => {
-                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                #[rustfmt::skip] // rustfmt wants to merge the next two lines
-                let content =
-                    assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
-                        info: Some(Box::new(info))
-                    });
-                message::MessageType::File(content)
-            }
-        })
+            Ok((None, None))
+        }
     }
 
     /// Claim one-time keys creating new Olm sessions.

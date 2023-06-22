@@ -30,6 +30,7 @@
   - `get_profiles`
   - `get_presence_events`
   - `get_users_with_display_names`
+- Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
 
 ## 0.5.1
 

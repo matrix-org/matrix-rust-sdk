@@ -8,6 +8,7 @@ use cfg_vis::cfg_vis;
 use eyeball::shared::Observable as SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
+use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
 use crate::{Client, Result, TransmissionProgress};
 
@@ -52,7 +53,7 @@ impl<'a, R> IntoFuture for PrepareEncryptedFile<'a, R>
 where
     R: Read + Send + ?Sized + 'a,
 {
-    type Output = Result<ruma::events::room::EncryptedFile>;
+    type Output = Result<EncryptedFile>;
     #[cfg(target_arch = "wasm32")]
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
     #[cfg(not(target_arch = "wasm32"))]
@@ -72,9 +73,9 @@ where
                 .with_send_progress_observable(send_progress)
                 .await?;
 
-            let file: ruma::events::room::EncryptedFile = {
+            let file: EncryptedFile = {
                 let keys = encryptor.finish();
-                ruma::events::room::EncryptedFileInit {
+                EncryptedFileInit {
                     url: response.content_uri,
                     key: keys.key,
                     iv: keys.iv,

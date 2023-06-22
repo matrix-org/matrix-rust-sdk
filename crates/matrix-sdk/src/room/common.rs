@@ -161,7 +161,7 @@ impl Common {
     /// # async {
     /// # let user = "example";
     /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login_username(user, "password").send().await.unwrap();
+    /// client.matrix_auth().login_username(user, "password").send().await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
     /// let room = client.get_joined_room(&room_id).unwrap();
     /// if let Some(avatar) = room.avatar(MediaFormat::File).await.unwrap() {

@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{config::RequestConfig, Client, ClientBuilder, Session};
+use matrix_sdk::{
+    config::RequestConfig,
+    matrix_auth::{Session, SessionTokens},
+    Client, ClientBuilder,
+};
+use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::test_json;
 use ruma::{api::MatrixVersion, device_id, user_id};
 use serde::Serialize;
@@ -54,10 +59,11 @@ async fn no_retry_test_client() -> (Client, MockServer) {
 
 async fn logged_in_client() -> (Client, MockServer) {
     let session = Session {
-        access_token: "1234".to_owned(),
-        refresh_token: None,
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
+        meta: SessionMeta {
+            user_id: user_id!("@example:localhost").to_owned(),
+            device_id: device_id!("DEVICEID").to_owned(),
+        },
+        tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (client, server) = no_retry_test_client().await;
     client.restore_session(session).await.unwrap();

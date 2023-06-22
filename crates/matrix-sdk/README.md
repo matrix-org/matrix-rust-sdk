@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::builder().server_name(alice.server_name()).build().await?;
 
     // First we need to log in.
-    client.login_username(alice, "password").send().await?;
+    client.matrix_auth().login_username(alice, "password").send().await?;
 
     client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
         println!("Received a message {:?}", ev);

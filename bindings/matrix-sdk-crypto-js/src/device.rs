@@ -189,6 +189,13 @@ impl Device {
     pub fn is_deleted(&self) -> bool {
         self.inner.is_deleted()
     }
+
+    /// Timestamp representing the first time this device has been seen (in
+    /// milliseconds).
+    #[wasm_bindgen(js_name = "firstTimeSeen")]
+    pub fn first_time_seen(&self) -> u64 {
+        self.inner.first_time_seen_ts().0.into()
+    }
 }
 
 /// The local trust state of a device.

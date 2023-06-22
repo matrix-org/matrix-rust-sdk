@@ -26,7 +26,7 @@ use ruma::{
 };
 use tracing::{info, instrument};
 
-use super::Client;
+use super::MatrixAuth;
 use crate::{config::RequestConfig, Result};
 
 /// The login method.
@@ -75,11 +75,11 @@ impl LoginMethod {
 /// Builder type used to configure optional settings for logging in with a
 /// username or token.
 ///
-/// Created with [`Client::login_username`] or [`Client::login_token`].
+/// Created with [`MatrixAuth::login_username`] or [`MatrixAuth::login_token`].
 /// Finalized with [`.send()`](Self::send).
 #[allow(missing_debug_implementations)]
 pub struct LoginBuilder {
-    client: Client,
+    auth: MatrixAuth,
     login_method: LoginMethod,
     device_id: Option<String>,
     initial_device_display_name: Option<String>,
@@ -87,9 +87,9 @@ pub struct LoginBuilder {
 }
 
 impl LoginBuilder {
-    fn new(client: Client, login_method: LoginMethod) -> Self {
+    fn new(auth: MatrixAuth, login_method: LoginMethod) -> Self {
         Self {
-            client,
+            auth,
             login_method,
             device_id: None,
             initial_device_display_name: None,
@@ -97,21 +97,21 @@ impl LoginBuilder {
         }
     }
 
-    pub(super) fn new_password(client: Client, id: UserIdentifier, password: String) -> Self {
-        Self::new(client, LoginMethod::UserPassword { id, password })
+    pub(super) fn new_password(auth: MatrixAuth, id: UserIdentifier, password: String) -> Self {
+        Self::new(auth, LoginMethod::UserPassword { id, password })
     }
 
-    pub(super) fn new_token(client: Client, token: String) -> Self {
-        Self::new(client, LoginMethod::Token(token))
+    pub(super) fn new_token(auth: MatrixAuth, token: String) -> Self {
+        Self::new(auth, LoginMethod::Token(token))
     }
 
     pub(super) fn new_custom(
-        client: Client,
+        auth: MatrixAuth,
         login_type: &str,
         data: JsonObject,
     ) -> serde_json::Result<Self> {
         let login_info = login::v3::LoginInfo::new(login_type, data)?;
-        Ok(Self::new(client, LoginMethod::Custom(login_info)))
+        Ok(Self::new(auth, LoginMethod::Custom(login_info)))
     }
 
     /// Set the device ID.
@@ -128,7 +128,7 @@ impl LoginBuilder {
     /// Set the initial device display name.
     ///
     /// The device display name is the public name that will be associated with
-    /// the device ID. Only necessary the first time you login with this device
+    /// the device ID. Only necessary the first time you log in with this device
     /// ID. It can be changed later.
     pub fn initial_device_display_name(mut self, value: &str) -> Self {
         self.initial_device_display_name = Some(value.to_owned());
@@ -138,7 +138,8 @@ impl LoginBuilder {
     /// Advertise support for [refreshing access tokens].
     ///
     /// By default, the `Client` won't handle refreshing access tokens, so
-    /// [`Client::refresh_access_token()`] needs to be called manually.
+    /// [`Client::refresh_access_token()`] or
+    /// [`MatrixAuth::refresh_access_token()`] needs to be called manually.
     ///
     /// This behavior can be changed by calling
     /// [`handle_refresh_tokens()`] when building the `Client`.
@@ -147,6 +148,7 @@ impl LoginBuilder {
     /// enforced by the homeserver regardless of this setting.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`Client::refresh_access_token()`]: crate::Client::refresh_access_token
     /// [`handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
     pub fn request_refresh_token(mut self) -> Self {
         self.request_refresh_token = true;
@@ -157,6 +159,10 @@ impl LoginBuilder {
     ///
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `LoginBuilder` directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     #[instrument(
         target = "matrix_sdk::client",
         name = "login",
@@ -164,7 +170,8 @@ impl LoginBuilder {
         fields(method = self.login_method.tracing_desc()),
     )]
     pub async fn send(self) -> Result<login::v3::Response> {
-        let homeserver = self.client.homeserver().await;
+        let client = &self.auth.client;
+        let homeserver = client.homeserver().await;
         info!(homeserver = homeserver.as_str(), identifier = ?self.login_method.id(), "Logging in");
 
         let request = assign!(login::v3::Request::new(self.login_method.into_login_info()), {
@@ -173,8 +180,8 @@ impl LoginBuilder {
             refresh_token: self.request_refresh_token,
         });
 
-        let response = self.client.send(request, Some(RequestConfig::short_retry())).await?;
-        self.client.receive_login_response(&response).await?;
+        let response = client.send(request, Some(RequestConfig::short_retry())).await?;
+        self.auth.receive_login_response(&response).await?;
 
         Ok(response)
     }
@@ -192,12 +199,12 @@ impl IntoFuture for LoginBuilder {
 
 /// Builder type used to configure optional settings for logging in via SSO.
 ///
-/// Created with [`Client::login_sso`].
-/// Finalized with [`.send()`](Self::send).
+/// Created with [`MatrixAuth::login_sso`]. Finalized with
+/// [`.send()`](Self::send).
 #[cfg(feature = "sso-login")]
 #[allow(missing_debug_implementations)]
 pub struct SsoLoginBuilder<F> {
-    client: Client,
+    auth: MatrixAuth,
     use_sso_login_url: F,
     device_id: Option<String>,
     initial_device_display_name: Option<String>,
@@ -213,9 +220,9 @@ where
     F: FnOnce(String) -> Fut + Send,
     Fut: Future<Output = Result<()>> + Send,
 {
-    pub(super) fn new(client: Client, use_sso_login_url: F) -> Self {
+    pub(super) fn new(auth: MatrixAuth, use_sso_login_url: F) -> Self {
         Self {
-            client,
+            auth,
             use_sso_login_url,
             device_id: None,
             initial_device_display_name: None,
@@ -275,7 +282,9 @@ where
     /// Advertise support for [refreshing access tokens].
     ///
     /// By default, the `Client` won't handle refreshing access tokens, so
-    /// [`Client::refresh_access_token()`] needs to be called manually.
+    /// [`Client::refresh_access_token()`] or
+    /// [`MatrixAuth::refresh_access_token()`] needs to be called
+    /// manually.
     ///
     /// This behavior can be changed by calling
     /// [`handle_refresh_tokens()`] when building the `Client`.
@@ -284,6 +293,7 @@ where
     /// enforced by the homeserver regardless of this setting.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`Client::refresh_access_token()`]: crate::Client::refresh_access_token
     /// [`handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
     pub fn request_refresh_token(mut self) -> Self {
         self.request_refresh_token = true;
@@ -294,6 +304,10 @@ where
     ///
     /// Instead of calling this function and `.await`ing its return value, you
     /// can also `.await` the `SsoLoginBuilder` directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::{
@@ -319,7 +333,8 @@ where
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
-        let homeserver = self.client.homeserver().await;
+        let client = &self.auth.client;
+        let homeserver = client.homeserver().await;
         info!(%homeserver, "Logging in");
 
         let (signal_tx, signal_rx) = oneshot::channel();
@@ -411,7 +426,7 @@ where
         tokio::spawn(server);
 
         let sso_url = self
-            .client
+            .auth
             .get_sso_login_url(redirect_url.as_str(), self.identity_provider_id.as_deref())
             .await?;
 
@@ -428,7 +443,7 @@ where
             device_id: self.device_id,
             initial_device_display_name: self.initial_device_display_name,
             request_refresh_token: self.request_refresh_token,
-            ..LoginBuilder::new_token(self.client, token)
+            ..LoginBuilder::new_token(self.auth, token)
         };
         login_builder.send().await
     }

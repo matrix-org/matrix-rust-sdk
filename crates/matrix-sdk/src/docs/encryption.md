@@ -188,7 +188,7 @@ have been uploaded and tied to a device ID.
 
 ### Using an access token
 
-1. Log in with the password using [`Client::login_username()`].
+1. Log in with the password using [`MatrixAuth::login_username()`].
 2. Store the access token, preferably somewhere secure.
 3. Use [`Client::restore_session()`] the next time the client starts.
 
@@ -199,13 +199,13 @@ the device ID.
 
 ### Using a password.
 
-1. Log in using [`Client::login_username()`].
+1. Log in using [`MatrixAuth::login_username()`].
 2. Store the `device_id` that was returned in the login response from the
    server.
-3. Use [`Client::login_username()`] the next time the client starts, make sure
-   to set `device_id` to the stored `device_id` from the previous step. This
-   will replace the access token from the previous login call, but won't create
-   a new device.
+3. Use [`MatrixAuth::login_username()`] the next time the client starts, make
+   sure to set `device_id` to the stored `device_id` from the previous step.
+   This will replace the access token from the previous login call, but won't
+   create a new device.
 
 **Note** that the default store supports only a single device, logging in
 with a different device ID (either `None` or a device ID of another client)
@@ -233,3 +233,4 @@ is **not** supported using the default store.
 [`StoreConfig`]: crate::config::StoreConfig
 [`ClientBuilder`]: crate::ClientBuilder
 [`ClientBuilder::store_config`]: crate::ClientBuilder::store_config
+[`MatrixAuth::login_username()`]: crate::matrix_auth::MatrixAuth::login_username

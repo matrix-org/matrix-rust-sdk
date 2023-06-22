@@ -646,6 +646,29 @@ mod test {
         assert_eq!(client_room.canonical_alias(), Some(room_alias_id.to_owned()));
     }
 
+    #[async_test]
+    async fn display_name_from_sliding_sync_overrides_alias() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+        let room_alias_id = room_alias_id!("#myroom:e.uk");
+
+        // When the sliding sync response contains an explicit room name as well as an
+        // alias
+        let mut room = room_with_canonical_alias(room_alias_id, user_id);
+        room.name = Some("This came from the server".to_owned());
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room's name is just exactly what the server supplied
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            client_room.display_name().await.unwrap().to_string(),
+            "This came from the server"
+        );
+    }
+
     async fn membership(
         client: &BaseClient,
         room_id: &RoomId,
