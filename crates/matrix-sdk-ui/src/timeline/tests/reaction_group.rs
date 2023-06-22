@@ -18,10 +18,10 @@ use crate::timeline::{
     ReactionGroup,
 };
 
-#[test]
 /// The Matrix spec does not allow duplicate annotations to be created but it
 /// is still possible for duplicates to be received over federation. And in
 /// that case, clients are expected to treat duplicates as a single annotation.
+#[test]
 fn senders_are_deduplicated() {
     let group = {
         let mut group = ReactionGroup::default();
