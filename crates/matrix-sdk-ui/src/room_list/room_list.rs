@@ -17,8 +17,10 @@ use std::future::ready;
 use eyeball::{shared::Observable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, Stream, StreamExt};
-use matrix_sdk::{RoomListEntry, SlidingSync, SlidingSyncList};
-use tokio::{spawn, task::JoinHandle};
+use matrix_sdk::{
+    executor::{spawn, JoinHandle},
+    RoomListEntry, SlidingSync, SlidingSyncList,
+};
 
 use super::{Error, State};
 
