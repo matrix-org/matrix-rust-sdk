@@ -273,10 +273,7 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     // sync starts in another process, runs a sync and changes the to-device
     // token cached on disk.
     {
-        let sliding_sync = SlidingSync::builder("encryption".to_owned(), client)?
-            .enable_caching()?
-            .build()
-            .await?;
+        let sliding_sync = SlidingSync::builder("encryption".to_owned(), client)?.build().await?;
         sliding_sync.set_to_device_token("nb2".to_owned());
         sliding_sync.force_cache_to_storage().await?;
     }

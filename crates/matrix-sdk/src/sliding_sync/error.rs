@@ -28,13 +28,6 @@ pub enum Error {
         end: u32,
     },
 
-    /// Missing storage key when asking to deserialize some sub-state of sliding
-    /// sync.
-    #[error(
-        "A caching request was made but caching was not enabled in this instance of sliding sync"
-    )]
-    CacheDisabled,
-
     /// We tried to read the user id of a client but it was missing.
     #[error("Unauthenticated user in sliding sync")]
     UnauthenticatedUser,

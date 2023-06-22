@@ -60,7 +60,7 @@ async fn clean_storage(
 
 /// Store the `SlidingSync`'s state in the storage.
 pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
-    let Some(storage_key) = sliding_sync.inner.storage_key.as_ref() else { return Ok(()) };
+    let storage_key = &sliding_sync.inner.storage_key;
 
     trace!(storage_key, "Saving a `SlidingSync`");
     let storage = sliding_sync.inner.client.store();
@@ -213,23 +213,6 @@ mod tests {
     use super::*;
     use crate::{test_utils::logged_in_client, Result};
 
-    #[test]
-    fn test_cannot_cache_without_a_storage_key() -> Result<()> {
-        block_on(async {
-            let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
-            let err = client
-                .sliding_sync("test")?
-                .add_cached_list(SlidingSyncList::builder("list_foo"))
-                .await
-                .unwrap_err();
-            assert!(matches!(
-                err,
-                crate::Error::SlidingSync(crate::sliding_sync::error::Error::CacheDisabled)
-            ));
-            Ok(())
-        })
-    }
-
     #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
@@ -263,7 +246,6 @@ mod tests {
             let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
             let sliding_sync = client
                 .sliding_sync(sync_id)?
-                .enable_caching()?
                 .add_cached_list(SlidingSyncList::builder("list_foo"))
                 .await?
                 .add_list(SlidingSyncList::builder("list_bar"))
@@ -314,7 +296,6 @@ mod tests {
             let cloned_stream = max_number_of_room_stream.clone();
             let sliding_sync = client
                 .sliding_sync(sync_id)?
-                .enable_caching()?
                 .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
                     // In the `once_built()` handler, nothing has been read from the cache yet.
                     assert_eq!(list.maximum_number_of_rooms(), None);

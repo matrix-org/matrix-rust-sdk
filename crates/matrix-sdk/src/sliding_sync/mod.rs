@@ -92,7 +92,7 @@ pub(super) struct SlidingSyncInner {
     network_timeout: Duration,
 
     /// The storage key to keep this cache at and load it from
-    storage_key: Option<String>,
+    storage_key: String,
 
     /// Position markers
     position: StdRwLock<SlidingSyncPositionMarkers>,
@@ -228,12 +228,8 @@ impl SlidingSync {
         &self,
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
-        let Some(ref storage_key) = self.inner.storage_key else {
-            return Err(error::Error::CacheDisabled.into());
-        };
-
         let reloaded_rooms =
-            list_builder.set_cached_and_reload(&self.inner.client, storage_key).await?;
+            list_builder.set_cached_and_reload(&self.inner.client, &self.inner.storage_key).await?;
 
         if !reloaded_rooms.is_empty() {
             let mut rooms = self.inner.rooms.write().await;
@@ -638,23 +634,22 @@ impl SlidingSync {
     /// This should only be done if multiple processes may be reading/writing
     /// into the sliding sync cache.
     pub async fn reload_to_device_token(&self) -> Result<()> {
-        if let Some(storage_key) = &self.inner.storage_key {
-            let lists = self.inner.lists.read().await;
-            let mut to_device_token = None;
+        let lists = self.inner.lists.read().await;
+        let mut to_device_token = None;
 
-            restore_sliding_sync_state(
-                &self.inner.client,
-                storage_key,
-                &lists,
-                &mut None,
-                &mut to_device_token,
-            )
-            .await?;
+        restore_sliding_sync_state(
+            &self.inner.client,
+            &self.inner.storage_key,
+            &lists,
+            &mut None,
+            &mut to_device_token,
+        )
+        .await?;
 
-            if let Some(token) = to_device_token {
-                self.inner.position.write().unwrap().to_device_token = Some(token);
-            }
+        if let Some(token) = to_device_token {
+            self.inner.position.write().unwrap().to_device_token = Some(token);
         }
+
         Ok(())
     }
 }

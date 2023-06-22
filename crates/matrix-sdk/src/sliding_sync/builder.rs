@@ -25,7 +25,7 @@ use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 #[derive(Debug, Clone)]
 pub struct SlidingSyncBuilder {
     id: String,
-    storage_key: Option<String>,
+    storage_key: String,
     sliding_sync_proxy: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
@@ -41,9 +41,13 @@ impl SlidingSyncBuilder {
         if id.len() > 16 {
             Err(Error::InvalidSlidingSyncIdentifier)
         } else {
+            let storage_key = format_storage_key_prefix(
+                &id,
+                client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
+            );
             Ok(Self {
                 id,
-                storage_key: None,
+                storage_key,
                 sliding_sync_proxy: None,
                 client,
                 lists: Vec::new(),
@@ -54,19 +58,6 @@ impl SlidingSyncBuilder {
                 network_timeout: Duration::from_secs(30),
             })
         }
-    }
-
-    /// Enable caching for the given sliding sync.
-    ///
-    /// This will cause lists and the sliding sync tokens to be saved into and
-    /// restored from the cache.
-    pub fn enable_caching(mut self) -> Result<Self> {
-        // Compute the final storage key now.
-        self.storage_key = Some(format_storage_key_prefix(
-            &self.id,
-            self.client.user_id().ok_or(super::Error::UnauthenticatedUser)?,
-        ));
-        Ok(self)
     }
 
     /// Set the sliding sync proxy URL.
@@ -91,17 +82,12 @@ impl SlidingSyncBuilder {
     /// Enroll the list in caching, reloads it from the cache if possible, and
     /// adds it to the list of lists.
     ///
-    /// This will raise an error if caching wasn't enabled with
-    /// [`enable_caching`][Self::enable_caching], or if there was a I/O error
-    /// reading from the cache.
+    /// This will raise an error if there was a I/O error reading from the
+    /// cache.
     ///
     /// Replace any list with the same name.
     pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
-        let Some(ref storage_key) = self.storage_key else {
-            return Err(super::error::Error::CacheDisabled.into());
-        };
-
-        let reloaded_rooms = list.set_cached_and_reload(&self.client, storage_key).await?;
+        let reloaded_rooms = list.set_cached_and_reload(&self.client, &self.storage_key).await?;
 
         for (key, frozen) in reloaded_rooms {
             self.rooms
@@ -262,17 +248,15 @@ impl SlidingSyncBuilder {
             lists.insert(list.name().to_owned(), list);
         }
 
-        // Load an existing state from the cache.
-        if let Some(storage_key) = &self.storage_key {
-            restore_sliding_sync_state(
-                &client,
-                storage_key,
-                &lists,
-                &mut delta_token,
-                &mut to_device_token,
-            )
-            .await?;
-        }
+        // Reload existing state from the cache.
+        restore_sliding_sync_state(
+            &client,
+            &self.storage_key,
+            &lists,
+            &mut delta_token,
+            &mut to_device_token,
+        )
+        .await?;
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
