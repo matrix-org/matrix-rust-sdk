@@ -43,7 +43,7 @@
 //!   background”: it will sync the existing rooms and will fetch new rooms, by
 //!   a certain batch size.
 //! * `visible_rooms` (referred by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
-//!   the “reactive” list. It's goal is to react to the client app user actions.
+//!   the “reactive” list. Its goal is to react to the client app user actions.
 //!   If the user scrolls in the room list, the `visible_rooms` will be
 //!   configured to sync for the particular range of rooms the user is actually
 //!   seeing (the rooms in the current viewport). `visible_rooms` has a
@@ -77,7 +77,9 @@ use matrix_sdk::{
 };
 pub use room::*;
 use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    api::client::sync::sync_events::v4::{E2EEConfig, SyncRequestListFilters, ToDeviceConfig},
+    assign,
+    events::{StateEventType, TimelineEventType},
     OwnedRoomId, RoomId,
 };
 pub use state::*;
@@ -95,11 +97,38 @@ impl RoomList {
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
+    ///
+    /// This won't start an encryption sync, and it's the user's responsibility
+    /// to create one in this case using `EncryptionSync`.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
+        Self::new_internal(client, false).await
+    }
+
+    /// Create a new `RoomList` that enables encryption.
+    ///
+    /// This will include syncing the encryption information, so there must not
+    /// be any instance of `EncryptionSync` running in the background.
+    pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
+        Self::new_internal(client, true).await
+    }
+
+    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
+        let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
-            .with_common_extensions()
+            .enable_caching()
+            .map_err(Error::SlidingSync)?
+            .with_common_extensions();
+
+        if with_encryption {
+            builder = builder
+                .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+                .with_to_device_extension(
+                    assign!(ToDeviceConfig::default(), { enabled: Some(true) }),
+                );
+        }
+
+        let sliding_sync = builder
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
@@ -115,7 +144,12 @@ impl RoomList {
                         is_invite: Some(false),
                         is_tombstoned: Some(false),
                         not_room_types: vec!["m.space".to_owned()],
-                    }))),
+                    })))
+                    .bump_event_types(&[
+                        TimelineEventType::RoomMessage,
+                        TimelineEventType::RoomEncrypted,
+                        TimelineEventType::Sticker,
+                    ]),
             )
             .build()
             .await
@@ -135,9 +169,9 @@ impl RoomList {
     ///
     /// The `RoomList`' state machine is run by this method.
     ///
-    /// Stopping the [`Stream`] (i.e. stop polling it) and calling
-    /// [`Self::sync`] again will resume from the previous state of the state
-    /// machine.
+    /// Stopping the [`Stream`] (i.e. by calling [`Self::stop_sync`]), and
+    /// calling [`Self::sync`] again will resume from the previous state of
+    /// the state machine.
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
             let sync = self.sliding_sync.sync();
@@ -154,8 +188,7 @@ impl RoomList {
             // So the sync is done after the machine _has entered_ into a new state.
             loop {
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
-
-                Observable::set(&self.state, next_state);
+                self.state.set(next_state);
 
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
@@ -163,9 +196,8 @@ impl RoomList {
                     }
 
                     Some(Err(error)) => {
-                        let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        let next_state = State::Error { from: Box::new(self.state.get()) };
+                        self.state.set(next_state);
 
                         yield Err(Error::SlidingSync(error));
 
@@ -174,8 +206,7 @@ impl RoomList {
 
                     None => {
                         let next_state = State::Terminated { from: Box::new(self.state.get()) };
-
-                        Observable::set(&self.state, next_state);
+                        self.state.set(next_state);
 
                         break;
                     }
@@ -184,9 +215,26 @@ impl RoomList {
         }
     }
 
+    /// Force to stop the sync of the room list started by [`Self::sync`].
+    ///
+    /// It's better to call this method rather than stop polling the `Stream`
+    /// returned by [`Self::sync`] because it will force the cancellation and
+    /// exit the sync-loop, i.e. it will cancel any in-flight HTTP requests,
+    /// cancel any pending futures etc.
+    ///
+    /// Ideally, one wants to consume the `Stream` returned by [`Self::sync`]
+    /// until it returns `None`, because of [`Self::stop_sync`], so that it
+    /// ensures the states are correctly placed.
+    ///
+    /// Stopping the sync of the room list via this method will put the
+    /// state-machine into the [`State::Terminated`] state.
+    pub fn stop_sync(&self) -> Result<(), Error> {
+        self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
+    }
+
     /// Get a subscriber to the state.
     pub fn state(&self) -> Subscriber<State> {
-        Observable::subscribe(&self.state)
+        self.state.subscribe()
     }
 
     /// Get all previous room list entries, in addition to a [`Stream`] to room
@@ -322,7 +370,12 @@ pub type EntriesLoadingState = SlidingSyncListLoadingState;
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::{config::RequestConfig, reqwest::Url, Session};
+    use matrix_sdk::{
+        config::RequestConfig,
+        matrix_auth::{Session, SessionTokens},
+        reqwest::Url,
+    };
+    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
     use wiremock::MockServer;
@@ -331,10 +384,11 @@ mod tests {
 
     async fn new_client() -> (Client, MockServer) {
         let session = Session {
-            access_token: "1234".to_owned(),
-            refresh_token: None,
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let server = MockServer::start().await;
@@ -353,7 +407,7 @@ mod tests {
     pub(super) async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client).await
+        RoomList::new_with_encryption(client).await
     }
 
     #[async_test]

@@ -14,7 +14,11 @@
 
 //! AppService users.
 
-use matrix_sdk::{config::RequestConfig, Client, ClientBuildError, ClientBuilder, Session};
+use matrix_sdk::{
+    config::RequestConfig,
+    matrix_auth::{Session, SessionTokens},
+    Client, ClientBuildError, ClientBuilder, SessionMeta,
+};
 use ruma::{
     api::client::{session::login, uiaa::UserIdentifier},
     assign, DeviceId, OwnedDeviceId, UserId,
@@ -126,19 +130,18 @@ impl<'a> UserBuilder<'a> {
             let response =
                 client.send(request, Some(RequestConfig::short_retry().force_auth())).await?;
 
-            Session {
-                access_token: response.access_token,
-                refresh_token: response.refresh_token,
-                user_id: response.user_id,
-                device_id: response.device_id,
-            }
+            Session::from(&response)
         } else {
             // Don’t log in
             Session {
-                access_token: self.appservice.registration.as_token.clone(),
-                refresh_token: None,
-                user_id: user_id.clone(),
-                device_id: self.device_id.unwrap_or_else(DeviceId::new),
+                meta: SessionMeta {
+                    user_id: user_id.clone(),
+                    device_id: self.device_id.unwrap_or_else(DeviceId::new),
+                },
+                tokens: SessionTokens {
+                    access_token: self.appservice.registration.as_token.clone(),
+                    refresh_token: None,
+                },
             }
         };
 

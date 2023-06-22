@@ -27,10 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     future::Future,
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc, RwLock as StdRwLock,
-    },
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
@@ -56,17 +53,11 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use self::sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
+use self::{
+    cache::restore_sliding_sync_state,
+    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
+};
 use crate::{config::RequestConfig, Client, Result};
-
-/// Number of times a Sliding Sync session can expire before raising an error.
-///
-/// A Sliding Sync session can expire. In this case, it is reset. However, to
-/// avoid entering an infinite loop of “it's expired, let's reset, it's expired,
-/// let's reset…” (maybe if the network has an issue, or the server, or anything
-/// else), we define a maximum times a session can expire before
-/// raising a proper error.
-const MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION: u8 = 3;
 
 /// The Sliding Sync instance.
 ///
@@ -85,13 +76,20 @@ pub(super) struct SlidingSyncInner {
     /// A unique identifier for this instance of sliding sync.
     ///
     /// Used to distinguish different connections to the sliding sync proxy.
-    _id: Option<String>,
+    id: String,
 
     /// Customize the sliding sync proxy URL.
     sliding_sync_proxy: Option<Url>,
 
     /// The HTTP Matrix client.
     client: Client,
+
+    /// Long-polling timeout that appears the sliding sync proxy request.
+    polling_timeout: Duration,
+
+    /// Extra duration for the sliding sync request to timeout. This is added to
+    /// the [`Self::proxy_timeout`].
+    network_timeout: Duration,
 
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
@@ -110,9 +108,6 @@ pub(super) struct SlidingSyncInner {
 
     /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
     room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
-
-    /// Number of times a Sliding Sync session has been reset.
-    reset_counter: AtomicU8,
 
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
@@ -407,12 +402,12 @@ impl SlidingSync {
 
         // Collect other data.
         let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
-        let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
+            conn_id: Some(self.inner.id.clone()),
             pos,
             delta_token,
-            timeout: Some(timeout),
+            timeout: Some(self.inner.polling_timeout),
             lists: requests_lists,
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
@@ -437,9 +432,10 @@ impl SlidingSync {
         Ok((
             // The request itself.
             request,
-            // Configure long-polling. We need 30 seconds for the long-poll itself, in
-            // addition to 30 more extra seconds for the network delays.
-            RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            // Configure long-polling. We need some time for the long-poll itself,
+            // and extra time for the network delays.
+            RequestConfig::default()
+                .timeout(self.inner.polling_timeout + self.inner.network_timeout),
             room_unsubscriptions,
         ))
     }
@@ -463,19 +459,26 @@ impl SlidingSync {
         // Sending the `/sync` request out when end-to-end encryption is enabled means
         // that we need to also send out any outgoing e2ee related request out
         // coming from the `OlmMachine::outgoing_requests()` method.
+
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
+            if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
+                debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
-            let (e2ee_uploads, response) =
-                futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                    .await;
+                let (e2ee_uploads, response) =
+                    futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
+                        .await;
 
-            if let Err(error) = e2ee_uploads {
-                error!(?error, "Error while sending outgoing E2EE requests");
+                if let Err(error) = e2ee_uploads {
+                    error!(?error, "Error while sending outgoing E2EE requests");
+                }
+
+                response
+            } else {
+                debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
+
+                request.await
             }
-
-            response
         }?;
 
         // Send the request and get a response _without_ end-to-end encryption support.
@@ -582,35 +585,15 @@ impl SlidingSync {
                     update_summary = self.sync_once().instrument(sync_span.clone()) => {
                         match update_summary {
                             Ok(updates) => {
-                                self.inner.reset_counter.store(0, Ordering::SeqCst);
-
                                 yield Ok(updates);
                             }
 
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                                    // The session has expired.
-
-                                    // Has it expired too many times?
-                                    if self.inner.reset_counter.fetch_add(1, Ordering::SeqCst)
-                                        >= MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION
-                                    {
-                                        sync_span.in_scope(|| {
-                                            error!("Session expired {MAXIMUM_SLIDING_SYNC_SESSION_EXPIRATION} times in a row");
-                                        });
-
-                                        // The session has expired too many times, let's raise an error!
-                                        yield Err(error);
-
-                                        // Terminates the loop, and terminates the stream.
-                                        break;
-                                    }
-
-                                    // Let's reset the Sliding Sync session.
+                                    // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
                                     sync_span.in_scope(|| async {
-                                        warn!("Session expired. Restarting Sliding Sync.");
+                                        warn!("Session expired; resetting `pos` and sticky parameters");
 
-                                        // To “restart” a Sliding Sync session, we set `pos` to its initial value, and uncommit the sticky parameters, so they're sent next time.
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
                                             position_lock.pos = None;
@@ -620,15 +603,12 @@ impl SlidingSync {
                                         let _ = self.inner.sticky.write().unwrap().data_mut();
 
                                         self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
-
-                                        debug!(?self.inner.position, "Sliding Sync has been reset");
                                     }).await;
-
-                                    continue;
                                 }
 
                                 yield Err(error);
 
+                                // Terminates the loop, and terminates the stream.
                                 break;
                             }
                         }
@@ -650,6 +630,32 @@ impl SlidingSync {
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
+    }
+
+    /// Force reloading the to-device token, if caching was enabled for this
+    /// instance of sliding sync.
+    ///
+    /// This should only be done if multiple processes may be reading/writing
+    /// into the sliding sync cache.
+    pub async fn reload_to_device_token(&self) -> Result<()> {
+        if let Some(storage_key) = &self.inner.storage_key {
+            let lists = self.inner.lists.read().await;
+            let mut to_device_token = None;
+
+            restore_sliding_sync_state(
+                &self.inner.client,
+                storage_key,
+                &lists,
+                &mut None,
+                &mut to_device_token,
+            )
+            .await?;
+
+            if let Some(token) = to_device_token {
+                self.inner.position.write().unwrap().to_device_token = Some(token);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -696,6 +702,17 @@ impl SlidingSync {
     /// Get the URL to Sliding Sync.
     pub fn sliding_sync_proxy(&self) -> Option<Url> {
         self.inner.sliding_sync_proxy.clone()
+    }
+
+    /// Set a new value for the to-device "since" token.
+    pub fn set_to_device_token(&self, to_device_token: String) {
+        let mut position_lock = self.inner.position.write().unwrap();
+        position_lock.to_device_token = Some(to_device_token);
+    }
+
+    /// Force caching the current sliding sync to storage.
+    pub async fn force_cache_to_storage(&self) -> Result<()> {
+        self.cache_to_storage().await
     }
 }
 
@@ -1091,19 +1108,27 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let mut ss_builder = client.sliding_sync("test-slidingsync")?;
-        ss_builder = ss_builder.add_list(SlidingSyncList::builder("new_list"));
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .build()
+            .await?;
 
-        let sync = ss_builder.build().await?;
-
-        // We get to-device and e2ee even without requesting it.
-        assert_eq!(
-            sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled,
-            Some(true)
-        );
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, Some(true));
-        // But what we didn't enable... isn't enabled.
+        // No extensions have been explicitly enabled here.
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None,);
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, None);
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
+
+        // Now enable e2ee and to-device.
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
 
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
@@ -1174,7 +1199,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_sticky_parameters_invalidated_by_reset() -> Result<()> {
+    async fn test_unknown_pos_resets_pos_and_sticky_parameters() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -1192,26 +1217,19 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        #[derive(Clone)]
-        struct SlidingSyncMatcher;
-
-        impl Match for SlidingSyncMatcher {
-            fn matches(&self, request: &wiremock::Request) -> bool {
-                request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-                    && request.method == wiremock::http::Method::Post
-            }
-        }
+        // `pos` is `None` to start with.
+        assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
 
         #[derive(Deserialize)]
         struct PartialRequest {
             txn_id: Option<String>,
         }
 
-        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
-            .respond_with(|request: &wiremock::Request| {
-                // Repeat with the txn_id in the response, if set.
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(|request: &Request| {
+                // Repeat the txn_id in the response, if set.
                 let request: PartialRequest = request.body_json().unwrap();
-                wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                ResponseTemplate::new(200).set_body_json(json!({
                     "txn_id": request.txn_id,
                     "pos": "0"
                 }))
@@ -1221,6 +1239,9 @@ mod tests {
 
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
+
+        // `pos` has been updated.
+        assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("0".to_owned()));
 
         // Next request doesn't ask to enable the extension.
         let (request, _, _) =
@@ -1234,9 +1255,9 @@ mod tests {
         drop(_mock_guard);
 
         // When responding with M_UNKNOWN_POS, that regenerates the sticky parameters,
-        // so they're reset.
-        let _mock_guard = wiremock::Mock::given(SlidingSyncMatcher)
-            .respond_with(wiremock::ResponseTemplate::new(400).set_body_json(json!({
+        // so they're reset. It also resets the `pos`.
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
                 "error": "foo",
                 "errcode": "M_UNKNOWN_POS",
             })))
@@ -1245,13 +1266,20 @@ mod tests {
 
         let next = sync.next().await;
 
-        // The request will retry a few times, then end in an error eventually.
+        // The expected error is returned.
         assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
+
+        // `pos` has been reset.
+        assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
 
         // Next request asks to enable the extension again.
         let (request, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
         assert!(request.extensions.to_device.enabled.is_some());
+
+        // `sync` has been stopped.
+        assert!(sync.next().await.is_none());
 
         Ok(())
     }

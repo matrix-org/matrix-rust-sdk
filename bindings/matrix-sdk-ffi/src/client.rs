@@ -108,6 +108,26 @@ pub trait NotificationDelegate: Sync + Send {
     fn did_receive_notification(&self, notification: NotificationItem);
 }
 
+#[uniffi::export(callback_interface)]
+pub trait ProgressWatcher: Send + Sync {
+    fn transmission_progress(&self, progress: TransmissionProgress);
+}
+
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct TransmissionProgress {
+    pub current: u64,
+    pub total: u64,
+}
+
+impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
+    fn from(value: matrix_sdk::TransmissionProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
@@ -174,7 +194,7 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            let mut builder = self.inner.login_username(&username, &password);
+            let mut builder = self.inner.matrix_auth().login_username(&username, &password);
             if let Some(initial_device_name) = initial_device_name.as_ref() {
                 builder = builder.initial_device_display_name(initial_device_name);
             }
@@ -224,11 +244,12 @@ impl Client {
             sliding_sync_proxy,
         } = session;
 
-        let session = matrix_sdk::Session {
-            access_token,
-            refresh_token,
-            user_id: user_id.try_into()?,
-            device_id: device_id.into(),
+        let session = matrix_sdk::matrix_auth::Session {
+            meta: matrix_sdk::SessionMeta {
+                user_id: user_id.try_into()?,
+                device_id: device_id.into(),
+            },
+            tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
         };
 
         self.restore_session_inner(session)?;
@@ -245,8 +266,11 @@ impl Client {
 }
 
 impl Client {
-    /// Restores the client from a `matrix_sdk::Session`.
-    pub(crate) fn restore_session_inner(&self, session: matrix_sdk::Session) -> anyhow::Result<()> {
+    /// Restores the client from a `matrix_sdk::matrix_auth::Session`.
+    pub(crate) fn restore_session_inner(
+        &self,
+        session: matrix_sdk::matrix_auth::Session,
+    ) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.inner.restore_session(session).await?;
             Ok(())
@@ -259,8 +283,8 @@ impl Client {
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub(crate) async fn authentication_issuer(&self) -> Option<String> {
-        self.inner.authentication_issuer().await
+    pub(crate) fn authentication_issuer(&self) -> Option<String> {
+        self.inner.authentication_server_info().map(|i| i.issuer.clone())
     }
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
@@ -271,7 +295,7 @@ impl Client {
 
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.inner.get_login_types().await?;
+        let login_types = self.inner.matrix_auth().get_login_types().await?;
         let supports_password = login_types
             .flows
             .iter()
@@ -294,8 +318,10 @@ impl Client {
 
     pub fn session(&self) -> Result<Session, ClientError> {
         RUNTIME.block_on(async move {
-            let matrix_sdk::Session { access_token, refresh_token, user_id, device_id } =
-                self.inner.session().context("Missing session")?;
+            let matrix_sdk::matrix_auth::Session {
+                meta: matrix_sdk::SessionMeta { user_id, device_id },
+                tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+            } = self.inner.matrix_auth().session().context("Missing session")?;
             let homeserver_url = self.inner.homeserver().await.into();
             let sliding_sync_proxy =
                 self.discovered_sliding_sync_proxy().map(|url| url.to_string());
@@ -388,12 +414,26 @@ impl Client {
         })
     }
 
-    pub fn upload_media(&self, mime_type: String, data: Vec<u8>) -> Result<String, ClientError> {
+    pub fn upload_media(
+        &self,
+        mime_type: String,
+        data: Vec<u8>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
+    ) -> Result<String, ClientError> {
         let l = self.inner.clone();
 
         RUNTIME.block_on(async move {
             let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-            let response = l.media().upload(&mime_type, data).await?;
+            let request = l.media().upload(&mime_type, data);
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = request.subscribe_to_send_progress();
+                RUNTIME.spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+            let response = request.await?;
             Ok(String::from(response.content_uri))
         })
     }
@@ -467,7 +507,7 @@ impl Client {
 
     /// Log out the current user
     pub fn logout(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(self.inner.logout())?;
+        RUNTIME.block_on(self.inner.matrix_auth().logout())?;
         Ok(())
     }
 
@@ -569,7 +609,7 @@ impl Client {
         let handler = move |notification, room: SdkRoom, _| {
             let notification_delegate = Arc::clone(&notification_delegate);
             async move {
-                if let Ok(notification_item) =
+                if let Ok(Some(notification_item)) =
                     NotificationItem::new_from_notification(notification, room).await
                 {
                     if let Some(notification_delegate) =
@@ -589,7 +629,7 @@ impl Client {
         &self,
         room_id: String,
         event_id: String,
-    ) -> Result<NotificationItem, ClientError> {
+    ) -> Result<Option<NotificationItem>, ClientError> {
         RUNTIME.block_on(async move {
             // We may also need to do a sync here since this may fail if the keys are not
             // valid anymore

@@ -28,12 +28,9 @@ use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
-use crate::{
-    config::RequestConfig,
-    error::RumaApiError,
-    http_client::{HttpClient, HttpSend, HttpSettings},
-    HttpError,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http_client::HttpSettings;
+use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
@@ -70,7 +67,7 @@ use crate::{
 ///     .user_agent("MyApp/v3.0");
 ///
 /// let client_builder =
-///     Client::builder().http_client(Arc::new(reqwest_builder.build()?));
+///     Client::builder().http_client(reqwest_builder.build()?);
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
@@ -226,15 +223,13 @@ impl ClientBuilder {
         self
     }
 
-    /// Specify an HTTP client to handle sending requests and receiving
-    /// responses.
+    /// Specify a [`reqwest::Client`] instance to handle sending requests and
+    /// receiving responses.
     ///
-    /// Any type that implements the `HttpSend` trait can be used to send /
-    /// receive `http` types.
-    ///
-    /// This method is mutually exclusive with
-    /// [`user_agent()`][Self::user_agent],
-    pub fn http_client(mut self, client: Arc<dyn HttpSend>) -> Self {
+    /// This method is mutually exclusive with [`proxy()`][Self::proxy],
+    /// [`disable_ssl_verification`][Self::disable_ssl_verification] and
+    /// [`user_agent()`][Self::user_agent].
+    pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http_cfg = Some(HttpConfig::Custom(client));
         self
     }
@@ -295,8 +290,8 @@ impl ClientBuilder {
     ///   is encountered, it means that the user needs to be logged in again.
     ///
     /// * The access token and refresh token need to be watched for changes,
-    ///   using [`Client::session_tokens_stream()`] for example, to be able to
-    ///   [restore the session] later.
+    ///   using the authentication API's `session_tokens_stream()` for example,
+    ///   to be able to [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
@@ -325,15 +320,12 @@ impl ClientBuilder {
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
+        #[cfg_attr(target_arch = "wasm32", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[allow(unused_mut)]
+            #[cfg(not(target_arch = "wasm32"))]
             HttpConfig::Settings(mut settings) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    settings.timeout = self.request_config.timeout;
-                }
-
-                Arc::new(settings.make_client()?)
+                settings.timeout = self.request_config.timeout;
+                settings.make_client()?
             }
             HttpConfig::Custom(c) => c,
         };
@@ -354,7 +346,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
-        let mut authentication_issuer = None;
+        let mut authentication_server_info = None;
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
         let homeserver = match homeserver_cfg {
@@ -371,6 +363,7 @@ impl ClientBuilder {
                         None,
                         None,
                         &[MatrixVersion::V1_0],
+                        Default::default(),
                     )
                     .await
                     .map_err(|e| match e {
@@ -378,7 +371,7 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
-                authentication_issuer = well_known.authentication.map(|auth| auth.issuer);
+                authentication_server_info = well_known.authentication;
 
                 #[cfg(feature = "experimental-sliding-sync")]
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
@@ -394,13 +387,12 @@ impl ClientBuilder {
         };
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
-        let authentication_issuer = authentication_issuer.map(RwLock::new);
 
         let (unknown_token_error_sender, _) = broadcast::channel(1);
 
         let inner = Arc::new(ClientInner {
             homeserver,
-            authentication_issuer,
+            authentication_server_info,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
@@ -423,6 +415,9 @@ impl ClientBuilder {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             unknown_token_error_sender,
+            auth_data: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            cross_process_crypto_store_lock: OnceCell::new(),
         });
 
         debug!("Done building the Client");
@@ -449,8 +444,9 @@ enum HomeserverConfig {
 
 #[derive(Clone, Debug)]
 enum HttpConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     Settings(HttpSettings),
-    Custom(Arc<dyn HttpSend>),
+    Custom(reqwest::Client),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -471,7 +467,11 @@ impl HttpConfig {
 
 impl Default for HttpConfig {
     fn default() -> Self {
-        Self::Settings(HttpSettings::default())
+        #[cfg(not(target_arch = "wasm32"))]
+        return Self::Settings(HttpSettings::default());
+
+        #[cfg(target_arch = "wasm32")]
+        return Self::Custom(reqwest::Client::new());
     }
 }
 

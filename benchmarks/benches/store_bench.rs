@@ -1,6 +1,10 @@
 use criterion::*;
-use matrix_sdk::{config::StoreConfig, Client, RoomInfo, RoomState, Session, StateChanges};
-use matrix_sdk_base::{store::MemoryStore, StateStore as _};
+use matrix_sdk::{
+    config::StoreConfig,
+    matrix_auth::{Session, SessionTokens},
+    Client, RoomInfo, RoomState, StateChanges,
+};
+use matrix_sdk_base::{store::MemoryStore, SessionMeta, StateStore as _};
 use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{device_id, user_id, RoomId};
 use tokio::runtime::Builder;
@@ -41,10 +45,11 @@ pub fn restore_session(c: &mut Criterion) {
     }
 
     let session = Session {
-        access_token: "OHEY".to_owned(),
-        refresh_token: None,
-        user_id: user_id!("@somebody:example.com").to_owned(),
-        device_id: device_id!("DEVICE_ID").to_owned(),
+        meta: SessionMeta {
+            user_id: user_id!("@somebody:example.com").to_owned(),
+            device_id: device_id!("DEVICE_ID").to_owned(),
+        },
+        tokens: SessionTokens { access_token: "OHEY".to_owned(), refresh_token: None },
     };
 
     // Start the benchmark.

@@ -43,7 +43,8 @@ pub use responses::{
 };
 use ruma::{
     events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId,
+    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -244,6 +245,7 @@ async fn migrate_data(
         pickle,
         shared: data.account.shared,
         uploaded_signed_key_count: data.account.uploaded_signed_key_count as u64,
+        creation_local_time: MilliSecondsSinceUnixEpoch(UInt::default()),
     };
     let account = matrix_sdk_crypto::olm::ReadOnlyAccount::from_pickle(pickled_account)?;
 
@@ -284,8 +286,8 @@ async fn migrate_data(
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .map(|u| Ok(((parse_user_id(&u)?), true)))
-        .collect::<anyhow::Result<_>>()?;
+        .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
+        .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
     store.save_tracked_users(tracked_users.as_slice()).await?;
@@ -965,7 +967,8 @@ mod test {
                "@ganfra146:matrix.org",
                "@this-is-me:matrix.org",
                "@Amandine:matrix.org",
-               "@ganfra:matrix.org"
+               "@ganfra:matrix.org",
+               "NotAUser%ID"
             ],
             "room_settings": {
                 "!AZkqtjvtwPAuyNOXEt:matrix.org": {
@@ -1033,6 +1036,11 @@ mod test {
 
         let settings3 = machine.get_room_settings("!XYZ:matrix.org".into())?;
         assert!(settings3.is_none());
+
+        assert!(machine.is_user_tracked("@ganfra146:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@Amandine:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@this-is-me:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@ganfra:matrix.org".into()).unwrap());
 
         Ok(())
     }

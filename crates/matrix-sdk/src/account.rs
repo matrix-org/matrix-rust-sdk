@@ -75,7 +75,7 @@ impl Account {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(name) = client.account().get_display_name().await? {
     ///     println!("Logged in as user '{user}' with display name '{name}'");
@@ -101,7 +101,7 @@ impl Account {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// client.account().set_display_name(Some("Alice")).await?;
     /// # anyhow::Ok(()) };
@@ -125,7 +125,7 @@ impl Account {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(url) = client.account().get_avatar_url().await? {
     ///     println!("Your avatar's mxc url is {url}");
@@ -198,7 +198,7 @@ impl Account {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
     /// let client = Client::new(homeserver).await?;
-    /// client.login_username(user, "password").send().await?;
+    /// client.matrix_auth().login_username(user, "password").send().await?;
     ///
     /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await?
     /// {

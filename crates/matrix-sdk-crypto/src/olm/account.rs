@@ -29,8 +29,8 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
-    RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -273,6 +273,23 @@ impl Account {
             if let Ok(p) = session.decrypt(message).await {
                 decrypted = Some((session.clone(), p));
                 break;
+            } else if let OlmMessage::PreKey(message) = message {
+                if message.session_id() == session.session_id() {
+                    // The message was intended for this session, but we weren't able to decrypt it.
+                    //
+                    // We're going to return early here since no other session will be able to
+                    // decrypt this message, nor should we try to create a new one since we had
+                    // already previously created a `Session` with such a pre-key message.
+                    //
+                    // Creating this session would have likely failed anyway since the corresponding
+                    // one-time key would've been already used up in the previous session creation
+                    // operation. The one exception where this would not be so is if the fallback
+                    // key was used for creating the session in lieu of an OTK.
+                    return Err(OlmError::SessionWedged(
+                        session.user_id.to_owned(),
+                        session.sender_key(),
+                    ));
+                }
             } else {
                 // An error here is completely normal, after all we don't know
                 // which session was used to encrypt a message. We will log a
@@ -486,6 +503,8 @@ pub struct ReadOnlyAccount {
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicU64>,
+    // The creation time of the account in milliseconds since epoch.
+    creation_local_time: MilliSecondsSinceUnixEpoch,
 }
 
 /// A pickled version of an `Account`.
@@ -505,6 +524,14 @@ pub struct PickledAccount {
     pub shared: bool,
     /// The number of uploaded one-time keys we have on the server.
     pub uploaded_signed_key_count: u64,
+    /// The local time creation of this account (milliseconds since epoch), used
+    /// as creation time of own device
+    #[serde(default = "default_account_creation_time")]
+    pub creation_local_time: MilliSecondsSinceUnixEpoch,
+}
+
+fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
+    MilliSecondsSinceUnixEpoch(UInt::default())
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -540,6 +567,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
+            creation_local_time: MilliSecondsSinceUnixEpoch::now(),
         }
     }
 
@@ -561,6 +589,11 @@ impl ReadOnlyAccount {
     /// Get the key ID of our Ed25519 signing key.
     pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
         DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
+    }
+
+    /// Get the local timestamp creation of the account in secs since epoch
+    pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
+        self.creation_local_time
     }
 
     /// Update the uploaded key count.
@@ -676,7 +709,7 @@ impl ReadOnlyAccount {
         }
     }
 
-    async fn generate_fallback_key_helper(&self) {
+    pub(crate) async fn generate_fallback_key_helper(&self) {
         let mut account = self.inner.lock().await;
 
         if account.fallback_key().is_empty() {
@@ -762,6 +795,7 @@ impl ReadOnlyAccount {
             pickle,
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
+            creation_local_time: self.creation_local_time,
         }
     }
 
@@ -785,6 +819,7 @@ impl ReadOnlyAccount {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
+            creation_local_time: pickle.creation_local_time,
         })
     }
 
@@ -1256,7 +1291,10 @@ mod tests {
 
     use anyhow::Result;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+    use ruma::{
+        device_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
+        UserId,
+    };
     use serde_json::json;
 
     use super::ReadOnlyAccount;
@@ -1368,6 +1406,21 @@ mod tests {
 
         let device = ReadOnlyDevice::from_account(&account).await;
         device.verify_one_time_key(&key).expect("The device can verify its own signature");
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_account_and_device_creation_timestamp() -> Result<()> {
+        let now = MilliSecondsSinceUnixEpoch::now();
+        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let then = MilliSecondsSinceUnixEpoch::now();
+
+        assert!(account.creation_local_time() >= now);
+        assert!(account.creation_local_time() <= then);
+
+        let device = ReadOnlyDevice::from_account(&account).await;
+        assert_eq!(account.creation_local_time(), device.first_time_seen_ts());
 
         Ok(())
     }

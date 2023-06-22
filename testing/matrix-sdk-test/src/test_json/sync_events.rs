@@ -55,6 +55,22 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static DIRECT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "@invited:localhost": ["!SVkFJHzfwvuaIEawgC:localhost"],
+        },
+        "event_id": "$757957878228ekrDs:localhost",
+        "origin_server_ts": 17195787,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.direct",
+        "unsigned": {
+          "age": 139298
+        }
+    })
+});
+
 pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -142,6 +158,40 @@ pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
         "unsigned": {
             "age": 297036,
             "replaces_state": "$151800111315tsynI:localhost"
+        }
+    })
+});
+
+// Make @invited:localhost a member (note the confusing name)
+pub static MEMBER_ADDITIONAL: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "membership": "join",
+        },
+        "event_id": "$747273582443PhrSn:localhost",
+        "origin_server_ts": 1472735824,
+        "sender": "@example:localhost",
+        "state_key": "@invited:localhost",
+        "type": "m.room.member",
+        "unsigned": {
+            "age": 1234
+        }
+    })
+});
+
+// Make @invited:localhost leave the room (note the confusing name)
+pub static MEMBER_LEAVE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "membership": "leave",
+        },
+        "event_id": "$747273582443PhrS9:localhost",
+        "origin_server_ts": 1472735820,
+        "sender": "@example:localhost",
+        "state_key": "@invited:localhost",
+        "type": "m.room.member",
+        "unsigned": {
+            "age": 1234
         }
     })
 });

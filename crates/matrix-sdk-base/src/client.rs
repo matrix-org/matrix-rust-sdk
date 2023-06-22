@@ -28,8 +28,6 @@ use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
-use once_cell::sync::OnceCell;
-#[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::{
         history_visibility::HistoryVisibility, message::MessageType,
@@ -54,6 +52,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tokio::sync::RwLock;
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
@@ -65,7 +65,7 @@ use crate::{
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    RoomStateFilter, Session, SessionMeta, SessionTokens,
+    RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -88,7 +88,7 @@ pub struct BaseClient {
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
-    olm_machine: OnceCell<OlmMachine>,
+    olm_machine: Arc<RwLock<Option<OlmMachine>>>,
     pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
 }
 
@@ -134,35 +134,6 @@ impl BaseClient {
         self.store.session_meta()
     }
 
-    /// Get the session tokens.
-    ///
-    /// This returns a subscriber object that you can use both to
-    /// [`get`](Subscriber::get) the current value as well as to react to
-    /// changes to the tokens.
-    ///
-    /// If the client is currently logged in, the inner value is a
-    /// [`SessionTokens`] object which contains the access token and optional
-    /// refresh token. Otherwise it is `None`.
-    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
-        self.store.session_tokens()
-    }
-
-    /// Set the session tokens.
-    pub fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.store.set_session_tokens(tokens)
-    }
-
-    /// Get the user login session.
-    ///
-    /// If the client is currently logged in, this will return a
-    /// [`Session`][crate::session::Session] object.
-    ///
-    /// Returns a session object if the client is logged in. Otherwise returns
-    /// `None`.
-    pub fn session(&self) -> Option<Session> {
-        self.store.session()
-    }
-
     /// Get all the rooms this client knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.store.get_rooms()
@@ -196,29 +167,6 @@ impl BaseClient {
         self.store.session_meta().is_some()
     }
 
-    /// Receive a login response and update the session of the client.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - A successful login response that contains our access
-    ///   token and device ID.
-    pub async fn receive_login_response(
-        &self,
-        response: &api::session::login::v3::Response,
-    ) -> Result<()> {
-        let tokens = SessionTokens {
-            access_token: response.access_token.clone(),
-            refresh_token: response.refresh_token.clone(),
-        };
-        self.set_session_tokens(tokens);
-
-        let meta = SessionMeta {
-            device_id: response.device_id.clone(),
-            user_id: response.user_id.clone(),
-        };
-        self.set_session_meta(meta).await
-    }
-
     /// Set the meta of the session.
     ///
     /// If encryption is enabled, this also initializes or restores the
@@ -235,20 +183,29 @@ impl BaseClient {
         self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let olm_machine = OlmMachine::with_store(
-                &session_meta.user_id,
-                &session_meta.device_id,
-                self.crypto_store.clone(),
-            )
-            .await
-            .map_err(OlmError::from)?;
+        self.regenerate_olm().await?;
 
-            if self.olm_machine.set(olm_machine).is_err() {
-                return Err(Error::BadCryptoStoreState);
-            }
-        }
+        Ok(())
+    }
 
+    /// Recreate an `OlmMachine` from scratch.
+    ///
+    /// In particular, this will clear all its caches.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn regenerate_olm(&self) -> Result<()> {
+        tracing::debug!("regenerating OlmMachine");
+        let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
+
+        // Recreate it.
+        let olm_machine = OlmMachine::with_store(
+            &session_meta.user_id,
+            &session_meta.device_id,
+            self.crypto_store.clone(),
+        )
+        .await
+        .map_err(OlmError::from)?;
+
+        *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
     }
 
@@ -264,7 +221,7 @@ impl BaseClient {
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
-        if let Some(olm) = self.olm_machine() {
+        if let Some(olm) = self.olm_machine().await.as_ref() {
             olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
                 .await?;
         }
@@ -278,7 +235,8 @@ impl BaseClient {
         event: &Raw<AnySyncTimelineEvent>,
         room_id: &RoomId,
     ) -> Result<Option<SyncTimelineEvent>> {
-        let Some(olm) = self.olm_machine() else { return Ok(None) };
+        let olm = self.olm_machine().await;
+        let Some(olm) = olm.as_ref() else { return Ok(None) };
 
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id).await?.into();
@@ -604,7 +562,7 @@ impl BaseClient {
         one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
-        if let Some(o) = self.olm_machine() {
+        if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
             // decrypts to-device events, but leaves room events alone.
             // This makes sure that we have the decryption keys for the room
@@ -770,7 +728,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     if !room.is_encrypted() {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
@@ -990,7 +948,7 @@ impl BaseClient {
 
             #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
-                if let Some(o) = self.olm_machine() {
+                if let Some(o) = self.olm_machine().await.as_ref() {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
@@ -1062,7 +1020,7 @@ impl BaseClient {
     /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
-        match self.olm_machine() {
+        match self.olm_machine().await.as_ref() {
             Some(o) => {
                 let (history_visibility, settings) = self
                     .get_room(room_id)
@@ -1099,8 +1057,8 @@ impl BaseClient {
 
     /// Get the olm machine.
     #[cfg(feature = "e2e-encryption")]
-    pub fn olm_machine(&self) -> Option<&OlmMachine> {
-        self.olm_machine.get()
+    pub async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
+        self.olm_machine.read().await
     }
 
     /// Get the push rules.

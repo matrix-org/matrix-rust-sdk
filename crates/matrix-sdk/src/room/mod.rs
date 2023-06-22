@@ -12,7 +12,7 @@ mod member;
 
 pub use self::{
     common::{Common, Messages, MessagesOptions},
-    invited::Invited,
+    invited::{Invite, Invited},
     joined::{Joined, Receipts},
     left::Left,
     member::RoomMember,

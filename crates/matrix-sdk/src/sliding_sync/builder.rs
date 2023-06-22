@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock};
+use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock, time::Duration};
 
 use ruma::{
     api::client::sync::sync_events::v4::{
@@ -32,6 +32,8 @@ pub struct SlidingSyncBuilder {
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    polling_timeout: Duration,
+    network_timeout: Duration,
 }
 
 impl SlidingSyncBuilder {
@@ -48,6 +50,8 @@ impl SlidingSyncBuilder {
                 extensions: None,
                 subscriptions: BTreeMap::new(),
                 rooms: BTreeMap::new(),
+                polling_timeout: Duration::from_secs(30),
+                network_timeout: Duration::from_secs(30),
             })
         }
     }
@@ -128,9 +132,13 @@ impl SlidingSyncBuilder {
                 cfg.account_data.enabled = Some(true);
             }
 
+            // TODO: Re-enable once a `lists` and `rooms` will support `*`. See
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/2037 for more info.
+            /*
             if cfg.receipts.enabled.is_none() {
                 cfg.receipts.enabled = Some(true);
             }
+            */
         }
         self
     }
@@ -227,6 +235,13 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Sets custom timeouts for the sliding sync requests.
+    pub fn with_timeouts(mut self, polling_timeout: Duration, network_timeout: Duration) -> Self {
+        self.polling_timeout = polling_timeout;
+        self.network_timeout = network_timeout;
+        self
+    }
+
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -266,22 +281,15 @@ impl SlidingSyncBuilder {
         // auto-discovered by the client, if any.
         let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
 
-        // Always enable to-device events and the e2ee-extension on the initial request,
-        // no matter what the caller wants.
-        let mut extensions = self.extensions.unwrap_or_default();
-        extensions.to_device.enabled = Some(true);
-        extensions.e2ee.enabled = Some(true);
-
         Ok(SlidingSync::new(SlidingSyncInner {
-            _id: Some(self.id),
+            id: self.id,
             sliding_sync_proxy,
+
             client,
             storage_key: self.storage_key,
 
             lists,
             rooms,
-
-            reset_counter: Default::default(),
 
             position: StdRwLock::new(SlidingSyncPositionMarkers {
                 pos: None,
@@ -290,11 +298,17 @@ impl SlidingSyncBuilder {
             }),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                SlidingSyncStickyParameters::new(self.subscriptions, extensions),
+                SlidingSyncStickyParameters::new(
+                    self.subscriptions,
+                    self.extensions.unwrap_or_default(),
+                ),
             )),
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
+
+            polling_timeout: self.polling_timeout,
+            network_timeout: self.network_timeout,
         }))
     }
 }

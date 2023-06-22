@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{fs, path::Path, pin::Pin, sync::Arc, task::Poll, time::Duration};
+use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
 use eyeball_im::VectorDiff;
@@ -50,6 +50,7 @@ use tracing::{debug, error, info, instrument, warn};
 mod builder;
 mod event_handler;
 mod event_item;
+mod futures;
 mod inner;
 mod pagination;
 mod reactions;
@@ -73,6 +74,7 @@ pub use self::{
         OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
+    futures::SendAttachment,
     pagination::{PaginationOptions, PaginationOutcome},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
@@ -494,25 +496,13 @@ impl Timeline {
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment
     /// like a thumbnail, its size, duration etc.
-    pub async fn send_attachment(
+    pub fn send_attachment(
         &self,
         url: String,
         mime_type: Mime,
         config: AttachmentConfig,
-    ) -> Result<(), Error> {
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            return Err(Error::RoomNotJoined);
-        };
-
-        let body =
-            Path::new(&url).file_name().ok_or(Error::InvalidAttachmentFileName)?.to_str().unwrap();
-        let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
-
-        room.send_attachment(body, &mime_type, data, config)
-            .await
-            .map_err(|_| Error::FailedSendingAttachment)?;
-
-        Ok(())
+    ) -> SendAttachment<'_> {
+        SendAttachment::new(self, url, mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.

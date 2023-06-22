@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{server_name, user_id, EventId, OwnedEventId, OwnedTransactionId};
+use ruma::{server_name, user_id, EventId, OwnedEventId, OwnedTransactionId, UserId};
 
-use super::{ALICE, BOB};
-use crate::timeline::ReactionGroup;
+use crate::timeline::{
+    tests::{ALICE, BOB},
+    ReactionGroup,
+};
 
 #[test]
 fn by_sender() {
@@ -66,6 +68,27 @@ fn by_sender_with_multiple_users() {
     assert_eq!(alice_reactions.len(), 2);
     assert_eq!(bob_reactions.len(), 1);
     assert!(carol_reactions.is_empty());
+}
+
+/// The Matrix spec does not allow duplicate annotations to be created but it
+/// is still possible for duplicates to be received over federation. And in
+/// that case, clients are expected to treat duplicates as a single annotation.
+#[test]
+fn senders_are_deduplicated() {
+    let group = {
+        let mut group = ReactionGroup::default();
+        insert(&mut group, &ALICE, 3);
+        insert(&mut group, &BOB, 2);
+        group
+    };
+
+    assert_eq!(group.senders().collect::<Vec<_>>(), vec![&ALICE.to_owned(), &BOB.to_owned()]);
+}
+
+fn insert(group: &mut ReactionGroup, sender: &UserId, count: u64) {
+    for _ in 0..count {
+        group.0.insert(new_reaction(), sender.to_owned());
+    }
 }
 
 fn new_reaction() -> (Option<OwnedTransactionId>, Option<OwnedEventId>) {

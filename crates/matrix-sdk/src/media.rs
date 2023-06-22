@@ -21,6 +21,8 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
+use eyeball::shared::Observable as SharedObservable;
+use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,7 +30,13 @@ use mime2ext;
 use ruma::{
     api::client::media::{create_content, get_content, get_content_thumbnail},
     assign,
-    events::room::MediaSource,
+    events::room::{
+        message::{
+            self, AudioInfo, FileInfo, FileMessageEventContent, ImageMessageEventContent,
+            MessageType, VideoInfo, VideoMessageEventContent,
+        },
+        ImageInfo, MediaSource, ThumbnailInfo,
+    },
     MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -38,7 +46,7 @@ use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    Client, Result,
+    Client, Result, SendRequest, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -74,6 +82,9 @@ impl MediaFileHandle {
     }
 }
 
+/// `IntoFuture` returned by [`Media::upload`].
+pub type SendUploadRequest = SendRequest<create_content::v3::Request>;
+
 impl Media {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
@@ -106,11 +117,7 @@ impl Media {
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn upload(
-        &self,
-        content_type: &Mime,
-        data: Vec<u8>,
-    ) -> Result<create_content::v3::Response> {
+    pub fn upload(&self, content_type: &Mime, data: Vec<u8>) -> SendUploadRequest {
         let timeout = std::cmp::max(
             Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
             MIN_UPLOAD_REQUEST_TIMEOUT,
@@ -121,7 +128,7 @@ impl Media {
         });
 
         let request_config = self.client.request_config().timeout(timeout);
-        Ok(self.client.send(request, Some(request_config)).await?)
+        self.client.send(request, Some(request_config))
     }
 
     /// Gets a media file by copying it to a temporary location on disk.
@@ -400,70 +407,88 @@ impl Media {
         data: Vec<u8>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
-    ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
-            let response = self.upload(&thumbnail.content_type, thumbnail.data).await?;
-            let url = response.content_uri;
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<MessageType> {
+        let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
-            use ruma::events::room::ThumbnailInfo;
-            let thumbnail_info = assign!(
-                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-            );
-
-            (Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info)))
-        } else {
-            (None, None)
+        let upload_attachment = async move {
+            self.upload(content_type, data)
+                .with_send_progress_observable(send_progress)
+                .await
+                .map_err(crate::Error::from)
         };
 
-        let response = self.upload(content_type, data).await?;
+        let ((thumbnail_source, thumbnail_info), response) =
+            try_join(upload_thumbnail, upload_attachment).await?;
 
         let url = response.content_uri;
 
-        use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info,
                 });
-                message::MessageType::Image(
-                    message::ImageMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::Image(
+                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
             mime::AUDIO => {
-                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                 });
-                message::MessageType::Audio(
+                MessageType::Audio(
                     message::AudioMessageEventContent::plain(body.to_owned(), url)
                         .info(Box::new(info)),
                 )
             }
             mime::VIDEO => {
-                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::Video(
-                    message::VideoMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::Video(
+                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
             _ => {
-                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
-                message::MessageType::File(
-                    message::FileMessageEventContent::plain(body.to_owned(), url)
-                        .info(Box::new(info)),
+                MessageType::File(
+                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info)),
                 )
             }
         })
+    }
+
+    async fn upload_thumbnail(
+        &self,
+        thumbnail: Option<Thumbnail>,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+        if let Some(thumbnail) = thumbnail {
+            let response = self
+                .upload(&thumbnail.content_type, thumbnail.data)
+                .with_send_progress_observable(send_progress)
+                .await?;
+            let url = response.content_uri;
+
+            let thumbnail_info = assign!(
+                thumbnail.info
+                    .as_ref()
+                    .map(|info| ThumbnailInfo::from(info.clone()))
+                    .unwrap_or_default(),
+                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+            );
+
+            Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
+        } else {
+            Ok((None, None))
+        }
     }
 }

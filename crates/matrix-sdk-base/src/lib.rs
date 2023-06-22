@@ -18,11 +18,10 @@
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
+use ruma::{OwnedDeviceId, OwnedUserId};
+use serde::{Deserialize, Serialize};
 
-pub use crate::{
-    error::{Error, Result},
-    session::{Session, SessionMeta, SessionTokens},
-};
+pub use crate::error::{Error, Result};
 
 mod client;
 pub mod debug;
@@ -30,7 +29,6 @@ pub mod deserialized_responses;
 mod error;
 pub mod media;
 mod rooms;
-mod session;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync;
 pub mod store;
@@ -59,4 +57,13 @@ fn init_logging() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer().with_test_writer())
         .init();
+}
+
+/// The Matrix user session info.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct SessionMeta {
+    /// The ID of the session's user.
+    pub user_id: OwnedUserId,
+    /// The ID of the client device.
+    pub device_id: OwnedDeviceId,
 }

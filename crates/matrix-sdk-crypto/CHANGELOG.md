@@ -20,3 +20,7 @@
 
 - Add new API `store::Store::room_keys_received_stream` to provide
   updates of room keys being received.
+
+- Add new method `identities::device::Device::first_time_seen_ts` 
+  that allows to get a local timestamp of when the device was first seen by
+  the sdk (in seconds since epoch).
