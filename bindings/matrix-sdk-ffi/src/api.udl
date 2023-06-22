@@ -77,3 +77,7 @@ enum EventItemOrigin {
     "Sync",
     "Pagination",
 };
+
+callback interface NotificationSettingsDelegate {
+    void settings_did_change();
+};

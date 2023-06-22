@@ -28,6 +28,7 @@ mod error;
 mod event;
 mod helpers;
 mod notification;
+mod notification_settings;
 mod platform;
 mod room;
 mod room_list;
@@ -48,6 +49,7 @@ use matrix_sdk_ui::timeline::EventItemOrigin;
 use self::{
     client::{CreateRoomParameters, RoomPreset, RoomVisibility},
     error::ClientError,
+    notification_settings::NotificationSettingsDelegate,
     session_verification::{SessionVerificationControllerDelegate, SessionVerificationEmoji},
     task_handle::TaskHandle,
     timeline::MediaSourceExt,
