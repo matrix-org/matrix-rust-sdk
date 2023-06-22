@@ -419,7 +419,7 @@ let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
     .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
-    .with_common_extensions()?; // we want the e2ee and to-device enabled, please
+    .with_common_extensions(); // we want the e2ee and to-device enabled, please
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
