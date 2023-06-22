@@ -26,8 +26,8 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-#[cfg(feature = "experimental-notification")]
-mod notification;
+#[cfg(feature = "experimental-encryption-sync")]
+mod encryption_sync;
 #[cfg(feature = "experimental-room-list")]
 mod room_list;
 mod sliding_sync;

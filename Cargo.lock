@@ -2946,6 +2946,7 @@ dependencies = [
  "indexmap",
  "matrix-sdk",
  "matrix-sdk-base",
+ "matrix-sdk-crypto",
  "matrix-sdk-test",
  "mime",
  "once_cell",

@@ -30,7 +30,7 @@ use crate::{
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
-    let room_list = RoomList::new(client).await?;
+    let room_list = RoomList::new_with_encryption(client).await?;
 
     Ok((server, room_list))
 }
@@ -241,12 +241,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 },
             },
             "extensions": {
-                "e2ee": {
-                    "enabled": true,
-                },
-                "to_device": {
-                    "enabled": true,
-                },
                 "account_data": {
                     "enabled": true
                 }

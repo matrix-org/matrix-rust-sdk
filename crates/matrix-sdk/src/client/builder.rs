@@ -416,6 +416,8 @@ impl ClientBuilder {
             refresh_token_lock: Mutex::new(Ok(())),
             unknown_token_error_sender,
             auth_data: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            cross_process_crypto_store_lock: OnceCell::new(),
         });
 
         debug!("Done building the Client");

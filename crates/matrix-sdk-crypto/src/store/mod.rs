@@ -95,6 +95,7 @@ use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
+use self::locks::CryptoStoreLock;
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
 /// A wrapper for our CryptoStore trait object.
@@ -994,6 +995,12 @@ impl Store {
                 }
             }
         })
+    }
+
+    /// Creates a `CryptoStoreLock` for this store, that will contain the given
+    /// key and value when hold.
+    pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
+        CryptoStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
     }
 }
 

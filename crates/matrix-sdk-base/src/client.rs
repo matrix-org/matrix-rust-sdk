@@ -183,18 +183,29 @@ impl BaseClient {
         self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let olm_machine = OlmMachine::with_store(
-                &session_meta.user_id,
-                &session_meta.device_id,
-                self.crypto_store.clone(),
-            )
-            .await
-            .map_err(OlmError::from)?;
+        self.regenerate_olm().await?;
 
-            *self.olm_machine.write().await = Some(olm_machine);
-        }
+        Ok(())
+    }
 
+    /// Recreate an `OlmMachine` from scratch.
+    ///
+    /// In particular, this will clear all its caches.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn regenerate_olm(&self) -> Result<()> {
+        tracing::debug!("regenerating OlmMachine");
+        let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
+
+        // Recreate it.
+        let olm_machine = OlmMachine::with_store(
+            &session_meta.user_id,
+            &session_meta.device_id,
+            self.crypto_store.clone(),
+        )
+        .await
+        .map_err(OlmError::from)?;
+
+        *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
     }
 

@@ -19,12 +19,30 @@ use crate::{
 };
 #[uniffi::export]
 impl Client {
-    /// Get a new `RoomList` instance.
+    /// Get a new `RoomList` instance without encryption support.
+    ///
+    /// In this case, it is the user's responsibility to create an
+    /// `EncryptionSync` that runs in the background too.
     pub fn room_list(&self) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
             inner: Arc::new(
                 RUNTIME
                     .block_on(async { matrix_sdk_ui::RoomList::new(self.inner.clone()).await })
+                    .map_err(RoomListError::from)?,
+            ),
+        }))
+    }
+
+    /// Get a new `RoomList` instance with encryption enabled.
+    ///
+    /// In this case, no instance of `EncryptionSync` must exist.
+    pub fn room_list_with_encryption(&self) -> Result<Arc<RoomList>, RoomListError> {
+        Ok(Arc::new(RoomList {
+            inner: Arc::new(
+                RUNTIME
+                    .block_on(async {
+                        matrix_sdk_ui::RoomList::new_with_encryption(self.inner.clone()).await
+                    })
                     .map_err(RoomListError::from)?,
             ),
         }))

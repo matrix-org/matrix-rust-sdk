@@ -53,7 +53,10 @@ use tokio::{
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
 
-use self::sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
+use self::{
+    cache::restore_sliding_sync_state,
+    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
+};
 use crate::{config::RequestConfig, Client, Result};
 
 /// The Sliding Sync instance.
@@ -80,6 +83,13 @@ pub(super) struct SlidingSyncInner {
 
     /// The HTTP Matrix client.
     client: Client,
+
+    /// Long-polling timeout that appears the sliding sync proxy request.
+    polling_timeout: Duration,
+
+    /// Extra duration for the sliding sync request to timeout. This is added to
+    /// the [`Self::proxy_timeout`].
+    network_timeout: Duration,
 
     /// The storage key to keep this cache at and load it from
     storage_key: Option<String>,
@@ -392,13 +402,12 @@ impl SlidingSync {
 
         // Collect other data.
         let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
-        let timeout = Duration::from_secs(30);
 
         let mut request = assign!(v4::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
             delta_token,
-            timeout: Some(timeout),
+            timeout: Some(self.inner.polling_timeout),
             lists: requests_lists,
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
@@ -423,9 +432,10 @@ impl SlidingSync {
         Ok((
             // The request itself.
             request,
-            // Configure long-polling. We need 30 seconds for the long-poll itself, in
-            // addition to 30 more extra seconds for the network delays.
-            RequestConfig::default().timeout(timeout + Duration::from_secs(30)),
+            // Configure long-polling. We need some time for the long-poll itself,
+            // and extra time for the network delays.
+            RequestConfig::default()
+                .timeout(self.inner.polling_timeout + self.inner.network_timeout),
             room_unsubscriptions,
         ))
     }
@@ -621,6 +631,32 @@ impl SlidingSync {
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
+
+    /// Force reloading the to-device token, if caching was enabled for this
+    /// instance of sliding sync.
+    ///
+    /// This should only be done if multiple processes may be reading/writing
+    /// into the sliding sync cache.
+    pub async fn reload_to_device_token(&self) -> Result<()> {
+        if let Some(storage_key) = &self.inner.storage_key {
+            let lists = self.inner.lists.read().await;
+            let mut to_device_token = None;
+
+            restore_sliding_sync_state(
+                &self.inner.client,
+                storage_key,
+                &lists,
+                &mut None,
+                &mut to_device_token,
+            )
+            .await?;
+
+            if let Some(token) = to_device_token {
+                self.inner.position.write().unwrap().to_device_token = Some(token);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SlidingSyncInner {
@@ -666,6 +702,17 @@ impl SlidingSync {
     /// Get the URL to Sliding Sync.
     pub fn sliding_sync_proxy(&self) -> Option<Url> {
         self.inner.sliding_sync_proxy.clone()
+    }
+
+    /// Set a new value for the to-device "since" token.
+    pub fn set_to_device_token(&self, to_device_token: String) {
+        let mut position_lock = self.inner.position.write().unwrap();
+        position_lock.to_device_token = Some(to_device_token);
+    }
+
+    /// Force caching the current sliding sync to storage.
+    pub async fn force_cache_to_storage(&self) -> Result<()> {
+        self.cache_to_storage().await
     }
 }
 
