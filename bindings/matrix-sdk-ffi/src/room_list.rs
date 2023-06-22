@@ -5,15 +5,12 @@ use std::{
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::sliding_sync::SlidingSyncListLoadingState;
 use ruma::RoomId;
 
 use crate::{
     client::Client,
     room::Room,
-    sliding_sync::{
-        RoomListEntry, RoomSubscription, SlidingSyncListStateObserver, UnreadNotificationsCount,
-    },
+    sliding_sync::{RoomListEntry, RoomSubscription, UnreadNotificationsCount},
     timeline::EventTimelineItem,
     TaskHandle, RUNTIME,
 };
@@ -159,6 +156,24 @@ pub struct RoomList {
 
 #[uniffi::export]
 impl RoomList {
+    fn loading_state(
+        &self,
+        listener: Box<dyn RoomListLoadingStateListener>,
+    ) -> Result<RoomListLoadingStateResult, RoomListError> {
+        let loading_state = self.inner.loading_state();
+
+        Ok(RoomListLoadingStateResult {
+            state: loading_state.get().into(),
+            state_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(loading_state);
+
+                while let Some(loading_state) = loading_state.next().await {
+                    listener.on_update(loading_state.into());
+                }
+            }))),
+        })
+    }
+
     fn entries(
         &self,
         listener: Box<dyn RoomListEntriesListener>,
@@ -188,6 +203,12 @@ pub struct RoomListEntriesResult {
     pub entries_stream: Arc<TaskHandle>,
 }
 
+#[derive(uniffi::Record)]
+pub struct RoomListLoadingStateResult {
+    pub state: RoomListLoadingState,
+    pub state_stream: Arc<TaskHandle>,
+}
+
 #[derive(uniffi::Enum)]
 pub enum RoomListServiceState {
     Init,
@@ -211,9 +232,31 @@ impl From<matrix_sdk_ui::room_list::State> for RoomListServiceState {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum RoomListLoadingState {
+    NotLoaded,
+    Loaded { maximum_number_of_rooms: Option<u32> },
+}
+
+impl From<matrix_sdk_ui::room_list::RoomListLoadingState> for RoomListLoadingState {
+    fn from(value: matrix_sdk_ui::room_list::RoomListLoadingState) -> Self {
+        use matrix_sdk_ui::room_list::RoomListLoadingState::*;
+
+        match value {
+            NotLoaded => Self::NotLoaded,
+            Loaded { maximum_number_of_rooms } => Self::Loaded { maximum_number_of_rooms },
+        }
+    }
+}
+
 #[uniffi::export(callback_interface)]
 pub trait RoomListServiceStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListServiceState);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomListLoadingStateListener: Send + Sync + Debug {
+    fn on_update(&self, state: RoomListLoadingState);
 }
 
 #[derive(uniffi::Enum)]
