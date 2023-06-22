@@ -53,6 +53,7 @@ mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod invalid;
+mod reaction_group;
 mod read_receipts;
 mod redaction;
 mod virt;

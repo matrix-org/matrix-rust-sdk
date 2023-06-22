@@ -16,6 +16,7 @@ use std::{fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use ruma::{
     assign,
@@ -398,9 +399,9 @@ type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEven
 pub struct ReactionGroup(pub(in crate::timeline) ReactionGroupInner);
 
 impl ReactionGroup {
-    /// The senders of the reactions in this group.
+    /// The (deduplicated) senders of the reactions in this group.
     pub fn senders(&self) -> impl Iterator<Item = &UserId> {
-        self.values().map(AsRef::as_ref)
+        self.values().unique().map(AsRef::as_ref)
     }
 }
 
