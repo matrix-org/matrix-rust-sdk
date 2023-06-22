@@ -74,18 +74,10 @@ async fn message_order() {
         .mount(&server)
         .await;
 
-    tokio::spawn({
-        let timeline = timeline.clone();
-        async move {
-            timeline.send(RoomMessageEventContent::text_plain("First!").into(), None).await;
-        }
-    });
-    tokio::spawn(async move {
-        timeline.send(RoomMessageEventContent::text_plain("Second.").into(), None).await;
-    });
+    timeline.send(RoomMessageEventContent::text_plain("First!").into(), None).await;
+    timeline.send(RoomMessageEventContent::text_plain("Second.").into(), None).await;
 
-    sleep(Duration::from_millis(50)).await;
-
+    // Local echoes are available as soon as `timeline.send` returns
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
@@ -93,13 +85,15 @@ async fn message_order() {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
 
-    // 200ms for the first msg, 100ms for the second, 100ms for overhead
+    // Wait 200ms for the first msg, 100ms for the second, 100ms for overhead
     sleep(Duration::from_millis(400)).await;
 
+    // The first item should be updated first
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
         assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
     });
+    // Then the second one
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
         assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
