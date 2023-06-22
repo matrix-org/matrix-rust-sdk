@@ -313,10 +313,10 @@ impl EventTimelineItem {
         self.0
             .reactions()
             .iter()
-            .map(|(k, v)| Reaction { 
-                key: k.to_owned(), 
-                count: v.len().try_into().unwrap(), 
-                senders: v.senders().map(ToString::to_string).collect()
+            .map(|(k, v)| Reaction {
+                key: k.to_owned(),
+                count: v.len().try_into().unwrap(),
+                senders: v.senders().map(ToString::to_string).collect(),
             })
             .collect()
     }
