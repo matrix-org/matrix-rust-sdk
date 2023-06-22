@@ -1142,7 +1142,7 @@ async fn test_loading_states() -> Result<(), Error> {
     };
 
     // Wait on Tokio to run all the tasks. It won't happen in the main app.
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(50)).await;
 
     // There is a loading state update, it's loaded now!
     assert_next_matches!(
@@ -1174,7 +1174,7 @@ async fn test_loading_states() -> Result<(), Error> {
     };
 
     // Wait on Tokio to run all the tasks. It won't happen in the main app.
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(50)).await;
 
     // There is a loading state update because the number of rooms has been updated.
     assert_next_matches!(
@@ -1204,6 +1204,9 @@ async fn test_loading_states() -> Result<(), Error> {
             "rooms": {},
         },
     };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(50)).await;
 
     // No loading state update.
     assert_pending!(all_rooms_loading_state);
