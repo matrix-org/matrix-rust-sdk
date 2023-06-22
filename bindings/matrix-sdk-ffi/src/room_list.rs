@@ -140,6 +140,22 @@ impl RoomListService {
         })))
     }
 
+    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
+        self.inner.apply_input(input.into()).await.map_err(Into::into)
+    }
+
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+        let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
+
+        Ok(Arc::new(RoomListItem {
+            inner: Arc::new(RUNTIME.block_on(async { self.inner.room(room_id).await })?),
+        }))
+    }
+}
+
+// Those implementations use `tokio` explicitly. Let's make it work nicely.
+#[uniffi::export(async_runtime = "tokio")]
+impl RoomListService {
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
             room_list_service: self.clone(),
@@ -151,18 +167,6 @@ impl RoomListService {
         Ok(Arc::new(RoomList {
             room_list_service: self.clone(),
             inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
-        }))
-    }
-
-    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
-        self.inner.apply_input(input.into()).await.map_err(Into::into)
-    }
-
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
-        let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
-
-        Ok(Arc::new(RoomListItem {
-            inner: Arc::new(RUNTIME.block_on(async { self.inner.room(room_id).await })?),
         }))
     }
 }
