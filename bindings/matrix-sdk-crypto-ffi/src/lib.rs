@@ -286,8 +286,8 @@ async fn migrate_data(
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .map(|u| Ok(((parse_user_id(&u)?), true)))
-        .collect::<anyhow::Result<_>>()?;
+        .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
+        .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
     store.save_tracked_users(tracked_users.as_slice()).await?;
@@ -967,7 +967,8 @@ mod test {
                "@ganfra146:matrix.org",
                "@this-is-me:matrix.org",
                "@Amandine:matrix.org",
-               "@ganfra:matrix.org"
+               "@ganfra:matrix.org",
+               "NotAUser%ID"
             ],
             "room_settings": {
                 "!AZkqtjvtwPAuyNOXEt:matrix.org": {
@@ -1035,6 +1036,11 @@ mod test {
 
         let settings3 = machine.get_room_settings("!XYZ:matrix.org".into())?;
         assert!(settings3.is_none());
+
+        assert!(machine.is_user_tracked("@ganfra146:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@Amandine:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@this-is-me:matrix.org".into()).unwrap());
+        assert!(machine.is_user_tracked("@ganfra:matrix.org".into()).unwrap());
 
         Ok(())
     }
