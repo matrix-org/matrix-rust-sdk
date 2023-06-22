@@ -2944,6 +2944,7 @@ dependencies = [
  "futures-util",
  "imbl",
  "indexmap",
+ "itertools",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
