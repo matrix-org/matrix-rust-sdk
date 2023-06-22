@@ -354,10 +354,9 @@ timeline events as well as all list `room_lists` and
 `maximum_number_of_rooms` are held in memory (unless one `pop`s the list
 out).
 
-This is a purely in-memory cache layer though. If one wants Sliding Sync to
-persist and load from cold (storage) cache, one needs to explicitly
-[`enable_caching()`][`SlidingSyncBuilder::enable_caching`]. This will reload the
-Sliding Sync state from the storage, namely since tokens.
+Sliding Sync instances are also cached on disk, and restored from disk at creation. This ensures
+that we keep track of important position markers, like the `since` tokens used in the sync
+requests.
 
 Caching for lists can be enabled independently, using the
 [`add_cached_list`][`SlidingSyncBuilder::add_cached_list`] method, assuming
@@ -420,8 +419,7 @@ let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
     .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
-    .with_common_extensions() // we want the e2ee and to-device enabled, please
-    .enable_caching()?; // we want these to be loaded from and stored into the persistent storage
+    .with_common_extensions()?; // we want the e2ee and to-device enabled, please
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window

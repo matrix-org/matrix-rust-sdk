@@ -796,12 +796,6 @@ impl SlidingSyncBuilder {
         Ok(Arc::new(builder))
     }
 
-    pub fn enable_caching(self: Arc<Self>) -> Result<Arc<Self>, ClientError> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.enable_caching()?;
-        Ok(Arc::new(builder))
-    }
-
     pub fn add_list(self: Arc<Self>, list_builder: Arc<SlidingSyncListBuilder>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.add_list(unwrap_or_clone_arc(list_builder).inner);

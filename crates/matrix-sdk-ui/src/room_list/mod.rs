@@ -116,12 +116,8 @@ impl RoomListService {
     }
 
     async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
-        let mut builder = client
-            .sliding_sync("room-list")
-            .map_err(Error::SlidingSync)?
-            .enable_caching()
-            .map_err(Error::SlidingSync)?
-            .with_common_extensions();
+        let mut builder =
+            client.sliding_sync("room-list").map_err(Error::SlidingSync)?.with_common_extensions();
 
         if with_encryption {
             builder = builder
