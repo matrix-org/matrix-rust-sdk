@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{server_name, EventId, OwnedTransactionId, UserId};
+use ruma::{server_name, EventId, UserId};
 
 use crate::timeline::{
     tests::{ALICE, BOB},
@@ -36,6 +36,6 @@ fn senders_are_deduplicated() {
 fn insert(group: &mut ReactionGroup, sender: &UserId, count: u64) {
     for _ in 0..count {
         let event_id = EventId::new(server_name!("dummy.server"));
-        group.0.insert((None::<OwnedTransactionId>, Some(event_id)), sender.to_owned());
+        group.0.insert((None, Some(event_id)), sender.to_owned());
     }
 }
