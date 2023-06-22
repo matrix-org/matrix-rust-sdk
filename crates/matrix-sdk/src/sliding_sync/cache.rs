@@ -59,7 +59,10 @@ async fn clean_storage(
 }
 
 /// Store the `SlidingSync`'s state in the storage.
-pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
+pub(super) async fn store_sliding_sync_state(
+    sliding_sync: &SlidingSync,
+    to_device_token: Option<String>,
+) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
 
     trace!(storage_key, "Saving a `SlidingSync`");
@@ -70,7 +73,7 @@ pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Resu
     storage
         .set_custom_value(
             format_storage_key_for_sliding_sync(storage_key).as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::from(sliding_sync))?,
+            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync, to_device_token))?,
         )
         .await?;
 
@@ -207,7 +210,6 @@ pub(super) async fn restore_sliding_sync_state(
 mod tests {
     use std::sync::{Arc, RwLock};
 
-    use futures_executor::block_on;
     use futures_util::StreamExt;
 
     use super::*;
@@ -263,7 +265,7 @@ mod tests {
                 list_bar.set_maximum_number_of_rooms(Some(1337));
             }
 
-            assert!(sliding_sync.cache_to_storage().await.is_ok());
+            assert!(sliding_sync.cache_to_storage(None).await.is_ok());
             storage_key
         };
 

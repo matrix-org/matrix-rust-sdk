@@ -119,8 +119,8 @@ impl SlidingSync {
         Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
     }
 
-    async fn cache_to_storage(&self) -> Result<()> {
-        cache::store_sliding_sync_state(self).await
+    async fn cache_to_storage(&self, to_device_token: Option<String>) -> Result<()> {
+        cache::store_sliding_sync_state(self, to_device_token).await
     }
 
     /// Create a new [`SlidingSyncBuilder`].
@@ -286,9 +286,6 @@ impl SlidingSync {
             let mut position_lock = self.inner.position.write().unwrap();
             position_lock.pos = Some(sliding_sync_response.pos);
             position_lock.delta_token = sliding_sync_response.delta_token;
-            if let Some(to_device) = sliding_sync_response.extensions.to_device {
-                position_lock.to_device_token = Some(to_device.next_batch);
-            }
         }
 
         // Commit sticky parameters, if needed.
@@ -366,7 +363,14 @@ impl SlidingSync {
                 updated_lists
             };
 
-            UpdateSummary { lists: updated_lists, rooms: updated_rooms }
+            UpdateSummary {
+                lists: updated_lists,
+                rooms: updated_rooms,
+                to_device_token: sliding_sync_response
+                    .extensions
+                    .to_device
+                    .map(|ext| ext.next_batch),
+            }
         };
 
         Ok(update_summary)
@@ -408,16 +412,29 @@ impl SlidingSync {
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
 
-        {
+        let to_device_enabled = {
             let mut sticky_params = self.inner.sticky.write().unwrap();
 
             sticky_params.maybe_apply(&mut request, txn_id);
 
-            // Set the to_device token if the extension is enabled.
-            if sticky_params.data().extensions.to_device.enabled == Some(true) {
-                request.extensions.to_device.since =
-                    self.inner.position.read().unwrap().to_device_token.clone();
-            }
+            sticky_params.data().extensions.to_device.enabled == Some(true)
+        };
+
+        // Set the to_device token if the extension is enabled.
+        if to_device_enabled {
+            let lists = self.inner.lists.read().await;
+
+            let mut to_device_token = None;
+            restore_sliding_sync_state(
+                &self.inner.client,
+                &self.inner.storage_key,
+                &lists,
+                &mut None,
+                &mut to_device_token,
+            )
+            .await?;
+
+            request.extensions.to_device.since = to_device_token;
         }
 
         // Apply the transaction id if one was generated.
@@ -522,7 +539,7 @@ impl SlidingSync {
             // Handle the response.
             let updates = this.handle_response(response).await?;
 
-            this.cache_to_storage().await?;
+            this.cache_to_storage(updates.to_device_token.clone()).await?;
 
             // Release the lock.
             drop(response_handling_lock);
@@ -627,31 +644,6 @@ impl SlidingSync {
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
-
-    /// Force reloading the to-device token, if caching was enabled for this
-    /// instance of sliding sync.
-    ///
-    /// This should only be done if multiple processes may be reading/writing
-    /// into the sliding sync cache.
-    pub async fn reload_to_device_token(&self) -> Result<()> {
-        let lists = self.inner.lists.read().await;
-        let mut to_device_token = None;
-
-        restore_sliding_sync_state(
-            &self.inner.client,
-            &self.inner.storage_key,
-            &lists,
-            &mut None,
-            &mut to_device_token,
-        )
-        .await?;
-
-        if let Some(token) = to_device_token {
-            self.inner.position.write().unwrap().to_device_token = Some(token);
-        }
-
-        Ok(())
-    }
 }
 
 impl SlidingSyncInner {
@@ -699,15 +691,9 @@ impl SlidingSync {
         self.inner.sliding_sync_proxy.clone()
     }
 
-    /// Set a new value for the to-device "since" token.
-    pub fn set_to_device_token(&self, to_device_token: String) {
-        let mut position_lock = self.inner.position.write().unwrap();
-        position_lock.to_device_token = Some(to_device_token);
-    }
-
     /// Force caching the current sliding sync to storage.
-    pub async fn force_cache_to_storage(&self) -> Result<()> {
-        self.cache_to_storage().await
+    pub async fn force_cache_to_storage(&self, to_device_token: Option<String>) -> Result<()> {
+        self.cache_to_storage(to_device_token).await
     }
 }
 
@@ -725,10 +711,6 @@ pub(super) struct SlidingSyncPositionMarkers {
     /// If `None`, the server will send the full information for all the lists
     /// present in the request.
     delta_token: Option<String>,
-
-    /// Server-provided opaque token that remembers the current position in the
-    /// to-device extension's stream.
-    to_device_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -739,14 +721,11 @@ struct FrozenSlidingSync {
     delta_token: Option<String>,
 }
 
-impl From<&SlidingSync> for FrozenSlidingSync {
-    fn from(sliding_sync: &SlidingSync) -> Self {
+impl FrozenSlidingSync {
+    fn new(sliding_sync: &SlidingSync, to_device_since: Option<String>) -> Self {
         let position = sliding_sync.inner.position.read().unwrap();
 
-        FrozenSlidingSync {
-            delta_token: position.delta_token.clone(),
-            to_device_since: position.to_device_token.clone(),
-        }
+        Self { delta_token: position.delta_token.clone(), to_device_since }
     }
 }
 
@@ -758,6 +737,8 @@ pub struct UpdateSummary {
     pub lists: Vec<String>,
     /// The rooms that have seen updates
     pub rooms: Vec<OwnedRoomId>,
+    /// The `prev_batch` token from the ToDevice extension, if any.
+    pub to_device_token: Option<String>,
 }
 
 /// The set of sticky parameters owned by the `SlidingSyncInner` instance, and
@@ -955,15 +936,14 @@ mod tests {
 
         // When no to-device token is present, it's still not there after caching
         // either.
-        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        let frozen = FrozenSlidingSync::new(&sliding_sync, None);
         assert!(frozen.to_device_since.is_none());
 
         // When a to-device token is present, `prepare_extensions_config` fills the
         // request with it.
         let since = String::from("my-to-device-since-token");
-        sliding_sync.inner.position.write().unwrap().to_device_token = Some(since.clone());
 
-        let frozen = FrozenSlidingSync::from(&sliding_sync);
+        let frozen = FrozenSlidingSync::new(&sliding_sync, Some(since.clone()));
         assert_eq!(frozen.to_device_since, Some(since));
 
         Ok(())
@@ -1179,7 +1159,7 @@ mod tests {
         // into the extension config. The rest doesn't need to be re-enabled due to
         // stickiness.
         let since_token = "since";
-        sync.inner.position.write().unwrap().to_device_token = Some(since_token.to_owned());
+        sync.force_cache_to_storage(Some(since_token.to_owned())).await?;
 
         let txn_id = TransactionId::new();
         let (request, _, _) = sync

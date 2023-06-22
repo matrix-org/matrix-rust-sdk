@@ -274,11 +274,8 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     // token cached on disk.
     {
         let sliding_sync = SlidingSync::builder("encryption".to_owned(), client)?.build().await?;
-        sliding_sync.set_to_device_token("nb2".to_owned());
-        sliding_sync.force_cache_to_storage().await?;
+        sliding_sync.force_cache_to_storage(Some("nb2".to_owned())).await?;
     }
-
-    encryption_sync.reload_caches().await?;
 
     // Next iteration must have reloaded the latest to-device token.
     sliding_sync_then_assert_request_and_fake_response! {
