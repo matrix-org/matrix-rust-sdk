@@ -30,7 +30,7 @@ use crate::{
 
 async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
     let (client, server) = logged_in_client().await;
-    let room_list = RoomList::new(client, true).await?;
+    let room_list = RoomList::new_with_encryption(client).await?;
 
     Ok((server, room_list))
 }

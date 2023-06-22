@@ -98,11 +98,21 @@ impl RoomList {
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
     ///
-    /// If `with_encryption` is set to true, then the e2ee and to-device
-    /// extensions will be automatically enabled for this instance of the
-    /// `RoomList` API. It should be set to true if and only if there's no
-    /// `EncryptionSync` API running too.
-    pub async fn new(client: Client, with_encryption: bool) -> Result<Self, Error> {
+    /// This won't start an encryption sync, and it's the user's responsibility to create one in
+    /// this case using `EncryptionSync`.
+    pub async fn new(client: Client) -> Result<Self, Error> {
+        Self::new_internal(client, false).await
+    }
+
+    /// Create a new `RoomList` that enables encryption.
+    ///
+    /// This will include syncing the encryption information, so there must not be any instance of
+    /// `EncryptionSync` running in the background.
+    pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
+        Self::new_internal(client, true).await
+    }
+
+    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
@@ -374,7 +384,7 @@ mod tests {
     pub(super) async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client, true).await
+        RoomList::new_with_encryption(client).await
     }
 
     #[async_test]
@@ -382,7 +392,7 @@ mod tests {
         let (client, _) = new_client().await;
 
         {
-            let room_list = RoomList::new(client.clone(), true).await?;
+            let room_list = RoomList::new(client.clone()).await?;
 
             assert!(room_list.sliding_sync().sliding_sync_proxy().is_none());
         }
@@ -391,7 +401,7 @@ mod tests {
             let url = Url::parse("https://foo.matrix/").unwrap();
             client.set_sliding_sync_proxy(Some(url.clone()));
 
-            let room_list = RoomList::new(client.clone(), true).await?;
+            let room_list = RoomList::new(client.clone()).await?;
 
             assert_eq!(room_list.sliding_sync().sliding_sync_proxy(), Some(url));
         }
