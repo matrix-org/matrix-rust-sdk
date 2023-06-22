@@ -74,7 +74,7 @@ use futures_util::{pin_mut, Stream, StreamExt};
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncListLoadingState, SlidingSyncMode,
+    SlidingSyncMode,
 };
 pub use room::*;
 pub use room_list::*;
@@ -162,21 +162,24 @@ impl RoomListService {
             //
             // 1. The next state is calculated,
             // 2. The actions associated to the next state are run,
-            // 3. The next state is stored,
-            // 4. A sync is done.
-            //
-            // So the sync is done after the machine _has entered_ into a new state.
+            // 3. A sync is done,
+            // 4. The next state is stored.
             loop {
+                // Calculate the next state, and run the associated actions.
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
-                self.state.set(next_state);
 
+                // Do the sync.
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
+                        // Update the state.
+                        dbg!(&next_state);
+                        self.state.set(next_state);
+
                         yield Ok(());
                     }
 
                     Some(Err(error)) => {
-                        let next_state = State::Error { from: Box::new(self.state.get()) };
+                        let next_state = State::Error { from: Box::new(next_state) };
                         self.state.set(next_state);
 
                         yield Err(Error::SlidingSync(error));
@@ -185,7 +188,7 @@ impl RoomListService {
                     }
 
                     None => {
-                        let next_state = State::Terminated { from: Box::new(self.state.get()) };
+                        let next_state = State::Terminated { from: Box::new(next_state) };
                         self.state.set(next_state);
 
                         break;
@@ -306,9 +309,6 @@ pub enum Input {
     /// range of visible rooms in the room list.
     Viewport(Ranges),
 }
-
-/// Type alias for entries loading state.
-pub type EntriesLoadingState = SlidingSyncListLoadingState;
 
 #[cfg(test)]
 mod tests {
