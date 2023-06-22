@@ -1,4 +1,4 @@
-use std::ops::Not;
+use std::{ops::Not, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -7,7 +7,7 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        Error, Input, RoomListEntry, RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
@@ -20,6 +20,8 @@ use ruma::{
     room_id, uint,
 };
 use serde_json::json;
+use stream_assert::{assert_next_matches, assert_pending};
+use tokio::time::sleep;
 use wiremock::MockServer;
 
 use crate::{
@@ -1111,6 +1113,111 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_loading_states() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let all_rooms = room_list.all_rooms().await?;
+    let mut all_rooms_loading_state = all_rooms.loading_state();
+
+    // The loading is not loaded.
+    assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
+    assert_pending!(all_rooms_loading_state);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(200)).await;
+
+    // There is a loading state update, it's loaded now!
+    assert_next_matches!(
+        all_rooms_loading_state,
+        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
+            assert_eq!(maximum_number_of_rooms, Some(10));
+        }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 12, // 2 more rooms
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(200)).await;
+
+    // There is a loading state update because the number of rooms has been updated.
+    assert_next_matches!(
+        all_rooms_loading_state,
+        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
+            assert_eq!(maximum_number_of_rooms, Some(12));
+        }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 11]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 12, // no more rooms
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // No loading state update.
+    assert_pending!(all_rooms_loading_state);
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_entries_stream() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
@@ -1165,7 +1272,7 @@ async fn test_entries_stream() -> Result<(), Error> {
                     "name": "Room #2",
                     "initial": true,
                     "timeline": [],
-                }
+                },
             },
         },
     };

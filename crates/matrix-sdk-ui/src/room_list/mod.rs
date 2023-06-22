@@ -172,7 +172,6 @@ impl RoomListService {
                 match sync.next().await {
                     Some(Ok(_update_summary)) => {
                         // Update the state.
-                        dbg!(&next_state);
                         self.state.set(next_state);
 
                         yield Ok(());
@@ -222,7 +221,7 @@ impl RoomListService {
     }
 
     async fn list_for(&self, sliding_sync_list_name: &str) -> Result<RoomList, Error> {
-        RoomList::new(&self.sliding_sync, sliding_sync_list_name).await
+        RoomList::new(&self.sliding_sync, sliding_sync_list_name, self.state()).await
     }
 
     /// Get a [`RoomList`] for all rooms.
