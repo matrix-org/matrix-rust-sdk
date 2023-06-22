@@ -75,8 +75,11 @@ impl RoomList {
                 loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
 
                 // Wait for updates on the maximum number of rooms to update again.
+                let mut maximum_number_of_rooms_stream =
+                    sliding_sync_list.maximum_number_of_rooms_stream();
+
                 while let Some(maximum_number_of_rooms) =
-                    sliding_sync_list.maximum_number_of_rooms_stream().next().await
+                    maximum_number_of_rooms_stream.next().await
                 {
                     loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
                 }
@@ -138,8 +141,8 @@ pub enum RoomListLoadingState {
     Loaded {
         /// The maximum number of rooms a [`RoomList`] contains.
         ///
-        /// It does not mean that there is exactly this amount of rooms to
-        /// display. Usually, the room entries are represented by
+        /// It does not mean that there are exactly this many rooms to display.
+        /// Usually, the room entries are represented by
         /// [`RoomListEntry`]. The room entry might have been synced or not
         /// synced yet, but we know for sure (from the server), that there will
         /// be this amount of rooms in the list at the end.

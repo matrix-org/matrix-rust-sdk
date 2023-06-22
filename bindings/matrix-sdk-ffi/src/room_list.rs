@@ -141,10 +141,6 @@ impl RoomListService {
         })))
     }
 
-    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
-        self.inner.apply_input(input.into()).await.map_err(Into::into)
-    }
-
     fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
@@ -154,7 +150,6 @@ impl RoomListService {
     }
 }
 
-// Those implementations use `tokio` explicitly. Let's make it work nicely.
 #[uniffi::export(async_runtime = "tokio")]
 impl RoomListService {
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -169,6 +164,10 @@ impl RoomListService {
             room_list_service: self.clone(),
             inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
         }))
+    }
+
+    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
+        self.inner.apply_input(input.into()).await.map_err(Into::into)
     }
 }
 
