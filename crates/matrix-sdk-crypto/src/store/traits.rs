@@ -243,6 +243,18 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Returns a boolean indicating whether the value was actually present in
     /// the store.
     async fn remove_custom_value(&self, key: &str) -> Result<bool, Self::Error>;
+
+    /// Try to take a leased lock.
+    ///
+    /// TODO
+    ///
+    /// Returns whether taking the lock succeeded.
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -400,6 +412,15 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn remove_custom_value(&self, key: &str) -> Result<bool, Self::Error> {
         self.0.remove_custom_value(key).await.map_err(Into::into)
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
     }
 }
 

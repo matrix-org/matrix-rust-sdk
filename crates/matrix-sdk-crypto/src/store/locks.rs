@@ -25,10 +25,13 @@
 //!   `insert_custom_value_if_missing` and
 //! `remove_custom_value`, must be atomic / implemented in a transaction.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
-use tokio::{sync::Mutex, time::sleep};
-use tracing::{instrument, trace, warn};
+use tokio::{sync::Mutex, task::JoinHandle, time::sleep};
+use tracing::{instrument, trace};
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -40,6 +43,23 @@ enum WaitingTime {
     Some(u32),
     /// Stop waiting when seeing this value.
     Stop,
+}
+
+/// A guard on the crypto store lock.
+///
+/// The lock will be automatically released a short period of time after all the
+/// guards have dropped.
+#[derive(Debug)]
+pub struct CryptoStoreLockGuard {
+    num_holders: Arc<StdMutex<u32>>,
+}
+
+impl Drop for CryptoStoreLockGuard {
+    fn drop(&mut self) {
+        let mut num_holders = self.num_holders.lock().unwrap();
+        assert!(*num_holders > 0);
+        *num_holders -= 1;
+    }
 }
 
 /// A store-based lock for the `CryptoStore`.
@@ -55,7 +75,7 @@ pub struct CryptoStoreLock {
     ///
     /// When the number of holders is decreased to 0, then the lock must be
     /// released in the store.
-    num_holders: Arc<Mutex<u32>>,
+    num_holders: Arc<StdMutex<u32>>,
 
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
@@ -65,9 +85,17 @@ pub struct CryptoStoreLock {
 
     /// Backoff time, in milliseconds.
     backoff: Arc<Mutex<WaitingTime>>,
+
+    /// If set, a task that will renew the lock's lease regularly as long as
+    /// they are some guards holding onto it.
+    extend_lease: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl CryptoStoreLock {
+    const LEASE_MS: u32 = 2000;
+
+    const EXTEND_LEASE_EVERY_MS: u64 = 200;
+
     /// Initial backoff, in milliseconds. This is the time we wait the first
     /// time, if taking the lock initially failed.
     const INITIAL_BACKOFF_MS: u32 = 10;
@@ -89,53 +117,70 @@ impl CryptoStoreLock {
             lock_key,
             lock_holder,
             backoff: Arc::new(Mutex::new(WaitingTime::Some(Self::INITIAL_BACKOFF_MS))),
-            num_holders: Arc::new(Mutex::new(0)),
+            num_holders: Arc::new(StdMutex::new(0)),
+            extend_lease: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(&self) -> Result<bool, CryptoStoreError> {
-        // Hold the num_holders lock for the entire's function lifetime, to avoid
-        // internal races if called in a reentrant manner.
-        let mut holders = self.num_holders.lock().await;
+    pub async fn try_lock_once(&self) -> Result<Option<CryptoStoreLockGuard>, CryptoStoreError> {
+        // Hold onto the task lock for the entire lifetime of this function, to avoid
+        // multiple reentrant calls.
+        let mut task = self.extend_lease.lock().await;
 
-        // If another thread obtained the lock, make sure to only superficially increase
-        // the number of holders, and carry on.
-        if *holders > 0 {
-            trace!("We already had the lock, incrementing holder count");
-            *holders += 1;
-            return Ok(true);
+        {
+            let mut holders = self.num_holders.lock().unwrap();
+
+            // If another thread obtained the lock, make sure to only superficially increase
+            // the number of holders, and carry on.
+            if *holders > 0 {
+                trace!("We already had the lock, incrementing holder count");
+                *holders += 1;
+                let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+                return Ok(Some(guard));
+            }
         }
 
-        let inserted = self
+        let acquired = self
             .store
-            .insert_custom_value_if_missing(&self.lock_key, self.lock_holder.as_bytes().to_vec())
+            .try_take_leased_lock(Self::LEASE_MS, &self.lock_key, &self.lock_holder)
             .await?;
 
-        if inserted {
-            trace!("Successfully acquired lock through db write");
-            *holders += 1;
-            return Ok(true);
-        }
+        if acquired {
+            *self.num_holders.lock().unwrap() += 1;
 
-        // Double-check that we were not interrupted last time we tried to take the
-        // lock, and forgot to release it; in that case, we *still* hold it.
-        let previous = self.store.get_custom_value(&self.lock_key).await?;
-        if previous.as_deref() == Some(self.lock_holder.as_bytes()) {
-            warn!(
-                "Crypto-store lock {} was already taken by {}; let's pretend we just acquired it.",
-                self.lock_key, self.lock_holder
-            );
-            *holders += 1;
-            return Ok(true);
-        }
+            let key = self.lock_key.clone();
+            let holder = self.lock_holder.clone();
+            let store = self.store.clone();
+            let num_holders = self.num_holders.clone();
 
-        if let Some(prev_holder) = previous {
-            trace!("Lock is already taken by {}", String::from_utf8_lossy(&prev_holder));
-        }
+            *task = Some(tokio::spawn(async move {
+                loop {
+                    {
+                        let num_holders = num_holders.lock().unwrap();
+                        if *num_holders == 0 {
+                            tracing::info!("exiting the lease extension loop");
+                            break;
+                        }
+                    }
 
-        Ok(false)
+                    if let Err(err) =
+                        store.try_take_leased_lock(Self::LEASE_MS, &key, &holder).await
+                    {
+                        tracing::error!("error when extending lock lease: {err:#}");
+                        break;
+                    }
+
+                    sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
+                }
+            }));
+
+            let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+            Ok(Some(guard))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Attempt to take the lock, with exponential backoff if the lock has
@@ -147,17 +192,20 @@ impl CryptoStoreLock {
     /// and will return a timeout error upon locking. If not provided,
     /// will wait for [`Self::MAX_BACKOFF_MS`].
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn spin_lock(&self, max_backoff: Option<u32>) -> Result<(), CryptoStoreError> {
+    pub async fn spin_lock(
+        &self,
+        max_backoff: Option<u32>,
+    ) -> Result<CryptoStoreLockGuard, CryptoStoreError> {
         let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
         // lock in `try_lock_once` should sequentialize it all.
 
         loop {
-            if self.try_lock_once().await? {
+            if let Some(guard) = self.try_lock_once().await? {
                 // Reset backoff before returning, for the next attempt to lock.
                 *self.backoff.lock().await = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
-                return Ok(());
+                return Ok(guard);
             }
 
             // Exponential backoff! Multiply by 2 the time we've waited before, cap it to
@@ -181,45 +229,6 @@ impl CryptoStoreLock {
 
             tracing::debug!("Waiting {wait} before re-attempting to take the lock");
             sleep(Duration::from_millis(wait.into())).await;
-        }
-    }
-
-    /// Release the lock taken previously with [`Self::try_lock_once()`].
-    ///
-    /// Will return an error if the lock wasn't taken.
-    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn unlock(&self) -> Result<(), CryptoStoreError> {
-        // Keep the lock for the whole's function lifetime, to avoid races with other
-        // threads trying to acquire/release  the lock at the same time.
-        let mut holders = self.num_holders.lock().await;
-
-        assert!(*holders > 0);
-        if *holders > 1 {
-            // There's at least one other holder, so just decrease the number of holders.
-            *holders -= 1;
-            trace!("not releasing, because another thread holds onto it");
-            return Ok(());
-        }
-
-        // Here, holders == 1.
-
-        let read = self
-            .store
-            .get_custom_value(&self.lock_key)
-            .await?
-            .ok_or(CryptoStoreError::from(LockStoreError::MissingLockValue))?;
-
-        if read != self.lock_holder.as_bytes() {
-            return Err(LockStoreError::IncorrectLockValue.into());
-        }
-
-        let removed = self.store.remove_custom_value(&self.lock_key).await?;
-        if removed {
-            *holders -= 1;
-            trace!("successfully released");
-            Ok(())
-        } else {
-            Err(LockStoreError::MissingLockValue.into())
         }
     }
 }

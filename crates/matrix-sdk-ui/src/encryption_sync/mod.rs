@@ -26,7 +26,7 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::{ops::Not as _, time::Duration};
+use std::time::Duration;
 
 use async_stream::stream;
 use futures_core::stream::Stream;
@@ -110,7 +110,7 @@ impl EncryptionSync {
             let mut mode = self.mode;
 
             loop {
-                match &mut mode {
+                let _guard = match &mut mode {
                     EncryptionSyncMode::RunFixedIterations(ref mut val) => {
                         if *val == 0 {
                             // The previous attempt was the last one, stop now.
@@ -119,14 +119,14 @@ impl EncryptionSync {
                         // Soon.
                         *val -= 1;
 
-                        if self
+                        let guard = self
                             .client
                             .encryption()
                             .try_lock_store_once()
                             .await
-                            .map_err(Error::LockError)?
-                            .not()
-                        {
+                            .map_err(Error::LockError)?;
+
+                        if guard.is_none() {
                             // If we can't acquire the cross-process lock on the first attempt,
                             // that means the main process is running. Don't even try to sync, in
                             // that case.
@@ -135,15 +135,16 @@ impl EncryptionSync {
                             );
                             return;
                         }
+
+                        guard
                     }
 
-                    EncryptionSyncMode::NeverStop => {
-                        self.client
-                            .encryption()
-                            .spin_lock_store(Some(60000))
-                            .await
-                            .map_err(Error::LockError)?;
-                    }
+                    EncryptionSyncMode::NeverStop => self
+                        .client
+                        .encryption()
+                        .spin_lock_store(Some(60000))
+                        .await
+                        .map_err(Error::LockError)?,
                 };
 
                 match sync.next().await {
@@ -157,8 +158,6 @@ impl EncryptionSync {
                             error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                         }
 
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         // Cool cool, let's do it again.
                         trace!("Encryption sync received an update!");
                         yield Ok(());
@@ -166,16 +165,12 @@ impl EncryptionSync {
                     }
 
                     Some(Err(err)) => {
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         trace!("Encryption sync stopped because of an error: {err:#}");
                         yield Err(Error::SlidingSync(err));
                         break;
                     }
 
                     None => {
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         trace!("Encryption sync properly terminated.");
                         break;
                     }

@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -37,6 +38,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
+use tracing::warn;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -1089,6 +1091,16 @@ impl_crypto_store! {
         } else {
             Ok(false)
         }
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        warn!("try_take_leased_lock NYI on this platform"); // time is complicated in wasm
+        Ok(false)
     }
 }
 

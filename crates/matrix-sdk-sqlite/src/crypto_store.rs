@@ -193,7 +193,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
@@ -250,6 +250,13 @@ async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
             ))
+        })
+        .await?;
+    }
+
+    if version < 7 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))
         })
         .await?;
     }
@@ -1141,6 +1148,37 @@ impl CryptoStore for SqliteCryptoStore {
             .acquire()
             .await?
             .with_transaction(move |txn| txn.execute("DELETE FROM kv WHERE key = ?", (key,)))
+            .await?;
+
+        Ok(num_touched == 1)
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        let key = key.to_owned();
+        let holder = holder.to_owned();
+        let lease_duration = f64::from(lease_duration_ms) / 1000.0;
+
+        let num_touched = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "INSERT INTO lease_locks (key, holder, expiration_ts)
+                VALUES (?1, ?2, unixepoch('subsec') + ?3)
+                ON CONFLICT (key)
+                DO
+                    UPDATE SET holder = ?2, expiration_ts = unixepoch('subsec') + ?3
+                    WHERE holder = ?2
+                    OR expiration_ts < unixepoch('subsec')
+                ",
+                    (key, holder, lease_duration),
+                )
+            })
             .await?;
 
         Ok(num_touched == 1)
