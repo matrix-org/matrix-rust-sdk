@@ -24,7 +24,7 @@ pub use matrix_sdk_base::{
     deserialized_responses,
     store::{DynStateStore, StateStoreExt},
     DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomMemberships,
-    RoomState, Session, StateChanges, StateStore, StoreError,
+    RoomState, SessionMeta, StateChanges, StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -33,11 +33,13 @@ pub use ruma;
 
 mod account;
 pub mod attachment;
+mod authentication;
 mod client;
 pub mod config;
 mod error;
 pub mod event_handler;
 mod http_client;
+pub mod matrix_auth;
 pub mod media;
 pub mod notification_settings;
 pub mod room;
@@ -50,11 +52,8 @@ pub mod sliding_sync;
 pub mod encryption;
 
 pub use account::Account;
-#[cfg(feature = "sso-login")]
-pub use client::SsoLoginBuilder;
-pub use client::{
-    Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl, SendRequest, UnknownToken,
-};
+pub use authentication::{AuthApi, AuthSession};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};

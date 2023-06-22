@@ -365,49 +365,60 @@ impl Joined {
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
-        let mut map = self.client.inner.group_session_locks.lock().await;
+        let inner = || async {
+            let mut map = self.client.inner.group_session_locks.lock().await;
 
-        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
-            // If a group session share request is already going on, await the
-            // release of the lock.
-            drop(map);
-            _ = mutex.lock().await;
-        } else {
-            // Otherwise create a new lock and share the group
-            // session.
-            let mutex = Arc::new(Mutex::new(()));
-            map.insert(self.inner.room_id().to_owned(), mutex.clone());
+            if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
+                // If a group session share request is already going on, await the
+                // release of the lock.
+                drop(map);
+                _ = mutex.lock().await;
+            } else {
+                // Otherwise create a new lock and share the group
+                // session.
+                let mutex = Arc::new(Mutex::new(()));
+                map.insert(self.inner.room_id().to_owned(), mutex.clone());
 
-            drop(map);
+                drop(map);
 
-            let _guard = mutex.lock().await;
+                let _guard = mutex.lock().await;
 
-            {
-                let members = self
-                    .client
-                    .store()
-                    .get_user_ids(self.inner.room_id(), RoomMemberships::ACTIVE)
-                    .await?;
-                self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
-            };
+                {
+                    let members = self
+                        .client
+                        .store()
+                        .get_user_ids(self.inner.room_id(), RoomMemberships::ACTIVE)
+                        .await?;
+                    self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
+                };
 
-            let response = self.share_room_key().await;
+                let response = self.share_room_key().await;
 
-            self.client.inner.group_session_locks.lock().await.remove(self.inner.room_id());
+                self.client.inner.group_session_locks.lock().await.remove(self.inner.room_id());
 
-            // If one of the responses failed invalidate the group
-            // session as using it would end up in undecryptable
-            // messages.
-            if let Err(r) = response {
-                let machine = self.client.olm_machine().await;
-                if let Some(machine) = machine.as_ref() {
-                    machine.invalidate_group_session(self.inner.room_id()).await?;
+                // If one of the responses failed invalidate the group
+                // session as using it would end up in undecryptable
+                // messages.
+                if let Err(r) = response {
+                    let machine = self.client.olm_machine().await;
+                    if let Some(machine) = machine.as_ref() {
+                        machine.invalidate_group_session(self.inner.room_id()).await?;
+                    }
+                    return Err(r);
                 }
-                return Err(r);
             }
-        }
 
-        Ok(())
+            Ok(())
+        };
+
+        // Take and release the lock on the store, if needs be.
+        self.client.encryption().spin_lock_store(Some(60000)).await?;
+
+        let result = inner().await;
+
+        self.client.encryption().unlock_store().await?;
+
+        result
     }
 
     /// Share a group session for a room.

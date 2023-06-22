@@ -237,12 +237,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 },
             },
             "extensions": {
-                "e2ee": {
-                    "enabled": true,
-                },
-                "to_device": {
-                    "enabled": true,
-                },
                 "account_data": {
                     "enabled": true
                 }

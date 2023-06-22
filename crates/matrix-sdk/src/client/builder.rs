@@ -290,8 +290,8 @@ impl ClientBuilder {
     ///   is encountered, it means that the user needs to be logged in again.
     ///
     /// * The access token and refresh token need to be watched for changes,
-    ///   using [`Client::session_tokens_stream()`] for example, to be able to
-    ///   [restore the session] later.
+    ///   using the authentication API's `session_tokens_stream()` for example,
+    ///   to be able to [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
@@ -415,6 +415,9 @@ impl ClientBuilder {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             unknown_token_error_sender,
+            auth_data: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            cross_process_crypto_store_lock: OnceCell::new(),
         });
 
         debug!("Done building the Client");

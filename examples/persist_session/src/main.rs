@@ -10,7 +10,7 @@ use matrix_sdk::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, Error, LoopCtrl, Session,
+    AuthSession, Client, Error, LoopCtrl,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ struct FullSession {
     client_session: ClientSession,
 
     /// The Matrix user session.
-    user_session: Session,
+    user_session: AuthSession,
 
     /// The latest sync token.
     ///
@@ -96,7 +96,7 @@ async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<
         .build()
         .await?;
 
-    println!("Restoring session for {}…", user_session.user_id);
+    println!("Restoring session for {}…", user_session.meta().user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
@@ -124,6 +124,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
         password = password.trim().to_owned();
 
         match client
+            .matrix_auth()
             .login_username(&username, &password)
             .initial_device_display_name("persist-session client")
             .await

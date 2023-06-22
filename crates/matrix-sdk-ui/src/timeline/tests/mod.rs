@@ -60,6 +60,11 @@ mod virt;
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 
+fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
+    let event = serde_json::from_value(event).unwrap();
+    SyncTimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
+}
+
 struct TestTimeline {
     inner: TimelineInner<TestRoomDataProvider>,
     next_ts: AtomicU64,

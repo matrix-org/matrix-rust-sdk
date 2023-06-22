@@ -2,8 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::future::join;
 use matrix_sdk::{
+    matrix_auth::{Session, SessionTokens},
     ruma::{IdParseError, OwnedDeviceId, UserId},
-    Session,
+    SessionMeta,
 };
 use url::Url;
 use zeroize::Zeroize;
@@ -175,7 +176,8 @@ impl AuthenticationService {
 
         // Create a new client to setup the store path now the user ID is known.
         let homeserver_url = client.homeserver();
-        let session = client.inner.session().ok_or(AuthenticationError::SessionMissing)?;
+        let session =
+            client.inner.matrix_auth().session().ok_or(AuthenticationError::SessionMissing)?;
 
         let sliding_sync_proxy: Option<String>;
         if let Some(custom_proxy) = self.custom_sliding_sync_proxy.read().unwrap().clone() {
@@ -222,10 +224,8 @@ impl AuthenticationService {
         let device_id: OwnedDeviceId = device_id.as_str().into();
 
         let discovery_session = Session {
-            access_token: token.clone(),
-            refresh_token: None,
-            user_id: discovery_user_id,
-            device_id: device_id.clone(),
+            meta: SessionMeta { user_id: discovery_user_id, device_id: device_id.clone() },
+            tokens: SessionTokens { access_token: token.clone(), refresh_token: None },
         };
 
         client.restore_session_inner(discovery_session)?;
@@ -234,10 +234,8 @@ impl AuthenticationService {
         // Create the actual client with a store path from the user ID.
         let homeserver_url = client.homeserver();
         let session = Session {
-            access_token: token,
-            refresh_token: None,
-            user_id: whoami.user_id.clone(),
-            device_id,
+            meta: SessionMeta { user_id: whoami.user_id.clone(), device_id },
+            tokens: SessionTokens { access_token: token, refresh_token: None },
         };
         let client = ClientBuilder::new()
             .base_path(self.base_path.clone())

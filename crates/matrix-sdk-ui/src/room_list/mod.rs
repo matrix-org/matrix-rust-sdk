@@ -100,16 +100,38 @@ impl RoomListService {
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
+    ///
+    /// This won't start an encryption sync, and it's the user's responsibility
+    /// to create one in this case using `EncryptionSync`.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
+        Self::new_internal(client, false).await
+    }
+
+    /// Create a new `RoomList` that enables encryption.
+    ///
+    /// This will include syncing the encryption information, so there must not
+    /// be any instance of `EncryptionSync` running in the background.
+    pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
+        Self::new_internal(client, true).await
+    }
+
+    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
+        let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .enable_caching()
             .map_err(Error::SlidingSync)?
-            .with_common_extensions()
-            // TODO different strategy when the encryption sync is in main by default
-            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .with_common_extensions();
+
+        if with_encryption {
+            builder = builder
+                .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+                .with_to_device_extension(
+                    assign!(ToDeviceConfig::default(), { enabled: Some(true) }),
+                );
+        }
+
+        let sliding_sync = builder
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
@@ -312,7 +334,12 @@ pub enum Input {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::{config::RequestConfig, reqwest::Url, Session};
+    use matrix_sdk::{
+        config::RequestConfig,
+        matrix_auth::{Session, SessionTokens},
+        reqwest::Url,
+    };
+    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
     use wiremock::MockServer;
@@ -321,10 +348,11 @@ mod tests {
 
     async fn new_client() -> (Client, MockServer) {
         let session = Session {
-            access_token: "1234".to_owned(),
-            refresh_token: None,
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let server = MockServer::start().await;

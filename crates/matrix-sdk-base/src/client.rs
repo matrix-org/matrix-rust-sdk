@@ -65,7 +65,7 @@ use crate::{
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
-    RoomStateFilter, Session, SessionMeta, SessionTokens,
+    RoomStateFilter, SessionMeta,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
@@ -134,35 +134,6 @@ impl BaseClient {
         self.store.session_meta()
     }
 
-    /// Get the session tokens.
-    ///
-    /// This returns a subscriber object that you can use both to
-    /// [`get`](Subscriber::get) the current value as well as to react to
-    /// changes to the tokens.
-    ///
-    /// If the client is currently logged in, the inner value is a
-    /// [`SessionTokens`] object which contains the access token and optional
-    /// refresh token. Otherwise it is `None`.
-    pub fn session_tokens(&self) -> Subscriber<Option<SessionTokens>> {
-        self.store.session_tokens()
-    }
-
-    /// Set the session tokens.
-    pub fn set_session_tokens(&self, tokens: SessionTokens) {
-        self.store.set_session_tokens(tokens)
-    }
-
-    /// Get the user login session.
-    ///
-    /// If the client is currently logged in, this will return a
-    /// [`Session`][crate::session::Session] object.
-    ///
-    /// Returns a session object if the client is logged in. Otherwise returns
-    /// `None`.
-    pub fn session(&self) -> Option<Session> {
-        self.store.session()
-    }
-
     /// Get all the rooms this client knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.store.get_rooms()
@@ -196,29 +167,6 @@ impl BaseClient {
         self.store.session_meta().is_some()
     }
 
-    /// Receive a login response and update the session of the client.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - A successful login response that contains our access
-    ///   token and device ID.
-    pub async fn receive_login_response(
-        &self,
-        response: &api::session::login::v3::Response,
-    ) -> Result<()> {
-        let tokens = SessionTokens {
-            access_token: response.access_token.clone(),
-            refresh_token: response.refresh_token.clone(),
-        };
-        self.set_session_tokens(tokens);
-
-        let meta = SessionMeta {
-            device_id: response.device_id.clone(),
-            user_id: response.user_id.clone(),
-        };
-        self.set_session_meta(meta).await
-    }
-
     /// Set the meta of the session.
     ///
     /// If encryption is enabled, this also initializes or restores the
@@ -235,18 +183,29 @@ impl BaseClient {
         self.store.set_session_meta(session_meta.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        {
-            let olm_machine = OlmMachine::with_store(
-                &session_meta.user_id,
-                &session_meta.device_id,
-                self.crypto_store.clone(),
-            )
-            .await
-            .map_err(OlmError::from)?;
+        self.regenerate_olm().await?;
 
-            *self.olm_machine.write().await = Some(olm_machine);
-        }
+        Ok(())
+    }
 
+    /// Recreate an `OlmMachine` from scratch.
+    ///
+    /// In particular, this will clear all its caches.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn regenerate_olm(&self) -> Result<()> {
+        tracing::debug!("regenerating OlmMachine");
+        let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
+
+        // Recreate it.
+        let olm_machine = OlmMachine::with_store(
+            &session_meta.user_id,
+            &session_meta.device_id,
+            self.crypto_store.clone(),
+        )
+        .await
+        .map_err(OlmError::from)?;
+
+        *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
     }
 

@@ -70,6 +70,7 @@ async fn login_and_sync(
 
     // Then let's log that client in
     client
+        .matrix_auth()
         .login_username(username, password)
         .initial_device_display_name("getting started bot")
         .await?;
