@@ -286,9 +286,8 @@ async fn migrate_data(
     let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
-        .flat_map(|s| parse_user_id(&s))
-        .map(|u| Ok((u, true)))
-        .collect::<anyhow::Result<_>>()?;
+        .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
+        .collect();
 
     let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
     store.save_tracked_users(tracked_users.as_slice()).await?;
