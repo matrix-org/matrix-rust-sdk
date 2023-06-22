@@ -14,13 +14,14 @@ use crate::{
     timeline::EventTimelineItem,
     TaskHandle, RUNTIME,
 };
+
 #[uniffi::export]
 impl Client {
-    /// Get a new `RoomList` instance.
+    /// Get a new `RoomListService` instance.
     ///
     /// In this case, it is the user's responsibility to create an
     /// `EncryptionSync` that runs in the background too.
-    pub fn room_list(&self) -> Result<Arc<RoomListService>, RoomListError> {
+    pub fn room_list_service(&self) -> Result<Arc<RoomListService>, RoomListError> {
         Ok(Arc::new(RoomListService {
             inner: Arc::new(
                 RUNTIME
@@ -32,10 +33,10 @@ impl Client {
         }))
     }
 
-    /// Get a new `RoomList` instance with encryption enabled.
+    /// Get a new `RoomListService` instance with encryption enabled.
     ///
     /// In this case, no instance of `EncryptionSync` must exist.
-    pub fn room_list_with_encryption(&self) -> Result<Arc<RoomListService>, RoomListError> {
+    pub fn room_list_service_with_encryption(&self) -> Result<Arc<RoomListService>, RoomListError> {
         Ok(Arc::new(RoomListService {
             inner: Arc::new(
                 RUNTIME
