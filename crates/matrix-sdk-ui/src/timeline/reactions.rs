@@ -27,15 +27,18 @@ pub(super) enum ReactionToggleResult {
         /// The transaction ID of the reaction which was added (the local echo)
         txn_id: OwnedTransactionId,
     },
+
     /// Represents a failed reaction toggle which did not add a reaction
     AddFailure {
         /// The transaction ID of the reaction which failed to be added (the
         /// local echo)
         txn_id: OwnedTransactionId,
     },
+
     /// Represents a successful reaction toggle which redacted a reaction
     RedactSuccess,
-    /// Represents a successful reaction toggle which redacted a reaction
+
+    /// Represents a failed reaction toggle which did not redact a reaction
     RedactFailure {
         /// The event ID of the reaction which failed to be redacted (the remote
         /// echo)
