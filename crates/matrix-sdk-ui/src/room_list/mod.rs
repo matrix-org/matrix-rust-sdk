@@ -97,16 +97,38 @@ impl RoomList {
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
+    ///
+    /// This won't start an encryption sync, and it's the user's responsibility
+    /// to create one in this case using `EncryptionSync`.
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let sliding_sync = client
+        Self::new_internal(client, false).await
+    }
+
+    /// Create a new `RoomList` that enables encryption.
+    ///
+    /// This will include syncing the encryption information, so there must not
+    /// be any instance of `EncryptionSync` running in the background.
+    pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
+        Self::new_internal(client, true).await
+    }
+
+    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
+        let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .enable_caching()
             .map_err(Error::SlidingSync)?
-            .with_common_extensions()
-            // TODO different strategy when the encryption sync is in main by default
-            .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .with_common_extensions();
+
+        if with_encryption {
+            builder = builder
+                .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+                .with_to_device_extension(
+                    assign!(ToDeviceConfig::default(), { enabled: Some(true) }),
+                );
+        }
+
+        let sliding_sync = builder
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
             .add_list(
@@ -385,7 +407,7 @@ mod tests {
     pub(super) async fn new_room_list() -> Result<RoomList, Error> {
         let (client, _) = new_client().await;
 
-        RoomList::new(client).await
+        RoomList::new_with_encryption(client).await
     }
 
     #[async_test]

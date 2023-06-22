@@ -27,6 +27,8 @@ use std::{
 use dashmap::DashMap;
 use eyeball::{shared::Observable as SharedObservable, unique::Observable, Subscriber};
 use futures_core::Stream;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;
 use matrix_sdk_base::{
     store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     SyncOutsideWasm,
@@ -187,6 +189,9 @@ pub(crate) struct ClientInner {
     pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
 }
 
 #[cfg(not(tarpaulin_include))]

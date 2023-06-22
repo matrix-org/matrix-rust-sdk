@@ -27,7 +27,8 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
+use tracing::{instrument, trace, warn};
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -47,6 +48,15 @@ pub struct CryptoStoreLock {
     /// The store we're using to lock.
     store: Arc<DynCryptoStore>,
 
+    /// Number of holders of the lock in this process.
+    ///
+    /// If greater than 0, this means we've already acquired this lock, in this
+    /// process, and the store lock mustn't be touched.
+    ///
+    /// When the number of holders is decreased to 0, then the lock must be
+    /// released in the store.
+    num_holders: Arc<Mutex<u32>>,
+
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
 
@@ -54,10 +64,7 @@ pub struct CryptoStoreLock {
     lock_holder: String,
 
     /// Backoff time, in milliseconds.
-    backoff: WaitingTime,
-
-    /// Maximum backoff time, between two attempts.
-    max_backoff: u32,
+    backoff: Arc<Mutex<WaitingTime>>,
 }
 
 impl CryptoStoreLock {
@@ -67,7 +74,7 @@ impl CryptoStoreLock {
 
     /// Maximal backoff, in milliseconds. This is the maximum amount of time
     /// we'll wait for the lock, *between two attempts*.
-    const MAX_BACKOFF_MS: u32 = 1000;
+    pub const MAX_BACKOFF_MS: u32 = 1000;
 
     /// Create a new store-based lock implemented as a value in the
     /// crypto-store.
@@ -76,85 +83,126 @@ impl CryptoStoreLock {
     ///
     /// - `lock_key`: key in the key-value store to store the lock's state.
     /// - `lock_holder`: identify the lock's holder with this given value.
-    /// - `max_backoff`: maximum time (in milliseconds) that should be waited
-    ///   for, between two
-    /// attempts. When that time is reached a second time, the lock will stop
-    /// attempting to get the lock and will return a timeout error upon
-    /// locking. If not provided, will wait for `Self::MAX_BACKOFF_MS`.
-    pub fn new(
-        store: Arc<DynCryptoStore>,
-        lock_key: String,
-        lock_holder: String,
-        max_backoff: Option<u32>,
-    ) -> Self {
-        let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
+    pub fn new(store: Arc<DynCryptoStore>, lock_key: String, lock_holder: String) -> Self {
         Self {
             store,
             lock_key,
             lock_holder,
-            max_backoff,
-            backoff: WaitingTime::Some(Self::INITIAL_BACKOFF_MS),
+            backoff: Arc::new(Mutex::new(WaitingTime::Some(Self::INITIAL_BACKOFF_MS))),
+            num_holders: Arc::new(Mutex::new(0)),
         }
+    }
+
+    /// Try to lock once, returns whether the lock was obtained or not.
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    pub async fn try_lock_once(&self) -> Result<bool, CryptoStoreError> {
+        // Hold the num_holders lock for the entire's function lifetime, to avoid
+        // internal races if called in a reentrant manner.
+        let mut holders = self.num_holders.lock().await;
+
+        // If another thread obtained the lock, make sure to only superficially increase
+        // the number of holders, and carry on.
+        if *holders > 0 {
+            trace!("We already had the lock, incrementing holder count");
+            *holders += 1;
+            return Ok(true);
+        }
+
+        let inserted = self
+            .store
+            .insert_custom_value_if_missing(&self.lock_key, self.lock_holder.as_bytes().to_vec())
+            .await?;
+
+        if inserted {
+            trace!("Successfully acquired lock through db write");
+            *holders += 1;
+            return Ok(true);
+        }
+
+        // Double-check that we were not interrupted last time we tried to take the
+        // lock, and forgot to release it; in that case, we *still* hold it.
+        let previous = self.store.get_custom_value(&self.lock_key).await?;
+        if previous.as_deref() == Some(self.lock_holder.as_bytes()) {
+            warn!(
+                "Crypto-store lock {} was already taken by {}; let's pretend we just acquired it.",
+                self.lock_key, self.lock_holder
+            );
+            *holders += 1;
+            return Ok(true);
+        }
+
+        if let Some(prev_holder) = previous {
+            trace!("Lock is already taken by {}", String::from_utf8_lossy(&prev_holder));
+        }
+
+        Ok(false)
     }
 
     /// Attempt to take the lock, with exponential backoff if the lock has
     /// already been taken before.
-    pub async fn lock(&mut self) -> Result<(), CryptoStoreError> {
+    ///
+    /// The `max_backoff` parameter is the maximum time (in milliseconds) that
+    /// should be waited for, between two attempts. When that time is
+    /// reached a second time, the lock will stop attempting to get the lock
+    /// and will return a timeout error upon locking. If not provided,
+    /// will wait for [`Self::MAX_BACKOFF_MS`].
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    pub async fn spin_lock(&self, max_backoff: Option<u32>) -> Result<(), CryptoStoreError> {
+        let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
+
+        // Note: reads/writes to the backoff are racy across threads in theory, but the
+        // lock in `try_lock_once` should sequentialize it all.
+
         loop {
-            let inserted = self
-                .store
-                .insert_custom_value_if_missing(
-                    &self.lock_key,
-                    self.lock_holder.as_bytes().to_vec(),
-                )
-                .await?;
-
-            if inserted {
+            if self.try_lock_once().await? {
                 // Reset backoff before returning, for the next attempt to lock.
-                self.backoff = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
+                *self.backoff.lock().await = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
                 return Ok(());
             }
 
-            // Double-check that we were not interrupted last time we tried to take the
-            // lock, and forgot to release it; in that case, we *still* hold it.
-            let previous = self.store.get_custom_value(&self.lock_key).await?;
-            if previous.as_deref() == Some(self.lock_holder.as_bytes()) {
-                // At this point, the only possible value for backoff is the initial one, but
-                // better be safe than sorry.
-                tracing::warn!(
-                    "Crypto-store lock {} was already taken by {}; let's pretend we just acquired it.",
-                    self.lock_key,
-                    self.lock_holder
-                );
-                self.backoff = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
-                return Ok(());
-            }
+            // Exponential backoff! Multiply by 2 the time we've waited before, cap it to
+            // max_backoff.
+            let mut backoff = self.backoff.lock().await;
 
-            let wait = match self.backoff {
-                WaitingTime::Some(val) => val,
+            let wait = match &mut *backoff {
+                WaitingTime::Some(ref mut val) => {
+                    let wait = *val;
+                    *val = val.saturating_mul(2);
+                    if *val >= max_backoff {
+                        *backoff = WaitingTime::Stop;
+                    }
+                    wait
+                }
                 WaitingTime::Stop => {
                     // We've reached the maximum backoff, abandon.
                     return Err(LockStoreError::LockTimeout.into());
                 }
             };
 
-            // Exponential backoff! Multiply by 2 the time we've waited before, cap it to
-            // max_backoff.
-            let next_value = wait.saturating_mul(2);
-            self.backoff = if next_value >= self.max_backoff {
-                WaitingTime::Stop
-            } else {
-                WaitingTime::Some(next_value)
-            };
-
+            tracing::debug!("Waiting {wait} before re-attempting to take the lock");
             sleep(Duration::from_millis(wait.into())).await;
         }
     }
 
-    /// Release the lock taken previously with [`Self::lock()`].
+    /// Release the lock taken previously with [`Self::try_lock_once()`].
     ///
     /// Will return an error if the lock wasn't taken.
-    pub async fn unlock(&mut self) -> Result<(), CryptoStoreError> {
+    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    pub async fn unlock(&self) -> Result<(), CryptoStoreError> {
+        // Keep the lock for the whole's function lifetime, to avoid races with other
+        // threads trying to acquire/release  the lock at the same time.
+        let mut holders = self.num_holders.lock().await;
+
+        assert!(*holders > 0);
+        if *holders > 1 {
+            // There's at least one other holder, so just decrease the number of holders.
+            *holders -= 1;
+            trace!("not releasing, because another thread holds onto it");
+            return Ok(());
+        }
+
+        // Here, holders == 1.
+
         let read = self
             .store
             .get_custom_value(&self.lock_key)
@@ -167,6 +215,8 @@ impl CryptoStoreLock {
 
         let removed = self.store.remove_custom_value(&self.lock_key).await?;
         if removed {
+            *holders -= 1;
+            trace!("successfully released");
             Ok(())
         } else {
             Err(LockStoreError::MissingLockValue.into())
