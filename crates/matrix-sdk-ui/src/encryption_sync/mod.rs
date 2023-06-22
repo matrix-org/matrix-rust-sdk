@@ -205,9 +205,6 @@ impl EncryptionSync {
         // Regenerate the crypto store caches first.
         self.client.encryption().reload_caches().await.map_err(Error::ClientError)?;
 
-        // Reload the to-device token that might have changed on disk.
-        self.sliding_sync.reload_to_device_token().await.map_err(Error::SlidingSync)?;
-
         Ok(())
     }
 }

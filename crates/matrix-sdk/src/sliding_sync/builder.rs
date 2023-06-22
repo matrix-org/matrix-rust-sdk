@@ -236,7 +236,6 @@ impl SlidingSyncBuilder {
         let client = self.client;
 
         let mut delta_token = None;
-        let mut to_device_token = None;
 
         let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
@@ -254,7 +253,7 @@ impl SlidingSyncBuilder {
             &self.storage_key,
             &lists,
             &mut delta_token,
-            &mut to_device_token,
+            &mut None, // to_device_token is ignored here
         )
         .await?;
 
@@ -275,11 +274,7 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            position: StdRwLock::new(SlidingSyncPositionMarkers {
-                pos: None,
-                delta_token,
-                to_device_token,
-            }),
+            position: StdRwLock::new(SlidingSyncPositionMarkers { pos: None, delta_token }),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
                 SlidingSyncStickyParameters::new(
