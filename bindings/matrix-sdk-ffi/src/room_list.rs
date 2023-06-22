@@ -21,8 +21,8 @@ use crate::{
 impl Client {
     /// Get a new `RoomList` instance without encryption support.
     ///
-    /// In this case, it is the user's responsibility to create an `EncryptionSync` that runs in
-    /// the background too.
+    /// In this case, it is the user's responsibility to create an
+    /// `EncryptionSync` that runs in the background too.
     pub fn room_list(&self) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
             inner: Arc::new(

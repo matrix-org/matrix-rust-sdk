@@ -98,16 +98,16 @@ impl RoomList {
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
     /// already pre-configured.
     ///
-    /// This won't start an encryption sync, and it's the user's responsibility to create one in
-    /// this case using `EncryptionSync`.
+    /// This won't start an encryption sync, and it's the user's responsibility
+    /// to create one in this case using `EncryptionSync`.
     pub async fn new(client: Client) -> Result<Self, Error> {
         Self::new_internal(client, false).await
     }
 
     /// Create a new `RoomList` that enables encryption.
     ///
-    /// This will include syncing the encryption information, so there must not be any instance of
-    /// `EncryptionSync` running in the background.
+    /// This will include syncing the encryption information, so there must not
+    /// be any instance of `EncryptionSync` running in the background.
     pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
         Self::new_internal(client, true).await
     }
