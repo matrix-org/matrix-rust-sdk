@@ -25,7 +25,7 @@ use matrix_sdk::{
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{relation::Annotation, room::message::RoomMessageEventContent},
-        EventId, OwnedEventId, RoomId,
+        EventId, RoomId, UserId,
     },
     Client, LoopCtrl,
 };
@@ -88,53 +88,100 @@ async fn test_toggling_reaction() -> Result<()> {
         assert!(!event.is_local_echo());
     };
 
+    let message_position = timeline.items().await.len() - 1;
+    let reaction = Annotation::new(event_id.clone(), reaction_key.into());
+
     // Toggle reaction multiple times
     for _ in 0..3 {
-        // Send a reaction
-        let reaction = Annotation::new(event_id.clone(), reaction_key.into());
+        // Add
+        timeline.toggle_reaction(&reaction).await?;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
 
-        // Add the reaction many times
-        join_all((0..100).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+        // Redact
+        timeline.toggle_reaction(&reaction).await?;
+        assert_redacted(&mut stream, &event_id, message_position).await;
 
-        let message_position = timeline.items().await.len() - 1;
+        // Add, redact, add, redact, add
+        join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
 
-        // Check we have a local echo of the reaction
-        {
-            let event = assert_event_is_updated(&mut stream, &event_id, message_position).await;
-            let (reaction_tx_id, reaction_event_id) = {
-                let reactions = event.reactions().get(reaction_key).unwrap();
-                let reaction = reactions.by_sender(user_id).next().unwrap();
-                reaction.to_owned()
-            };
-            assert_matches!(reaction_tx_id, Some(_));
-            // Event ID hasn't been received from homeserver yet
-            assert_matches!(reaction_event_id, None);
-        }
+        // Redact, add, redact, add
+        join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_remote_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
 
-        // Check we have the remote echo of the reaction
-        let _reaction_event_id: OwnedEventId = {
-            let event = assert_event_is_updated(&mut stream, &event_id, message_position).await;
-            let reactions = event.reactions().get(reaction_key).unwrap();
-            assert_eq!(reactions.senders().count(), 1);
-            let reaction = reactions.by_sender(user_id).next().unwrap();
-            let (reaction_tx_id, reaction_event_id) = reaction;
-            assert_matches!(reaction_tx_id, None);
-            let reaction_event_id = assert_matches!(reaction_event_id, Some(value) => value);
-            reaction_event_id.to_owned()
-        };
+        // Redact, add, redact, add, redact
+        join_all((0..5).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
 
-        // Redact the reaction many times
-        join_all((0..100).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
-
-        // Check the message has no local reaction
-        {
-            let event = assert_event_is_updated(&mut stream, &event_id, message_position).await;
-            assert_matches!(event.reactions().get(reaction_key), None);
-        }
+        // Add, redact, add, redact
+        join_all((0..4).map(|_| timeline.toggle_reaction(&reaction)).collect::<Vec<_>>()).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
+        assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
+        assert_redacted(&mut stream, &event_id, message_position).await;
     }
 
     Ok(())
 }
+
+async fn assert_local_added(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    user_id: &UserId,
+    event_id: &EventId,
+    reaction: &Annotation,
+    message_position: usize,
+) {
+    let event = assert_event_is_updated(stream, event_id, message_position).await;
+
+    let (reaction_tx_id, reaction_event_id) = {
+        let reactions = event.reactions().get(&reaction.key).unwrap();
+        let reaction = reactions.by_sender(user_id).next().unwrap();
+        reaction.to_owned()
+    };
+    assert_matches!(reaction_tx_id, Some(_));
+    // Event ID hasn't been received from homeserver yet
+    assert_matches!(reaction_event_id, None);
+}
+
+async fn assert_redacted(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    event_id: &EventId,
+    message_position: usize,
+) {
+    let event = assert_event_is_updated(stream, event_id, message_position).await;
+    assert!(event.reactions().is_empty());
+}
+
+async fn assert_remote_added(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    user_id: &UserId,
+    event_id: &EventId,
+    reaction: &Annotation,
+    message_position: usize,
+) {
+    let event = assert_event_is_updated(stream, event_id, message_position).await;
+    let reactions = event.reactions().get(&reaction.key).unwrap();
+    assert_eq!(reactions.senders().count(), 1);
+    let reaction = reactions.by_sender(user_id).next().unwrap();
+    let (reaction_tx_id, reaction_event_id) = reaction;
+    assert_matches!(reaction_tx_id, None);
+    assert_matches!(reaction_event_id, Some(value) => value);
+}
+
 async fn sync_room(client: &Client, room_id: &RoomId) -> Result<()> {
     client
         .sync_with_callback(SyncSettings::default(), |response| async move {

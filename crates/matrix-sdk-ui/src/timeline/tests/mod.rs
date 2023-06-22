@@ -48,8 +48,8 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    reactions::ReactionToggleResult, traits::RoomDataProvider, EventTimelineItem, Profile,
-    TimelineInner, TimelineItem,
+    inner::ReactionAction, reactions::ReactionToggleResult, traits::RoomDataProvider,
+    EventTimelineItem, Profile, TimelineInner, TimelineItem,
 };
 
 mod basic;
@@ -213,11 +213,11 @@ impl TestTimeline {
 
     async fn handle_local_redaction_event(
         &self,
-        redacts: &EventId,
+        redacts: (Option<OwnedTransactionId>, Option<OwnedEventId>),
         content: RoomRedactionEventContent,
     ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner.handle_local_redaction_event(txn_id.clone(), redacts.to_owned(), content).await;
+        self.inner.handle_local_redaction(txn_id.clone(), redacts, content).await;
         txn_id
     }
 
@@ -234,12 +234,19 @@ impl TestTimeline {
         self.inner.handle_read_receipts(ev_content).await;
     }
 
-    async fn update_reaction_send_state(
+    async fn toggle_reaction_local(
+        &self,
+        annotation: &Annotation,
+    ) -> Result<ReactionAction, super::Error> {
+        self.inner.toggle_reaction_local(annotation).await
+    }
+
+    async fn handle_reaction_response(
         &self,
         annotation: &Annotation,
         result: &ReactionToggleResult,
-    ) {
-        self.inner.update_reaction_send_state(annotation, result).await;
+    ) -> Result<ReactionAction, super::Error> {
+        self.inner.resolve_reaction_response(annotation, result).await
     }
 
     /// Set the next server timestamp.

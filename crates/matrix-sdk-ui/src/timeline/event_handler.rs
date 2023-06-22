@@ -55,6 +55,7 @@ use super::{
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
+#[derive(Clone)]
 pub(super) enum Flow {
     Local {
         txn_id: OwnedTransactionId,
@@ -67,6 +68,7 @@ pub(super) enum Flow {
     },
 }
 
+#[derive(Clone)]
 pub(super) struct TimelineEventMetadata {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
@@ -88,6 +90,10 @@ pub(super) enum TimelineEventKind {
     },
     Redaction {
         redacts: OwnedEventId,
+        content: RoomRedactionEventContent,
+    },
+    LocalRedaction {
+        redacts: OwnedTransactionId,
         content: RoomRedactionEventContent,
     },
     RoomMember {
@@ -176,7 +182,7 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) enum TimelineItemPosition {
     Start,
     End {
@@ -312,6 +318,9 @@ impl<'a> TimelineEventHandler<'a> {
 
             TimelineEventKind::Redaction { redacts, content } => {
                 self.handle_redaction(redacts, content);
+            }
+            TimelineEventKind::LocalRedaction { redacts, content } => {
+                self.handle_local_redaction(redacts, content);
             }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
@@ -554,6 +563,59 @@ impl<'a> TimelineEventHandler<'a> {
 
             Some(event_item)
         });
+
+        if self.result.items_updated == 0 {
+            // We will want to know this when debugging redaction issues.
+            debug!("redaction affected no event");
+        }
+    }
+
+    // Redacted redactions are no-ops (unfortunately)
+    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
+    fn handle_local_redaction(
+        &mut self,
+        redacts: OwnedTransactionId,
+        _content: RoomRedactionEventContent,
+    ) {
+        if let Some((_, rel)) = self.reaction_map.remove(&(Some(redacts.clone()), None)) {
+            update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
+                let Some(remote_event_item) = event_item.as_remote() else {
+                    error!("inconsistent state: redaction received on a non-remote event item");
+                    return None;
+                };
+
+                let mut reactions = remote_event_item.reactions.clone();
+
+                let count = {
+                    let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
+                        return None;
+                    };
+                    let group = group_entry.get_mut();
+
+                    if group.0.remove(&(Some(redacts.clone()), None)).is_none() {
+                        error!(
+                            "inconsistent state: reaction from reaction_map not in reaction list \
+                             of timeline item"
+                        );
+                        return None;
+                    }
+
+                    group.len()
+                };
+
+                if count == 0 {
+                    reactions.remove(&rel.key);
+                }
+
+                trace!("Removing reaction");
+                Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
+            });
+        }
+
+        // TODO: is the following still relevant?
+        // Even if the event being redacted is a reaction (found in
+        // `reaction_map`), it can still be present in the timeline items
+        // directly with the raw event timeline feature (not yet implemented).
 
         if self.result.items_updated == 0 {
             // We will want to know this when debugging redaction issues.

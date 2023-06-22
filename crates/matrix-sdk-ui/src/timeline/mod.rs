@@ -41,8 +41,7 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -82,7 +81,7 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    inner::{TimelineInner, TimelineInnerState},
+    inner::{ReactionAction, TimelineInner, TimelineInnerState},
     queue::LocalMessage,
     reactions::ReactionToggleResult,
 };
@@ -103,7 +102,19 @@ pub struct Timeline {
     _end_token: Mutex<Option<String>>,
     msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
-    reaction_lock: Mutex<()>,
+}
+
+// Implements hash etc
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+struct AnnotationKey {
+    event_id: OwnedEventId,
+    key: String,
+}
+
+impl From<&Annotation> for AnnotationKey {
+    fn from(annotation: &Annotation) -> Self {
+        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
+    }
 }
 
 impl Timeline {
@@ -345,128 +356,68 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    ///
-    /// FIXME: If called multiple times in quick succession on the same
-    /// reaction, the function will drop requests until the previous request
-    /// is complete.
     pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
-        let txn_id = TransactionId::new();
-        let user_id = self.user_id()?;
+        // Always toggle the local reaction immediately
+        let mut action = self.inner.toggle_reaction_local(annotation).await?;
 
-        // Check if the reaction already exists
-        let find_related_event = || async {
-            self.item_by_event_id(&annotation.event_id).await.ok_or(Error::FailedToToggleReaction)
-        };
-
-        let related_event = find_related_event().await?;
-
-        let user_reactions =
-            related_event.reactions().get(&annotation.key).map(|group| group.by_sender(&user_id));
-
-        // Find an existing reaction to redact, if any
-        let to_redact = user_reactions
-            .map(|mut reactions| reactions.find_map(|(_txid, event_id)| event_id))
-            .unwrap_or(None);
-
-        // Wait for any ongoing reaction requests to finish
-        let _lock = self.reaction_lock.lock().await;
-
-        // Check the event again, in case it has changed since we last checked
-        let related_event = find_related_event().await?;
-        let user_reactions =
-            related_event.reactions().get(&annotation.key).map(|group| group.by_sender(&user_id));
-
-        match to_redact {
-            Some(event_id) => {
-                if user_reactions.is_none() {
-                    // Reaction already redacted or doesn't exist
-                    return Ok(());
+        // The local echo may have been updated while a reaction is is flight
+        // so until it matches the state of the server, keep reconciling
+        loop {
+            let response = match action {
+                ReactionAction::None => {
+                    // The remote reaction matches the local reaction, OR
+                    // there is already a request in flight which will resolve
+                    // later, so stop here.
+                    break;
                 }
-
-                self.redact_reaction(annotation, event_id, txn_id.clone()).await?
-            }
-            None => {
-                if user_reactions.is_some() {
-                    // Reaction already exists
-                    return Ok(());
+                ReactionAction::SendRemote(txn_id) => {
+                    self.send_reaction(annotation, txn_id.to_owned()).await
                 }
-                self.add_reaction(annotation, txn_id.clone()).await?
-            }
-        };
+                ReactionAction::RedactRemote(event_id) => {
+                    self.redact_reaction(&event_id.to_owned()).await
+                }
+            };
 
+            action = self.inner.resolve_reaction_response(annotation, &response).await?;
+        }
         Ok(())
     }
 
-    async fn redact_reaction(
-        &self,
-        annotation: &Annotation,
-        event_id: &EventId,
-        txn_id: OwnedTransactionId,
-    ) -> Result<(), Error> {
-        // Don't send a reason for redacting a reaction
+    /// Redact a reaction event from the homeserver
+    async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
+        let txn_id = TransactionId::new();
         let no_reason = RoomRedactionEventContent::default();
-        self.inner
-            .handle_local_redaction_event(txn_id.clone(), event_id.to_owned(), no_reason.clone())
-            .await;
-        let response = self
-            .joined_room()?
-            .redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
-            .await
-            .map_err(|_matrix_sdk_error| Error::FailedToToggleReaction);
+        let room = self.joined_room();
+
+        let Ok(room) = room else {
+            return ReactionToggleResult::redact_failure(event_id)
+        };
+
+        let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
 
         match response {
-            Ok(_) => {
-                // redaction successful, nothing to do
-                self.inner
-                    .update_reaction_send_state(annotation, &ReactionToggleResult::redact_success())
-                    .await;
-            }
-            Err(_) => {
-                // undo local redaction, add the remote echo back
-                self.inner
-                    .update_reaction_send_state(
-                        annotation,
-                        &ReactionToggleResult::redact_failure(event_id),
-                    )
-                    .await;
-                return Err(Error::FailedToToggleReaction);
-            }
-        };
-
-        Ok(())
+            Ok(_) => ReactionToggleResult::redact_success(),
+            Err(_) => ReactionToggleResult::redact_failure(event_id),
+        }
     }
 
-    async fn add_reaction(
+    /// Send a reaction event to the homeserver
+    async fn send_reaction(
         &self,
         annotation: &Annotation,
         txn_id: OwnedTransactionId,
-    ) -> Result<(), Error> {
+    ) -> ReactionToggleResult {
+        let room = self.joined_room();
+        let Ok(room) = room else {
+            return ReactionToggleResult::add_failure(&txn_id)
+        };
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
-        self.inner.handle_local_event(txn_id.clone(), event_content.clone()).await;
-        let response = self.joined_room()?.send(event_content, Some(&txn_id)).await;
-
+        let response = room.send(event_content, Some(&txn_id)).await;
         match response {
-            Ok(response) => {
-                self.inner
-                    .update_reaction_send_state(
-                        annotation,
-                        &ReactionToggleResult::add_success(&response.event_id, &txn_id),
-                    )
-                    .await;
-            }
-            Err(_) => {
-                self.inner
-                    .update_reaction_send_state(
-                        annotation,
-                        &ReactionToggleResult::add_failure(&txn_id),
-                    )
-                    .await;
-                return Err(Error::FailedToToggleReaction);
-            }
-        };
-
-        Ok(())
+            Ok(response) => ReactionToggleResult::add_success(&response.event_id, &txn_id),
+            Err(_) => ReactionToggleResult::add_failure(&txn_id),
+        }
     }
 
     /// Sends an attachment to the room. It does not currently support local
@@ -706,12 +657,6 @@ impl Timeline {
         };
 
         room.send_multiple_receipts(receipts).await
-    }
-
-    fn user_id(&self) -> Result<OwnedUserId, Error> {
-        let client = self.room().client();
-        let user_id = client.user_id().ok_or(Error::UserIdNotAvailable)?;
-        Ok((*user_id).to_owned())
     }
 }
 
