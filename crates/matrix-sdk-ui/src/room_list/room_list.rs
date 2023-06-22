@@ -22,7 +22,8 @@ use tokio::{spawn, task::JoinHandle};
 
 use super::{Error, State};
 
-/// A `RoomList` represents a list of rooms, from a [`RoomListService`].
+/// A `RoomList` represents a list of rooms, from a
+/// [`RoomListService`](super::RoomListService).
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync_list: SlidingSyncList,

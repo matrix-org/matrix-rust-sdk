@@ -166,9 +166,9 @@ impl RoomListService {
     ///
     /// It's the main method of this entire API. Calling `sync` allows to
     /// receive updates on the room list: new rooms, rooms updates etc. Those
-    /// updates can be read with [`Self::entries`]. This method returns a
-    /// [`Stream`] where produced items only hold an empty value in case of a
-    /// sync success, otherwise an error.
+    /// updates can be read with [`RoomList::entries`] for example. This method
+    /// returns a [`Stream`] where produced items only hold an empty value
+    /// in case of a sync success, otherwise an error.
     ///
     /// The `RoomListService`' state machine is run by this method.
     ///
