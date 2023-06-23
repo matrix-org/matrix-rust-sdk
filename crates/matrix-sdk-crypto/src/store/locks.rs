@@ -186,6 +186,14 @@ impl CryptoStoreLock {
                         // If there are no more users, we can quit.
                         if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
                             tracing::info!("exiting the lease extension loop");
+
+                            // Cancel the lease with another 0ms lease.
+                            // If we don't get the lock, that's (weird but) fine.
+                            let _ = this
+                                .store
+                                .try_take_leased_lock(0, &this.lock_key, &this.lock_holder)
+                                .await;
+
                             // Exit the loop.
                             break;
                         }
