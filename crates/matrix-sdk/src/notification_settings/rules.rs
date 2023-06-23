@@ -24,6 +24,7 @@ pub(crate) enum Command {
     DeletePushRule { scope: RuleScope, kind: RuleKind, rule_id: String },
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct Rules {
     pub ruleset: Ruleset,
 }

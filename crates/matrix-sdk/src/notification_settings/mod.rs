@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use ruma::{
     api::client::push::{delete_pushrule, set_pushrule, set_pushrule_enabled},
+    events::push_rules::PushRulesEvent,
     push::{RuleKind, Ruleset},
     RoomId,
 };
@@ -13,7 +14,7 @@ use self::rules::{Command, Rules};
 
 mod rules;
 
-use crate::{error::NotificationSettingsError, Client, Result};
+use crate::{error::NotificationSettingsError, event_handler::EventHandlerHandle, Client, Result};
 
 /// Enum representing the push notification modes for a room.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +33,15 @@ pub struct NotificationSettings {
     /// The underlying HTTP client.
     client: Client,
     /// Owner's account push rules. They will be updated on sync.
-    ruleset: Arc<RwLock<Ruleset>>,
+    rules: Arc<RwLock<Rules>>,
+    /// Event handler for push rules event
+    push_rules_event_handler: EventHandlerHandle,
+}
+
+impl Drop for NotificationSettings {
+    fn drop(&mut self) {
+        self.client.remove_event_handler(self.push_rules_event_handler.clone());
+    }
 }
 
 impl NotificationSettings {
@@ -43,8 +52,18 @@ impl NotificationSettings {
     /// * `client` - A `Client` used to perform API calls
     /// * `ruleset` - A `Ruleset` containing account's owner push rules
     pub fn new(client: Client, ruleset: Ruleset) -> Self {
-        let ruleset = Arc::new(RwLock::new(ruleset));
-        Self { client, ruleset }
+        let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
+
+        // Listen for PushRulesEvent
+        let rules_clone = rules.clone();
+        let push_rules_event_handler = client.add_event_handler(move |ev: PushRulesEvent| {
+            let rules = rules_clone.clone();
+            async move {
+                *rules.write().await = Rules::new(ev.content.global);
+            }
+        });
+
+        Self { client, rules, push_rules_event_handler }
     }
 
     /// Replace the internal ruleset
@@ -52,14 +71,14 @@ impl NotificationSettings {
     /// # Arguments
     ///
     /// * `ruleset` - A `Ruleset` containing account's owner push rules
-    pub async fn set_ruleset(&self, ruleset: &Ruleset) {
-        *self.ruleset.write().await = ruleset.clone();
+    async fn set_ruleset(&self, ruleset: &Ruleset) {
+        *self.rules.write().await = Rules::new(ruleset.clone())
     }
 
     /// Get a new `Rules` instance to interact with the ruleset.
     async fn rules(&self) -> Rules {
-        let ruleset = &*self.ruleset.read().await;
-        Rules::new(ruleset.clone())
+        let rules = &*self.rules.read().await;
+        rules.clone()
     }
 
     /// Gets all user defined rules matching a given `room_id`.
@@ -460,9 +479,9 @@ pub(crate) mod tests {
             .unwrap();
 
         // The ruleset must have been updated
-        let ruleset = notification_settings.ruleset.read().await;
+        let rules = notification_settings.rules().await;
         let rule =
-            ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention).unwrap();
+            rules.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention).unwrap();
         assert!(rule.enabled());
     }
 
@@ -494,9 +513,9 @@ pub(crate) mod tests {
         );
 
         // The ruleset must not have been updated
-        let ruleset = notification_settings.ruleset.read().await;
+        let rules = notification_settings.rules().await;
         let rule =
-            ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention).unwrap();
+            rules.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention).unwrap();
         assert!(!rule.enabled());
     }
 
