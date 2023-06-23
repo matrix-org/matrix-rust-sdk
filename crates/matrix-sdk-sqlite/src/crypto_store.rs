@@ -18,7 +18,6 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -34,7 +33,9 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
@@ -1163,12 +1164,8 @@ impl CryptoStore for SqliteCryptoStore {
         let key = key.to_owned();
         let holder = holder.to_owned();
 
-        let now_ts = SystemTime::now();
-        let lease_duration = Duration::from_millis(lease_duration_ms.into());
-        let expiration_ts = now_ts + lease_duration;
-
-        let now_ts = now_ts.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-        let expiration_ts = expiration_ts.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration_ts = now_ts + lease_duration_ms as u64;
 
         let num_touched = self
             .acquire()
@@ -1194,7 +1191,7 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1211,11 +1208,12 @@ mod tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }
 
 #[cfg(test)]
 mod encrypted_tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1233,4 +1231,5 @@ mod encrypted_tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }

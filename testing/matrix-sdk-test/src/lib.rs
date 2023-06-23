@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use ruma::api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse};

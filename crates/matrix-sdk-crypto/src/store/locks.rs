@@ -76,9 +76,6 @@ impl Drop for CryptoStoreLockGuard {
     }
 }
 
-#[derive(Debug)]
-struct SharedState {}
-
 /// A store-based lock for the `CryptoStore`.
 #[derive(Clone, Debug)]
 pub struct CryptoStoreLock {
