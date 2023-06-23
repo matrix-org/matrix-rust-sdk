@@ -313,7 +313,11 @@ impl EventTimelineItem {
         self.0
             .reactions()
             .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.len().try_into().unwrap() })
+            .map(|(k, v)| Reaction {
+                key: k.to_owned(),
+                count: v.len().try_into().unwrap(),
+                senders: v.senders().map(ToString::to_string).collect(),
+            })
             .collect()
     }
 
@@ -1049,7 +1053,7 @@ impl EncryptedMessage {
 pub struct Reaction {
     pub key: String,
     pub count: u64,
-    // TODO: Also expose senders
+    pub senders: Vec<String>,
 }
 
 #[derive(Clone)]
