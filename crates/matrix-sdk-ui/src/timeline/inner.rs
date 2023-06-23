@@ -364,9 +364,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
         let local_item = item.as_local()?;
 
-        if !matches!(&local_item.send_state, EventSendState::SendingFailed { .. }) {
-            debug!("Attempted to retry the sending of an item that is not in failed state");
-            return None;
+        match &local_item.send_state {
+            EventSendState::NotSentYet => {
+                warn!("Attempted to retry the sending of an item that is already pending");
+                return None;
+            }
+            EventSendState::Sent { .. } => {
+                warn!("Attempted to retry the sending of an item that has already succeeded");
+                return None;
+            }
+            EventSendState::SendingFailed { .. } | EventSendState::Cancelled => {}
         }
 
         let new_item = TimelineItem::Event(
