@@ -14,10 +14,10 @@
 
 use ruma::{EventId, OwnedEventId, OwnedTransactionId, TransactionId};
 
-#[derive(Clone, Debug)]
 /// The result of toggling a reaction
 ///
 /// Holds the data required to update the state of the reaction in the timeline
+#[derive(Clone, Debug)]
 pub(super) enum ReactionToggleResult {
     /// Represents a successful reaction toggle which added a reaction
     AddSuccess {
