@@ -1,4 +1,4 @@
-use std::ops::Not;
+use std::{ops::Not, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -7,11 +7,11 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        EntriesLoadingState, Error, Input, RoomListEntry, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        Error, Input, RoomListEntry, RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
-    RoomList,
+    RoomListService,
 };
 use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
@@ -20,7 +20,8 @@ use ruma::{
     room_id, uint,
 };
 use serde_json::json;
-use stream_assert::{assert_next_eq, assert_pending};
+use stream_assert::{assert_next_matches, assert_pending};
+use tokio::time::sleep;
 use wiremock::MockServer;
 
 use crate::{
@@ -28,9 +29,9 @@ use crate::{
     timeline::sliding_sync::{assert_timeline_stream, timeline_event},
 };
 
-async fn new_room_list() -> Result<(MockServer, RoomList), Error> {
+async fn new_room_list() -> Result<(MockServer, RoomListService), Error> {
     let (client, server) = logged_in_client().await;
-    let room_list = RoomList::new_with_encryption(client).await?;
+    let room_list = RoomListService::new(client).await?;
 
     Ok((server, room_list))
 }
@@ -204,13 +205,8 @@ macro_rules! assert_entries_stream {
 async fn test_sync_all_states() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
-    let (entries_loading_state, mut entries_loading_state_stream) =
-        room_list.entries_loading_state().await?;
-
     let sync = room_list.sync();
     pin_mut!(sync);
-
-    assert_eq!(entries_loading_state, EntriesLoadingState::NotLoaded);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -262,12 +258,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "extensions": {},
         },
     };
-
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // It's `FullyLoaded` because it was a `Selective` sync-mode.
-        EntriesLoadingState::FullyLoaded
-    );
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -334,13 +324,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
         },
     };
 
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // It's `PartiallyLoaded` because it's in `Growing` sync-mode,
-        // and it's not finished.
-        EntriesLoadingState::PartiallyLoaded
-    );
-
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
@@ -380,8 +363,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
     };
-
-    assert_pending!(entries_loading_state_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -423,8 +404,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
         },
     };
 
-    assert_pending!(entries_loading_state_stream);
-
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
@@ -464,12 +443,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
     };
-
-    assert_next_eq!(
-        entries_loading_state_stream,
-        // Finally, it's `FullyLoaded`!.
-        EntriesLoadingState::FullyLoaded
-    );
 
     Ok(())
 }
@@ -1134,13 +1107,123 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_loading_states() -> Result<(), Error> {
+    let (server, room_list) = new_room_list().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let all_rooms = room_list.all_rooms().await?;
+    let mut all_rooms_loading_state = all_rooms.loading_state();
+
+    // The loading is not loaded.
+    assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
+    assert_pending!(all_rooms_loading_state);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(50)).await;
+
+    // There is a loading state update, it's loaded now!
+    assert_next_matches!(
+        all_rooms_loading_state,
+        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
+            assert_eq!(maximum_number_of_rooms, Some(10));
+        }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 12, // 2 more rooms
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(50)).await;
+
+    // There is a loading state update because the number of rooms has been updated.
+    assert_next_matches!(
+        all_rooms_loading_state,
+        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
+            assert_eq!(maximum_number_of_rooms, Some(12));
+        }
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 11]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 12, // no more rooms
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    sleep(Duration::from_millis(50)).await;
+
+    // No loading state update.
+    assert_pending!(all_rooms_loading_state);
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_entries_stream() -> Result<(), Error> {
     let (server, room_list) = new_room_list().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let (previous_entries, entries_stream) = room_list.entries().await?;
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (previous_entries, entries_stream) = all_rooms.entries();
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1186,7 +1269,7 @@ async fn test_entries_stream() -> Result<(), Error> {
                     "name": "Room #2",
                     "initial": true,
                     "timeline": [],
-                }
+                },
             },
         },
     };
@@ -1273,7 +1356,9 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let (previous_entries, entries_stream) = room_list.entries().await?;
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (previous_entries, entries_stream) = all_rooms.entries();
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1320,14 +1405,12 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         pending;
     };
 
-    let (previous_entries, entries_stream) = room_list
-        .entries_filtered(|room_list_entry| {
-            matches!(
-                room_list_entry.as_room_id(),
-                Some(room_id) if room_id.server_name() == "bar.org"
-            )
-        })
-        .await?;
+    let (previous_entries, entries_stream) = all_rooms.entries_filtered(|room_list_entry| {
+        matches!(
+            room_list_entry.as_room_id(),
+            Some(room_id) if room_id.server_name() == "bar.org"
+        )
+    });
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1490,7 +1573,9 @@ async fn test_invites_stream() -> Result<(), Error> {
         },
     };
 
-    let (previous_invites, invites_stream) = room_list.invites().await?;
+    let invites = room_list.invites().await?;
+
+    let (previous_invites, invites_stream) = invites.entries();
     pin_mut!(invites_stream);
 
     assert_eq!(previous_invites.len(), 1);

@@ -244,6 +244,9 @@ pub enum EventSendState {
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed { error: String },
+    /// Sending has been cancelled because an earlier event in the
+    /// message-sending queue failed.
+    Cancelled,
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -255,6 +258,7 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         match value {
             NotSentYet => Self::NotSentYet,
             SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            Cancelled => Self::Cancelled,
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }
@@ -313,7 +317,11 @@ impl EventTimelineItem {
         self.0
             .reactions()
             .iter()
-            .map(|(k, v)| Reaction { key: k.to_owned(), count: v.len().try_into().unwrap() })
+            .map(|(k, v)| Reaction {
+                key: k.to_owned(),
+                count: v.len().try_into().unwrap(),
+                senders: v.senders().map(ToString::to_string).collect(),
+            })
             .collect()
     }
 
@@ -1049,7 +1057,7 @@ impl EncryptedMessage {
 pub struct Reaction {
     pub key: String,
     pub count: u64,
-    // TODO: Also expose senders
+    pub senders: Vec<String>,
 }
 
 #[derive(Clone)]

@@ -301,6 +301,9 @@ pub enum EventSendState {
         /// Details about how sending the event failed.
         error: Arc<Error>,
     },
+    /// Sending has been cancelled because an earlier event in the
+    /// message-sending queue failed.
+    Cancelled,
     /// The local event has been sent successfully to the server.
     Sent {
         /// The event ID assigned by the server.
