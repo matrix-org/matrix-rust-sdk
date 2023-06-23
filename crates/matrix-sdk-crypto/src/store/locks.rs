@@ -14,23 +14,39 @@
 
 //! Collection of small helpers that implement store-based locks.
 //!
-//! Those locks are implemented as one value in the key-value crypto store, that
-//! exists if and only if the lock has been taken. For this to work correctly,
-//! we rely on multiple assumptions:
+//! This is a per-process lock that may be used only for very specific use
+//! cases, where multiple processes might concurrently write to the same
+//! database at the same time; this would invalidate crypto store caches, so
+//! that should be done mindfully. Such a lock can be acquired multiple times by
+//! the same process, and it remains active as long as there's at least one user
+//! in a given process.
 //!
-//! - the store must allow concurrent reads and writes from multiple processes.
-//!   For instance, for
-//! sqlite, this means that it is running in [WAL](https://www.sqlite.org/wal.html) mode.
-//! - the two operations used in the store implementation,
-//!   `insert_custom_value_if_missing` and
-//! `remove_custom_value`, must be atomic / implemented in a transaction.
+//! The lock is implemented using time-based leases to values inserted in a
+//! crypto store. The store maintains the lock identifier (key), who's the
+//! current holder (value), and an expiration timestamp on the side; see also
+//! `CryptoStore::try_take_leased_lock` for more details.
+//!
+//! The lock is initially acquired for a certain period of time (namely, the
+//! duration of a lease, aka `LEASE_DURATION_MS`), and then a "heartbeat" task
+//! renews the lease to extend its duration, every so often (namely, every
+//! `EXTEND_LEASE_EVERY_MS`). Since the tokio scheduler might be busy, the
+//! extension request should happen way more frequently than the duration of a
+//! lease, in case a deadline is missed. The current values have been chosen to
+//! reflect that, with a ratio of 1:10 as of 2023-06-23.
+//!
+//! Releasing the lock happens naturally, by not renewing a lease. It happens
+//! automatically after the duration of the last lease, at most.
+//!
+//! For this to work, the store must allow concurrent reads and writes from
+//! multiple processes. For instance, for sqlite, this means that it is running in [WAL](https://www.sqlite.org/wal.html)
+//! mode.
 
 use std::{
-    sync::{Arc, Mutex as StdMutex},
+    sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
 
-use tokio::{sync::Mutex, task::JoinHandle, time::sleep};
+use tokio::{sync::Mutex, time::sleep};
 use tracing::{instrument, trace};
 
 use super::DynCryptoStore;
@@ -51,16 +67,17 @@ enum WaitingTime {
 /// guards have dropped.
 #[derive(Debug)]
 pub struct CryptoStoreLockGuard {
-    num_holders: Arc<StdMutex<u32>>,
+    num_holders: Arc<AtomicU32>,
 }
 
 impl Drop for CryptoStoreLockGuard {
     fn drop(&mut self) {
-        let mut num_holders = self.num_holders.lock().unwrap();
-        assert!(*num_holders > 0);
-        *num_holders -= 1;
+        self.num_holders.fetch_sub(1, atomic::Ordering::SeqCst);
     }
 }
+
+#[derive(Debug)]
+struct SharedState {}
 
 /// A store-based lock for the `CryptoStore`.
 #[derive(Clone, Debug)]
@@ -75,7 +92,11 @@ pub struct CryptoStoreLock {
     ///
     /// When the number of holders is decreased to 0, then the lock must be
     /// released in the store.
-    num_holders: Arc<StdMutex<u32>>,
+    num_holders: Arc<AtomicU32>,
+
+    /// A mutex to control an attempt to take the lock, to avoid making it
+    /// reentrant.
+    locking_attempt: Arc<Mutex<()>>,
 
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
@@ -85,15 +106,17 @@ pub struct CryptoStoreLock {
 
     /// Backoff time, in milliseconds.
     backoff: Arc<Mutex<WaitingTime>>,
-
-    /// If set, a task that will renew the lock's lease regularly as long as
-    /// they are some guards holding onto it.
-    extend_lease: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl CryptoStoreLock {
-    const LEASE_MS: u32 = 2000;
+    /// Amount of time a lease of the lock should last, in milliseconds.
+    const LEASE_DURATION_MS: u32 = 2000;
 
+    /// Period of time between two attempts to extend the lease. We'll
+    /// re-request a lease for an entire duration of `LEASE_DURATION_MS`
+    /// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
+    /// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
+    /// that we can miss a deadline without compromising the lock.
     const EXTEND_LEASE_EVERY_MS: u64 = 200;
 
     /// Initial backoff, in milliseconds. This is the time we wait the first
@@ -117,64 +140,77 @@ impl CryptoStoreLock {
             lock_key,
             lock_holder,
             backoff: Arc::new(Mutex::new(WaitingTime::Some(Self::INITIAL_BACKOFF_MS))),
-            num_holders: Arc::new(StdMutex::new(0)),
-            extend_lease: Arc::new(Mutex::new(None)),
+            num_holders: Arc::new(0.into()),
+            locking_attempt: Arc::new(Mutex::new(())),
         }
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(&self) -> Result<Option<CryptoStoreLockGuard>, CryptoStoreError> {
-        // Hold onto the task lock for the entire lifetime of this function, to avoid
-        // multiple reentrant calls.
-        let mut task = self.extend_lease.lock().await;
+        // Hold onto the locking attempt mutext for the entire lifetime of this
+        // function, to avoid multiple reentrant calls.
+        let mut _attempt = self.locking_attempt.lock().await;
 
-        {
-            let mut holders = self.num_holders.lock().unwrap();
-
-            // If another thread obtained the lock, make sure to only superficially increase
-            // the number of holders, and carry on.
-            if *holders > 0 {
-                trace!("We already had the lock, incrementing holder count");
-                *holders += 1;
-                let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
-                return Ok(Some(guard));
-            }
+        // If another thread obtained the lock, make sure to only superficially increase
+        // the number of holders, and carry on.
+        if self.num_holders.load(atomic::Ordering::SeqCst) > 0 {
+            trace!("We already had the lock, incrementing holder count");
+            self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
+            let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+            return Ok(Some(guard));
         }
 
         let acquired = self
             .store
-            .try_take_leased_lock(Self::LEASE_MS, &self.lock_key, &self.lock_holder)
+            .try_take_leased_lock(Self::LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await?;
 
         if acquired {
-            *self.num_holders.lock().unwrap() += 1;
+            // This is the first time we've acquired the lock. We're going to spawn the task
+            // that will renew the lease.
 
-            let key = self.lock_key.clone();
-            let holder = self.lock_holder.clone();
-            let store = self.store.clone();
-            let num_holders = self.num_holders.clone();
+            // Clone data to be owned by the task.
+            let this = self.clone();
 
-            *task = Some(tokio::spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     {
-                        let num_holders = num_holders.lock().unwrap();
-                        if *num_holders == 0 {
+                        // First, check if there are still users of this lock.
+                        //
+                        // This is not racy, because:
+                        // - the `locking_attempt` mutex makes sure we don't have unexpected
+                        // interactions with the non-atomic sequence above in `try_lock_once`
+                        // (check > 0, then add 1).
+                        // - other entities holding onto the `num_holders` atomic will only
+                        // decrease it over time.
+                        let _guard = this.locking_attempt.lock().await;
+
+                        // If there are no more users, we can quit.
+                        if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
                             tracing::info!("exiting the lease extension loop");
+                            // Exit the loop.
                             break;
                         }
                     }
 
-                    if let Err(err) =
-                        store.try_take_leased_lock(Self::LEASE_MS, &key, &holder).await
+                    sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
+
+                    if let Err(err) = this
+                        .store
+                        .try_take_leased_lock(
+                            Self::LEASE_DURATION_MS,
+                            &this.lock_key,
+                            &this.lock_holder,
+                        )
+                        .await
                     {
                         tracing::error!("error when extending lock lease: {err:#}");
+                        // Exit the loop.
                         break;
                     }
-
-                    sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
                 }
-            }));
+            });
 
             let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
             Ok(Some(guard))

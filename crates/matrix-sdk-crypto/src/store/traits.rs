@@ -246,7 +246,13 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Try to take a leased lock.
     ///
-    /// TODO
+    /// This attempts to take a lock for the given lease duration.
+    ///
+    /// - If we already had the lease, this will extend the lease.
+    /// - If we didn't, but the previous lease has expired, we will acquire the
+    ///   lock.
+    /// - If there was no previous lease, we will acquire the lock.
+    /// - Otherwise, we don't get the lock.
     ///
     /// Returns whether taking the lock succeeded.
     async fn try_take_leased_lock(

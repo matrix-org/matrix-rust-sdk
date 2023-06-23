@@ -110,7 +110,7 @@ impl EncryptionSync {
             let mut mode = self.mode;
 
             loop {
-                let _guard = match &mut mode {
+                let guard = match &mut mode {
                     EncryptionSyncMode::RunFixedIterations(ref mut val) => {
                         if *val == 0 {
                             // The previous attempt was the last one, stop now.
@@ -160,12 +160,18 @@ impl EncryptionSync {
 
                         // Cool cool, let's do it again.
                         trace!("Encryption sync received an update!");
+
+                        drop(guard);
+
                         yield Ok(());
                         continue;
                     }
 
                     Some(Err(err)) => {
                         trace!("Encryption sync stopped because of an error: {err:#}");
+
+                        drop(guard);
+
                         yield Err(Error::SlidingSync(err));
                         break;
                     }
