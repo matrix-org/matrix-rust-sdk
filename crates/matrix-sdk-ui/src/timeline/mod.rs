@@ -355,7 +355,7 @@ impl Timeline {
 
         // Check if the reaction already exists
         let find_related_event = || async {
-            self.item_by_event_id(&annotation.event_id).await.ok_or(Error::FailedTogglingReaction)
+            self.item_by_event_id(&annotation.event_id).await.ok_or(Error::FailedToToggleReaction)
         };
 
         let related_event = find_related_event().await?;
@@ -412,7 +412,7 @@ impl Timeline {
             .joined_room()?
             .redact(event_id, no_reason.reason.as_deref(), Some(txn_id))
             .await
-            .map_err(|_matrix_sdk_error| Error::FailedTogglingReaction);
+            .map_err(|_matrix_sdk_error| Error::FailedToToggleReaction);
 
         match response {
             Ok(_) => {
@@ -429,7 +429,7 @@ impl Timeline {
                         &ReactionToggleResult::redact_failure(event_id),
                     )
                     .await;
-                return Err(Error::FailedTogglingReaction);
+                return Err(Error::FailedToToggleReaction);
             }
         };
 
@@ -462,7 +462,7 @@ impl Timeline {
                         &ReactionToggleResult::add_failure(&txn_id),
                     )
                     .await;
-                return Err(Error::FailedTogglingReaction);
+                return Err(Error::FailedToToggleReaction);
             }
         };
 
@@ -889,7 +889,7 @@ pub enum Error {
 
     /// The reaction could not be toggled
     #[error("Failed toggling reaction")]
-    FailedTogglingReaction,
+    FailedToToggleReaction,
 
     /// The room is not in a joined state.
     #[error("Room is not joined")]
