@@ -18,6 +18,7 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -1161,7 +1162,13 @@ impl CryptoStore for SqliteCryptoStore {
     ) -> Result<bool> {
         let key = key.to_owned();
         let holder = holder.to_owned();
-        let lease_duration = f64::from(lease_duration_ms) / 1000.0;
+
+        let now_ts = SystemTime::now();
+        let lease_duration = Duration::from_millis(lease_duration_ms.into());
+        let expiration_ts = now_ts + lease_duration;
+
+        let now_ts = now_ts.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let expiration_ts = expiration_ts.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
 
         let num_touched = self
             .acquire()
@@ -1169,14 +1176,14 @@ impl CryptoStore for SqliteCryptoStore {
             .with_transaction(move |txn| {
                 txn.execute(
                     "INSERT INTO lease_locks (key, holder, expiration_ts)
-                VALUES (?1, ?2, unixepoch('subsec') + ?3)
-                ON CONFLICT (key)
-                DO
-                    UPDATE SET holder = ?2, expiration_ts = unixepoch('subsec') + ?3
-                    WHERE holder = ?2
-                    OR expiration_ts < unixepoch('subsec')
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT (key)
+                    DO
+                        UPDATE SET holder = ?2, expiration_ts = ?3
+                        WHERE holder = ?2
+                        OR expiration_ts < ?4
                 ",
-                    (key, holder, lease_duration),
+                    (key, holder, expiration_ts, now_ts),
                 )
             })
             .await?;

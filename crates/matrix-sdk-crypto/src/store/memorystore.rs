@@ -363,7 +363,7 @@ impl CryptoStore for MemoryStore {
             self.leases.insert(
                 key.to_owned(),
                 (
-                    holder.to_string(),
+                    holder.to_owned(),
                     Instant::now() + Duration::from_millis(lease_duration_ms.into()),
                 ),
             );

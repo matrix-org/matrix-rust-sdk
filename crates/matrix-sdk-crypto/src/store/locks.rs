@@ -173,7 +173,7 @@ impl CryptoStoreLock {
             // Clone data to be owned by the task.
             let this = self.clone();
 
-            tokio::spawn(async move {
+            matrix_sdk_common::executor::spawn(async move {
                 loop {
                     {
                         // First, check if there are still users of this lock.
