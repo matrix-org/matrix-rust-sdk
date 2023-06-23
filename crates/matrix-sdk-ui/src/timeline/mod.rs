@@ -386,24 +386,10 @@ impl Timeline {
             }
         };
 
-        let send_state = match Room::from(self.room().clone()) {
-            Room::Joined(room) => {
-                let response = room.send(content, Some(txn_id)).await;
-
-                match response {
-                    Ok(response) => EventSendState::Sent { event_id: response.event_id },
-                    Err(error) => EventSendState::SendingFailed { error: Arc::new(error) },
-                }
-            }
-            _ => {
-                EventSendState::SendingFailed {
-                    // FIXME: Probably not exactly right
-                    error: Arc::new(matrix_sdk::Error::InconsistentState),
-                }
-            }
-        };
-
-        self.inner.update_event_send_state(txn_id, send_state).await;
+        let txn_id = txn_id.to_owned();
+        if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
+            error!("Internal error: timeline message receiver is closed");
+        }
 
         Ok(())
     }
