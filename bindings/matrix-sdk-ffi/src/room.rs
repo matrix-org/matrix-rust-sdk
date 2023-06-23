@@ -19,7 +19,8 @@ use matrix_sdk::{
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
-                ForwardThread, MessageType, Relation, RoomMessageEvent, RoomMessageEventContent,
+                ForwardThread, LocationMessageEventContent, MessageType, Relation,
+                RoomMessageEvent, RoomMessageEventContent,
             },
         },
         EventId, UserId,
@@ -801,6 +802,13 @@ impl Room {
                 error!(txn_id, "Failed to retry sending: {e}");
             }
         });
+    }
+
+    pub fn send_location(&self, body: String, geo_uri: String, txn_id: Option<String>) {
+        let location_event_message_content = LocationMessageEventContent::new(body, geo_uri);
+        let room_message_event_content =
+            RoomMessageEventContent::new(MessageType::Location(location_event_message_content));
+        self.send(Arc::new(room_message_event_content), txn_id)
     }
 
     pub fn cancel_send(&self, txn_id: String) {
