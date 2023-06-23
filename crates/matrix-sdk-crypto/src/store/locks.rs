@@ -107,7 +107,7 @@ pub struct CryptoStoreLock {
 
 impl CryptoStoreLock {
     /// Amount of time a lease of the lock should last, in milliseconds.
-    const LEASE_DURATION_MS: u32 = 2000;
+    pub const LEASE_DURATION_MS: u32 = 2000;
 
     /// Period of time between two attempts to extend the lease. We'll
     /// re-request a lease for an entire duration of `LEASE_DURATION_MS`
