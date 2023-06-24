@@ -127,7 +127,8 @@ async fn redact_reaction_failure() {
 
     timeline
         .handle_reaction_response(&reaction, &ReactionToggleResult::redact_failure(&event_id))
-        .await;
+        .await
+        .unwrap();
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
 
     assert_no_more_updates(&mut stream).await;
