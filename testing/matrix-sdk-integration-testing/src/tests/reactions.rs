@@ -195,14 +195,15 @@ async fn sync_room(client: &Client, room_id: &RoomId) -> Result<()> {
     Ok(())
 }
 
+#[allow(unused_variables)]
 async fn assert_event_is_updated(
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
     event_id: &EventId,
-    _position: usize,
+    index: usize,
 ) -> EventTimelineItem {
     let event = assert_matches!(
         stream.next().await,
-        Some(VectorDiff::Set { index: _position, value }) => value
+        Some(VectorDiff::Set { index, value }) => value
     );
     let event = event.as_event().unwrap();
     assert_eq!(event.event_id().unwrap(), event_id);
