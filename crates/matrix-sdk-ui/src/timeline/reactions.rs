@@ -56,7 +56,7 @@ impl ReactionToggleResult {
     /// Construct a new `ReactionToggleResult` representing a successful  
     /// reaction toggle which redacted a reaction
     pub(super) fn redact_success() -> Self {
-        Self::RedactSuccess {}
+        Self::RedactSuccess
     }
 
     /// Construct a new `ReactionToggleResult` representing a failed attempt
