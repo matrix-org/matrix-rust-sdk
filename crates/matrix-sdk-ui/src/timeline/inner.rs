@@ -174,7 +174,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Result<ReactionAction, super::Error> {
         let mut state = self.state.lock().await;
 
-        let txn_id = TransactionId::new();
         let user_id = self.room_data_provider.own_user_id();
 
         let related_event = {
@@ -212,7 +211,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                         // Use the transaction ID as the in flight request
                         txn_id.clone()
                     }
-                    _ => txn_id,
+                    _ => TransactionId::new(),
                 };
 
                 let event_content = AnyMessageLikeEventContent::Reaction(
@@ -235,7 +234,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     &mut state,
                     sender,
                     sender_profile,
-                    txn_id.clone(),
+                    TransactionId::new(),
                     (to_redact_local.cloned(), to_redact_remote.cloned()),
                     no_reason.clone(),
                 )
@@ -599,14 +598,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 // A reaction was was redacted successfully but we've been requested to undo it
                 ReactionAction::SendRemote(txn_id.to_owned())
             }
-            _ => ReactionAction::None,
-        };
+            _ => {
+                // We're done, so also update the timeline
+                state.reaction_state.remove(&annotation_key);
+                update_timeline_reaction(&mut state, user_id, annotation, result)?;
 
-        if matches!(follow_up_action, ReactionAction::None) {
-            // We're done, update the timeline
-            state.reaction_state.remove(&annotation_key);
-            update_timeline_reaction(&mut state, user_id, annotation, result)?;
-        }
+                ReactionAction::None
+            }
+        };
 
         Ok(follow_up_action)
     }
