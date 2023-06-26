@@ -152,6 +152,10 @@ impl CryptoStoreLock {
         // If another thread obtained the lock, make sure to only superficially increase
         // the number of holders, and carry on.
         if self.num_holders.load(atomic::Ordering::SeqCst) > 0 {
+            // Note: between the above load and the fetch_add below, another thread may
+            // decrement `num_holders`. That's fine because that means the lock
+            // was taken by at least one thread, and after this call it will be
+            // taken by at least one thread.
             trace!("We already had the lock, incrementing holder count");
             self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
             let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
