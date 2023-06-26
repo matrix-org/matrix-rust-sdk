@@ -319,7 +319,7 @@ impl Timeline {
         let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
-            error!("Internal error: timeline message receiver is closed");
+            error!("Tried to send a message through a read-only Timeline");
         }
     }
 
@@ -388,7 +388,7 @@ impl Timeline {
 
         let txn_id = txn_id.to_owned();
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
-            error!("Internal error: timeline message receiver is closed");
+            error!("Tried to re-send a message through a read-only Timeline");
         }
 
         Ok(())
