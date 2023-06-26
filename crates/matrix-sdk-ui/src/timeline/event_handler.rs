@@ -585,26 +585,21 @@ impl<'a> TimelineEventHandler<'a> {
                 };
 
                 let mut reactions = remote_event_item.reactions.clone();
-
-                let count = {
-                    let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
-                        return None;
-                    };
-                    let group = group_entry.get_mut();
-
-                    if group.0.remove(&(Some(redacts.clone()), None)).is_none() {
-                        error!(
-                            "inconsistent state: reaction from reaction_map not in reaction list \
-                             of timeline item"
-                        );
-                        return None;
-                    }
-
-                    group.len()
+                let Entry::Occupied(mut group_entry) = reactions.entry(rel.key.clone()) else {
+                    return None;
                 };
+                let group = group_entry.get_mut();
 
-                if count == 0 {
-                    reactions.remove(&rel.key);
+                if group.0.remove(&(Some(redacts.clone()), None)).is_none() {
+                    error!(
+                        "inconsistent state: reaction from reaction_map not in reaction list \
+                         of timeline item"
+                    );
+                    return None;
+                }
+
+                if group.len() == 0 {
+                    group_entry.remove();
                 }
 
                 trace!("Removing reaction");
