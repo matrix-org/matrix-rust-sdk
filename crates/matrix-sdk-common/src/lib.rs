@@ -20,6 +20,7 @@ pub use instant;
 pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
+pub mod ring_buffer;
 pub mod timeout;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
