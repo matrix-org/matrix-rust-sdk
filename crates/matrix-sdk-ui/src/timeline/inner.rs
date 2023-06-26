@@ -1257,7 +1257,7 @@ fn update_timeline_reaction(
             if reaction_group.0.remove(&(Some(txn_id.to_owned()), None)).is_none() {
                 warn!(
                     "Tried to remove reaction by transaction ID, but didn't \
-                             find matching reaction in the related event's reactions"
+                     find matching reaction in the related event's reactions"
                 );
             }
         }
@@ -1282,7 +1282,7 @@ fn update_timeline_reaction(
             if state.reaction_map.remove(&(Some(txn_id.to_owned()), None)).is_none() {
                 warn!(
                     "Tried to remove reaction by transaction ID, but didn't \
-                             find matching reaction in the reaction map"
+                     find matching reaction in the reaction map"
                 );
             }
         }
