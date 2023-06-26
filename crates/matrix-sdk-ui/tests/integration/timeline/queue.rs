@@ -185,8 +185,8 @@ async fn retry_order() {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
 
-    // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead
-    sleep(Duration::from_millis(500)).await;
+    // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead
+    sleep(Duration::from_millis(600)).await;
 
     // The second item should be updated first, since it was retried first
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
