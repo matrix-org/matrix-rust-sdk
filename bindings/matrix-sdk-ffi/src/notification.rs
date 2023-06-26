@@ -42,11 +42,12 @@ impl NotificationItem {
     pub(crate) async fn new_from_event_id(
         event_id: &str,
         room: Room,
+        filter_by_push_rules: bool,
     ) -> anyhow::Result<Option<Self>> {
         let event_id = EventId::parse(event_id)?;
         let ruma_event = room.event(&event_id).await?;
 
-        if !ruma_event.push_actions.iter().any(|a| a.should_notify()) {
+        if filter_by_push_rules && !ruma_event.push_actions.iter().any(|a| a.should_notify()) {
             return Ok(None);
         }
 
