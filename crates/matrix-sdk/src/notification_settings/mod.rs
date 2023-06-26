@@ -153,23 +153,38 @@ impl NotificationSettings {
         }
 
         let mut rules = self.rules().await;
-        let commands = match mode {
+
+        // Delete all custom rules (the delete commands will be performed after insert
+        // commands to obtain the correct mode in the next sync response)
+        let mut delete_commands = vec![];
+        if current_mode.is_some() {
+            let custom_rules = self.get_custom_rules_for_room(room_id).await;
+            delete_commands = rules.delete_rules(&custom_rules)?;
+        }
+
+        // Insert a new rule
+        if let Some(command) = match mode {
             RoomNotificationMode::AllMessages => {
                 // insert a `Room` rule which notifies
-                rules.insert_new_rule(RuleKind::Room, room_id, true, current_mode.is_some())?
+                rules.insert_room_rule(RuleKind::Room, room_id, true)?
             }
             RoomNotificationMode::MentionsAndKeywordsOnly => {
                 // insert a `Room` rule which doesn't notify
-                rules.insert_new_rule(RuleKind::Room, room_id, false, current_mode.is_some())?
+                rules.insert_room_rule(RuleKind::Room, room_id, false)?
             }
             RoomNotificationMode::Mute => {
                 // insert an `Override` rule which doesn't notify
-                rules.insert_new_rule(RuleKind::Override, room_id, false, current_mode.is_some())?
+                rules.insert_room_rule(RuleKind::Override, room_id, false)?
             }
-        };
+        } {
+            // Execute the insert command
+            self.execute(&command).await?;
+        }
 
-        // Execute the commands to apply changes
-        self.execute_commands(&commands).await?;
+        // Execute the delete commands
+        if !delete_commands.is_empty() {
+            self.execute_commands(&delete_commands).await?;
+        }
 
         // Update the internal ruleset
         self.set_ruleset(&rules.ruleset).await;
@@ -181,17 +196,13 @@ impl NotificationSettings {
     /// actions to be performed on the user's account data.
     ///
     /// # Arguments
-    ///
-    /// * `rules` - A list of rules to delete
-    /// * `exceptions` - A list of rules to ignore
     async fn delete_rules(
         &self,
         rules: &[(RuleKind, String)],
-        exceptions: &[(RuleKind, String)],
     ) -> Result<(), NotificationSettingsError> {
         let mut push_rules = self.rules().await;
         let commands = push_rules
-            .delete_rules(rules, exceptions)
+            .delete_rules(rules)
             .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
         // Execute the commands to apply changes
         self.execute_commands(&commands).await?;
@@ -207,7 +218,7 @@ impl NotificationSettings {
         room_id: &RoomId,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.get_custom_rules_for_room(room_id).await;
-        self.delete_rules(&rules, &[]).await
+        self.delete_rules(&rules).await
     }
 
     /// Unmute a room.
@@ -603,39 +614,10 @@ pub(crate) mod tests {
         // Delete the rules
         let rules_to_delete =
             &[(RuleKind::Room, room_id.to_string()), (RuleKind::Override, room_id.to_string())];
-        notification_settings.delete_rules(rules_to_delete, &[]).await.unwrap();
+        notification_settings.delete_rules(rules_to_delete).await.unwrap();
 
         // No custom rules should remain
         assert!(notification_settings.get_custom_rules_for_room(&room_id).await.is_empty());
-    }
-
-    #[async_test]
-    async fn test_delete_rules_with_exceptions() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        let room_id = get_test_room_id();
-
-        Mock::given(method("DELETE")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
-
-        let notification_settings = client.notification_settings().await;
-
-        // Insert some initial rules
-        let mut rules = notification_settings.rules().await;
-        _ = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
-        _ = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
-        notification_settings.set_ruleset(&rules.ruleset).await;
-
-        // Delete the second rule only
-        let rules_to_delete = &[(RuleKind::Override, room_id.to_string())];
-        notification_settings
-            .delete_rules(rules_to_delete, &[(RuleKind::Room, room_id.to_string())])
-            .await
-            .unwrap();
-
-        // Only the `Room` rule should remain
-        let remaining_rules = notification_settings.get_custom_rules_for_room(&room_id).await;
-        assert_eq!(remaining_rules.len(), 1);
-        assert_eq!(&remaining_rules[0], &(RuleKind::Room, room_id.to_string()));
     }
 
     #[async_test]
@@ -654,7 +636,7 @@ pub(crate) mod tests {
         let rules_to_delete = &[(RuleKind::Room, room_id.to_string())];
         assert_eq!(
             Err(NotificationSettingsError::UnableToRemovePushRule),
-            notification_settings.delete_rules(rules_to_delete, &[]).await
+            notification_settings.delete_rules(rules_to_delete).await
         );
     }
 
@@ -671,7 +653,7 @@ pub(crate) mod tests {
         let rules_to_delete = &[(RuleKind::Room, room_id.to_string())];
         assert_eq!(
             Err(NotificationSettingsError::UnableToRemovePushRule),
-            notification_settings.delete_rules(rules_to_delete, &[]).await
+            notification_settings.delete_rules(rules_to_delete).await
         );
     }
 
@@ -711,7 +693,7 @@ pub(crate) mod tests {
         let mut rules = notification_settings.rules().await;
 
         // Initialize with a `MentionsAndKeywordsOnly` mode
-        _ = rules.insert_new_rule(RuleKind::Room, &room_id, false, false).unwrap();
+        _ = rules.insert_room_rule(RuleKind::Room, &room_id, false).unwrap();
         notification_settings.set_ruleset(&rules.ruleset).await;
 
         notification_settings.unmute_room(&room_id, true, 2).await.unwrap();

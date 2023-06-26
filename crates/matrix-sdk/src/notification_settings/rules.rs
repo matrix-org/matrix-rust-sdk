@@ -209,44 +209,6 @@ impl Rules {
         }
     }
 
-    /// Insert a new rule and optionally delete other custom rules for a room
-    pub(crate) fn insert_new_rule(
-        &mut self,
-        kind: RuleKind,
-        room_id: &RoomId,
-        notify: bool,
-        delete_other_custom_rules: bool,
-    ) -> Result<Vec<Command>, NotificationSettingsError> {
-        // Insert the rule before deleting the other custom rules to obtain the correct
-        // mode in the next sync response.
-        let mut commands = vec![];
-
-        // Insert the new rule
-        let insert_command = self
-            .insert_room_rule(kind.clone(), room_id, notify)
-            .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
-
-        if let Some(command) = insert_command {
-            commands.push(command);
-        }
-
-        if delete_other_custom_rules {
-            // Get the current custom rules
-            let custom_rules = self.get_custom_rules_for_room(room_id);
-
-            if !custom_rules.is_empty() {
-                // Delete them, expect the one we inserted above
-                let mut delete_commands = self
-                    .delete_rules(&custom_rules, &[(kind, room_id.to_string())])
-                    .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
-
-                commands.append(&mut delete_commands);
-            }
-        }
-
-        Ok(commands)
-    }
-
     /// Insert a new `Room` push rule for a given `room_id` and return an
     /// optional `Command` describing the action to be performed on the
     /// user's account data.
@@ -297,30 +259,19 @@ impl Rules {
 
     /// Deletes a list of rules and returns a list of `Command` describing the
     /// actions to be performed on the user's account data.
-    ///
-    /// # Arguments
-    ///
-    /// * `rules` - A list of rules to delete
-    /// * `exceptions` - A list of rules to ignore
     pub(crate) fn delete_rules(
         &mut self,
         rules: &[(RuleKind, String)],
-        exceptions: &[(RuleKind, String)],
     ) -> Result<Vec<Command>, RemovePushRuleError> {
         let mut commands = vec![];
 
         for (rule_kind, rule_id) in rules {
-            // Ignore rules present in exceptions
-            if exceptions.iter().any(|e| e.0 == *rule_kind && e.1 == *rule_id) {
-                continue;
-            }
-
             self.ruleset.remove(rule_kind.clone(), rule_id)?;
             commands.push(Command::DeletePushRule {
                 scope: RuleScope::Global,
                 kind: rule_kind.clone(),
                 rule_id: rule_id.clone(),
-            })
+            });
         }
         Ok(commands)
     }
@@ -859,111 +810,11 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_insert_new_rule_room_notifying() {
-        let room_id = get_test_room_id();
-        let mut rules = Rules::new(get_server_default_ruleset());
-
-        // Insert a new notifying `Room` rule
-        let commands = rules.insert_new_rule(RuleKind::Room, &room_id, true, false).unwrap();
-
-        // The rules should contains the new rule
-        let custom_rules = rules.get_custom_rules_for_room(&room_id);
-        assert_eq!(custom_rules.len(), 1);
-        assert_eq!(&custom_rules[0], &(RuleKind::Room, room_id.to_string()));
-
-        // The command list should contains only a SetPushRule command
-        assert_eq!(commands.len(), 1);
-        assert_matches!(
-            &commands[0],
-            Command::SetPushRule { scope, rule } => {
-                assert_eq!(scope, &RuleScope::Global);
-                assert_matches!(
-                    rule,
-                    NewPushRule::Room(rule) => {
-                        assert_eq!(rule.rule_id, room_id);
-                    }
-                )
-            }
-        );
-    }
-
-    #[async_test]
-    async fn test_insert_new_rule_room_notifying_with_deletion() {
-        let room_id = get_test_room_id();
-        let mut rules = Rules::new(get_server_default_ruleset());
-
-        // Insert an override rule that should be delete after the next insertion
-        _ = rules.insert_room_rule(RuleKind::Override, &room_id, false);
-
-        // Insert a new notifying `Room` rule
-        let commands = rules.insert_new_rule(RuleKind::Room, &room_id, true, true).unwrap();
-
-        // The rules should contains the new rule
-        let custom_rules = rules.get_custom_rules_for_room(&room_id);
-        assert_eq!(custom_rules.len(), 1);
-        assert_eq!(&custom_rules[0], &(RuleKind::Room, room_id.to_string()));
-
-        // The command list should contains a SetPushRule and a DeletePushRule (the
-        // order is important)
-        assert_eq!(commands.len(), 2);
-        assert_matches!(
-            &commands[0],
-            Command::SetPushRule { scope, rule } => {
-                assert_eq!(scope, &RuleScope::Global);
-                assert_matches!(
-                    rule,
-                    NewPushRule::Room(rule) => {
-                        assert_eq!(rule.rule_id, room_id);
-                    }
-                )
-            }
-        );
-        assert_matches!(
-            &commands[1],
-            Command::DeletePushRule { scope, kind, rule_id } => {
-                assert_eq!(scope, &RuleScope::Global);
-                assert_eq!(kind, &RuleKind::Override);
-                assert_eq!(rule_id, &room_id);
-            }
-        );
-    }
-
-    #[async_test]
-    async fn test_insert_new_rule_override_notifying() {
-        let room_id = get_test_room_id();
-        let mut rules = Rules::new(get_server_default_ruleset());
-
-        // Insert a new notifying `Override` rule
-        let commands = rules.insert_new_rule(RuleKind::Override, &room_id, true, false).unwrap();
-
-        // The rules should contains the new rule
-        let custom_rules = rules.get_custom_rules_for_room(&room_id);
-        assert_eq!(custom_rules.len(), 1);
-        assert_eq!(&custom_rules[0], &(RuleKind::Override, room_id.to_string()));
-
-        // The command list should contains only a SetPushRule command
-        assert_eq!(commands.len(), 1);
-        assert_matches!(
-            &commands[0],
-            Command::SetPushRule { scope, rule } => {
-                assert_eq!(scope, &RuleScope::Global);
-                assert_matches!(
-                    rule,
-                    NewPushRule::Override(rule) => {
-                        assert_eq!(rule.rule_id, room_id);
-                        assert!(!rule.actions.is_empty());
-                    }
-                )
-            }
-        );
-    }
-
-    #[async_test]
     async fn test_delete_rules() {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        rules.delete_rules(&[(RuleKind::Room, room_id.to_string())], &[]).expect_err(
+        rules.delete_rules(&[(RuleKind::Room, room_id.to_string())]).expect_err(
             "A RemovePushRuleError is expected while trying to delete an unknown rule.",
         );
 
@@ -971,7 +822,7 @@ pub(crate) mod tests {
         let new_rule = NewPushRule::Room(new_rule);
         rules.ruleset.insert(new_rule, None, None).unwrap();
 
-        let commands = rules.delete_rules(&[(RuleKind::Room, room_id.to_string())], &[]).unwrap();
+        let commands = rules.delete_rules(&[(RuleKind::Room, room_id.to_string())]).unwrap();
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
 
@@ -983,22 +834,6 @@ pub(crate) mod tests {
                 assert_eq!(rule_id, room_id.as_str());
             }
         );
-    }
-
-    #[async_test]
-    async fn test_delete_rules_with_exceptions() {
-        let room_id = get_test_room_id();
-        let mut rules = Rules::new(get_server_default_ruleset());
-
-        let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
-        let new_rule = NewPushRule::Room(new_rule);
-        rules.ruleset.insert(new_rule, None, None).unwrap();
-
-        let rules_to_delete = vec![(RuleKind::Room, room_id.to_string())];
-        let commands = rules.delete_rules(&rules_to_delete, &rules_to_delete).unwrap();
-        // The command list should be empty as the rule to delete is also in the
-        // exceptions.
-        assert_eq!(commands.len(), 0);
     }
 
     #[async_test]
