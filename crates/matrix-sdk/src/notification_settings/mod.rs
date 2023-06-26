@@ -8,7 +8,7 @@ use ruma::{
     push::{RuleKind, Ruleset},
     RoomId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockReadGuard};
 
 use self::rules::{Command, Rules};
 
@@ -75,10 +75,9 @@ impl NotificationSettings {
         *self.rules.write().await = Rules::new(ruleset.clone())
     }
 
-    /// Get a new `Rules` instance to interact with the ruleset.
-    async fn rules(&self) -> Rules {
-        let rules = &*self.rules.read().await;
-        rules.clone()
+    /// Get the rules with shared read access
+    async fn rules(&self) -> RwLockReadGuard<'_, Rules> {
+        self.rules.read().await
     }
 
     /// Gets all user defined rules matching a given `room_id`.
@@ -129,7 +128,7 @@ impl NotificationSettings {
         rule_id: &str,
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
-        let mut rules = self.rules().await;
+        let mut rules = self.rules().await.clone();
         // Enable the push rule
         let commands = rules.set_enabled(kind, rule_id, enabled)?;
         // Execute the commands to apply changes
@@ -152,7 +151,7 @@ impl NotificationSettings {
             return Ok(());
         }
 
-        let mut rules = self.rules().await;
+        let mut rules = self.rules().await.clone();
 
         // Delete all custom rules (the delete commands will be performed after insert
         // commands to obtain the correct mode in the next sync response)
@@ -200,7 +199,7 @@ impl NotificationSettings {
         &self,
         rules: &[(RuleKind, String)],
     ) -> Result<(), NotificationSettingsError> {
-        let mut push_rules = self.rules().await;
+        let mut push_rules = self.rules().await.clone();
         let commands = push_rules
             .delete_rules(rules)
             .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
@@ -328,7 +327,7 @@ pub(crate) mod tests {
 
         assert!(notification_settings.get_custom_rules_for_room(&room_id).await.is_empty());
 
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
         _ = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
         notification_settings.set_ruleset(&rules.ruleset).await;
         assert_eq!(notification_settings.get_custom_rules_for_room(&room_id).await.len(), 1);
@@ -350,7 +349,7 @@ pub(crate) mod tests {
             .await
             .is_none());
 
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
         // Set a notifying `Room` rule into the ruleset to be in `AllMessages`
         _ = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
         notification_settings.set_ruleset(&rules.ruleset).await;
@@ -382,7 +381,7 @@ pub(crate) mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let notification_settings = client.notification_settings().await;
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
 
         // notification_settings.get_default_room_notification_mode() should return the
         // same values as rules.get_default_room_notification_mode()
@@ -416,7 +415,7 @@ pub(crate) mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let notification_settings = client.notification_settings().await;
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
 
         let contains_keywords_rules = notification_settings.contains_keyword_rules().await;
         assert!(!contains_keywords_rules);
@@ -606,7 +605,7 @@ pub(crate) mod tests {
         let notification_settings = client.notification_settings().await;
 
         // Insert some initial rules
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
         _ = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
         _ = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
         notification_settings.set_ruleset(&rules.ruleset).await;
@@ -629,7 +628,7 @@ pub(crate) mod tests {
         Mock::given(method("DELETE")).respond_with(ResponseTemplate::new(500)).mount(&server).await;
 
         let notification_settings = client.notification_settings().await;
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
         _ = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
         notification_settings.set_ruleset(&rules.ruleset).await;
 
@@ -669,7 +668,7 @@ pub(crate) mod tests {
         let notification_settings = client.notification_settings().await;
 
         // Insert some initial rules
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
         _ = rules.insert_room_rule(RuleKind::Room, &room_id_a, true).unwrap();
         _ = rules.insert_room_rule(RuleKind::Override, &room_id_a, true).unwrap();
         _ = rules.insert_room_rule(RuleKind::Room, &room_id_b, true).unwrap();
@@ -690,7 +689,7 @@ pub(crate) mod tests {
         let client = logged_in_client(Some(server.uri())).await;
         let room_id = get_test_room_id();
         let notification_settings = client.notification_settings().await;
-        let mut rules = notification_settings.rules().await;
+        let mut rules = notification_settings.rules().await.clone();
 
         // Initialize with a `MentionsAndKeywordsOnly` mode
         _ = rules.insert_room_rule(RuleKind::Room, &room_id, false).unwrap();
