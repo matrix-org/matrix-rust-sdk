@@ -569,7 +569,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    /// Reconcile the timeline with the result of a request to toggle a reaction.
+    /// Reconcile the timeline with the result of a request to toggle a
+    /// reaction.
     ///
     /// Checks and finalises any state that tracks ongoing requests and decides
     /// whether further requests are required to handle any new local echos.
