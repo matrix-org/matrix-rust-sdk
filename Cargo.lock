@@ -2862,9 +2862,15 @@ name = "matrix-sdk-integration-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "assign",
  "ctor",
+ "eyeball",
+ "eyeball-im",
+ "futures-core",
+ "futures-util",
  "matrix-sdk",
+ "matrix-sdk-ui",
  "once_cell",
  "tempfile",
  "tokio",

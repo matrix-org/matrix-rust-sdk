@@ -403,6 +403,19 @@ impl ReactionGroup {
     pub fn senders(&self) -> impl Iterator<Item = &UserId> {
         self.values().unique().map(AsRef::as_ref)
     }
+
+    /// All reactions within this reaction group that were sent by the given
+    /// user.
+    ///
+    /// Note that it is possible for multiple reactions by the same user to
+    /// have arrived over federation.
+    pub fn by_sender<'a>(
+        &'a self,
+        user_id: &'a UserId,
+    ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
+        self.iter()
+            .filter_map(move |(k, v)| (*v == user_id).then_some((k.0.as_ref(), k.1.as_ref())))
+    }
 }
 
 impl Deref for ReactionGroup {

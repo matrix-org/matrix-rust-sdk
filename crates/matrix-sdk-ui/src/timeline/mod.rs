@@ -26,7 +26,7 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, MessagesOptions, Receipts, Room},
+    room::{self, Joined, MessagesOptions, Receipts, Room},
     Client, Result,
 };
 use mime::Mime;
@@ -35,11 +35,13 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     assign,
     events::{
+        reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
-        room::message::sanitize::HtmlSanitizerMode,
+        relation::Annotation,
+        room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -52,6 +54,7 @@ mod futures;
 mod inner;
 mod pagination;
 mod queue;
+mod reactions;
 mod read_receipts;
 #[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
@@ -78,8 +81,9 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    inner::{TimelineInner, TimelineInnerState},
+    inner::{ReactionAction, TimelineInner, TimelineInnerState},
     queue::LocalMessage,
+    reactions::ReactionToggleResult,
 };
 
 /// The default sanitizer mode used when sanitizing HTML.
@@ -100,6 +104,19 @@ pub struct Timeline {
     drop_handle: Arc<TimelineDropHandle>,
 }
 
+// Implements hash etc
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+struct AnnotationKey {
+    event_id: OwnedEventId,
+    key: String,
+}
+
+impl From<&Annotation> for AnnotationKey {
+    fn from(annotation: &Annotation) -> Self {
+        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
+    }
+}
+
 impl Timeline {
     pub(crate) fn builder(room: &room::Common) -> TimelineBuilder {
         TimelineBuilder::new(room)
@@ -107,6 +124,13 @@ impl Timeline {
 
     fn room(&self) -> &room::Common {
         self.inner.room()
+    }
+
+    fn joined_room(&self) -> Result<Joined, Error> {
+        match Room::from(self.room().clone()) {
+            Room::Joined(room) => Ok(room),
+            _ => Err(Error::RoomNotJoined),
+        }
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -320,6 +344,83 @@ impl Timeline {
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Tried to send a message through a read-only Timeline");
+        }
+    }
+
+    /// Toggle a reaction on an event
+    ///
+    /// Adds or redacts a reaction based on the state of the reaction at the
+    /// time it is called.
+    ///
+    /// When redacting an event, the redaction reason is not sent.
+    ///
+    /// Ensures that only one reaction is sent at a time to avoid race
+    /// conditions and spamming the homeserver with requests.
+    pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
+        // Always toggle the local reaction immediately
+        let mut action = self.inner.toggle_reaction_local(annotation).await?;
+
+        // The local echo may have been updated while a reaction is is flight
+        // so until it matches the state of the server, keep reconciling
+        loop {
+            let response = match action {
+                ReactionAction::None => {
+                    // The remote reaction matches the local reaction, OR
+                    // there is already a request in flight which will resolve
+                    // later, so stop here.
+                    break;
+                }
+                ReactionAction::SendRemote(txn_id) => {
+                    self.send_reaction(annotation, txn_id.to_owned()).await
+                }
+                ReactionAction::RedactRemote(event_id) => {
+                    self.redact_reaction(&event_id.to_owned()).await
+                }
+            };
+
+            action = self.inner.resolve_reaction_response(annotation, &response).await?;
+        }
+        Ok(())
+    }
+
+    /// Redact a reaction event from the homeserver
+    async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
+        let txn_id = TransactionId::new();
+        let no_reason = RoomRedactionEventContent::default();
+        let room = self.joined_room();
+
+        let Ok(room) = room else {
+            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
+        };
+
+        let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
+
+        match response {
+            Ok(_) => ReactionToggleResult::RedactSuccess,
+            Err(_) => ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
+        }
+    }
+
+    /// Send a reaction event to the homeserver
+    async fn send_reaction(
+        &self,
+        annotation: &Annotation,
+        txn_id: OwnedTransactionId,
+    ) -> ReactionToggleResult {
+        let room = self.joined_room();
+        let Ok(room) = room else {
+            return ReactionToggleResult::AddFailure { txn_id }
+        };
+
+        let event_content =
+            AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
+        let response = room.send(event_content, Some(&txn_id)).await;
+
+        match response {
+            Ok(response) => {
+                ReactionToggleResult::AddSuccess { event_id: response.event_id, txn_id }
+            }
+            Err(_) => ReactionToggleResult::AddFailure { txn_id },
         }
     }
 
@@ -721,9 +822,17 @@ pub enum Error {
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 
+    /// The reaction could not be toggled
+    #[error("Failed toggling reaction")]
+    FailedToToggleReaction,
+
     /// The room is not in a joined state.
     #[error("Room is not joined")]
     RoomNotJoined,
+
+    /// Could not get user
+    #[error("User ID is not available")]
+    UserIdNotAvailable,
 }
 
 /// Result of comparing events position in the timeline.

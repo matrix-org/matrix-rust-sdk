@@ -10,10 +10,16 @@ publish = false
 helpers = []
 
 [dependencies]
+assert_matches = { workspace = true }
 anyhow = { workspace = true }
 assign = "1"
 ctor = { workspace = true }
-matrix-sdk = { path = "../../crates/matrix-sdk" }
+eyeball = { workspace = true }
+eyeball-im = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["testing"] }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", features = ["testing"] }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

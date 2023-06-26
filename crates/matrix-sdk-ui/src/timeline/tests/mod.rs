@@ -22,15 +22,19 @@ use std::{
     },
 };
 
+use assert_matches::assert_matches;
 use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        relation::Annotation,
+        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnySyncTimelineEvent, EmptyStateKey, MessageLikeEventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticStateEventContent,
@@ -45,7 +49,10 @@ use ruma::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{traits::RoomDataProvider, EventTimelineItem, Profile, TimelineInner, TimelineItem};
+use super::{
+    inner::ReactionAction, reactions::ReactionToggleResult, traits::RoomDataProvider,
+    EventTimelineItem, Profile, TimelineInner, TimelineItem,
+};
 
 mod basic;
 mod echo;
@@ -54,6 +61,7 @@ mod edit;
 mod encryption;
 mod invalid;
 mod reaction_group;
+mod reactions;
 mod read_receipts;
 mod redaction;
 mod virt;
@@ -92,6 +100,10 @@ impl TestTimeline {
             self.inner.subscribe_filter_map(|item| item.as_event().cloned()).await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
+    }
+
+    async fn len(&self) -> usize {
+        self.inner.items().await.len()
     }
 
     async fn handle_live_message_event<C>(&self, sender: &UserId, content: C)
@@ -169,6 +181,26 @@ impl TestTimeline {
         self.handle_live_event(raw).await;
     }
 
+    async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
+        let event_id = EventId::new(server_name!("dummy.server"));
+        let ev = json!({
+            "type": "m.reaction",
+            "content": {
+                "m.relates_to": {
+                    "rel_type": "m.annotation",
+                    "event_id": annotation.event_id,
+                    "key": annotation.key,
+                },
+            },
+            "event_id": event_id,
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+        });
+        let raw = Raw::new(&ev).unwrap().cast();
+        self.handle_live_event(raw).await;
+        event_id
+    }
+
     async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
         let event = SyncTimelineEvent { event, encryption_info: None, push_actions: vec![] };
         self.inner.handle_live_event(event).await
@@ -177,6 +209,16 @@ impl TestTimeline {
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
         self.inner.handle_local_event(txn_id.clone(), content).await;
+        txn_id
+    }
+
+    async fn handle_local_redaction_event(
+        &self,
+        redacts: (Option<OwnedTransactionId>, Option<OwnedEventId>),
+        content: RoomRedactionEventContent,
+    ) -> OwnedTransactionId {
+        let txn_id = TransactionId::new();
+        self.inner.handle_local_redaction(txn_id.clone(), redacts, content).await;
         txn_id
     }
 
@@ -191,6 +233,21 @@ impl TestTimeline {
     ) {
         let ev_content = self.make_receipt_event_content(receipts);
         self.inner.handle_read_receipts(ev_content).await;
+    }
+
+    async fn toggle_reaction_local(
+        &self,
+        annotation: &Annotation,
+    ) -> Result<ReactionAction, super::Error> {
+        self.inner.toggle_reaction_local(annotation).await
+    }
+
+    async fn handle_reaction_response(
+        &self,
+        annotation: &Annotation,
+        result: &ReactionToggleResult,
+    ) -> Result<ReactionAction, super::Error> {
+        self.inner.resolve_reaction_response(annotation, result).await
     }
 
     /// Set the next server timestamp.
@@ -340,4 +397,25 @@ impl RoomDataProvider for TestRoomDataProvider {
 
         Some((push_rules, push_context))
     }
+}
+
+pub(super) async fn assert_event_is_updated(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    event_id: &EventId,
+    index: usize,
+) -> EventTimelineItem {
+    let (i, event) = assert_matches!(
+        stream.next().await,
+        Some(VectorDiff::Set { index, value }) => (index, value)
+    );
+    assert_eq!(i, index);
+    let event = event.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id);
+    event.to_owned()
+}
+
+pub(super) async fn assert_no_more_updates(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+) {
+    assert!(stream.next().now_or_never().is_none())
 }
