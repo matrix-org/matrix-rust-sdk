@@ -87,8 +87,8 @@ async fn message_order() {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
 
-    // Wait 200ms for the first msg, 100ms for the second, 100ms for overhead
-    sleep(Duration::from_millis(400)).await;
+    // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead
+    sleep(Duration::from_millis(500)).await;
 
     // The first item should be updated first
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
