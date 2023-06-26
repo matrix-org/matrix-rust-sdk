@@ -1292,7 +1292,7 @@ fn update_timeline_reaction(
                 (None, Some(event_id.to_owned())),
                 (own_user_id.to_owned(), annotation.clone()),
             );
-        };
+        }
     }
 
     state.items.set(idx, Arc::new(TimelineItem::Event(new_related)));
