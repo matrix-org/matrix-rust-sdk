@@ -73,12 +73,6 @@ impl EncryptionSync {
             error!("Error when stopping the encryption sync: {err}");
         }
     }
-
-    pub fn reload_caches(&self) {
-        if let Err(err) = RUNTIME.block_on(self.sync.reload_caches()) {
-            error!("Error when reloading caches: {err}");
-        }
-    }
 }
 
 impl Client {
