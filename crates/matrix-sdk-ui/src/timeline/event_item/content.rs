@@ -414,8 +414,7 @@ impl ReactionGroup {
         user_id: &'a UserId,
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
         self.iter()
-            .map(|(k, v)| ((k.0.as_ref(), k.1.as_ref()), v))
-            .filter_map(move |(k, v)| (*v == user_id).then_some(k))
+            .filter_map(move |(k, v)| (*v == user_id).then_some((k.0.as_ref(), k.1.as_ref())))
     }
 }
 
