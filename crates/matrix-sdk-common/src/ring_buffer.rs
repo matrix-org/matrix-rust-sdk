@@ -29,6 +29,10 @@ impl<T> RingBuffer<T> {
         self.inner.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     pub fn get(&self, index: usize) -> Option<&T> {
         self.inner.get(index)
     }
@@ -52,15 +56,21 @@ impl<T> RingBuffer<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use super::*;
 
     #[test]
     pub fn test_fixed_size() {
         let mut ring_buffer = RingBuffer::new(5);
 
+        assert!(ring_buffer.is_empty());
+
         ring_buffer.push(1);
         ring_buffer.push(2);
         ring_buffer.push(3);
+
+        assert!(ring_buffer.is_empty().not());
 
         assert_eq!(ring_buffer.get(0), Some(&1));
         assert_eq!(ring_buffer.get(1), Some(&2));
