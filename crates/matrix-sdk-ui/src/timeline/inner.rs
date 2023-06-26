@@ -605,7 +605,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         if matches!(follow_up_action, ReactionAction::None) {
             // We're done, update the timeline
             state.reaction_state.remove(&annotation_key);
-            update_timeline_reaction(state, user_id, annotation, result)?;
+            update_timeline_reaction(&mut state, user_id, annotation, result)?;
         }
 
         Ok(follow_up_action)
@@ -1216,7 +1216,7 @@ async fn fetch_replied_to_event(
 }
 
 fn update_timeline_reaction(
-    mut state: MutexGuard<'_, TimelineInnerState>,
+    state: &mut TimelineInnerState,
     own_user_id: &UserId,
     annotation: &Annotation,
     result: &ReactionToggleResult,
