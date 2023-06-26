@@ -614,7 +614,7 @@ impl<'a> TimelineEventHandler<'a> {
 
         if self.result.items_updated == 0 {
             // We will want to know this when debugging redaction issues.
-            debug!("redaction affected no event");
+            error!("redaction affected no event");
         }
     }
 
