@@ -314,6 +314,15 @@ pub enum LockStoreError {
     /// Spent too long waiting for a database lock.
     #[error("a lock timed out")]
     LockTimeout,
+
+    /// The generation counter is missing, and should always be present.
+    #[error("missing generation counter in the store")]
+    MissingGeneration,
+
+    /// Unexpected format for the generation counter. Is someone tampering the
+    /// database?
+    #[error("invalid format of the generation counter")]
+    InvalidGenerationFormat,
 }
 
 #[cfg(test)]

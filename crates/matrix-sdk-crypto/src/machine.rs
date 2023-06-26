@@ -67,8 +67,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
-        Result as StoreResult, SecretImportError, Store,
+        locks::LockStoreError, Changes, DeviceChanges, DynCryptoStore, IdentityChanges,
+        IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError, Store,
     },
     types::{
         events::{
@@ -129,6 +129,18 @@ pub struct OlmMachineInner {
     /// A state machine that handles creating room key backups.
     #[cfg(feature = "backups_v1")]
     backup_machine: BackupMachine,
+    /// Latest "generation" of data known by the crypto store.
+    ///
+    /// This is a counter that only increments, set in the database (and can
+    /// wrap). It's incremented whenever some process acquires a lock for the
+    /// first time. *This assumes the crypto store lock is being held, to
+    /// avoid data races on writing to this value in the store*.
+    ///
+    /// The current process will maintain this value in local memory and in the
+    /// DB over time. Observing a different value than the one read in
+    /// memory, when reading from the store indicates that somebody else has
+    /// written into the database under our feet.
+    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -142,6 +154,8 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
+    const CURRENT_GENERATION_STORE_KEY: &str = "generation-counter";
+
     /// Create a new memory based OlmMachine.
     ///
     /// The created machine will keep the encryption keys only in memory and
@@ -212,6 +226,7 @@ impl OlmMachine {
             identity_manager,
             #[cfg(feature = "backups_v1")]
             backup_machine,
+            crypto_store_generation: Arc::new(Mutex::new(None)),
         });
 
         Self { inner }
@@ -1727,6 +1742,106 @@ impl OlmMachine {
     #[cfg(feature = "backups_v1")]
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.inner.backup_machine
+    }
+
+    /// Syncs the database and in-memory generation counter.
+    ///
+    /// This requires that the crypto store lock has been acquired already.
+    pub async fn initialize_crypto_store_generation(&self) -> StoreResult<()> {
+        // Avoid reentrant initialization by taking the lock for the entire's function
+        // scope.
+        let mut gen_guard = self.inner.crypto_store_generation.lock().await;
+
+        let prev_generation =
+            self.inner.store.get_custom_value(Self::CURRENT_GENERATION_STORE_KEY).await?;
+
+        let gen = match prev_generation {
+            Some(val) => {
+                // There was a value in the store. We need to signal that we're a different
+                // process, so we don't just reuse the value but increment it.
+                u64::from_le_bytes(
+                    val.try_into().map_err(|_| LockStoreError::InvalidGenerationFormat)?,
+                )
+                .wrapping_add(1)
+            }
+            None => 0,
+        };
+
+        self.inner
+            .store
+            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, gen.to_le_bytes().to_vec())
+            .await?;
+
+        *gen_guard = Some(gen);
+
+        Ok(())
+    }
+
+    /// If needs be, update the local and on-disk crypto store generation.
+    ///
+    /// Returns true whether another user has modified the internal generation
+    /// counter, and as such we've incremented and updated it in the
+    /// database.
+    ///
+    /// ## Requirements
+    ///
+    /// - This assumes that `initialize_crypto_store_generation` has been called
+    /// beforehand.
+    /// - This requires that the crypto store lock has been acquired.
+    pub async fn maintain_crypto_store_generation(&self) -> StoreResult<bool> {
+        let mut gen_guard = self.inner.crypto_store_generation.lock().await;
+
+        // The database value must be there:
+        // - either we could initialize beforehand, thus write into the database,
+        // - or we couldn't, and then another process was holding onto the database's
+        //   lock, thus
+        // has written a generation counter in there.
+        let actual_gen = self
+            .inner
+            .store
+            .get_custom_value(Self::CURRENT_GENERATION_STORE_KEY)
+            .await?
+            .ok_or(LockStoreError::MissingGeneration)?;
+
+        let actual_gen = u64::from_le_bytes(
+            actual_gen.try_into().map_err(|_| LockStoreError::InvalidGenerationFormat)?,
+        );
+
+        let expected_gen = match gen_guard.as_ref() {
+            Some(expected_gen) => {
+                if actual_gen == *expected_gen {
+                    return Ok(false);
+                }
+                // Increment the biggest, and store it everywhere.
+                actual_gen.max(*expected_gen).wrapping_add(1)
+            }
+            None => {
+                // Some other process hold onto the lock when initializing, so we must reload.
+                // Increment database value, and store it everywhere.
+                actual_gen.wrapping_add(1)
+            }
+        };
+
+        tracing::debug!(
+            "Crypto store generation mismatch: previously known was {:?}, actual is {:?}, next is {}",
+            *gen_guard,
+            actual_gen,
+            expected_gen
+        );
+
+        // Update known value.
+        *gen_guard = Some(expected_gen);
+
+        // Update value in database.
+        self.inner
+            .store
+            .set_custom_value(
+                Self::CURRENT_GENERATION_STORE_KEY,
+                expected_gen.to_le_bytes().to_vec(),
+            )
+            .await?;
+
+        Ok(true)
     }
 }
 
