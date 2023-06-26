@@ -399,16 +399,16 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 }
 
-#[allow(unused_variables)]
 pub(super) async fn assert_event_is_updated(
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
     event_id: &EventId,
     index: usize,
 ) -> EventTimelineItem {
-    let event = assert_matches!(
+    let (i, event) = assert_matches!(
         stream.next().await,
-        Some(VectorDiff::Set { index, value }) => value
+        Some(VectorDiff::Set { index, value }) => (index, value)
     );
+    assert_eq!(i, index);
     let event = event.as_event().unwrap();
     assert_eq!(event.event_id().unwrap(), event_id);
     event.to_owned()
