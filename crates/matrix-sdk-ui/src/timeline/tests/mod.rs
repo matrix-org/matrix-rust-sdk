@@ -22,9 +22,11 @@ use std::{
     },
 };
 
+use assert_matches::assert_matches;
 use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use once_cell::sync::Lazy;
@@ -57,7 +59,6 @@ mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
-mod helpers;
 mod invalid;
 mod reaction_group;
 mod reactions;
@@ -396,4 +397,25 @@ impl RoomDataProvider for TestRoomDataProvider {
 
         Some((push_rules, push_context))
     }
+}
+
+#[allow(unused_variables)]
+pub(super) async fn assert_event_is_updated(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    event_id: &EventId,
+    index: usize,
+) -> EventTimelineItem {
+    let event = assert_matches!(
+        stream.next().await,
+        Some(VectorDiff::Set { index, value }) => value
+    );
+    let event = event.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id);
+    event.to_owned()
+}
+
+pub(super) async fn assert_no_more_updates(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+) {
+    assert!(stream.next().now_or_never().is_none())
 }

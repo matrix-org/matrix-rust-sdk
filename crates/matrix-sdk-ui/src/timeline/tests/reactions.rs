@@ -27,10 +27,7 @@ use stream_assert::assert_next_matches;
 use crate::timeline::{
     inner::ReactionAction,
     reactions::ReactionToggleResult,
-    tests::{
-        helpers::{assert_event_is_updated, assert_no_more_updates},
-        TestTimeline, ALICE, BOB,
-    },
+    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline, ALICE, BOB},
     TimelineItem,
 };
 
