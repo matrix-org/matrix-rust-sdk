@@ -390,14 +390,14 @@ impl Timeline {
         let room = self.joined_room();
 
         let Ok(room) = room else {
-            return ReactionToggleResult::redact_failure(event_id)
+            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
         };
 
         let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
 
         match response {
-            Ok(_) => ReactionToggleResult::redact_success(),
-            Err(_) => ReactionToggleResult::redact_failure(event_id),
+            Ok(_) => ReactionToggleResult::RedactSuccess,
+            Err(_) => ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
         }
     }
 
@@ -409,14 +409,18 @@ impl Timeline {
     ) -> ReactionToggleResult {
         let room = self.joined_room();
         let Ok(room) = room else {
-            return ReactionToggleResult::add_failure(&txn_id)
+            return ReactionToggleResult::AddFailure { txn_id }
         };
+
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
         let response = room.send(event_content, Some(&txn_id)).await;
+
         match response {
-            Ok(response) => ReactionToggleResult::add_success(&response.event_id, &txn_id),
-            Err(_) => ReactionToggleResult::add_failure(&txn_id),
+            Ok(response) => {
+                ReactionToggleResult::AddSuccess { event_id: response.event_id, txn_id }
+            }
+            Err(_) => ReactionToggleResult::AddFailure { txn_id },
         }
     }
 

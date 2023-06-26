@@ -48,7 +48,7 @@ async fn add_reaction_failed() {
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
 
     timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::add_failure(&txn_id))
+        .handle_reaction_response(&reaction, &ReactionToggleResult::AddFailure { txn_id })
         .await
         .unwrap();
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
@@ -81,7 +81,10 @@ async fn add_reaction_success() {
 
     let event_id = EventId::new(server_name!("example.org"));
     timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::add_success(&event_id, &txn_id))
+        .handle_reaction_response(
+            &reaction,
+            &ReactionToggleResult::AddSuccess { event_id: event_id.clone(), txn_id },
+        )
         .await
         .unwrap();
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
@@ -104,7 +107,7 @@ async fn redact_reaction_success() {
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
     timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::redact_success())
+        .handle_reaction_response(&reaction, &ReactionToggleResult::RedactSuccess)
         .await
         .unwrap();
 
@@ -126,7 +129,10 @@ async fn redact_reaction_failure() {
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
 
     timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::redact_failure(&event_id))
+        .handle_reaction_response(
+            &reaction,
+            &ReactionToggleResult::RedactFailure { event_id: event_id.clone() },
+        )
         .await
         .unwrap();
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;

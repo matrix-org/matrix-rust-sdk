@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{EventId, OwnedEventId, OwnedTransactionId, TransactionId};
+use ruma::{OwnedEventId, OwnedTransactionId};
 
 /// The result of toggling a reaction
 ///
@@ -44,30 +44,4 @@ pub(super) enum ReactionToggleResult {
         /// echo)
         event_id: OwnedEventId,
     },
-}
-
-impl ReactionToggleResult {
-    /// Construct a new `ReactionToggleResult` representing a successful
-    /// reaction toggle which added a reaction
-    pub(super) fn add_success(event_id: &EventId, txn_id: &TransactionId) -> Self {
-        Self::AddSuccess { event_id: event_id.to_owned(), txn_id: txn_id.to_owned() }
-    }
-
-    /// Construct a new `ReactionToggleResult` representing a successful  
-    /// reaction toggle which redacted a reaction
-    pub(super) fn redact_success() -> Self {
-        Self::RedactSuccess
-    }
-
-    /// Construct a new `ReactionToggleResult` representing a failed attempt
-    /// to add a reaction
-    pub(super) fn add_failure(txn_id: &TransactionId) -> Self {
-        Self::AddFailure { txn_id: txn_id.to_owned() }
-    }
-
-    /// Construct a new `ReactionToggleResult` representing a failed attempt
-    /// to redact a reaction
-    pub(super) fn redact_failure(event_id: &EventId) -> Self {
-        Self::RedactFailure { event_id: event_id.to_owned() }
-    }
 }
