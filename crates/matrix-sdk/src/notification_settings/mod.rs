@@ -295,7 +295,6 @@ impl NotificationSettings {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
-
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -383,8 +382,6 @@ pub(crate) mod tests {
         let notification_settings = client.notification_settings().await;
         let mut rules = notification_settings.rules().await.clone();
 
-        // notification_settings.get_default_room_notification_mode() should return the
-        // same values as rules.get_default_room_notification_mode()
         rules
             .ruleset
             .set_actions(
@@ -396,16 +393,27 @@ pub(crate) mod tests {
         notification_settings.set_ruleset(&rules.ruleset).await;
         assert_eq!(
             notification_settings.get_default_room_notification_mode(false, 2).await,
-            rules.get_default_room_notification_mode(false, 2)
+            RoomNotificationMode::AllMessages
         );
 
         rules
             .ruleset
             .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, vec![])
             .unwrap();
-        assert_ne!(
+        notification_settings.set_ruleset(&rules.ruleset).await;
+        assert_eq!(
             notification_settings.get_default_room_notification_mode(false, 2).await,
-            rules.get_default_room_notification_mode(false, 2)
+            RoomNotificationMode::MentionsAndKeywordsOnly
+        );
+
+        rules
+            .ruleset
+            .set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, false)
+            .unwrap();
+        notification_settings.set_ruleset(&rules.ruleset).await;
+        assert_eq!(
+            notification_settings.get_default_room_notification_mode(false, 2).await,
+            RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
 
@@ -579,7 +587,7 @@ pub(crate) mod tests {
         let mode = notification_settings.get_user_defined_room_notification_mode(&room_id).await;
         assert!(mode.is_none());
 
-        // Setting the new mode should failed
+        // Setting the new mode should fail
         assert_eq!(
             Err(NotificationSettingsError::UnableToAddPushRule),
             notification_settings
@@ -634,8 +642,8 @@ pub(crate) mod tests {
 
         let rules_to_delete = &[(RuleKind::Room, room_id.to_string())];
         assert_eq!(
-            Err(NotificationSettingsError::UnableToRemovePushRule),
-            notification_settings.delete_rules(rules_to_delete).await
+            notification_settings.delete_rules(rules_to_delete).await,
+            Err(NotificationSettingsError::UnableToRemovePushRule)
         );
     }
 
@@ -651,8 +659,8 @@ pub(crate) mod tests {
 
         let rules_to_delete = &[(RuleKind::Room, room_id.to_string())];
         assert_eq!(
-            Err(NotificationSettingsError::UnableToRemovePushRule),
-            notification_settings.delete_rules(rules_to_delete).await
+            notification_settings.delete_rules(rules_to_delete).await,
+            Err(NotificationSettingsError::UnableToRemovePushRule)
         );
     }
 
@@ -681,6 +689,7 @@ pub(crate) mod tests {
         // Only the rules for room_id_b should remain
         let remaining_rules = notification_settings.get_custom_rules_for_room(&room_id_b).await;
         assert_eq!(remaining_rules.len(), 2);
+        assert!(notification_settings.get_custom_rules_for_room(&room_id_a).await.is_empty());
     }
 
     #[async_test]
