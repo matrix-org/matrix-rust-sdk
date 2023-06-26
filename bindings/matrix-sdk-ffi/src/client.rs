@@ -629,13 +629,15 @@ impl Client {
         &self,
         room_id: String,
         event_id: String,
+        filter_by_push_rules: bool,
     ) -> Result<Option<NotificationItem>, ClientError> {
         RUNTIME.block_on(async move {
             // We may also need to do a sync here since this may fail if the keys are not
             // valid anymore
             let room_id = RoomId::parse(room_id)?;
             let room = self.inner.get_room(&room_id).context("Room not found")?;
-            let notification = NotificationItem::new_from_event_id(&event_id, room).await?;
+            let notification =
+                NotificationItem::new_from_event_id(&event_id, room, filter_by_push_rules).await?;
             Ok(notification)
         })
     }
