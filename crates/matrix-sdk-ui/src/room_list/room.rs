@@ -145,6 +145,7 @@ impl Room {
                             self.inner.sliding_sync_room.prev_batch(),
                             self.inner.sliding_sync_room.timeline_queue(),
                         )
+                        .read_only()
                         .build()
                         .await,
                 )

@@ -38,7 +38,7 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
 
     #[instrument(skip_all)]
     async fn latest_event(&self) -> Option<EventTimelineItem> {
-        sliding_sync_timeline_builder(self)?.build().await.latest_event().await
+        sliding_sync_timeline_builder(self)?.read_only().build().await.latest_event().await
     }
 }
 

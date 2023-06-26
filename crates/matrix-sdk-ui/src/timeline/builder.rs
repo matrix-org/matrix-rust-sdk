@@ -35,6 +35,7 @@ pub(crate) struct TimelineBuilder {
     room: room::Common,
     prev_token: Option<String>,
     events: Vector<SyncTimelineEvent>,
+    read_only: bool,
     track_read_marker_and_receipts: bool,
 }
 
@@ -44,6 +45,7 @@ impl TimelineBuilder {
             room: room.clone(),
             prev_token: None,
             events: Vector::new(),
+            read_only: false,
             track_read_marker_and_receipts: false,
         }
     }
@@ -57,6 +59,16 @@ impl TimelineBuilder {
     ) -> Self {
         self.prev_token = prev_token;
         self.events = events;
+        self
+    }
+
+    /// Make the `Timeline` read-only, i.e. do not allow sending messages
+    /// through it.
+    ///
+    /// This improves efficiency a little bit since no background task will be
+    /// spawned for sending messages.
+    pub(crate) fn read_only(mut self) -> Self {
+        self.read_only = true;
         self
     }
 
@@ -78,7 +90,7 @@ impl TimelineBuilder {
         )
     )]
     pub(crate) async fn build(self) -> Timeline {
-        let Self { room, prev_token, events, track_read_marker_and_receipts } = self;
+        let Self { room, prev_token, events, read_only, track_read_marker_and_receipts } = self;
         let has_events = !events.is_empty();
 
         let mut inner =
@@ -197,7 +209,9 @@ impl TimelineBuilder {
         ];
 
         let (msg_sender, msg_receiver) = mpsc::channel(1);
-        spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
+        if !read_only {
+            spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
+        }
 
         let timeline = Timeline {
             inner,
