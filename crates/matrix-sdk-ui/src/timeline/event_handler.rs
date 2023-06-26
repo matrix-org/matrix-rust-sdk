@@ -607,11 +607,6 @@ impl<'a> TimelineEventHandler<'a> {
             });
         }
 
-        // TODO: is the following still relevant?
-        // Even if the event being redacted is a reaction (found in
-        // `reaction_map`), it can still be present in the timeline items
-        // directly with the raw event timeline feature (not yet implemented).
-
         if self.result.items_updated == 0 {
             // We will want to know this when debugging redaction issues.
             error!("redaction affected no event");
