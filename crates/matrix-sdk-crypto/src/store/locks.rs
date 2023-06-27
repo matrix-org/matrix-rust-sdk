@@ -193,7 +193,6 @@ impl CryptoStoreLock {
         // threads trying to acquire/release  the lock at the same time.
         let mut holders = self.num_holders.lock().await;
 
-        assert!(*holders > 0);
         if *holders > 1 {
             // There's at least one other holder, so just decrease the number of holders.
             *holders -= 1;
@@ -201,7 +200,8 @@ impl CryptoStoreLock {
             return Ok(());
         }
 
-        // Here, holders == 1.
+        // Here, holders == 1 (or 0, but that is supposed to trigger the
+        // `MissingLockValue` error then).
 
         let read = self
             .store
@@ -215,7 +215,7 @@ impl CryptoStoreLock {
 
         let removed = self.store.remove_custom_value(&self.lock_key).await?;
         if removed {
-            *holders -= 1;
+            *holders = 0;
             trace!("successfully released");
             Ok(())
         } else {
@@ -239,4 +239,149 @@ pub enum LockStoreError {
     /// Spent too long waiting for a database lock.
     #[error("a lock timed out")]
     LockTimeout,
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use tokio::spawn;
+
+    use super::*;
+    use crate::store::{IntoCryptoStore as _, MemoryStore};
+
+    #[async_test]
+    async fn test_simple_lock_unlock() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+
+        // The lock plain works when used with a single holder.
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired);
+        assert_eq!(*lock.num_holders.lock().await, 1);
+
+        // Releasing works.
+        assert!(lock.unlock().await.is_ok());
+        assert_eq!(*lock.num_holders.lock().await, 0);
+
+        // Releasing another time is an error.
+        assert_matches!(
+            lock.unlock().await,
+            Err(CryptoStoreError::Lock(LockStoreError::MissingLockValue))
+        );
+
+        // Spin locking on the same lock always works, assuming no concurrent access.
+        assert!(lock.spin_lock(None).await.is_ok());
+
+        // Releasing works again.
+        assert!(lock.unlock().await.is_ok());
+
+        // Releasing another time is still an error.
+        assert_matches!(
+            lock.unlock().await,
+            Err(CryptoStoreError::Lock(LockStoreError::MissingLockValue))
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_self_recovery() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+
+        // When a lock is acquired...
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired);
+        assert_eq!(*lock.num_holders.lock().await, 1);
+
+        // But then forgotten...
+        drop(lock);
+
+        // The DB still knows about it...
+        let prev = dyn_store.get_custom_value("key").await?;
+        assert_eq!(String::from_utf8_lossy(prev.as_ref().unwrap()), "first");
+
+        // And when rematerializing the lock with the same key/value...
+        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+
+        // We still got it.
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired);
+        assert_eq!(*lock.num_holders.lock().await, 1);
+
+        // And can release it.
+        assert!(lock.unlock().await.is_ok());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_multiple_holders_same_process() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+
+        // Taking the lock twice...
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired);
+
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired);
+
+        assert_eq!(*lock.num_holders.lock().await, 2);
+
+        // ...means we can release it twice.
+        assert!(lock.unlock().await.is_ok());
+
+        assert!(lock.unlock().await.is_ok());
+
+        // Releasing another time is still an error.
+        assert_matches!(
+            lock.unlock().await,
+            Err(CryptoStoreError::Lock(LockStoreError::MissingLockValue))
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_multiple_processes() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock1 = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CryptoStoreLock::new(dyn_store, "key".to_owned(), "second".to_owned());
+
+        // When the first process takes the lock...
+        let acquired1 = lock1.try_lock_once().await?;
+        assert!(acquired1);
+
+        // The second can't take it immediately.
+        let acquired2 = lock2.try_lock_once().await?;
+        assert!(!acquired2);
+
+        let lock2_clone = lock2.clone();
+        let handle = spawn(async move { lock2_clone.spin_lock(Some(1000)).await });
+
+        sleep(Duration::from_millis(100)).await;
+
+        lock1.unlock().await?;
+
+        // lock2 in the background managed to get the lock.
+        assert!(handle.await.is_ok());
+
+        // Now if lock1 tries to get the lock with a small timeout, it will fail.
+        assert_matches!(
+            lock1.spin_lock(Some(200)).await,
+            Err(CryptoStoreError::Lock(LockStoreError::LockTimeout))
+        );
+
+        Ok(())
+    }
 }
