@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{iter, pin::pin, sync::Arc};
 
 use async_std::sync::Mutex;
+use futures_util::StreamExt;
 use imbl::Vector;
 use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
+    deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate, Client,
 };
-use ruma::events::receipt::{ReceiptThread, ReceiptType};
+use ruma::{
+    events::receipt::{ReceiptThread, ReceiptType},
+    OwnedRoomId,
+};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
-#[cfg(feature = "e2e-encryption")]
-use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{inner::TimelineInner, queue::send_queued_messages, Timeline, TimelineDropHandle};
 
 /// Builder that allows creating and configuring various parts of a
@@ -189,24 +191,30 @@ impl TimelineBuilder {
             }
         });
 
-        // Not using room.add_event_handler here because RoomKey events are
-        // to-device events that are not received in the context of a room.
-
         #[cfg(feature = "e2e-encryption")]
-        let room_key_handle = client
-            .add_event_handler(handle_room_key_event(inner.clone(), room.room_id().to_owned()));
-        #[cfg(feature = "e2e-encryption")]
-        let forwarded_room_key_handle = client.add_event_handler(handle_forwarded_room_key_event(
-            inner.clone(),
-            room.room_id().to_owned(),
-        ));
-
-        let handles = vec![
-            #[cfg(feature = "e2e-encryption")]
-            room_key_handle,
-            #[cfg(feature = "e2e-encryption")]
-            forwarded_room_key_handle,
-        ];
+        let room_key_update_join_handle = {
+            let inner = inner.clone();
+            match client.encryption().room_keys_for_room_received_stream(room.room_id()).await {
+                Some(stream) => spawn(async move {
+                    let mut stream = pin!(stream);
+                    while let Some(vec) = stream.next().await {
+                        for room_key_info in vec {
+                            retry_decryption(
+                                client.clone(),
+                                inner.clone(),
+                                room_key_info.room_id,
+                                room_key_info.session_id,
+                            )
+                            .await;
+                        }
+                    }
+                }),
+                None => {
+                    error!("Can't listen for room key updates, OlmMachine not set up");
+                    spawn(async move {})
+                }
+            }
+        };
 
         let (msg_sender, msg_receiver) = mpsc::channel(1);
         if !read_only {
@@ -221,9 +229,9 @@ impl TimelineBuilder {
             _end_token: Mutex::new(None),
             msg_sender,
             drop_handle: Arc::new(TimelineDropHandle {
-                client,
-                event_handler_handles: handles,
                 room_update_join_handle,
+                #[cfg(feature = "e2e-encryption")]
+                room_key_update_join_handle,
             }),
         };
 
@@ -241,4 +249,19 @@ impl TimelineBuilder {
 
         timeline
     }
+}
+
+#[tracing::instrument(skip(client, inner))]
+async fn retry_decryption(
+    client: Client,
+    inner: Arc<TimelineInner>,
+    room_id: OwnedRoomId,
+    session_id: String,
+) {
+    let Some(room) = client.get_room(&room_id) else {
+        error!("Failed to fetch room object");
+        return;
+    };
+
+    inner.retry_event_decryption(&room, Some(iter::once(session_id.as_str()).collect())).await;
 }
