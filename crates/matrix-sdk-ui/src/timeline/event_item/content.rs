@@ -170,19 +170,11 @@ impl Message {
 
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
             message::Relation::Reply { in_reply_to } => {
-                let event_id = in_reply_to.event_id;
-                let event = timeline_items
-                    .iter()
-                    .filter_map(|it| it.as_event())
-                    .find(|it| it.event_id() == Some(&*event_id))
-                    .and_then(RepliedToEvent::from_timeline_item)
-                    .map(Box::new);
-
-                Some(InReplyToDetails {
-                    event_id,
-                    event: TimelineDetails::from_initial_value(event),
-                })
+                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
             }
+            message::Relation::Thread(thread) => thread
+                .in_reply_to
+                .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items)),
             _ => None,
         });
 
@@ -270,6 +262,22 @@ pub struct InReplyToDetails {
     ///
     /// [`Timeline::fetch_details_for_event`]: crate::Timeline::fetch_details_for_event
     pub event: TimelineDetails<Box<RepliedToEvent>>,
+}
+
+impl InReplyToDetails {
+    pub fn new(
+        event_id: OwnedEventId,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> InReplyToDetails {
+        let event = timeline_items
+            .iter()
+            .filter_map(|it| it.as_event())
+            .find(|it| it.event_id() == Some(&*event_id))
+            .and_then(RepliedToEvent::from_timeline_item)
+            .map(Box::new);
+
+        InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
+    }
 }
 
 /// An event that is replied to.
