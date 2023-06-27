@@ -4,7 +4,9 @@ use std::{borrow::Borrow, ops::Deref};
 
 use eyeball::shared::Observable as SharedObservable;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::RoomMemberships;
+use futures_core::Stream;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::{crypto::store::RoomKeyInfo, RoomMemberships};
 use matrix_sdk_common::instant::{Duration, Instant};
 use mime::{self, Mime};
 use ruma::{
@@ -438,6 +440,23 @@ impl Joined {
         }
 
         Ok(())
+    }
+
+    /// Receive notifications of a room keys for this room being received.
+    ///
+    /// Each time a room key for this room is updated in any way, an update will
+    /// be sent to the stream. Updates that happen at the same time are
+    /// batched into a [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
+        self.client
+            .encryption()
+            .room_keys_for_room_received_stream(self.room_id())
+            .await
+            .expect("OlmMachine must be set up before a room::Joined object is created")
     }
 
     /// Wait for the room to be fully synced.
