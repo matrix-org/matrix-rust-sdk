@@ -87,14 +87,14 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
     sliding_sync: Arc<SlidingSync>,
     /// Room cache, to avoid recreating `Room`s everytime users fetch them.
-    rooms: Arc<Mutex<BTreeMap<OwnedRoomId, Room>>>,
+    rooms: Arc<RwLock<BTreeMap<OwnedRoomId, Room>>>,
     state: Observable<State>,
 }
 
@@ -285,16 +285,20 @@ impl RoomListService {
 
     /// Get a [`Room`] if it exists.
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        let mut rooms = self.rooms.lock().await;
-        if let Some(room) = rooms.get(room_id) {
-            return Ok(room.clone());
+        {
+            let rooms = self.rooms.read().await;
+            if let Some(room) = rooms.get(room_id) {
+                return Ok(room.clone());
+            }
         }
+
         let room = match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(self.sliding_sync.clone(), room),
-            None => Err(Error::RoomNotFound(room_id.to_owned())),
+            Some(room) => Room::new(self.sliding_sync.clone(), room)?,
+            None => return Err(Error::RoomNotFound(room_id.to_owned())),
         };
-        let room = room?;
-        rooms.insert(room_id.to_owned(), room.clone());
+
+        self.rooms.write().await.insert(room_id.to_owned(), room.clone());
+
         Ok(room)
     }
 
