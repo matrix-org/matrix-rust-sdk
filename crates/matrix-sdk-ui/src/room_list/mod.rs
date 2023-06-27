@@ -290,7 +290,7 @@ impl RoomListService {
             return Ok(room.clone());
         }
         let room = match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(self.sliding_sync.clone(), room).await,
+            Some(room) => Room::new(self.sliding_sync.clone(), room),
             None => Err(Error::RoomNotFound(room_id.to_owned())),
         };
         let room = room?;
