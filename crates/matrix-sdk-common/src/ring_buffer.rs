@@ -59,6 +59,15 @@ impl<T> RingBuffer<T> {
     pub fn clear(&mut self) {
         self.inner.clear();
     }
+
+    pub fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        for item in iter.into_iter() {
+            self.push(item);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -178,5 +187,77 @@ mod tests {
 
         // Then I get back the same as I started with
         assert_eq!(ring_buffer, new_ring_buffer);
+    }
+
+    #[test]
+    fn extending_an_empty_ringbuffer_adds_the_items() {
+        // Given a RingBuffer
+        let mut ring_buffer = RingBuffer::new(5);
+
+        // When I extend it
+        ring_buffer.extend(vec!["a".to_owned(), "b".to_owned()]);
+
+        // Then the items are added
+        assert_eq!(ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn extend_adds_items_to_the_end() {
+        // Given a RingBuffer with something in it
+        let mut ring_buffer = RingBuffer::new(5);
+        ring_buffer.push("1".to_owned());
+        ring_buffer.push("2".to_owned());
+
+        // When I extend it
+        ring_buffer.extend(vec!["3".to_owned(), "4".to_owned()]);
+
+        // Then the items are added on the end
+        assert_eq!(
+            ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["1", "2", "3", "4"]
+        );
+    }
+
+    #[test]
+    fn extend_does_not_overflow_max_length() {
+        // Given a RingBuffer with something in it
+        let mut ring_buffer = RingBuffer::new(5);
+        ring_buffer.push("1".to_owned());
+        ring_buffer.push("2".to_owned());
+
+        // When I extend it with too many items
+        ring_buffer.extend(vec![
+            "3".to_owned(),
+            "4".to_owned(),
+            "5".to_owned(),
+            "6".to_owned(),
+            "7".to_owned(),
+        ]);
+
+        // Then some of previous items are gone, keeping the length to the max
+        assert_eq!(
+            ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["3", "4", "5", "6", "7"]
+        );
+    }
+
+    #[test]
+    fn extending_a_full_ringbuffer_preserves_max_length() {
+        // Given a full RingBuffer with something in it
+        let mut ring_buffer = RingBuffer::new(2);
+        ring_buffer.push("1".to_owned());
+        ring_buffer.push("2".to_owned());
+
+        // When I extend it with lots of items
+        ring_buffer.extend(vec![
+            "3".to_owned(),
+            "4".to_owned(),
+            "5".to_owned(),
+            "6".to_owned(),
+            "7".to_owned(),
+        ]);
+
+        // Then only the last N items remain
+        assert_eq!(ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(), vec!["6", "7"]);
     }
 }
