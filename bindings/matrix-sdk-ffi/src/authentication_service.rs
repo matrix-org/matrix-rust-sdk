@@ -16,6 +16,7 @@ use crate::error::ClientError;
 pub struct AuthenticationService {
     base_path: String,
     passphrase: Option<String>,
+    user_agent: Option<String>,
     client: RwLock<Option<Arc<Client>>>,
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
@@ -87,11 +88,13 @@ impl AuthenticationService {
     pub fn new(
         base_path: String,
         passphrase: Option<String>,
+        user_agent: Option<String>,
         custom_sliding_sync_proxy: Option<String>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
             passphrase,
+            user_agent,
             client: RwLock::new(None),
             homeserver_details: RwLock::new(None),
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
@@ -108,7 +111,7 @@ impl AuthenticationService {
         &self,
         server_name_or_homeserver_url: String,
     ) -> Result<(), AuthenticationError> {
-        let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
+        let mut builder = self.new_client_builder();
 
         // Attempt discovery as a server name first.
         let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
@@ -134,7 +137,7 @@ impl AuthenticationService {
                 return Err(e);
             }
             // When discovery fails, fallback to the homeserver URL if supplied.
-            let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
+            let mut builder = self.new_client_builder();
             builder = builder.homeserver_url(server_name_or_homeserver_url);
             builder.build_inner()
         })?;
@@ -188,8 +191,8 @@ impl AuthenticationService {
             sliding_sync_proxy = None;
         }
 
-        let client = ClientBuilder::new()
-            .base_path(self.base_path.clone())
+        let client = self
+            .new_client_builder()
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
@@ -237,8 +240,8 @@ impl AuthenticationService {
             meta: SessionMeta { user_id: whoami.user_id.clone(), device_id },
             tokens: SessionTokens { access_token: token, refresh_token: None },
         };
-        let client = ClientBuilder::new()
-            .base_path(self.base_path.clone())
+        let client = self
+            .new_client_builder()
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .username(whoami.user_id.to_string())
@@ -251,6 +254,18 @@ impl AuthenticationService {
 }
 
 impl AuthenticationService {
+    /// A new client builder pre-configured with the service's base path and
+    /// user agent if specified
+    fn new_client_builder(&self) -> Arc<ClientBuilder> {
+        let mut builder = ClientBuilder::new().base_path(self.base_path.clone());
+
+        if let Some(user_agent) = self.user_agent.clone() {
+            builder = builder.user_agent(user_agent);
+        }
+
+        builder
+    }
+
     /// Get the homeserver login details from a client.
     async fn details_from_client(
         &self,
