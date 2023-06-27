@@ -48,8 +48,6 @@ pub(super) async fn send_queued_messages(
     room: room::Common,
     mut msg_receiver: Receiver<LocalMessage>,
 ) {
-    info!("Starting message-sending loop");
-
     let mut queue = VecDeque::new();
     let mut send_task: SendMessageTask = SendMessageTask::Idle;
     let mut recv_fut: Either<_, Pending<Option<LocalMessage>>> =
