@@ -209,11 +209,9 @@ impl Rules {
         }
     }
 
-    /// Insert a new `Room` push rule for a given `room_id` and return an
-    /// optional `Command` describing the action to be performed on the
-    /// user's account data.
-    pub(crate) fn insert_room_rule(
-        &mut self,
+    /// Build a command to insert a push rule
+    pub(crate) fn build_insert_rule_command(
+        &self,
         kind: RuleKind,
         room_id: &RoomId,
         notify: bool,
@@ -227,7 +225,7 @@ impl Rules {
 
         match kind {
             RuleKind::Override => {
-                // Insert a new push rule matching this `room_id`
+                // `Override` push rule matching this `room_id`
                 let new_rule = NewConditionalPushRule::new(
                     room_id.to_string(),
                     vec![PushCondition::EventMatch {
@@ -237,14 +235,12 @@ impl Rules {
                     actions,
                 );
                 let new_rule = NewPushRule::Override(new_rule);
-                self.ruleset.insert(new_rule.clone(), None, None)?;
                 command = Some(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             RuleKind::Room => {
-                // Insert a new `Room` push rule for this `room_id`
+                // `Room` push rule for this `room_id`
                 let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
                 let new_rule = NewPushRule::Room(new_rule);
-                self.ruleset.insert(new_rule.clone(), None, None)?;
                 command = Some(Command::SetPushRule { scope: RuleScope::Global, rule: new_rule });
             }
             _ => {
@@ -257,57 +253,51 @@ impl Rules {
         Ok(command)
     }
 
-    /// Deletes a list of rules and returns a list of `Command` describing the
-    /// actions to be performed on the user's account data.
-    pub(crate) fn delete_rules(
-        &mut self,
+    /// Build a list of commands needed to delete rules
+    pub(crate) fn build_delete_rules_commands(
+        &self,
         rules: &[(RuleKind, String)],
     ) -> Result<Vec<Command>, RemovePushRuleError> {
-        let mut commands = vec![];
-
-        for (rule_kind, rule_id) in rules {
-            self.ruleset.remove(rule_kind.clone(), rule_id)?;
-            commands.push(Command::DeletePushRule {
+        let commands = rules
+            .iter()
+            .map(|(kind, rule_id)| Command::DeletePushRule {
                 scope: RuleScope::Global,
-                kind: rule_kind.clone(),
+                kind: kind.clone(),
                 rule_id: rule_id.clone(),
-            });
-        }
+            })
+            .collect();
+
         Ok(commands)
     }
 
-    /// Sets whether a rule is enabled and returns a list of `Command`
-    /// describing the actions to be performed on the user's account data.
-    pub(crate) fn set_enabled(
-        &mut self,
+    /// Build a list of commands needed to set whether a rule is enabled
+    pub(crate) fn build_set_enabled_commands(
+        &self,
         kind: RuleKind,
         rule_id: &str,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
         if rule_id == PredefinedOverrideRuleId::IsRoomMention.as_str() {
             // Handle specific case for `PredefinedOverrideRuleId::IsRoomMention`
-            self.set_room_mention_enabled(enabled)
+            self.build_set_room_mention_enabled_command(enabled)
         } else if rule_id == PredefinedOverrideRuleId::IsUserMention.as_str() {
             // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
-            self.set_user_mention_enabled(enabled)
+            self.build_set_user_mention_enabled_command(enabled)
         } else {
             let mut commands = vec![];
-            self.set_rule_enabled(kind, rule_id, enabled, &mut commands)?;
+            self.add_rule_enabled_command(kind, rule_id, enabled, &mut commands)?;
             Ok(commands)
         }
     }
 
-    /// Helper function to enable or disable a rule and update a list of
-    /// commands to be performed on the user's account data to reflect the
-    /// change.
-    fn set_rule_enabled(
-        &mut self,
+    /// Build a command needed to set whether a rule is enabled
+    fn add_rule_enabled_command(
+        &self,
         kind: RuleKind,
         rule_id: &str,
         enabled: bool,
         commands: &mut Vec<Command>,
     ) -> Result<(), NotificationSettingsError> {
-        self.ruleset.set_enabled(kind.clone(), rule_id, enabled)?;
         commands.push(Command::SetPushRuleEnabled {
             scope: RuleScope::Global,
             kind,
@@ -318,30 +308,29 @@ impl Rules {
         Ok(())
     }
 
-    /// Set whether the `IsUserMention` rule is enabled and returns a list of
-    /// `Command` describing the actions to be performed on the user's account
-    /// data.
-    fn set_user_mention_enabled(
-        &mut self,
+    /// Build a list of commands needed to set whether a `IsUserMention` is
+    /// enabled
+    fn build_set_user_mention_enabled_command(
+        &self,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
         let mut commands = vec![];
 
-        // Sets the `IsUserMention` `Override` rule (MSC3952).
+        // Add a command for the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.set_rule_enabled(
+        self.add_rule_enabled_command(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsUserMention.as_str(),
             enabled,
             &mut commands,
         )?;
 
-        // For compatibility purpose, we still need to set `ContainsUserName` and
-        // `ContainsDisplayName` (deprecated rules).
+        // For compatibility purpose, we still need to add commands for
+        // `ContainsUserName` and `ContainsDisplayName` (deprecated rules).
         #[allow(deprecated)]
         {
             // `ContainsUserName`
-            self.set_rule_enabled(
+            self.add_rule_enabled_command(
                 RuleKind::Content,
                 PredefinedContentRuleId::ContainsUserName.as_str(),
                 enabled,
@@ -349,7 +338,7 @@ impl Rules {
             )?;
 
             // `ContainsDisplayName`
-            self.set_rule_enabled(
+            self.add_rule_enabled_command(
                 RuleKind::Override,
                 PredefinedOverrideRuleId::ContainsDisplayName.as_str(),
                 enabled,
@@ -360,18 +349,17 @@ impl Rules {
         Ok(commands)
     }
 
-    /// Set whether the `IsRoomMention` rule is enabled and returns a list of
-    /// `Command` describing the actions to be performed on the user's account
-    /// data.
-    fn set_room_mention_enabled(
-        &mut self,
+    /// Build a list of commands needed to set whether a `IsRoomMention` is
+    /// enabled
+    fn build_set_room_mention_enabled_command(
+        &self,
         enabled: bool,
     ) -> Result<Vec<Command>, NotificationSettingsError> {
         let mut commands = vec![];
 
         // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.set_rule_enabled(
+        self.add_rule_enabled_command(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsRoomMention.as_str(),
             enabled,
@@ -381,7 +369,7 @@ impl Rules {
         // For compatibility purpose, we still need to set `RoomNotif` (deprecated
         // rule).
         #[allow(deprecated)]
-        self.set_rule_enabled(
+        self.add_rule_enabled_command(
             RuleKind::Override,
             PredefinedOverrideRuleId::RoomNotif.as_str(),
             enabled,
@@ -389,6 +377,34 @@ impl Rules {
         )?;
 
         Ok(commands)
+    }
+
+    /// Apply a list of command to the managed ruleset.
+    ///
+    /// The commands may silently fail because the ruleset may have changed
+    /// between the time the commands were created and the time it is applied.
+    pub(crate) fn apply_commands(&mut self, commands: &[Command]) {
+        for command in commands {
+            self.apply(command);
+        }
+    }
+
+    /// Apply a command to the managed ruleset.
+    ///
+    /// The command may silently fail because the ruleset may have changed
+    /// between the time the command was created and the time it is applied.
+    pub(crate) fn apply(&mut self, command: &Command) {
+        match command.clone() {
+            Command::DeletePushRule { scope: _, kind, rule_id } => {
+                _ = self.ruleset.remove(kind, rule_id);
+            }
+            Command::SetPushRule { scope: _, rule } => {
+                _ = self.ruleset.insert(rule, None, None);
+            }
+            Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
+                _ = self.ruleset.set_enabled(kind, rule_id, enabled);
+            }
+        }
     }
 }
 
@@ -443,6 +459,39 @@ pub(crate) mod tests {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
     }
 
+    fn insert_room_rule(
+        rules: &mut Rules,
+        kind: RuleKind,
+        room_id: &RoomId,
+        notify: bool,
+    ) -> Result<Option<Command>, NotificationSettingsError> {
+        let command = rules.build_insert_rule_command(kind, room_id, notify)?;
+        if let Some(inner) = &command {
+            rules.apply(inner);
+        }
+        Ok(command)
+    }
+
+    fn delete_rules(
+        rules: &mut Rules,
+        list: &[(RuleKind, String)],
+    ) -> Result<Vec<Command>, NotificationSettingsError> {
+        let commands = rules.build_delete_rules_commands(list)?;
+        rules.apply_commands(&commands);
+        Ok(commands)
+    }
+
+    fn set_enabled(
+        rules: &mut Rules,
+        kind: RuleKind,
+        rule_id: &str,
+        enabled: bool,
+    ) -> Result<Vec<Command>, NotificationSettingsError> {
+        let commands = rules.build_set_enabled_commands(kind, rule_id, enabled)?;
+        rules.apply_commands(&commands);
+        Ok(commands)
+    }
+
     #[async_test]
     async fn test_get_custom_rules_for_room() {
         let room_id = get_test_room_id();
@@ -451,11 +500,11 @@ pub(crate) mod tests {
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 0);
 
         // Insert an Override rule
-        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id, false).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Override, &room_id, false);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
 
         // Insert a Room rule
-        rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, false).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Room, &room_id, false);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 2);
     }
 
@@ -490,7 +539,7 @@ pub(crate) mod tests {
         let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert an Override rule that doesn't notify
-        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id, false).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Override, &room_id, false);
         let mode = rules.get_user_defined_room_notification_mode(&room_id);
         assert_eq!(mode, Some(RoomNotificationMode::Mute));
     }
@@ -501,7 +550,7 @@ pub(crate) mod tests {
         let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert a Room rule that doesn't notify
-        rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, false).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Room, &room_id, false);
         let mode = rules.get_user_defined_room_notification_mode(&room_id);
         assert_eq!(mode, Some(RoomNotificationMode::MentionsAndKeywordsOnly));
     }
@@ -512,7 +561,7 @@ pub(crate) mod tests {
         let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert a Room rule that notifies
-        rules.insert_room_rule(ruma::push::RuleKind::Room, &room_id, true).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Room, &room_id, true).unwrap();
         let mode = rules.get_user_defined_room_notification_mode(&room_id);
         assert_eq!(mode, Some(RoomNotificationMode::AllMessages));
     }
@@ -525,10 +574,10 @@ pub(crate) mod tests {
         let mut rules = Rules::new(get_server_default_ruleset());
 
         // Insert the muting rule
-        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_a, false).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Override, &room_id_a, false);
         // Insert another muting rule for another room (it will be inserted before the
         // previous one)
-        rules.insert_room_rule(ruma::push::RuleKind::Override, &room_id_b, true).unwrap();
+        _ = insert_room_rule(&mut rules, RuleKind::Override, &room_id_b, true);
 
         let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
 
@@ -731,7 +780,7 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        let command = rules.insert_room_rule(RuleKind::Override, &room_id, true).unwrap();
+        let command = insert_room_rule(&mut rules, RuleKind::Override, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
         let new_rule = rules.ruleset.get(RuleKind::Override, &room_id).unwrap();
@@ -771,7 +820,7 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        let command = rules.insert_room_rule(RuleKind::Room, &room_id, true).unwrap();
+        let command = insert_room_rule(&mut rules, RuleKind::Room, &room_id, true).unwrap();
 
         // The ruleset should contains the new rule
         let new_rule =
@@ -804,8 +853,7 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        rules
-            .insert_room_rule(RuleKind::Content, &room_id, true)
+        insert_room_rule(&mut rules, RuleKind::Content, &room_id, true)
             .expect_err("An InvalidParameter error is expected");
     }
 
@@ -814,15 +862,11 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let mut rules = Rules::new(get_server_default_ruleset());
 
-        rules.delete_rules(&[(RuleKind::Room, room_id.to_string())]).expect_err(
-            "A RemovePushRuleError is expected while trying to delete an unknown rule.",
-        );
-
         let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
         let new_rule = NewPushRule::Room(new_rule);
         rules.ruleset.insert(new_rule, None, None).unwrap();
 
-        let commands = rules.delete_rules(&[(RuleKind::Room, room_id.to_string())]).unwrap();
+        let commands = delete_rules(&mut rules, &[(RuleKind::Room, room_id.to_string())]).unwrap();
         // The command list should contains only a SetPushRule command
         assert_eq!(commands.len(), 1);
 
@@ -853,9 +897,13 @@ pub(crate) mod tests {
             .enabled();
         assert!(initial_state);
         // Disable the PredefinedOverrideRuleId::Reaction rule
-        let commands = rules
-            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), false)
-            .unwrap();
+        let commands = set_enabled(
+            &mut rules,
+            RuleKind::Override,
+            PredefinedOverrideRuleId::Reaction.as_str(),
+            false,
+        )
+        .unwrap();
         let new_enabled_state = rules
             .ruleset
             .get(RuleKind::Override, PredefinedOverrideRuleId::Reaction)
@@ -910,9 +958,13 @@ pub(crate) mod tests {
         assert!(!room_notif_enabled);
 
         // Enable the PredefinedOverrideRuleId::IsRoomMention rule
-        let commands = rules
-            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str(), true)
-            .unwrap();
+        let commands = set_enabled(
+            &mut rules,
+            RuleKind::Override,
+            PredefinedOverrideRuleId::IsRoomMention.as_str(),
+            true,
+        )
+        .unwrap();
 
         // Ensure the new state is `true` for both rules
         let is_room_mention_enabled = rules
@@ -998,9 +1050,13 @@ pub(crate) mod tests {
         assert!(!contains_user_name_enabled);
 
         // Enable the PredefinedOverrideRuleId::IsUserMention rule
-        let commands = rules
-            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str(), true)
-            .unwrap();
+        let commands = set_enabled(
+            &mut rules,
+            RuleKind::Override,
+            PredefinedOverrideRuleId::IsUserMention.as_str(),
+            true,
+        )
+        .unwrap();
 
         // Ensure the new state is `true` for all corresponding rules
         let is_user_mention_enabled = rules
