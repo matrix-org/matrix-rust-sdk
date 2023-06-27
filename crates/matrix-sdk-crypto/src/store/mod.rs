@@ -41,7 +41,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
-    future::Future,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
@@ -428,25 +427,18 @@ impl Store {
         self.save_changes(changes).await
     }
 
-    // This could be an async fn, but somehow that increases the stack size of
-    // the returned future by *two times* the stack size of the two parameter
-    // types, which adds up to 928 bytes at the time of writing.
-    //
-    // Practically, it shouldn't matter whether the first if block is run at
-    // function call time or when first polling the returned future.
-    pub(crate) fn save_changes(&self, changes: Changes) -> impl Future<Output = Result<()>> + '_ {
-        // if we have any listeners on the room_keys_received stream, broadcast any
-        // updates to them
-        if self.inner.room_keys_received_sender.receiver_count() > 0
-            && !changes.inbound_group_sessions.is_empty()
-        {
-            let updates = changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
-            // ignore the result. It can only fail if there are no listeners (ie, we raced
-            // with the removal of the last one), which isn't a big deal.
-            let _ = self.inner.room_keys_received_sender.send(updates);
+    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
+        let room_key_updates: Vec<_> =
+            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+
+        self.inner.store.save_changes(changes).await?;
+
+        if !room_key_updates.is_empty() {
+            // Ignore the result. It can only fail if there are no listeners.
+            let _ = self.inner.room_keys_received_sender.send(room_key_updates);
         }
 
-        self.inner.store.save_changes(changes)
+        Ok(())
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
