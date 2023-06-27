@@ -144,44 +144,44 @@ impl NotificationSettings {
         room_id: &RoomId,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        // Get the current mode
-        let current_mode = self.get_user_defined_room_notification_mode(room_id).await;
+        let mut rules = self.rules().await.clone();
 
-        if current_mode == Some(mode.clone()) {
+        // Check that the current mode is not already the target mode.
+        if rules.get_user_defined_room_notification_mode(room_id) == Some(mode.clone()) {
             return Ok(());
         }
 
-        let mut rules = self.rules().await.clone();
-
-        // Delete all custom rules (the delete commands will be performed after insert
-        // commands to obtain the correct mode in the next sync response)
-        let mut delete_commands = vec![];
-        if current_mode.is_some() {
-            let custom_rules = self.get_custom_rules_for_room(room_id).await;
-            delete_commands = rules.delete_rules(&custom_rules)?;
-        }
-
         // Insert a new rule
-        if let Some(command) = match mode {
+        let (new_rule_kind, notify) = match mode {
             RoomNotificationMode::AllMessages => {
                 // insert a `Room` rule which notifies
-                rules.insert_room_rule(RuleKind::Room, room_id, true)?
+                (RuleKind::Room, true)
             }
             RoomNotificationMode::MentionsAndKeywordsOnly => {
                 // insert a `Room` rule which doesn't notify
-                rules.insert_room_rule(RuleKind::Room, room_id, false)?
+                (RuleKind::Room, false)
             }
             RoomNotificationMode::Mute => {
                 // insert an `Override` rule which doesn't notify
-                rules.insert_room_rule(RuleKind::Override, room_id, false)?
+                (RuleKind::Override, false)
             }
-        } {
+        };
+
+        if let Some(command) = rules.insert_room_rule(new_rule_kind.clone(), room_id, notify)? {
             // Execute the insert command
             self.execute(&command).await?;
         }
 
-        // Execute the delete commands
-        if !delete_commands.is_empty() {
+        // Delete all other custom rules, with the exception of the newly inserted rule
+        let new_rule_id = room_id.as_str();
+        let custom_rules: Vec<(RuleKind, String)> = rules
+            .get_custom_rules_for_room(room_id)
+            .into_iter()
+            .filter(|(kind, rule_id)| kind != &new_rule_kind || rule_id != new_rule_id)
+            .collect();
+
+        if !custom_rules.is_empty() {
+            let delete_commands = rules.delete_rules(&custom_rules)?;
             self.execute_commands(&delete_commands).await?;
         }
 
