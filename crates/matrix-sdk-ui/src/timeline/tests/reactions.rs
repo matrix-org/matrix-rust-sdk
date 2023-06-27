@@ -148,6 +148,57 @@ async fn redact_reaction_from_non_existent_event() {
     assert_no_more_updates(&mut stream).await;
 }
 
+#[async_test]
+async fn toggle_during_request_resolves_new_action() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
+    let reaction = create_reaction(&msg_id);
+
+    // Add a reaction
+    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
+    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
+
+    // Toggle before response is received
+    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
+    assert_matches!(action, ReactionAction::None);
+    assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
+
+    // Receive response and resolve to a redaction action
+    let event_id = EventId::new(server_name!("example.org")); // non existent event
+    let action = timeline
+        .handle_reaction_response(&reaction, &ReactionToggleResult::AddSuccess { txn_id, event_id })
+        .await
+        .unwrap();
+    assert_matches!(action, ReactionAction::RedactRemote(event_id) => event_id);
+    assert_no_more_updates(&mut stream).await;
+
+    // Toggle before response is received
+    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
+    assert_matches!(action, ReactionAction::None);
+    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
+
+    // Receive response and resolve to a send action
+    let action = timeline
+        .handle_reaction_response(&reaction, &ReactionToggleResult::RedactSuccess)
+        .await
+        .unwrap();
+    let txn_id = assert_matches!(action, ReactionAction::SendRemote(txn_id) => txn_id);
+    assert_no_more_updates(&mut stream).await;
+
+    // Receive response and resolve to no new action
+    let event_id = EventId::new(server_name!("example.org")); // non existent event
+    let action = timeline
+        .handle_reaction_response(&reaction, &ReactionToggleResult::AddSuccess { txn_id, event_id })
+        .await
+        .unwrap();
+    assert_matches!(action, ReactionAction::None);
+    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
+
+    assert_no_more_updates(&mut stream).await;
+}
+
 fn create_reaction(related_message_id: &EventId) -> Annotation {
     let reaction_key = REACTION_KEY.to_owned();
     let msg_id = related_message_id.to_owned();
@@ -187,6 +238,17 @@ async fn assert_reaction_is_updated(
     };
     assert_eq!(reaction_tx_id, expected_txn_id.map(|it| it.to_owned()).as_ref());
     assert_eq!(reaction_event_id, expected_event_id.map(|it| it.to_owned()).as_ref());
+}
+
+async fn assert_reaction_is_added(
+    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
+    related_to: &EventId,
+    message_position: usize,
+) {
+    let own_user_id = &ALICE;
+    let event = assert_event_is_updated(stream, related_to, message_position).await;
+    let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
+    assert!(reactions.by_sender(own_user_id).next().is_some());
 }
 
 async fn assert_reactions_are_removed(
