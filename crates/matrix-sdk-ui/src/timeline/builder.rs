@@ -21,7 +21,7 @@ use matrix_sdk::{
 };
 use ruma::events::receipt::{ReceiptThread, ReceiptType};
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -210,6 +210,7 @@ impl TimelineBuilder {
 
         let (msg_sender, msg_receiver) = mpsc::channel(1);
         if !read_only {
+            info!("Starting message-sending loop");
             spawn(send_queued_messages(inner.clone(), room.clone(), msg_receiver));
         }
 
