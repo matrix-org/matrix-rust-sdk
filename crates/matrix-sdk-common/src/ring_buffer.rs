@@ -14,8 +14,11 @@
 
 use std::collections::{vec_deque::Iter, VecDeque};
 
+use serde::{self, Deserialize, Serialize};
+
 /// A simple fixed-size ring buffer implementation.
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
 pub struct RingBuffer<T> {
     inner: VecDeque<T>,
 }
@@ -124,5 +127,25 @@ mod tests {
         assert_eq!(ring_buffer.get(0), None);
         assert_eq!(ring_buffer.get(1), None);
         assert_eq!(ring_buffer.get(2), None);
+    }
+
+    #[test]
+    fn roundtrip_serialisation() {
+        // Given a RingBuffer
+        let mut ring_buffer = RingBuffer::new(3);
+        ring_buffer.push("1".to_owned());
+        ring_buffer.push("2".to_owned());
+
+        // When I serialise it
+        let json = serde_json::to_string(&ring_buffer).expect("serialisation failed");
+        // Sanity: the JSON looks as we expect
+        assert_eq!(json, r#"["1","2"]"#);
+
+        // And deserialise it
+        let new_ring_buffer: RingBuffer<String> =
+            serde_json::from_str(&json).expect("deserialisation failed");
+
+        // Then I get back the same as I started with
+        assert_eq!(ring_buffer, new_ring_buffer);
     }
 }
