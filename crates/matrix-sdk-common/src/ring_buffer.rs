@@ -17,7 +17,7 @@ use std::collections::{vec_deque::Iter, VecDeque};
 use serde::{self, Deserialize, Serialize};
 
 /// A simple fixed-size ring buffer implementation.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct RingBuffer<T> {
     inner: VecDeque<T>,
