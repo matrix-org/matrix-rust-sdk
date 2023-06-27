@@ -19,7 +19,7 @@ use matrix_sdk_test::async_test;
 use ruma::{
     assign,
     events::{
-        relation::InReplyTo,
+        relation::{InReplyTo, Thread},
         room::{
             member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
             message::{MessageType, Relation, RoomMessageEventContent},
@@ -302,7 +302,7 @@ async fn reply() {
          I'm replying!"
     );
     let reply = assign!(RoomMessageEventContent::text_html(reply_plain, reply_formatted_body), {
-        relates_to: Some(Relation::Reply{
+        relates_to: Some(Relation::Reply {
             in_reply_to: InReplyTo::new(first_event_id.to_owned()),
         }),
     });
@@ -315,6 +315,45 @@ async fn reply() {
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "I'm replying!");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<p>I'm replying!</p>");
+
+    let in_reply_to = message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, first_event_id);
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(msg) => msg);
+    assert_eq!(replied_to_event.sender(), *ALICE);
+}
+
+#[async_test]
+async fn thread() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    timeline
+        .handle_live_message_event(
+            &ALICE,
+            RoomMessageEventContent::text_plain("I want you to reply"),
+        )
+        .await;
+
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let first_event = item.as_event().unwrap();
+    let first_event_id = first_event.event_id().unwrap();
+
+    let reply = assign!(RoomMessageEventContent::text_plain("I'm replying in a thread"), {
+        relates_to: Some(Relation::Thread(
+            Thread::plain(first_event_id.to_owned(), first_event_id.to_owned()),
+        ))
+    });
+
+    timeline.handle_live_message_event(&BOB, reply).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let message = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::Message(msg) => msg);
+
+    let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
+    assert_eq!(text.body, "I'm replying in a thread");
+    assert_matches!(text.formatted, None);
 
     let in_reply_to = message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
