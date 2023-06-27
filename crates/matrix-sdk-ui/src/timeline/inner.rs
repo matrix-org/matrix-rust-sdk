@@ -583,8 +583,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let user_id = self.room_data_provider.own_user_id();
         let annotation_key: AnnotationKey = annotation.into();
 
-        state.in_flight_reaction.remove(&annotation_key);
-
         let reaction_state = state
             .reaction_state
             .get(&AnnotationKey::from(annotation))
@@ -593,14 +591,22 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let follow_up_action = match (result, reaction_state) {
             (ReactionToggleResult::AddSuccess { event_id, .. }, ReactionState::Redacting(_)) => {
                 // A reaction was added successfully but we've been requested to undo it
+                state
+                    .in_flight_reaction
+                    .insert(annotation_key, ReactionState::Redacting(Some(event_id.to_owned())));
                 ReactionAction::RedactRemote(event_id.to_owned())
             }
             (ReactionToggleResult::RedactSuccess { .. }, ReactionState::Sending(txn_id)) => {
                 // A reaction was was redacted successfully but we've been requested to undo it
-                ReactionAction::SendRemote(txn_id.to_owned())
+                let txn_id = txn_id.to_owned();
+                state
+                    .in_flight_reaction
+                    .insert(annotation_key, ReactionState::Sending(txn_id.clone()));
+                ReactionAction::SendRemote(txn_id)
             }
             _ => {
                 // We're done, so also update the timeline
+                state.in_flight_reaction.remove(&annotation_key);
                 state.reaction_state.remove(&annotation_key);
                 update_timeline_reaction(&mut state, user_id, annotation, result)?;
 
