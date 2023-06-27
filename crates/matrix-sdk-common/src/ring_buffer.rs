@@ -55,6 +55,10 @@ impl<T> RingBuffer<T> {
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
     }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
 }
 
 #[cfg(test)]
@@ -127,6 +131,33 @@ mod tests {
         assert_eq!(ring_buffer.get(0), None);
         assert_eq!(ring_buffer.get(1), None);
         assert_eq!(ring_buffer.get(2), None);
+    }
+
+    #[test]
+    fn clear_on_empty_buffer_is_a_noop() {
+        let mut ring_buffer: RingBuffer<u8> = RingBuffer::new(3);
+        ring_buffer.clear();
+        assert_eq!(ring_buffer.len(), 0);
+    }
+
+    #[test]
+    fn clear_removes_all_items() {
+        // Given a RingBuffer that has been used
+        let mut ring_buffer = RingBuffer::new(3);
+        ring_buffer.push(4);
+        ring_buffer.push(5);
+        ring_buffer.push(6);
+        ring_buffer.pop();
+        // Sanity: there are 2 items
+        assert_eq!(ring_buffer.len(), 2);
+
+        // When I clear it
+        ring_buffer.clear();
+
+        // Then it is empty
+        assert_eq!(ring_buffer.len(), 0);
+        assert_eq!(ring_buffer.get(0), None);
+        assert_eq!(ring_buffer.pop(), None);
     }
 
     #[test]
