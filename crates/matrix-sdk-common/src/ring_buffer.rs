@@ -169,18 +169,18 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_serialisation() {
+    fn roundtrip_serialization() {
         // Given a RingBuffer
         let mut ring_buffer = RingBuffer::new(3);
         ring_buffer.push("1".to_owned());
         ring_buffer.push("2".to_owned());
 
-        // When I serialise it
+        // When I serialize it
         let json = serde_json::to_string(&ring_buffer).expect("serialisation failed");
         // Sanity: the JSON looks as we expect
         assert_eq!(json, r#"["1","2"]"#);
 
-        // And deserialise it
+        // And deserialize it
         let new_ring_buffer: RingBuffer<String> =
             serde_json::from_str(&json).expect("deserialisation failed");
 
