@@ -59,11 +59,10 @@ impl<T> RingBuffer<T> {
     pub fn clear(&mut self) {
         self.inner.clear();
     }
+}
 
-    pub fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = T>,
-    {
+impl<U> Extend<U> for RingBuffer<U> {
+    fn extend<T: IntoIterator<Item = U>>(&mut self, iter: T) {
         for item in iter.into_iter() {
             self.push(item);
         }
