@@ -914,12 +914,7 @@ impl VerificationRequest {
     /// Returns zero if the time has already passed.
     #[wasm_bindgen(js_name = "timeRemainingMillis")]
     pub fn time_remaining_millis(&self) -> f64 {
-        (self
-            .inner
-            .timeout_time()
-            .checked_duration_since(Instant::now())
-            .unwrap_or(Duration::from_secs(0)))
-        .as_millis() as f64
+        self.inner.time_remaining().as_millis() as f64
     }
 
     /// Get the supported verification methods of the other side.

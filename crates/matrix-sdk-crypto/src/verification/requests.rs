@@ -323,10 +323,13 @@ impl VerificationRequest {
         self.creation_time.elapsed() > VERIFICATION_TIMEOUT
     }
 
-    /// Get the time at which the verification flow will time out without
+    /// Get the time left before the verification flow will time out, without
     /// further action.
-    pub fn timeout_time(&self) -> Instant {
-        self.creation_time.add(VERIFICATION_TIMEOUT)
+    pub fn time_remaining(&self) -> Duration {
+        self.creation_time
+            .add(VERIFICATION_TIMEOUT)
+            .checked_duration_since(Instant::now())
+            .unwrap_or(Duration::from_secs(0))
     }
 
     /// Get the supported verification methods of the other side.
@@ -1594,7 +1597,10 @@ struct Done {}
 #[cfg(test)]
 mod tests {
 
-    use std::convert::{TryFrom, TryInto};
+    use std::{
+        convert::{TryFrom, TryInto},
+        time::Duration,
+    };
 
     use assert_matches::assert_matches;
     #[cfg(feature = "qrcode")]
@@ -1641,6 +1647,8 @@ mod tests {
         );
 
         assert_matches!(bob_request.state(), VerificationRequestState::Created { .. });
+        assert!(bob_request.time_remaining() <= Duration::from_secs(600)); // 10 minutes
+        assert!(bob_request.time_remaining() > Duration::from_secs(540)); // 9 minutes
 
         #[allow(clippy::needless_borrow)]
         let alice_request = VerificationRequest::from_request(
