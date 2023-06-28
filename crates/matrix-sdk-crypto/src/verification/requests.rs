@@ -1697,18 +1697,15 @@ mod tests {
 
         // the outgoing message should target bob's device specifically
         {
-            let OutgoingVerificationRequest::ToDevice(to_device_request) = &outgoing_request else {
-                panic!("Not a to-device message");
-            };
+            let to_device_request =
+                assert_matches!(&outgoing_request, OutgoingVerificationRequest::ToDevice(r) => r);
 
             assert_eq!(to_device_request.messages.len(), 1);
             let device_ids: Vec<&DeviceIdOrAllDevices> =
                 to_device_request.messages.values().next().unwrap().keys().collect();
             assert_eq!(device_ids.len(), 1);
 
-            let DeviceIdOrAllDevices::DeviceId(device_id) = device_ids[0] else {
-                panic!("Not a device id");
-            };
+            let device_id = assert_matches!(device_ids[0], DeviceIdOrAllDevices::DeviceId(r) => r);
             assert_eq!(device_id, bob_device.device_id());
         }
 
