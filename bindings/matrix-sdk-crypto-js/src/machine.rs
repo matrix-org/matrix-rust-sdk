@@ -477,7 +477,12 @@ impl OlmMachine {
         let user_id = user_id.inner.clone();
 
         future_to_promise(async move {
-            Ok(me.get_identity(user_id.as_ref(), None).await?.map(identities::UserIdentities::from))
+            // wait for up to a second for any in-flight device list requests to complete.
+            // The reason for this isn't so much to avoid races, but to make testing easier.
+            Ok(me
+                .get_identity(user_id.as_ref(), Some(Duration::from_secs(1)))
+                .await?
+                .map(identities::UserIdentities::from))
         })
     }
 
