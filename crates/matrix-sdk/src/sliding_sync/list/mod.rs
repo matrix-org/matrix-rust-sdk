@@ -24,7 +24,7 @@ pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
-use tracing::{instrument, warn};
+use tracing::{info, instrument, warn};
 
 use self::sticky::SlidingSyncListStickyParameters;
 use super::{
@@ -514,12 +514,13 @@ impl SlidingSyncListInner {
     }
 }
 
-#[instrument(skip(operations))]
 fn apply_sync_operations(
     operations: &[v4::SyncOp],
     room_list: &mut ObservableVector<RoomListEntry>,
     rooms_that_have_received_an_update: &mut HashSet<OwnedRoomId>,
 ) -> Result<(), Error> {
+    info!(?operations);
+
     for operation in operations {
         match &operation.op {
             // Specification says:
