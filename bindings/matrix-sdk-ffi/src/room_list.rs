@@ -1,11 +1,9 @@
-use std::{
-    fmt::Debug,
-    sync::{Arc, RwLock},
-};
+use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use ruma::RoomId;
+use tokio::sync::RwLock;
 
 use crate::{
     client::Client,

@@ -181,7 +181,7 @@ impl SlidingSyncRoom {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> anyhow::Result<(Vec<Arc<TimelineItem>>, TaskHandle)> {
-        let mut timeline_lock = self.timeline.write().unwrap();
+        let mut timeline_lock = RUNTIME.block_on(self.timeline.write());
         let timeline = match &*timeline_lock {
             Some(timeline) => timeline,
             None => {
