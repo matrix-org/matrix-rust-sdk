@@ -17,6 +17,9 @@ use std::collections::{vec_deque::Iter, VecDeque};
 use serde::{self, Deserialize, Serialize};
 
 /// A simple fixed-size ring buffer implementation.
+///
+/// A size is provided on creation, and the ring buffer reserves that much
+/// space, and never reallocates.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct RingBuffer<T> {
@@ -24,22 +27,34 @@ pub struct RingBuffer<T> {
 }
 
 impl<T> RingBuffer<T> {
+    /// Create a ring buffer with the supplied capacity, reserving it so we
+    /// never need to reallocate.
     pub fn new(size: usize) -> Self {
         Self { inner: VecDeque::with_capacity(size) }
     }
 
+    /// Returns the number of items that are stored in this ring buffer.
+    ///
+    /// This is the dynamic size indicating how many items are held in the
+    /// buffer, not the fixed capacity.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Returns true if the ring buffer contains no elements.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// Provides a reference to the element at the given index.
+    ///
+    /// Element at index zero is the "front" i.e. one that will be returned if
+    /// we call pop().
     pub fn get(&self, index: usize) -> Option<&T> {
         self.inner.get(index)
     }
 
+    /// Appends an element to the back of the ring buffer
     pub fn push(&mut self, value: T) {
         if self.inner.len() == self.inner.capacity() {
             self.inner.pop_front();
@@ -48,16 +63,27 @@ impl<T> RingBuffer<T> {
         self.inner.push_back(value);
     }
 
+    /// Removes the first element and returns it, or None if the ring buffer is
+    /// empty.
     pub fn pop(&mut self) -> Option<T> {
         self.inner.pop_front()
     }
 
+    /// Returns an iterator that provides elements in front-to-back order, i.e.
+    /// the same order you would get if you repeatedly called pop().
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
     }
 
+    /// Clears the ring buffer, removing all values. This does not affect the
+    /// capacity.
     pub fn clear(&mut self) {
         self.inner.clear();
+    }
+
+    /// Returns the total number of elements the vector can hold
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
     }
 }
 
@@ -172,6 +198,54 @@ mod tests {
         assert_eq!(ring_buffer.len(), 0);
         assert_eq!(ring_buffer.get(0), None);
         assert_eq!(ring_buffer.pop(), None);
+    }
+
+    #[test]
+    fn clear_does_not_affect_capacity() {
+        // Given a RingBuffer that has been used
+        let mut ring_buffer = RingBuffer::new(3);
+        ring_buffer.push(4);
+        ring_buffer.push(5);
+        ring_buffer.push(6);
+        ring_buffer.pop();
+        // Sanity: capacity is 3
+        assert_eq!(ring_buffer.capacity(), 3);
+
+        // When I clear it
+        ring_buffer.clear();
+
+        // Then its capacity is still 3
+        assert_eq!(ring_buffer.capacity(), 3);
+    }
+
+    #[test]
+    fn capacity_is_what_we_passed_to_new() {
+        // Given a RingBuffer
+        let ring_buffer = RingBuffer::<i32>::new(13);
+        // When I ask for its capacity I get what I provided at the start
+        assert_eq!(ring_buffer.capacity(), 13);
+    }
+
+    #[test]
+    fn capacity_is_not_affected_by_overflowing() {
+        // Given a RingBuffer that has been used
+        let mut ring_buffer = RingBuffer::new(3);
+        ring_buffer.push(4);
+        ring_buffer.push(5);
+        ring_buffer.push(6);
+        ring_buffer.push(7);
+        ring_buffer.pop();
+        ring_buffer.push(8);
+        ring_buffer.push(9);
+
+        // When I ask for its capacity, it gives me what I gave it initially
+        assert_eq!(ring_buffer.capacity(), 3);
+
+        // And even if I extend it
+        ring_buffer.extend(vec![10, 11, 12, 13, 14, 15]);
+
+        // Then its capacity is still 3
+        assert_eq!(ring_buffer.capacity(), 3);
     }
 
     #[test]
