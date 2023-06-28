@@ -1,3 +1,10 @@
+# v0.1.0-alpha.12
+
+## Changes in the Javascript bindings
+
+-   In `OlmMachine.getIdentity`, wait a limited time for any in-flight
+    device-list updates to complete.
+
 # v0.1.0-alpha.11
 
 ## Changes in the Javascript bindings
