@@ -20,8 +20,7 @@ use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedUserId, TransactionId,
-    UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedUserId, TransactionId, UserId,
 };
 
 mod content;
@@ -34,7 +33,7 @@ pub use self::content::{
     RoomMembershipChange, Sticker, TimelineItemContent,
 };
 pub(super) use self::{
-    local::LocalEventTimelineItem,
+    local::{EventSendState, LocalEventTimelineItem},
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
 
@@ -288,27 +287,6 @@ impl EventTimelineItem {
     pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
         Self { sender_profile, ..self.clone() }
     }
-}
-
-/// This type represents the "send state" of a local event timeline item.
-#[derive(Clone, Debug)]
-pub enum EventSendState {
-    /// The local event has not been sent yet.
-    NotSentYet,
-    /// The local event has been sent to the server, but unsuccessfully: The
-    /// sending has failed.
-    SendingFailed {
-        /// Details about how sending the event failed.
-        error: Arc<Error>,
-    },
-    /// Sending has been cancelled because an earlier event in the
-    /// message-sending queue failed.
-    Cancelled,
-    /// The local event has been sent successfully to the server.
-    Sent {
-        /// The event ID assigned by the server.
-        event_id: OwnedEventId,
-    },
 }
 
 impl From<LocalEventTimelineItem> for EventTimelineItemKind {
