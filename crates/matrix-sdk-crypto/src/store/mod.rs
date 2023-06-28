@@ -41,7 +41,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
-    future,
     ops::Deref,
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
@@ -53,8 +52,7 @@ use dashmap::DashSet;
 use futures_core::Stream;
 use futures_util::stream::StreamExt;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId,
-    UserId,
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -984,28 +982,11 @@ impl Store {
             match result {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {lag} updates");
+                    warn!("room_keys_received_stream missed {} updates", lag);
                     None
                 }
             }
         })
-    }
-
-    /// Receive notifications of a room keys for a specific room being received.
-    ///
-    /// Same as [`room_keys_received_stream`][Self::room_keys_received_stream],
-    /// but filtered by the given room ID.
-    pub fn room_keys_for_room_received_stream(
-        &self,
-        room_id: &RoomId,
-    ) -> impl Stream<Item = Vec<RoomKeyInfo>> {
-        let room_id = room_id.to_owned();
-        self.room_keys_received_stream()
-            .map(move |mut vec| {
-                vec.retain(|info| info.room_id == room_id);
-                vec
-            })
-            .filter(|vec| future::ready(!vec.is_empty()))
     }
 
     /// Creates a `CryptoStoreLock` for this store, that will contain the given
