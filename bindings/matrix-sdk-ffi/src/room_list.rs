@@ -54,7 +54,7 @@ impl Client {
 pub enum RoomListError {
     SlidingSync { error: String },
     UnknownList { list_name: String },
-    InputHasNotBeenApplied,
+    InputCannotBeApplied,
     RoomNotFound { room_name: String },
     InvalidRoomId { error: String },
 }
@@ -66,7 +66,7 @@ impl From<matrix_sdk_ui::room_list::Error> for RoomListError {
         match value {
             SlidingSync(error) => Self::SlidingSync { error: error.to_string() },
             UnknownList(list_name) => Self::UnknownList { list_name },
-            InputHasNotBeenApplied(_) => Self::InputHasNotBeenApplied,
+            InputCannotBeApplied(_) => Self::InputCannotBeApplied,
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
         }
     }
@@ -167,7 +167,7 @@ impl RoomListService {
     }
 
     async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
-        self.inner.apply_input(input.into()).await.map_err(Into::into)
+        self.inner.apply_input(input.into()).await.map(|_| ()).map_err(Into::into)
     }
 }
 
