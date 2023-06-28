@@ -1,6 +1,13 @@
-use std::{convert::TryFrom, fs, sync::Arc};
+use std::{
+    convert::TryFrom,
+    fs,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use futures_util::StreamExt;
 use matrix_sdk::{
     attachment::{
@@ -25,7 +32,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 use mime::Mime;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use super::RUNTIME;
 use crate::{
@@ -882,27 +889,49 @@ impl Room {
         })
     }
 
-    async fn send_attachment(
+    fn send_attachment(
         &self,
         url: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Result<(), RoomError> {
-        let timeline_guard = self.timeline.read().await;
-        let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
+    ) -> impl Future<Output = Result<(), RoomError>> + '_ {
+        SendAttachment(async move {
+            let timeline_guard = self.timeline.read().await;
+            let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
 
-        let request = timeline.send_attachment(url, mime_type, attachment_config);
-        if let Some(progress_watcher) = progress_watcher {
-            let mut subscriber = request.subscribe_to_send_progress();
-            RUNTIME.spawn(async move {
-                while let Some(progress) = subscriber.next().await {
-                    progress_watcher.transmission_progress(progress.into());
-                }
-            });
-        }
-        request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-        Ok(())
+            let request = timeline.send_attachment(url, mime_type, attachment_config);
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = request.subscribe_to_send_progress();
+                RUNTIME.spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+            request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+            Ok(())
+        })
+    }
+}
+
+struct SendAttachment<Fut>(Fut);
+
+impl<Fut: Future> Future for SendAttachment<Fut> {
+    type Output = Fut::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // This can't be implemented using `pin_project_lite`, because we need
+        // the custom Drop impl that is forbidden by that. We don't move out of
+        // self in Drop, so it's fine.
+        let pin_inner = unsafe { self.map_unchecked_mut(|this| &mut this.0) };
+        pin_inner.poll(cx)
+    }
+}
+
+impl<Fut> Drop for SendAttachment<Fut> {
+    fn drop(&mut self) {
+        debug!("Attachment sending cancelled.");
     }
 }
 
