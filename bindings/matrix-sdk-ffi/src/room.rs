@@ -32,7 +32,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 use mime::Mime;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use super::RUNTIME;
 use crate::{
@@ -931,7 +931,7 @@ impl<Fut: Future> Future for SendAttachment<Fut> {
 
 impl<Fut> Drop for SendAttachment<Fut> {
     fn drop(&mut self) {
-        debug!("Attachment sending cancelled.");
+        error!("Attachment sending cancelled.");
     }
 }
 
