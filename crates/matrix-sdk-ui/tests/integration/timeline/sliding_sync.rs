@@ -117,6 +117,31 @@ macro_rules! assert_timeline_stream {
         )
     };
 
+    // `insert [$nth] "$event_id"`
+    ( @_ [ $stream:ident ] [ insert [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $stream ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $stream.next().now_or_never(),
+                        Some(Some(VectorDiff::Insert { index: $index, value })) => {
+                            assert_matches!(
+                                value.as_ref(),
+                                TimelineItem::Event(event_timeline_item) => {
+                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
+                                }
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
     // `update [$nth] "$event_id"`
     ( @_ [ $stream:ident ] [ update [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(

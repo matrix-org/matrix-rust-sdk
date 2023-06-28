@@ -836,21 +836,42 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                // Check if the latest event has the same date as this event.
-                if let Some(latest_event) = self.items.iter().rev().find_map(|item| item.as_event())
-                {
+                // Local echoes that are pending should stick to the bottom,
+                // find the latest event that isn't that.
+                let (latest_event_idx, latest_event) = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+                    .find(|(_, evt)| {
+                        !matches!(
+                            evt.send_state(),
+                            Some(EventSendState::NotSentYet | EventSendState::Sent { .. })
+                        )
+                    })
+                    .unzip();
+
+                // Insert the next item after the latest non-failed event item,
+                // or at the start if there is no such item.
+                let mut insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
+
+                if let Some(latest_event) = latest_event {
+                    // Check if that event has the same date as the new one.
                     let old_ts = latest_event.timestamp();
 
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
                         trace!("Adding day divider");
-                        self.items.push_back(Arc::new(day_divider_item));
+                        self.items.insert(insert_idx, Arc::new(day_divider_item));
+                        insert_idx += 1;
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider");
-                    self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
+                    self.items.insert(insert_idx, Arc::new(TimelineItem::day_divider(timestamp)));
+                    insert_idx += 1;
                 }
 
                 if self.track_read_receipts {
@@ -864,7 +885,7 @@ impl<'a> TimelineEventHandler<'a> {
                 }
 
                 trace!("Adding new remote timeline item at the end");
-                self.items.push_back(Arc::new(item.into()));
+                self.items.insert(insert_idx, Arc::new(item.into()));
             }
 
             #[cfg(feature = "e2e-encryption")]

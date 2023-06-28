@@ -119,14 +119,14 @@ async fn echo() {
     // New day divider is added
     let new_item = assert_matches!(
         timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
+        Some(VectorDiff::Insert { index: 0, value }) => value
     );
     assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     // Remote echo is added
     let remote_echo = assert_matches!(
         timeline_stream.next().await,
-        Some(VectorDiff::PushBack { value }) => value
+        Some(VectorDiff::Insert { index: 1, value }) => value
     );
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
@@ -217,7 +217,7 @@ async fn dedup_by_event_id_late() {
                 .set_body_json(&json!({ "event_id": event_id }))
                 // Not great to use a timer for this, but it's what wiremock gives us right now.
                 // Ideally we'd wait on a channel to produce a value or sth. like that.
-                .set_delay(Duration::from_millis(100)),
+                .set_delay(Duration::from_millis(1000)),
         )
         .mount(&server)
         .await;
@@ -246,9 +246,9 @@ async fn dedup_by_event_id_late() {
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. }); // day divider
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, .. }); // day divider
     let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 1, value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
