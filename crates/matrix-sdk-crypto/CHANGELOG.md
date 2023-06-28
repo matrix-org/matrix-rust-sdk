@@ -25,4 +25,8 @@
   that allows to get a local timestamp of when the device was first seen by
   the sdk (in seconds since epoch).
 
+- When rejecting a key-verification request over to-device messages, send the
+  `m.key.verification.cancel` to the device that made the request, rather than
+  broadcasting to all devices.
+
 - Expose `VerificationRequest::time_remaining`.
