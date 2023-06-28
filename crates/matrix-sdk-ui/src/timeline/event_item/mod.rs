@@ -27,13 +27,16 @@ mod content;
 mod local;
 mod remote;
 
-pub use self::content::{
-    AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
-    MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
-    RoomMembershipChange, Sticker, TimelineItemContent,
+pub use self::{
+    content::{
+        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
+        MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
+        RoomMembershipChange, Sticker, TimelineItemContent,
+    },
+    local::EventSendState,
 };
 pub(super) use self::{
-    local::{EventSendState, LocalEventTimelineItem},
+    local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
 
