@@ -69,6 +69,12 @@ impl<U> Extend<U> for RingBuffer<U> {
     }
 }
 
+impl<T> Default for RingBuffer<T> {
+    fn default() -> Self {
+        Self { inner: Default::default() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
