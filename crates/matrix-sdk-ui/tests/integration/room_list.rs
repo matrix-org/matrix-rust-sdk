@@ -7,8 +7,9 @@ use imbl::vector;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list::{
-        Error, Input, RoomListEntry, RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
-        INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State,
+        ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
+        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItem, VirtualTimelineItem},
     RoomListService,
@@ -658,7 +659,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
     pin_mut!(sync);
 
     // Update the viewport, just to be sure it's not reset later.
-    room_list.apply_input(Input::Viewport(vec![5..=10])).await?;
+    assert_eq!(room_list.apply_input(Input::Viewport(vec![5..=10])).await?, InputResult::Applied);
 
     // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
@@ -950,7 +951,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     pin_mut!(sync);
 
     // Update the viewport, just to be sure it's not reset later.
-    room_list.apply_input(Input::Viewport(vec![5..=10])).await?;
+    assert_eq!(room_list.apply_input(Input::Viewport(vec![5..=10])).await?, InputResult::Applied);
 
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
@@ -2141,7 +2142,7 @@ async fn test_input_viewport() -> Result<(), Error> {
     // present.
     assert_matches!(
         room_list.apply_input(Input::Viewport(vec![10..=15])).await,
-        Err(Error::InputHasNotBeenApplied(_))
+        Err(Error::InputCannotBeApplied(_))
     );
 
     sync_then_assert_request_and_fake_response! {
@@ -2185,7 +2186,17 @@ async fn test_input_viewport() -> Result<(), Error> {
         },
     };
 
-    assert!(room_list.apply_input(Input::Viewport(vec![10..=15, 20..=25])).await.is_ok());
+    // Now we can change the viewport..
+    assert_eq!(
+        room_list.apply_input(Input::Viewport(vec![10..=15, 20..=25])).await?,
+        InputResult::Applied
+    );
+
+    // Re-changing the viewport has no effect.
+    assert_eq!(
+        room_list.apply_input(Input::Viewport(vec![10..=15, 20..=25])).await?,
+        InputResult::Ignored
+    );
 
     // The `timeline_limit` is not repeated because it's sticky.
     sync_then_assert_request_and_fake_response! {

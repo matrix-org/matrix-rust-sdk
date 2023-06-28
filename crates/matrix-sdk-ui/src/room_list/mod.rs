@@ -87,15 +87,27 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
+    /// The Sliding Sync instance.
     sliding_sync: Arc<SlidingSync>,
+
+    /// The current state of the `RoomListService`.
+    ///
+    /// `RoomListService` is a simple state-machine.
+    state: Observable<State>,
+
     /// Room cache, to avoid recreating `Room`s everytime users fetch them.
     rooms: Arc<RwLock<BTreeMap<OwnedRoomId, Room>>>,
-    state: Observable<State>,
+
+    /// The current viewport ranges.
+    ///
+    /// This is useful to avoid resetting the ranges to the same value,
+    /// which would cancel the current in-flight sync request.
+    viewport_ranges: Mutex<Ranges>,
 }
 
 impl RoomListService {
@@ -158,7 +170,12 @@ impl RoomListService {
             .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
-        Ok(Self { sliding_sync, state: Observable::new(State::Init), rooms: Default::default() })
+        Ok(Self {
+            sliding_sync,
+            state: Observable::new(State::Init),
+            rooms: Default::default(),
+            viewport_ranges: Mutex::new(vec![state::VISIBLE_ROOMS_DEFAULT_RANGE]),
+        })
     }
 
     /// Start to sync the room list.
@@ -258,19 +275,23 @@ impl RoomListService {
     }
 
     /// Pass an [`Input`] onto the state machine.
-    pub async fn apply_input(&self, input: Input) -> Result<(), Error> {
+    pub async fn apply_input(&self, input: Input) -> Result<InputResult, Error> {
         use Input::*;
 
         match input {
-            Viewport(ranges) => {
-                self.update_viewport(ranges).await?;
-            }
+            Viewport(ranges) => self.update_viewport(ranges).await,
         }
-
-        Ok(())
     }
 
-    async fn update_viewport(&self, ranges: Ranges) -> Result<(), Error> {
+    async fn update_viewport(&self, ranges: Ranges) -> Result<InputResult, Error> {
+        let mut viewport_ranges = self.viewport_ranges.lock().await;
+
+        // Is it worth updating the viewport?
+        // The viewport has the same ranges. Don't update it.
+        if *viewport_ranges == ranges {
+            return Ok(InputResult::Ignored);
+        }
+
         self.sliding_sync
             .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
                 list.set_sync_mode(SlidingSyncMode::new_selective().add_ranges(ranges.clone()));
@@ -278,9 +299,11 @@ impl RoomListService {
                 ready(())
             })
             .await
-            .ok_or_else(|| Error::InputHasNotBeenApplied(Input::Viewport(ranges)))?;
+            .ok_or_else(|| Error::InputCannotBeApplied(Input::Viewport(ranges.clone())))?;
 
-        Ok(())
+        *viewport_ranges = ranges;
+
+        Ok(InputResult::Applied)
     }
 
     /// Get a [`Room`] if it exists.
@@ -320,8 +343,8 @@ pub enum Error {
     UnknownList(String),
 
     /// An input was asked to be applied but it wasn't possible to apply it.
-    #[error("The input has been not applied")]
-    InputHasNotBeenApplied(Input),
+    #[error("The input cannot be applied")]
+    InputCannotBeApplied(Input),
 
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
@@ -340,6 +363,18 @@ pub enum Input {
     /// room list, and the viewport has changed. The viewport is defined as the
     /// range of visible rooms in the room list.
     Viewport(Ranges),
+}
+
+/// An [`Input`] Ok result: whether it's been applied, or ignored.
+#[derive(Debug, Eq, PartialEq)]
+pub enum InputResult {
+    /// The input has been applied.
+    Applied,
+
+    /// The input has been ignored.
+    ///
+    /// Note that this is not an error. The input was valid, but simply ignored.
+    Ignored,
 }
 
 #[cfg(test)]
