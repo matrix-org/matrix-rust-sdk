@@ -25,4 +25,4 @@
   that allows to get a local timestamp of when the device was first seen by
   the sdk (in seconds since epoch).
 
-- Expose `VerificationRequest::timeout_time`.
+- Expose `VerificationRequest::time_remaining`.
