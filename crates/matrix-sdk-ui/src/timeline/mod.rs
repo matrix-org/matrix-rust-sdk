@@ -24,9 +24,10 @@ use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
+    event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{self, Joined, MessagesOptions, Receipts, Room},
-    Result,
+    Client, Result,
 };
 use mime::Mime;
 use pin_project_lite::pin_project;
@@ -59,6 +60,8 @@ mod read_receipts;
 mod sliding_sync_ext;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "e2e-encryption")]
+mod to_device;
 mod traits;
 mod virtual_item;
 
@@ -649,16 +652,17 @@ impl Timeline {
 
 #[derive(Debug)]
 struct TimelineDropHandle {
+    client: Client,
+    event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
-    #[cfg(feature = "e2e-encryption")]
-    room_key_update_join_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
     fn drop(&mut self) {
+        for handle in self.event_handler_handles.drain(..) {
+            self.client.remove_event_handler(handle);
+        }
         self.room_update_join_handle.abort();
-        #[cfg(feature = "e2e-encryption")]
-        self.room_key_update_join_handle.abort();
     }
 }
 
