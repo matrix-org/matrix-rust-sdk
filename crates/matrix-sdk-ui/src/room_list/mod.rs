@@ -67,7 +67,7 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{future::ready, sync::Arc};
+use std::{collections::BTreeMap, future::ready, sync::Arc};
 
 use async_stream::stream;
 use eyeball::{shared::Observable, Subscriber};
@@ -87,11 +87,14 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
     sliding_sync: Arc<SlidingSync>,
+    /// Room cache, to avoid recreating `Room`s everytime users fetch them.
+    rooms: Arc<RwLock<BTreeMap<OwnedRoomId, Room>>>,
     state: Observable<State>,
 }
 
@@ -155,7 +158,7 @@ impl RoomListService {
             .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
-        Ok(Self { sliding_sync, state: Observable::new(State::Init) })
+        Ok(Self { sliding_sync, state: Observable::new(State::Init), rooms: Default::default() })
     }
 
     /// Start to sync the room list.
@@ -282,10 +285,21 @@ impl RoomListService {
 
     /// Get a [`Room`] if it exists.
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        match self.sliding_sync.get_room(room_id).await {
-            Some(room) => Room::new(self.sliding_sync.clone(), room).await,
-            None => Err(Error::RoomNotFound(room_id.to_owned())),
+        {
+            let rooms = self.rooms.read().await;
+            if let Some(room) = rooms.get(room_id) {
+                return Ok(room.clone());
+            }
         }
+
+        let room = match self.sliding_sync.get_room(room_id).await {
+            Some(room) => Room::new(self.sliding_sync.clone(), room)?,
+            None => return Err(Error::RoomNotFound(room_id.to_owned())),
+        };
+
+        self.rooms.write().await.insert(room_id.to_owned(), room.clone());
+
+        Ok(room)
     }
 
     #[cfg(any(test, feature = "testing"))]

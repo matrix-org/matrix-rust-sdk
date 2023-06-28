@@ -55,7 +55,7 @@ struct RoomInner {
 
 impl Room {
     /// Create a new `Room`.
-    pub(super) async fn new(
+    pub(super) fn new(
         sliding_sync: Arc<SlidingSync>,
         sliding_sync_room: SlidingSyncRoom,
     ) -> Result<Self, Error> {
