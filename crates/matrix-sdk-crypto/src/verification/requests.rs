@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{ops::Add, sync::Arc, time::Duration};
 
 use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard, WeakObservable};
 use futures_core::Stream;
@@ -321,6 +321,12 @@ impl VerificationRequest {
     /// Has the verification flow timed out.
     pub fn timed_out(&self) -> bool {
         self.creation_time.elapsed() > VERIFICATION_TIMEOUT
+    }
+
+    /// Get the time at which the verification flow will time out without
+    /// further action.
+    pub fn timeout_time(&self) -> Instant {
+        self.creation_time.add(VERIFICATION_TIMEOUT)
     }
 
     /// Get the supported verification methods of the other side.
