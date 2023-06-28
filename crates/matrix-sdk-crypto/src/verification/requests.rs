@@ -895,7 +895,9 @@ impl InnerRequest {
     fn other_device_id(&self) -> DeviceIdOrAllDevices {
         match self {
             InnerRequest::Created(_) => DeviceIdOrAllDevices::AllDevices,
-            InnerRequest::Requested(_) => DeviceIdOrAllDevices::AllDevices,
+            InnerRequest::Requested(r) => {
+                DeviceIdOrAllDevices::DeviceId(r.state.other_device_id.to_owned())
+            }
             InnerRequest::Ready(r) => {
                 DeviceIdOrAllDevices::DeviceId(r.state.other_device_id.to_owned())
             }
@@ -1596,17 +1598,19 @@ mod tests {
     use matrix_sdk_test::async_test;
     #[cfg(feature = "qrcode")]
     use ruma::events::key::verification::VerificationMethod;
-    use ruma::{event_id, room_id};
+    use ruma::{event_id, room_id, to_device::DeviceIdOrAllDevices};
 
     use super::VerificationRequest;
     use crate::{
         verification::{
             cache::VerificationCache,
-            event_enums::{OutgoingContent, ReadyContent, RequestContent, StartContent},
+            event_enums::{
+                CancelContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
+            },
             test::{alice_id, bob_id, setup_stores},
             FlowId, Verification,
         },
-        ReadOnlyDevice, VerificationRequestState,
+        OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequestState,
     };
 
     #[async_test]
@@ -1656,6 +1660,65 @@ mod tests {
         assert_matches!(alice_request.state(), VerificationRequestState::Ready { .. });
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
+    }
+
+    #[async_test]
+    async fn test_request_refusal_to_device() {
+        // test what happens when we cancel() a request that we have just received over
+        // to-device messages.
+        let (alice_store, bob_store) = setup_stores().await;
+        let bob_device = ReadOnlyDevice::from_account(&bob_store.account).await;
+
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
+
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store,
+            flow_id,
+            alice_id(),
+            vec![],
+            None,
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+        let content = RequestContent::try_from(&content).unwrap();
+        let flow_id = bob_request.flow_id().to_owned();
+
+        let alice_request = VerificationRequest::from_request(
+            VerificationCache::new(),
+            alice_store,
+            bob_id(),
+            flow_id,
+            &content,
+        );
+
+        let outgoing_request = alice_request.cancel().unwrap();
+
+        // the outgoing message should target bob's device specifically
+        {
+            let OutgoingVerificationRequest::ToDevice(to_device_request) = &outgoing_request else {
+                panic!("Not a to-device message");
+            };
+
+            assert_eq!(to_device_request.messages.len(), 1);
+            let device_ids: Vec<&DeviceIdOrAllDevices> =
+                to_device_request.messages.values().next().unwrap().keys().collect();
+            assert_eq!(device_ids.len(), 1);
+
+            let DeviceIdOrAllDevices::DeviceId(device_id) = device_ids[0] else {
+                panic!("Not a device id");
+            };
+            assert_eq!(device_id, bob_device.device_id());
+        }
+
+        let content = OutgoingContent::try_from(outgoing_request).unwrap();
+        let content = CancelContent::try_from(&content).unwrap();
+
+        bob_request.receive_cancel(alice_id(), &content);
+
+        assert_matches!(bob_request.state(), VerificationRequestState::Cancelled { .. });
+        assert_matches!(alice_request.state(), VerificationRequestState::Cancelled { .. });
     }
 
     #[async_test]
