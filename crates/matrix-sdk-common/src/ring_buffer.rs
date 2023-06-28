@@ -81,7 +81,7 @@ impl<T> RingBuffer<T> {
         self.inner.clear();
     }
 
-    /// Returns the total number of elements the vector can hold
+    /// Returns the total number of elements the `RingBuffer` can hold.
     pub fn capacity(&self) -> usize {
         self.inner.capacity()
     }
