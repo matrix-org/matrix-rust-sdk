@@ -1,8 +1,4 @@
-use std::{
-    convert::TryFrom,
-    fs,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, fs, sync::Arc};
 
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::StreamExt;
@@ -28,6 +24,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, Timeline};
 use mime::Mime;
+use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use super::RUNTIME;
@@ -136,11 +133,13 @@ impl Room {
     /// Timeline items cached in memory as well as timeline listeners are
     /// dropped.
     pub fn remove_timeline(&self) {
-        *self.timeline.write().unwrap() = None;
+        RUNTIME.block_on(async {
+            *self.timeline.write().await = None;
+        });
     }
 
     pub fn retry_decryption(&self, session_ids: Vec<String>) {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
                 error!("Timeline not set up, can't retry decryption");
@@ -154,7 +153,7 @@ impl Room {
     }
 
     pub fn fetch_members(&self) {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
                 error!("Timeline not set up, can't fetch members");
@@ -229,19 +228,19 @@ impl Room {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        let timeline = self
-            .timeline
-            .write()
-            .unwrap()
-            .get_or_insert_with(|| {
-                let room = self.inner.clone();
-                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-                let timeline = RUNTIME.block_on(room.timeline());
-                Arc::new(timeline)
-            })
-            .clone();
-
         RUNTIME.block_on(async move {
+            let timeline = self
+                .timeline
+                .write()
+                .await
+                .get_or_insert_with(|| {
+                    let room = self.inner.clone();
+                    #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+                    let timeline = RUNTIME.block_on(room.timeline());
+                    Arc::new(timeline)
+                })
+                .clone();
+
             let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
             let listener: Arc<dyn TimelineListener> = listener.into();
@@ -270,11 +269,13 @@ impl Room {
     ///
     /// Raises an exception if there are no timeline listeners.
     pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<(), ClientError> {
-        if let Some(timeline) = &*self.timeline.read().unwrap() {
-            RUNTIME.block_on(async move { Ok(timeline.paginate_backwards(opts.into()).await?) })
-        } else {
-            Err(anyhow!("No timeline listeners registered, can't paginate").into())
-        }
+        RUNTIME.block_on(async move {
+            if let Some(timeline) = &*self.timeline.read().await {
+                Ok(timeline.paginate_backwards(opts.into()).await?)
+            } else {
+                Err(anyhow!("No timeline listeners registered, can't paginate").into())
+            }
+        })
     }
 
     pub fn send_read_receipt(&self, event_id: String) -> Result<(), ClientError> {
@@ -326,7 +327,7 @@ impl Room {
     }
 
     pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
                 error!("Timeline not set up, can't send message");
@@ -350,7 +351,7 @@ impl Room {
             _ => return Err(anyhow!("Can't send to a room that isn't in joined state").into()),
         };
 
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
@@ -392,7 +393,7 @@ impl Room {
             _ => return Err(anyhow!("Can't send to a room that isn't in joined state").into()),
         };
 
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
@@ -457,7 +458,7 @@ impl Room {
     }
 
     pub fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
@@ -676,10 +677,8 @@ impl Room {
     }
 
     pub fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
-        let timeline = self
-            .timeline
-            .read()
-            .unwrap()
+        let timeline = RUNTIME
+            .block_on(self.timeline.read())
             .as_ref()
             .context("Timeline not set up, can't fetch event details")?
             .clone();
@@ -690,8 +689,11 @@ impl Room {
             Ok(())
         })
     }
+}
 
-    pub fn send_image(
+#[uniffi::export(async_runtime = "tokio")]
+impl Room {
+    pub async fn send_image(
         &self,
         url: String,
         thumbnail_url: String,
@@ -715,10 +717,10 @@ impl Room {
             None => AttachmentConfig::new().info(attachment_info),
         };
 
-        self.send_attachment(url, mime_type, attachment_config, progress_watcher)
+        self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
     }
 
-    pub fn send_video(
+    pub async fn send_video(
         &self,
         url: String,
         thumbnail_url: String,
@@ -742,10 +744,10 @@ impl Room {
             None => AttachmentConfig::new().info(attachment_info),
         };
 
-        self.send_attachment(url, mime_type, attachment_config, progress_watcher)
+        self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
     }
 
-    pub fn send_audio(
+    pub async fn send_audio(
         &self,
         url: String,
         audio_info: AudioInfo,
@@ -761,10 +763,10 @@ impl Room {
         let attachment_info = AttachmentInfo::Audio(base_audio_info);
         let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-        self.send_attachment(url, mime_type, attachment_config, progress_watcher)
+        self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
     }
 
-    pub fn send_file(
+    pub async fn send_file(
         &self,
         url: String,
         file_info: FileInfo,
@@ -780,11 +782,14 @@ impl Room {
         let attachment_info = AttachmentInfo::File(base_file_info);
         let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-        self.send_attachment(url, mime_type, attachment_config, progress_watcher)
+        self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
     }
+}
 
+#[uniffi::export]
+impl Room {
     pub fn retry_send(&self, txn_id: String) {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
                 error!("Timeline not set up, can't retry sending message");
@@ -807,7 +812,7 @@ impl Room {
     }
 
     pub fn cancel_send(&self, txn_id: String) {
-        let timeline = match &*self.timeline.read().unwrap() {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
                 error!("Timeline not set up, can't retry sending message");
@@ -826,16 +831,16 @@ impl Room {
         &self,
         event_id: String,
     ) -> Result<Arc<RoomMessageEventContent>, ClientError> {
-        let timeline = self
-            .timeline
-            .read()
-            .unwrap()
-            .clone()
-            .context("Timeline not set up, can't get event content")?;
-
-        let event_id = EventId::parse(event_id)?;
-
         RUNTIME.block_on(async move {
+            let timeline = self
+                .timeline
+                .read()
+                .await
+                .clone()
+                .context("Timeline not set up, can't get event content")?;
+
+            let event_id = EventId::parse(event_id)?;
+
             let item = timeline
                 .item_by_event_id(&event_id)
                 .await
@@ -877,29 +882,27 @@ impl Room {
         })
     }
 
-    fn send_attachment(
+    async fn send_attachment(
         &self,
         url: String,
         mime_type: Mime,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
-        let timeline_guard = self.timeline.read().unwrap();
+        let timeline_guard = self.timeline.read().await;
         let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
 
-        RUNTIME.block_on(async move {
-            let request = timeline.send_attachment(url, mime_type, attachment_config);
-            if let Some(progress_watcher) = progress_watcher {
-                let mut subscriber = request.subscribe_to_send_progress();
-                RUNTIME.spawn(async move {
-                    while let Some(progress) = subscriber.next().await {
-                        progress_watcher.transmission_progress(progress.into());
-                    }
-                });
-            }
-            request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
-        })
+        let request = timeline.send_attachment(url, mime_type, attachment_config);
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_send_progress();
+            RUNTIME.spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+        request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+        Ok(())
     }
 }
 
