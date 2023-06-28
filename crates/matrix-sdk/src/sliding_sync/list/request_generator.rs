@@ -78,6 +78,7 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
     ///
     /// Note there's only one range in the `Growing` and `Paging` mode.
     ranges: Ranges,
+
     /// The kind of request generator.
     pub(super) kind: SlidingSyncListRequestGeneratorKind,
 }
