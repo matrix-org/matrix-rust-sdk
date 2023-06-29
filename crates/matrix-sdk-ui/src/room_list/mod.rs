@@ -80,7 +80,9 @@ use matrix_sdk::{
 pub use room::*;
 pub use room_list::*;
 use ruma::{
-    api::client::sync::sync_events::v4::{E2EEConfig, SyncRequestListFilters, ToDeviceConfig},
+    api::client::sync::sync_events::v4::{
+        AccountDataConfig, E2EEConfig, SyncRequestListFilters, ToDeviceConfig,
+    },
     assign,
     events::{StateEventType, TimelineEventType},
     OwnedRoomId, RoomId,
@@ -131,8 +133,12 @@ impl RoomListService {
     }
 
     async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
-        let mut builder =
-            client.sliding_sync("room-list").map_err(Error::SlidingSync)?.with_common_extensions();
+        let mut builder = client
+            .sliding_sync("room-list")
+            .map_err(Error::SlidingSync)?
+            .with_account_data_extension(
+                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+            );
 
         if with_encryption {
             builder = builder
@@ -456,6 +462,23 @@ mod tests {
                 .await,
             Some(true)
         );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_no_to_device_and_e2ee_if_not_explicitly_set() -> Result<(), Error> {
+        let (client, _) = new_client().await;
+
+        let no_encryption = RoomListService::new(client.clone()).await?;
+        let extensions = no_encryption.sliding_sync.extensions_config();
+        assert_eq!(extensions.e2ee.enabled, None);
+        assert_eq!(extensions.to_device.enabled, None);
+
+        let with_encryption = RoomListService::new_with_encryption(client).await?;
+        let extensions = with_encryption.sliding_sync.extensions_config();
+        assert_eq!(extensions.e2ee.enabled, Some(true));
+        assert_eq!(extensions.to_device.enabled, Some(true));
 
         Ok(())
     }

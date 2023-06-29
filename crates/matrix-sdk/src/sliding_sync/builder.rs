@@ -98,37 +98,6 @@ impl SlidingSyncBuilder {
         Ok(self.add_list(list))
     }
 
-    /// Activate e2ee, to-device-message and account data extensions if not yet
-    /// configured.
-    ///
-    /// Will leave any extension configuration found untouched, so the order
-    /// does not matter.
-    pub fn with_common_extensions(mut self) -> Self {
-        {
-            let cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.enabled.is_none() {
-                cfg.to_device.enabled = Some(true);
-            }
-
-            if cfg.e2ee.enabled.is_none() {
-                cfg.e2ee.enabled = Some(true);
-            }
-
-            if cfg.account_data.enabled.is_none() {
-                cfg.account_data.enabled = Some(true);
-            }
-
-            // TODO: Re-enable once a `lists` and `rooms` will support `*`. See
-            // https://github.com/matrix-org/matrix-rust-sdk/issues/2037 for more info.
-            /*
-            if cfg.receipts.enabled.is_none() {
-                cfg.receipts.enabled = Some(true);
-            }
-            */
-        }
-        self
-    }
-
     /// Activate e2ee, to-device-message, account data, typing and receipt
     /// extensions if not yet configured.
     ///

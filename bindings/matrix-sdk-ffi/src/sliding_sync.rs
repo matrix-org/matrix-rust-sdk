@@ -813,12 +813,6 @@ impl SlidingSyncBuilder {
         Ok(Arc::new(builder))
     }
 
-    pub fn with_common_extensions(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.inner = builder.inner.with_common_extensions();
-        Arc::new(builder)
-    }
-
     pub fn without_e2ee_extension(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.inner = builder.inner.without_e2ee_extension();

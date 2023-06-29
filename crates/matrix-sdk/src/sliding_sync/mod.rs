@@ -700,6 +700,16 @@ impl SlidingSync {
     pub async fn force_cache_to_storage(&self, to_device_token: Option<String>) -> Result<()> {
         self.cache_to_storage(to_device_token).await
     }
+
+    /// Read the static extension configuration for this Sliding Sync.
+    ///
+    /// Note: this is not the next content of the sticky parameters, but rightly
+    /// the static configuration that was set during creation of this
+    /// Sliding Sync.
+    pub fn extensions_config(&self) -> ExtensionsConfig {
+        let sticky = self.inner.sticky.read().unwrap();
+        sticky.data().extensions.clone()
+    }
 }
 
 #[derive(Debug)]
