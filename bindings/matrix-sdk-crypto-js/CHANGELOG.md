@@ -1,4 +1,4 @@
-# v0.1.0-alpha.12
+# v0.1.0
 
 ## Changes in the Javascript bindings
 
@@ -6,6 +6,12 @@
     device-list updates to complete.
 
 -   Add `VerificationRequest.timeRemainingMillis()`.
+
+## Changes in the underlying Rust crate
+
+-   When rejecting a key-verification request over to-device messages, send the
+    `m.key.verification.cancel` to the device that made the request, rather
+    than broadcasting to all devices.
 
 # v0.1.0-alpha.11
 
