@@ -339,8 +339,8 @@ impl RoomListItem {
         RUNTIME.block_on(async { self.inner.name().await })
     }
 
-    pub fn is_direct(&self) -> Option<bool> {
-        RUNTIME.block_on(async { self.inner.inner_room().is_direct().await.ok() })
+    pub fn is_direct(&self) -> bool {
+        RUNTIME.block_on(async { self.inner.inner_room().is_direct().await.unwrap_or(false) })
     }
 
     pub fn avatar_url(&self) -> Option<String> {
