@@ -339,6 +339,22 @@ impl RoomListItem {
         RUNTIME.block_on(async { self.inner.name().await })
     }
 
+    pub fn is_direct(&self) -> bool {
+        RUNTIME.block_on(async { self.inner.inner_room().is_direct().await.unwrap_or(false) })
+    }
+
+    pub fn avatar_url(&self) -> Option<String> {
+        self.inner.inner_room().avatar_url().map(|uri| uri.to_string())
+    }
+
+    pub fn canonical_alias(&self) -> Option<String> {
+        self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
+    }
+
+    /// Building a `Room`.
+    ///
+    /// Be careful that building a `Room` builds its entire `Timeline` at the
+    /// same time.
     fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
