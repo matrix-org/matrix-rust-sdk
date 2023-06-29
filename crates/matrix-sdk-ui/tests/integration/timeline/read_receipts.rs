@@ -97,10 +97,10 @@ async fn read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let _day_divider = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Insert { index: 0, value }) => value);
 
     // We don't list the read receipt of our own user on events.
-    let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let first_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Insert { index: 1, value }) => value);
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
@@ -108,7 +108,7 @@ async fn read_receipts_updates() {
     assert_eq!(own_receipt_event_id, first_event.event_id().unwrap());
 
     // Implicit read receipt of @alice:localhost.
-    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let second_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Insert { index: 2, value }) => value);
     let second_event = second_item.as_event().unwrap();
     assert_eq!(second_event.read_receipts().len(), 1);
 
@@ -117,7 +117,7 @@ async fn read_receipts_updates() {
     let second_event = second_item.as_event().unwrap();
     assert!(second_event.read_receipts().is_empty());
 
-    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+    let third_item = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Insert { index: 3, value }) => value);
     let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 1);
 

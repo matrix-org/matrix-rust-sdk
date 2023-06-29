@@ -78,7 +78,7 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::PushBack { value })) => {
+                        Some(Some(VectorDiff::Insert { index: 0, value })) => {
                             assert_matches!(
                                 value.as_ref(),
                                 TimelineItem::Virtual(
@@ -302,9 +302,9 @@ async fn test_timeline_basic() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             --- day divider ---;
-            append    "$x1:bar.org";
+            insert[1] "$x1:bar.org";
             update[1] "$x1:bar.org";
-            append    "$x2:bar.org";
+            insert[2] "$x2:bar.org";
         };
     }
 
@@ -348,11 +348,11 @@ async fn test_timeline_duplicated_events() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             --- day divider ---;
-            append    "$x1:bar.org";
+            insert[1] "$x1:bar.org";
             update[1] "$x1:bar.org";
-            append    "$x2:bar.org";
+            insert[2] "$x2:bar.org";
             update[2] "$x2:bar.org";
-            append    "$x3:bar.org";
+            insert[3] "$x3:bar.org";
         };
     }
 
@@ -378,9 +378,9 @@ async fn test_timeline_duplicated_events() -> Result<()> {
             [timeline_stream]
             remove[1];
             update[2] "$x3:bar.org";
-            append    "$x1:bar.org";
+            insert[3] "$x1:bar.org";
             update[3] "$x1:bar.org";
-            append    "$x4:bar.org";
+            insert[4] "$x4:bar.org";
         };
     }
 
