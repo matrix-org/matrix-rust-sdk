@@ -80,6 +80,13 @@ pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartCont
 ///
 /// [spec]: https://matrix.org/docs/spec/client_server/latest#sas-method-emoji
 fn emoji_from_index(index: u8) -> Emoji {
+    /*
+    This list was generated from the data in the spec [1] with the following command:
+
+    jq  -r '.[] |  "        " + (.number|tostring) + " => Emoji { symbol: \"" + .emoji + "\", description: \"" + .description + "\" },"' sas-emoji.json
+
+    [1]: https://github.com/matrix-org/matrix-spec/blob/main/data-definitions/sas-emoji.json
+    */
     match index {
         0 => Emoji { symbol: "🐶", description: "Dog" },
         1 => Emoji { symbol: "🐱", description: "Cat" },
@@ -117,7 +124,7 @@ fn emoji_from_index(index: u8) -> Emoji {
         33 => Emoji { symbol: "👓", description: "Glasses" },
         34 => Emoji { symbol: "🔧", description: "Spanner" },
         35 => Emoji { symbol: "🎅", description: "Santa" },
-        36 => Emoji { symbol: "👍", description: "Thumbs up" },
+        36 => Emoji { symbol: "👍", description: "Thumbs Up" },
         37 => Emoji { symbol: "☂️", description: "Umbrella" },
         38 => Emoji { symbol: "⌛", description: "Hourglass" },
         39 => Emoji { symbol: "⏰", description: "Clock" },
@@ -134,7 +141,7 @@ fn emoji_from_index(index: u8) -> Emoji {
         50 => Emoji { symbol: "🏁", description: "Flag" },
         51 => Emoji { symbol: "🚂", description: "Train" },
         52 => Emoji { symbol: "🚲", description: "Bicycle" },
-        53 => Emoji { symbol: "✈️", description: "Airplane" },
+        53 => Emoji { symbol: "✈️", description: "Aeroplane" },
         54 => Emoji { symbol: "🚀", description: "Rocket" },
         55 => Emoji { symbol: "🏆", description: "Trophy" },
         56 => Emoji { symbol: "⚽", description: "Ball" },
