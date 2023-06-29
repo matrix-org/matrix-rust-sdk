@@ -253,8 +253,8 @@ async fn dedup_by_event_id_late() {
     assert_eq!(item.event_id(), Some(event_id));
 
     // Local echo and its day divider are removed.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 1 }));
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
 }
 
 #[async_test]
