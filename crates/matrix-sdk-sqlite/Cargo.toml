@@ -9,6 +9,7 @@ rust-version = { workspace = true }
 
 [features]
 default = ["state-store"]
+testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = [

@@ -1843,6 +1843,14 @@ impl OlmMachine {
 
         Ok(true)
     }
+
+    #[cfg(any(feature = "testing", test))]
+    /// Returns whether this `OlmMachine` is the same another one.
+    ///
+    /// Useful for testing purposes only.
+    pub fn same_as(&self, other: &OlmMachine) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }
 
 #[cfg(any(feature = "testing", test))]
