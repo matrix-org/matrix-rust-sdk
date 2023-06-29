@@ -14,8 +14,7 @@ async fn setup(
     let client = get_client_for_user(name, use_sqlite_store).await?;
     let sliding_sync_builder = client
         .sliding_sync("test-slidingsync")?
-        .sliding_sync_proxy(sliding_sync_proxy_url.parse()?)
-        .with_common_extensions();
+        .sliding_sync_proxy(sliding_sync_proxy_url.parse()?);
     Ok((client, sliding_sync_builder))
 }
 

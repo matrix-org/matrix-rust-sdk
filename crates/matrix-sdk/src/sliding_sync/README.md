@@ -192,9 +192,9 @@ any implementation as they please. Handling of the data of the e2ee,
 to-device and typing-extensions takes place transparently within the SDK.
 
 By default [`SlidingSync`][] doesn't activate _any_ extensions to save on
-bandwidth, but we generally recommend to use the [`with_common_extensions`
-when building sliding sync](`SlidingSyncBuilder::with_common_extensions`) to
-active e2ee, to-device-messages and account-data-extensions.
+bandwidth, but we generally recommend to use the `with_XXX_extensions` family
+of methods when building sliding sync to enable e2ee, to-device-messages and
+account-data-extensions.
 
 ## Timeline events
 
@@ -419,7 +419,13 @@ let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
     .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
-    .with_common_extensions(); // we want the e2ee and to-device enabled, please
+    .with_account_data_extension(
+        assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
+    ) // we enable the account-data extension
+    .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true) })) // and the e2ee extension
+    .with_to_device_extension(
+        assign!(v4::ToDeviceConfig::default(), { enabled: Some(true) }),
+    ); // and the to-device extension
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
