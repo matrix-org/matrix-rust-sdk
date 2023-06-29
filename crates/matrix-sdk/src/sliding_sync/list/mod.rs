@@ -455,41 +455,28 @@ impl SlidingSyncListInner {
             // user to know if a room has received an update: be either a
             // position modification or an update in general (like a new room
             // message). Let's trigger those.
-            let request_generator = self.request_generator.read().unwrap();
-            // Note: this is fine to call `request_generator` here because we've handled the
-            // response in the generator first.
-            let ranges = request_generator.requested_ranges();
+            let mut rooms_to_update = Vec::with_capacity(rooms_that_have_received_an_update.len());
 
-            for (start, end) in ranges
-                .iter()
-                .map(|r| (usize::try_from(*r.start()).unwrap(), usize::try_from(*r.end()).unwrap()))
-            {
-                let mut rooms_to_update =
-                    Vec::with_capacity(rooms_that_have_received_an_update.len());
-
-                for (position, room_list_entry) in
-                    room_list.iter().enumerate().skip(start).take(end.saturating_add(1))
-                {
-                    // Invalidated rooms must be considered as empty rooms, so let's just filter by
-                    // filled rooms.
-                    if let RoomListEntry::Filled(room_id) = room_list_entry {
-                        // If room has received an update but that has not been handled by a
-                        // sync operation.
-                        if rooms_that_have_received_an_update.contains(room_id) {
-                            rooms_to_update.push((position, room_list_entry.clone()));
-                        }
+            for (position, room_list_entry) in room_list.iter().enumerate() {
+                // Invalidated rooms must be considered as empty rooms, so let's just filter by
+                // filled rooms.
+                if let RoomListEntry::Filled(room_id) = room_list_entry {
+                    // If room has received an update but that has not been handled by a
+                    // sync operation.
+                    if rooms_that_have_received_an_update.contains(room_id) {
+                        rooms_to_update.push((position, room_list_entry.clone()));
                     }
                 }
+            }
 
-                if !rooms_to_update.is_empty() {
-                    for (position, room_list_entry) in rooms_to_update {
-                        // Setting to `room_list`'s item to the same value, just
-                        // to generate an “diff update”.
-                        room_list.set(position, room_list_entry);
-                    }
-
-                    new_changes = true;
+            if !rooms_to_update.is_empty() {
+                for (position, room_list_entry) in rooms_to_update {
+                    // Setting to `room_list`'s item to the same value, just
+                    // to generate an “diff update”.
+                    room_list.set(position, room_list_entry);
                 }
+
+                new_changes = true;
             }
         }
 
