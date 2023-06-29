@@ -120,6 +120,7 @@ impl SlidingSyncListRequestGenerator {
     /// For generators in the selective mode, this is the initial set of ranges.
     /// For growing and paginated generators, this is the range committed in the
     /// latest response received from the server.
+    #[cfg(test)]
     pub(super) fn requested_ranges(&self) -> &[Range] {
         &self.ranges
     }
