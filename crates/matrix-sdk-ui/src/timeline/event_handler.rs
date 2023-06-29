@@ -876,7 +876,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                 if self.track_read_receipts {
                     maybe_add_implicit_read_receipt(
-                        self.items.len(),
+                        insert_idx,
                         &mut item,
                         self.meta.is_own_event,
                         self.items,
