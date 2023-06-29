@@ -906,6 +906,15 @@ impl VerificationRequest {
         self.inner.timed_out()
     }
 
+    /// The number of milliseconds remaining before this verification flow times
+    /// out.
+    ///
+    /// Returns zero if the time has already passed.
+    #[wasm_bindgen(js_name = "timeRemainingMillis")]
+    pub fn time_remaining_millis(&self) -> f64 {
+        self.inner.time_remaining().as_millis() as f64
+    }
+
     /// Get the supported verification methods of the other side.
     ///
     /// Will be present only if the other side requested the
@@ -1073,6 +1082,8 @@ impl VerificationRequest {
     }
 
     /// Transition from this verification request into a SAS verification flow.
+    ///
+    /// Returns `Promise<[Sas, RoomMessageRequest|ToDeviceRequest] | undefined>`
     #[wasm_bindgen(js_name = "startSas")]
     pub fn start_sas(&self) -> Promise {
         let me = self.inner.clone();

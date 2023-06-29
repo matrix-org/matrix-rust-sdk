@@ -210,6 +210,8 @@ describe("Key Verification", () => {
             expect(verificationRequest1.isDone()).toStrictEqual(false);
             expect(verificationRequest1.isCancelled()).toStrictEqual(false);
             expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Created);
+            expect(verificationRequest1.timeRemainingMillis()).toBeLessThanOrEqual(600000); // 10 mins
+            expect(verificationRequest1.timeRemainingMillis()).toBeGreaterThan(540000); // 9 mins
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
             expect(outgoingVerificationRequest.event_type).toStrictEqual("m.key.verification.request");
