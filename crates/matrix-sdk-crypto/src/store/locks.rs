@@ -302,3 +302,134 @@ pub enum LockStoreError {
     #[error("a lock timed out")]
     LockTimeout,
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use tokio::spawn;
+
+    use super::*;
+    use crate::store::{IntoCryptoStore as _, MemoryStore};
+
+    async fn release_lock(guard: Option<CryptoStoreLockGuard>) {
+        drop(guard);
+        sleep(Duration::from_millis(CryptoStoreLock::EXTEND_LEASE_EVERY_MS)).await;
+    }
+
+    #[async_test]
+    async fn test_simple_lock_unlock() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+
+        // The lock plain works when used with a single holder.
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired.is_some());
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+
+        // Releasing works.
+        release_lock(acquired).await;
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+
+        // Spin locking on the same lock always works, assuming no concurrent access.
+        let acquired = lock.spin_lock(None).await.unwrap();
+
+        // Releasing still works.
+        release_lock(Some(acquired)).await;
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_self_recovery() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+
+        // When a lock is acquired...
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired.is_some());
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+
+        // But then forgotten... (note: no need to release the guard)
+        drop(lock);
+
+        // And when rematerializing the lock with the same key/value...
+        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+
+        // We still got it.
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired.is_some());
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_multiple_holders_same_process() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+
+        // Taking the lock twice...
+        let acquired = lock.try_lock_once().await?;
+        assert!(acquired.is_some());
+
+        let acquired2 = lock.try_lock_once().await?;
+        assert!(acquired2.is_some());
+
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 2);
+
+        // ...means we can release it twice.
+        release_lock(acquired).await;
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+
+        release_lock(acquired2).await;
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_multiple_processes() -> Result<(), CryptoStoreError> {
+        let mem_store = MemoryStore::new();
+        let dyn_store = mem_store.into_crypto_store();
+
+        let lock1 = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CryptoStoreLock::new(dyn_store, "key".to_owned(), "second".to_owned());
+
+        // When the first process takes the lock...
+        let acquired1 = lock1.try_lock_once().await?;
+        assert!(acquired1.is_some());
+
+        // The second can't take it immediately.
+        let acquired2 = lock2.try_lock_once().await?;
+        assert!(acquired2.is_none());
+
+        let lock2_clone = lock2.clone();
+        let handle = spawn(async move { lock2_clone.spin_lock(Some(1000)).await });
+
+        sleep(Duration::from_millis(100)).await;
+
+        drop(acquired1);
+
+        // lock2 in the background manages to get the lock at some point.
+        let _acquired2 = handle
+            .await
+            .expect("join handle is properly awaited")
+            .expect("lock was obtained after spin-locking");
+
+        // Now if lock1 tries to get the lock with a small timeout, it will fail.
+        assert_matches!(
+            lock1.spin_lock(Some(200)).await,
+            Err(CryptoStoreError::Lock(LockStoreError::LockTimeout))
+        );
+
+        Ok(())
+    }
+}
