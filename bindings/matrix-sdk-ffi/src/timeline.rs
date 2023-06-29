@@ -5,21 +5,25 @@ use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
-    ruma::events::location::AssetType as RumaAssetType,
-    ruma::events::room::{
-        message::{
-            AudioInfo as RumaAudioInfo, AudioMessageEventContent as RumaAudioMessageEventContent,
-            EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
-            FileMessageEventContent as RumaFileMessageEventContent,
-            FormattedBody as RumaFormattedBody,
-            ImageMessageEventContent as RumaImageMessageEventContent,
-            LocationMessageEventContent as RumaLocationMessageEventContent,
-            MessageType as RumaMessageType,
-            NoticeMessageEventContent as RumaNoticeMessageEventContent, RoomMessageEventContent,
-            TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
-            VideoMessageEventContent as RumaVideoMessageEventContent,
+    ruma::events::{
+        location::AssetType as RumaAssetType,
+        room::{
+            message::{
+                AudioInfo as RumaAudioInfo,
+                AudioMessageEventContent as RumaAudioMessageEventContent,
+                EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
+                FileMessageEventContent as RumaFileMessageEventContent,
+                FormattedBody as RumaFormattedBody,
+                ImageMessageEventContent as RumaImageMessageEventContent,
+                LocationMessageEventContent as RumaLocationMessageEventContent,
+                MessageType as RumaMessageType,
+                NoticeMessageEventContent as RumaNoticeMessageEventContent,
+                RoomMessageEventContent, TextMessageEventContent as RumaTextMessageEventContent,
+                VideoInfo as RumaVideoInfo,
+                VideoMessageEventContent as RumaVideoMessageEventContent,
+            },
+            ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
         },
-        ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
     },
 };
 use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
