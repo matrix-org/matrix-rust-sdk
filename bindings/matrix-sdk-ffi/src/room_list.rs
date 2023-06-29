@@ -351,6 +351,10 @@ impl RoomListItem {
         self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
     }
 
+    /// Building a `Room`.
+    ///
+    /// Be careful that building a `Room` builds its entire `Timeline` at the
+    /// same time.
     fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
