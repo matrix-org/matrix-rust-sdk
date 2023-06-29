@@ -342,6 +342,11 @@ impl SlidingSync {
 
             // Update the lists.
             let updated_lists = {
+                debug!(
+                    lists = ?sliding_sync_response.lists,
+                    "Update lists"
+                );
+
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
                 let mut lists = self.inner.lists.write().await;
 
