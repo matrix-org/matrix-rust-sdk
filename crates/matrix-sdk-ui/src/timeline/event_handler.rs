@@ -799,21 +799,22 @@ impl<'a> TimelineEventHandler<'a> {
                         trace!(idx, "Replacing existing event");
                         self.items.set(idx, Arc::new(item.into()));
                         return;
-                    } else {
-                        // In more complex cases, remove the item and day
-                        // divider (if necessary) before re-adding the item.
-                        trace!("Removing local echo or duplicate timeline item");
-                        self.items.remove(idx);
+                    }
 
-                        assert_ne!(
-                            idx, 0,
-                            "there is never an event item at index 0 because \
+                    // In more complex cases, remove the item and day
+                    // divider (if necessary) before re-adding the item.
+                    trace!("Removing local echo or duplicate timeline item");
+                    self.items.remove(idx);
+
+                    assert_ne!(
+                        idx, 0,
+                        "there is never an event item at index 0 because \
                              the first event item is preceded by a day divider"
-                        );
+                    );
 
-                        // Pre-requisites for removing the day divider:
-                        // 1. there is one preceding the old item at all
-                        if self.items[idx - 1].is_day_divider()
+                    // Pre-requisites for removing the day divider:
+                    // 1. there is one preceding the old item at all
+                    if self.items[idx - 1].is_day_divider()
                             // 2. the item after the old one that was removed
                             //    is virtual (it should be impossible for this
                             //    to be a read marker)
@@ -821,14 +822,13 @@ impl<'a> TimelineEventHandler<'a> {
                                 .items
                                 .get(idx)
                                 .map_or(true, |item| item.is_virtual())
-                        {
-                            trace!("Removing day divider");
-                            self.items.remove(idx - 1);
-                        }
-
-                        // no return here, below code for adding a new event
-                        // will run to re-add the removed item
+                    {
+                        trace!("Removing day divider");
+                        self.items.remove(idx - 1);
                     }
+
+                    // no return here, below code for adding a new event
+                    // will run to re-add the removed item
                 } else if txn_id.is_some() {
                     warn!(
                         "Received event with transaction ID, but didn't \
