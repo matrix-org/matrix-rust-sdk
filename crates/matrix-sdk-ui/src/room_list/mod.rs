@@ -174,7 +174,7 @@ impl RoomListService {
             sliding_sync,
             state: Observable::new(State::Init),
             rooms: Default::default(),
-            viewport_ranges: Mutex::new(vec![state::VISIBLE_ROOMS_DEFAULT_RANGE]),
+            viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
         })
     }
 
