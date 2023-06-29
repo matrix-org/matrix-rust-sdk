@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
-testing = []
+testing = ["matrix-sdk-sqlite?/testing"]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
