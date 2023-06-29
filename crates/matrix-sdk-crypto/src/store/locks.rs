@@ -36,10 +36,6 @@
 //!
 //! Releasing the lock happens naturally, by not renewing a lease. It happens
 //! automatically after the duration of the last lease, at most.
-//!
-//! For this to work, the store must allow concurrent reads and writes from
-//! multiple processes. For instance, for sqlite, this means that it is running in [WAL](https://www.sqlite.org/wal.html)
-//! mode.
 
 use std::{
     sync::{atomic::AtomicU32, Arc},
@@ -107,14 +103,14 @@ pub struct CryptoStoreLock {
 
 impl CryptoStoreLock {
     /// Amount of time a lease of the lock should last, in milliseconds.
-    pub const LEASE_DURATION_MS: u32 = 2000;
+    pub const LEASE_DURATION_MS: u32 = 500;
 
     /// Period of time between two attempts to extend the lease. We'll
     /// re-request a lease for an entire duration of `LEASE_DURATION_MS`
     /// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
     /// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
     /// that we can miss a deadline without compromising the lock.
-    const EXTEND_LEASE_EVERY_MS: u64 = 200;
+    const EXTEND_LEASE_EVERY_MS: u64 = 50;
 
     /// Initial backoff, in milliseconds. This is the time we wait the first
     /// time, if taking the lock initially failed.
@@ -145,7 +141,7 @@ impl CryptoStoreLock {
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(&self) -> Result<Option<CryptoStoreLockGuard>, CryptoStoreError> {
-        // Hold onto the locking attempt mutext for the entire lifetime of this
+        // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
 
