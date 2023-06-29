@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{vec_deque::Iter, VecDeque};
+use std::{
+    collections::{
+        vec_deque::{Drain, Iter},
+        VecDeque,
+    },
+    ops::RangeBounds,
+};
 
 use serde::{self, Deserialize, Serialize};
 
@@ -73,6 +79,13 @@ impl<T> RingBuffer<T> {
     /// the same order you would get if you repeatedly called pop().
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
+    }
+
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
+    where
+        R: RangeBounds<usize>,
+    {
+        self.inner.drain(range)
     }
 
     /// Clears the ring buffer, removing all values. This does not affect the
@@ -171,6 +184,27 @@ mod tests {
         assert_eq!(ring_buffer.get(0), None);
         assert_eq!(ring_buffer.get(1), None);
         assert_eq!(ring_buffer.get(2), None);
+    }
+
+    #[test]
+    fn test_drain() {
+        let mut ring_buffer = RingBuffer::new(5);
+
+        ring_buffer.push(1);
+        ring_buffer.push(2);
+        ring_buffer.push(3);
+        ring_buffer.push(4);
+        ring_buffer.push(5);
+
+        let drained = ring_buffer.drain(0..=2).collect::<Vec<_>>();
+        let left = ring_buffer.iter().map(ToOwned::to_owned).collect::<Vec<_>>();
+
+        assert_eq!(drained, &[1, 2, 3]);
+        assert_eq!(left, &[4, 5]);
+
+        ring_buffer.drain(..);
+
+        assert!(ring_buffer.is_empty());
     }
 
     #[test]
