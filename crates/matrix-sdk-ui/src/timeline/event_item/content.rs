@@ -59,7 +59,7 @@ use ruma::{
 };
 use tracing::{debug, error};
 
-use super::{EventTimelineItem, Profile, TimelineDetails};
+use super::{EventItemIdentifier, EventTimelineItem, Profile, ReactionSenderData, TimelineDetails};
 use crate::timeline::{
     traits::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
 };
@@ -397,7 +397,7 @@ pub type BundledReactions = IndexMap<String, ReactionGroup>;
 
 // The long type after a long visibility specified trips up rustfmt currently.
 // This works around. Report: https://github.com/rust-lang/rustfmt/issues/5703
-type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
+type ReactionGroupInner = IndexMap<EventItemIdentifier, ReactionSenderData>;
 
 /// A group of reaction events on the same event with the same key.
 ///
@@ -408,8 +408,8 @@ pub struct ReactionGroup(pub(in crate::timeline) ReactionGroupInner);
 
 impl ReactionGroup {
     /// The (deduplicated) senders of the reactions in this group.
-    pub fn senders(&self) -> impl Iterator<Item = &UserId> {
-        self.values().unique().map(AsRef::as_ref)
+    pub fn senders(&self) -> impl Iterator<Item = &ReactionSenderData> {
+        self.values().unique_by(|v| &v.sender_id)
     }
 
     /// All reactions within this reaction group that were sent by the given
@@ -421,13 +421,17 @@ impl ReactionGroup {
         &'a self,
         user_id: &'a UserId,
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
-        self.iter()
-            .filter_map(move |(k, v)| (*v == user_id).then_some((k.0.as_ref(), k.1.as_ref())))
+        self.iter().filter_map(move |(k, v)| {
+            (v.sender_id == user_id).then_some(match k {
+                EventItemIdentifier::TransactionId(txn_id) => (Some(txn_id), None),
+                EventItemIdentifier::EventId(event_id) => (None, Some(event_id)),
+            })
+        })
     }
 }
 
 impl Deref for ReactionGroup {
-    type Target = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
+    type Target = IndexMap<EventItemIdentifier, ReactionSenderData>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

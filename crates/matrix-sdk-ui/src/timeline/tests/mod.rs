@@ -50,8 +50,8 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    inner::ReactionAction, reactions::ReactionToggleResult, traits::RoomDataProvider,
-    EventTimelineItem, Profile, TimelineInner, TimelineItem,
+    event_item::EventItemIdentifier, inner::ReactionAction, reactions::ReactionToggleResult,
+    traits::RoomDataProvider, EventTimelineItem, Profile, TimelineInner, TimelineItem,
 };
 
 mod basic;
@@ -214,7 +214,7 @@ impl TestTimeline {
 
     async fn handle_local_redaction_event(
         &self,
-        redacts: (Option<OwnedTransactionId>, Option<OwnedEventId>),
+        redacts: EventItemIdentifier,
         content: RoomRedactionEventContent,
     ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
