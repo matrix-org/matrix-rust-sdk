@@ -394,17 +394,12 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 /// Key: The reaction, usually an emoji.\
 /// Value: The group of reactions.
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
-
-// The long type after a long visibility specified trips up rustfmt currently.
-// This works around. Report: https://github.com/rust-lang/rustfmt/issues/5703
-type ReactionGroupInner = IndexMap<EventItemIdentifier, ReactionSenderData>;
-
 /// A group of reaction events on the same event with the same key.
 ///
 /// This is a map of the event ID or transaction ID of the reactions to the ID
 /// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
-pub struct ReactionGroup(pub(in crate::timeline) ReactionGroupInner);
+pub struct ReactionGroup(pub(in crate::timeline) IndexMap<EventItemIdentifier, ReactionSenderData>);
 
 impl ReactionGroup {
     /// The (deduplicated) senders of the reactions in this group.

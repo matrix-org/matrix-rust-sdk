@@ -209,7 +209,6 @@ pub(super) struct TimelineEventHandler<'a> {
     meta: TimelineEventMetadata,
     flow: Flow,
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
-    #[allow(clippy::type_complexity)]
     reaction_map: &'a mut HashMap<EventItemIdentifier, (OwnedUserId, Annotation)>,
     pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
