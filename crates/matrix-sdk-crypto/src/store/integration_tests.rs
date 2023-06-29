@@ -59,7 +59,7 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
+            pub async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
                 let store = get_store(name, None).await;
                 let account = get_account();
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -851,6 +851,79 @@ macro_rules! cryptostore_integration_tests {
 
                 let loaded = store2.get_custom_value("A").await.unwrap();
                 assert_eq!(loaded, Some(val2.clone()));
+            }
+        }
+    };
+}
+
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! cryptostore_integration_tests_time {
+    () => {
+        mod cryptostore_integration_tests_time {
+            use std::time::Duration;
+
+            use matrix_sdk_test::async_test;
+            use $crate::store::CryptoStore as _;
+
+            use super::cryptostore_integration_tests::*;
+
+            #[async_test]
+            async fn test_lease_locks() {
+                let (_account, store) = get_loaded_store("lease_locks").await;
+
+                let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired0);
+
+                // Should extend the lease automatically (same holder).
+                let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired2);
+
+                // Should extend the lease automatically (same holder + time is ok).
+                let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired3);
+
+                // Another attempt at taking the lock should fail, because it's taken.
+                let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired4);
+
+                // Even if we insist.
+                let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired5);
+
+                // That's a nice test we got here, go take a little nap.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+
+                // Still too early.
+                let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired55);
+
+                // Ok you can take another nap then.
+                tokio::time::sleep(Duration::from_millis(250)).await;
+
+                // At some point, we do get the lock.
+                let acquired6 = store.try_take_leased_lock(0, "key", "bob").await.unwrap();
+                assert!(acquired6);
+
+                tokio::time::sleep(Duration::from_millis(1)).await;
+
+                // The other gets it almost immediately too.
+                let acquired7 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired7);
+
+                tokio::time::sleep(Duration::from_millis(1)).await;
+
+                // But when we take a longer lease...
+                let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired8);
+
+                // It blocks the other user.
+                let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(!acquired9);
+
+                // We can hold onto our lease.
+                let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired10);
             }
         }
     };

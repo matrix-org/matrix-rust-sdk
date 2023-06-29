@@ -20,7 +20,6 @@ use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
     iter,
-    ops::Not as _,
     path::PathBuf,
 };
 
@@ -29,7 +28,10 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
+use matrix_sdk_base::crypto::{
+    store::locks::CryptoStoreLockGuard, OlmMachine, OutgoingRequest, RoomMessageRequest,
+    ToDeviceRequest,
+};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -876,46 +878,40 @@ impl Encryption {
     ///
     /// May reload the `OlmMachine`, after obtaining the lock but not on the
     /// first time.
-    pub async fn spin_lock_store(&self, max_backoff: Option<u32>) -> Result<(), Error> {
+    pub async fn spin_lock_store(
+        &self,
+        max_backoff: Option<u32>,
+    ) -> Result<Option<CryptoStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
-            if lock.try_lock_once().await?.not() {
-                // We didn't get the lock on the first attempt, so that means that another
-                // process is using it. Wait for it to release it.
-                lock.spin_lock(max_backoff).await?;
+            match lock.try_lock_once().await? {
+                Some(guard) => Ok(Some(guard)),
+                None => {
+                    // We didn't get the lock on the first attempt, so that means that another
+                    // process is using it. Wait for it to release it.
+                    let guard = lock.spin_lock(max_backoff).await?;
 
-                // As we didn't get the lock on the first attempt, force-reload all the crypto
-                // state caches at once, by recreating the OlmMachine from scratch.
-                if let Err(err) = self.client.base_client().regenerate_olm().await {
-                    // First, give back the cross-process lock.
-                    lock.unlock().await?;
-                    // Then return the error to the caller.
-                    return Err(err.into());
-                };
+                    // As we didn't get the lock on the first attempt, force-reload all the crypto
+                    // state caches at once, by recreating the OlmMachine from scratch.
+                    self.client.base_client().regenerate_olm().await?;
+
+                    Ok(Some(guard))
+                }
             }
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// attempts to lock it once.
     ///
-    /// Returns whether the lock was obtained or not.
-    pub async fn try_lock_store_once(&self) -> Result<bool, Error> {
+    /// Returns a guard to the lock, if it was obtained.
+    pub async fn try_lock_store_once(&self) -> Result<Option<CryptoStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
-            return Ok(lock.try_lock_once().await?);
+            Ok(lock.try_lock_once().await?)
+        } else {
+            Ok(None)
         }
-        Ok(false)
-    }
-
-    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
-    /// unlocks it.
-    ///
-    /// This may return an error if we were not the lock's owner.
-    pub async fn unlock_store(&self) -> Result<(), Error> {
-        if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
-            lock.unlock().await?;
-        }
-        Ok(())
     }
 
     /// Manually request that the internal crypto caches be reloaded.

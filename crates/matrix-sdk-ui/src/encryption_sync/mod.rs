@@ -26,12 +26,13 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::{ops::Not as _, time::Duration};
+use std::time::Duration;
 
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
+use matrix_sdk_crypto::store::locks::CryptoStoreLock;
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::{error, trace};
 
@@ -110,7 +111,7 @@ impl EncryptionSync {
             let mut mode = self.mode;
 
             loop {
-                match &mut mode {
+                let guard = match &mut mode {
                     EncryptionSyncMode::RunFixedIterations(ref mut val) => {
                         if *val == 0 {
                             // The previous attempt was the last one, stop now.
@@ -119,31 +120,49 @@ impl EncryptionSync {
                         // Soon.
                         *val -= 1;
 
-                        if self
+                        let mut guard = self
                             .client
                             .encryption()
                             .try_lock_store_once()
                             .await
-                            .map_err(Error::LockError)?
-                            .not()
-                        {
+                            .map_err(Error::LockError)?;
+
+                        if guard.is_none() {
                             // If we can't acquire the cross-process lock on the first attempt,
-                            // that means the main process is running. Don't even try to sync, in
-                            // that case.
+                            // that means the main process is running, or its lease hasn't expired
+                            // yet. In case it's the latter, wait a bit and retry.
                             tracing::debug!(
-                                "Lock was already taken, and we're not the main loop; aborting."
+                                "Lock was already taken, and we're not the main loop; retrying in {}ms...",
+                                CryptoStoreLock::LEASE_DURATION_MS
                             );
-                            return;
+
+                            tokio::time::sleep(Duration::from_millis(
+                                CryptoStoreLock::LEASE_DURATION_MS.into(),
+                            ))
+                            .await;
+
+                            guard = self
+                                .client
+                                .encryption()
+                                .try_lock_store_once()
+                                .await
+                                .map_err(Error::LockError)?;
+
+                            if guard.is_none() {
+                                tracing::debug!("Second attempt at locking outside the main app failed, so aborting.");
+                                return;
+                            }
                         }
+
+                        guard
                     }
 
-                    EncryptionSyncMode::NeverStop => {
-                        self.client
-                            .encryption()
-                            .spin_lock_store(Some(60000))
-                            .await
-                            .map_err(Error::LockError)?;
-                    }
+                    EncryptionSyncMode::NeverStop => self
+                        .client
+                        .encryption()
+                        .spin_lock_store(Some(60000))
+                        .await
+                        .map_err(Error::LockError)?,
                 };
 
                 match sync.next().await {
@@ -157,25 +176,25 @@ impl EncryptionSync {
                             error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                         }
 
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         // Cool cool, let's do it again.
                         trace!("Encryption sync received an update!");
+
+                        drop(guard);
+
                         yield Ok(());
                         continue;
                     }
 
                     Some(Err(err)) => {
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         trace!("Encryption sync stopped because of an error: {err:#}");
+
+                        drop(guard);
+
                         yield Err(Error::SlidingSync(err));
                         break;
                     }
 
                     None => {
-                        self.client.encryption().unlock_store().await.map_err(Error::LockError)?;
-
                         trace!("Encryption sync properly terminated.");
                         break;
                     }

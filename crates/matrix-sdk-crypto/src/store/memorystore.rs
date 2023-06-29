@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
@@ -57,6 +62,7 @@ pub struct MemoryStore {
     key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
     direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
     custom_values: Arc<DashMap<String, Vec<u8>>>,
+    leases: Arc<DashMap<String, (String, Instant)>>,
 }
 
 impl Default for MemoryStore {
@@ -71,6 +77,7 @@ impl Default for MemoryStore {
             key_requests_by_info: Default::default(),
             direct_withheld_info: Default::default(),
             custom_values: Default::default(),
+            leases: Default::default(),
         }
     }
 }
@@ -325,6 +332,43 @@ impl CryptoStore for MemoryStore {
     async fn remove_custom_value(&self, key: &str) -> Result<bool> {
         let was_there = self.custom_values.remove(key).is_some();
         Ok(was_there)
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        let now = Instant::now();
+        let expiration = now + Duration::from_millis(lease_duration_ms.into());
+        if let Some(mut prev) = self.leases.get_mut(key) {
+            if prev.0 == holder {
+                // We had the lease before, extend it.
+                prev.1 = expiration;
+                Ok(true)
+            } else {
+                // We didn't have it.
+                if prev.1 < now {
+                    // Steal it!
+                    prev.0 = holder.to_owned();
+                    prev.1 = expiration;
+                    Ok(true)
+                } else {
+                    // We tried our best.
+                    Ok(false)
+                }
+            }
+        } else {
+            self.leases.insert(
+                key.to_owned(),
+                (
+                    holder.to_owned(),
+                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
+                ),
+            );
+            Ok(true)
+        }
     }
 }
 

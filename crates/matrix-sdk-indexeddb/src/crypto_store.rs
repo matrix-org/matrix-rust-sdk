@@ -34,7 +34,9 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
 use wasm_bindgen::JsValue;
@@ -1088,6 +1090,47 @@ impl_crypto_store! {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        // As of 2023-06-23, the code below hasn't been tested yet.
+        let key = JsValue::from_str(key);
+        let txn = self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?;
+        let object_store = txn
+            .object_store(keys::CORE)?;
+
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct Lease {
+            holder: String,
+            expiration_ts: u64,
+        }
+
+        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration_ts = now_ts + lease_duration_ms as u64;
+
+        let prev = object_store.get(&key)?.await?;
+        match prev {
+            Some(prev) => {
+                let lease: Lease = self.deserialize_value(prev)?;
+                if lease.holder == holder || lease.expiration_ts < now_ts {
+                    object_store.put_key_val(&key, &self.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            None => {
+                object_store.put_key_val(&key, &self.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                Ok(true)
+            }
         }
     }
 }

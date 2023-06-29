@@ -412,13 +412,9 @@ impl Joined {
         };
 
         // Take and release the lock on the store, if needs be.
-        self.client.encryption().spin_lock_store(Some(60000)).await?;
+        let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
 
-        let result = inner().await;
-
-        self.client.encryption().unlock_store().await?;
-
-        result
+        inner().await
     }
 
     /// Share a group session for a room.

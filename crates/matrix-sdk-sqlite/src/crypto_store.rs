@@ -33,7 +33,9 @@ use matrix_sdk_crypto::{
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
@@ -193,7 +195,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
@@ -250,6 +252,13 @@ async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
             ))
+        })
+        .await?;
+    }
+
+    if version < 7 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))
         })
         .await?;
     }
@@ -1145,11 +1154,44 @@ impl CryptoStore for SqliteCryptoStore {
 
         Ok(num_touched == 1)
     }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        let key = key.to_owned();
+        let holder = holder.to_owned();
+
+        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration_ts = now_ts + lease_duration_ms as u64;
+
+        let num_touched = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "INSERT INTO lease_locks (key, holder, expiration_ts)
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT (key)
+                    DO
+                        UPDATE SET holder = ?2, expiration_ts = ?3
+                        WHERE holder = ?2
+                        OR expiration_ts < ?4
+                ",
+                    (key, holder, expiration_ts, now_ts),
+                )
+            })
+            .await?;
+
+        Ok(num_touched == 1)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1166,11 +1208,12 @@ mod tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }
 
 #[cfg(test)]
 mod encrypted_tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
@@ -1188,4 +1231,5 @@ mod encrypted_tests {
     }
 
     cryptostore_integration_tests!();
+    cryptostore_integration_tests_time!();
 }
