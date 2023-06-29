@@ -5,6 +5,7 @@ use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
+    ruma::events::location::AssetType as RumaAssetType,
     ruma::events::room::{
         message::{
             AudioInfo as RumaAudioInfo, AudioMessageEventContent as RumaAudioMessageEventContent,
@@ -28,6 +29,7 @@ use tracing::warn;
 use crate::{
     error::{ClientError, TimelineError},
     helpers::unwrap_or_clone_arc,
+    room::AssetType,
 };
 
 #[uniffi::export]
@@ -622,7 +624,16 @@ impl TryFrom<RumaMessageType> for MessageType {
                 },
             },
             RumaMessageType::Location(c) => MessageType::Location {
-                content: LocationContent { body: c.body, geo_uri: c.geo_uri },
+                content: LocationContent {
+                    body: c.body,
+                    geo_uri: c.geo_uri,
+                    description: c.location.and_then(|l| l.description),
+                    asset: c.asset.and_then(|a| match a.type_ {
+                        RumaAssetType::Self_ => Some(AssetType::Sender),
+                        RumaAssetType::Pin => Some(AssetType::Pin),
+                        _ => None,
+                    }),
+                },
             },
             _ => bail!("Unsupported type"),
         };
@@ -870,6 +881,8 @@ pub struct TextMessageContent {
 pub struct LocationContent {
     pub body: String,
     pub geo_uri: String,
+    pub description: Option<String>,
+    pub asset: Option<AssetType>,
 }
 
 #[derive(Clone, uniffi::Record)]

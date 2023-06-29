@@ -987,7 +987,7 @@ impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'sta
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum AssetType {
     Sender,
     Pin,
