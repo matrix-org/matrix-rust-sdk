@@ -884,7 +884,7 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                trace!("Adding new remote timeline item at the end");
+                trace!("Adding new remote timeline item after all non-pending events");
                 self.items.insert(insert_idx, Arc::new(item.into()));
             }
 
