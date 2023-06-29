@@ -30,3 +30,6 @@
   broadcasting to all devices.
 
 - Expose `VerificationRequest::time_remaining`.
+
+- For verification-via-emojis, return the word "Aeroplane" rather than
+  "Airplane", for consistency with the Matrix spec.
