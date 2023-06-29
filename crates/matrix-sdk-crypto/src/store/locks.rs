@@ -44,7 +44,7 @@ use std::{
 
 use matrix_sdk_common::executor::JoinHandle;
 use tokio::{sync::Mutex, time::sleep};
-use tracing::{instrument, trace};
+use tracing::instrument;
 
 use super::DynCryptoStore;
 use crate::CryptoStoreError;
@@ -157,7 +157,7 @@ impl CryptoStoreLock {
             // decrement `num_holders`. That's fine because that means the lock
             // was taken by at least one thread, and after this call it will be
             // taken by at least one thread.
-            trace!("We already had the lock, incrementing holder count");
+            tracing::trace!("We already had the lock, incrementing holder count");
             self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
             let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
             return Ok(Some(guard));
@@ -168,79 +168,85 @@ impl CryptoStoreLock {
             .try_take_leased_lock(Self::LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await?;
 
-        if acquired {
-            // This is the first time we've acquired the lock. We're going to spawn the task
-            // that will renew the lease.
+        if !acquired {
+            tracing::trace!("Couldn't acquire the lock immediately.");
+            return Ok(None);
+        }
 
-            // Clone data to be owned by the task.
-            let this = self.clone();
+        tracing::trace!("Acquired the lock, spawning the lease extension task.");
 
-            let mut renew_task = self.renew_task.lock().await;
+        // This is the first time we've acquired the lock. We're going to spawn the task
+        // that will renew the lease.
 
-            // Cancel the previous task, if any. That's safe to do, because:
-            // - either the task was done,
-            // - or it was still running, but taking a lock in the db has to be an atomic
-            //   operation
-            // running in a transaction.
+        // Clone data to be owned by the task.
+        let this = self.clone();
 
-            drop(renew_task.take());
+        let mut renew_task = self.renew_task.lock().await;
 
-            // Restart a new one.
-            *renew_task = Some(matrix_sdk_common::executor::spawn(async move {
-                loop {
-                    {
-                        // First, check if there are still users of this lock.
-                        //
-                        // This is not racy, because:
-                        // - the `locking_attempt` mutex makes sure we don't have unexpected
-                        // interactions with the non-atomic sequence above in `try_lock_once`
-                        // (check > 0, then add 1).
-                        // - other entities holding onto the `num_holders` atomic will only
-                        // decrease it over time.
+        // Cancel the previous task, if any. That's safe to do, because:
+        // - either the task was done,
+        // - or it was still running, but taking a lock in the db has to be an atomic
+        //   operation
+        // running in a transaction.
 
-                        let _guard = this.locking_attempt.lock().await;
+        if let Some(_prev) = renew_task.take() {
+            #[cfg(not(target_arch = "wasm32"))]
+            _prev.abort();
+        }
 
-                        // If there are no more users, we can quit.
-                        if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
-                            tracing::info!("exiting the lease extension loop");
+        // Restart a new one.
+        *renew_task = Some(matrix_sdk_common::executor::spawn(async move {
+            loop {
+                {
+                    // First, check if there are still users of this lock.
+                    //
+                    // This is not racy, because:
+                    // - the `locking_attempt` mutex makes sure we don't have unexpected
+                    // interactions with the non-atomic sequence above in `try_lock_once`
+                    // (check > 0, then add 1).
+                    // - other entities holding onto the `num_holders` atomic will only
+                    // decrease it over time.
 
-                            // Cancel the lease with another 0ms lease.
-                            // If we don't get the lock, that's (weird but) fine.
-                            let _ = this
-                                .store
-                                .try_take_leased_lock(0, &this.lock_key, &this.lock_holder)
-                                .await;
+                    let _guard = this.locking_attempt.lock().await;
 
-                            // Exit the loop.
-                            break;
-                        }
-                    }
+                    // If there are no more users, we can quit.
+                    if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
+                        tracing::info!("exiting the lease extension loop");
 
-                    sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
+                        // Cancel the lease with another 0ms lease.
+                        // If we don't get the lock, that's (weird but) fine.
+                        let _ = this
+                            .store
+                            .try_take_leased_lock(0, &this.lock_key, &this.lock_holder)
+                            .await;
 
-                    if let Err(err) = this
-                        .store
-                        .try_take_leased_lock(
-                            Self::LEASE_DURATION_MS,
-                            &this.lock_key,
-                            &this.lock_holder,
-                        )
-                        .await
-                    {
-                        tracing::error!("error when extending lock lease: {err:#}");
                         // Exit the loop.
                         break;
                     }
                 }
-            }));
 
-            self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
+                sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
 
-            let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
-            Ok(Some(guard))
-        } else {
-            Ok(None)
-        }
+                if let Err(err) = this
+                    .store
+                    .try_take_leased_lock(
+                        Self::LEASE_DURATION_MS,
+                        &this.lock_key,
+                        &this.lock_holder,
+                    )
+                    .await
+                {
+                    tracing::error!("error when extending lock lease: {err:#}");
+                    // Exit the loop.
+                    break;
+                }
+            }
+        }));
+
+        self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
+
+        let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+        Ok(Some(guard))
     }
 
     /// Attempt to take the lock, with exponential backoff if the lock has
