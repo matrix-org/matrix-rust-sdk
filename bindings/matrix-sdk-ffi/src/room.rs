@@ -1,7 +1,7 @@
 use std::{convert::TryFrom, fs, sync::Arc};
 
 use anyhow::{anyhow, bail, Context, Result};
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
@@ -227,45 +227,36 @@ impl Room {
         })
     }
 
-    pub fn add_timeline_listener(
+    pub async fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        RUNTIME.block_on(async move {
-            let timeline = self
-                .timeline
-                .write()
-                .await
-                .get_or_insert_with(|| {
-                    let room = self.inner.clone();
-                    #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-                    let timeline = RUNTIME.block_on(room.timeline());
-                    Arc::new(timeline)
-                })
-                .clone();
+        let timeline = self
+            .timeline
+            .write()
+            .await
+            .get_or_insert_with(|| {
+                let room = self.inner.clone();
+                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
+                let timeline = RUNTIME.block_on(room.timeline());
+                Arc::new(timeline)
+            })
+            .clone();
 
-            let (timeline_items, timeline_stream) = timeline.subscribe().await;
+        let (timeline_items, timeline_stream) = timeline.subscribe().await;
 
-            let listener: Arc<dyn TimelineListener> = listener.into();
-            let timeline_stream =
-                TaskHandle::new(RUNTIME.spawn(timeline_stream.for_each(move |diff| {
-                    let listener = listener.clone();
-                    let fut = RUNTIME.spawn_blocking(move || {
-                        listener.on_update(Arc::new(TimelineDiff::new(diff)))
-                    });
+        let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(timeline_stream);
 
-                    async move {
-                        if let Err(e) = fut.await {
-                            error!("Timeline listener error: {e}");
-                        }
-                    }
-                })));
-
-            RoomTimelineListenerResult {
-                items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-                items_stream: Arc::new(timeline_stream),
+            while let Some(diff) = timeline_stream.next().await {
+                listener.on_update(Arc::new(TimelineDiff::new(diff)));
             }
-        })
+        }));
+
+        RoomTimelineListenerResult {
+            items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+            items_stream: Arc::new(timeline_stream),
+        }
     }
 
     /// Loads older messages into the timeline.
