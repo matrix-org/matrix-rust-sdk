@@ -215,7 +215,7 @@ impl Actions {
     actions! {
         none => [],
         first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
-        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
+        refresh_lists => [],
     }
 
     fn iter(&self) -> &[OneAction] {
