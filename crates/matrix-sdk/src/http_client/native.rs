@@ -145,7 +145,7 @@ impl HttpSettings {
         }
 
         if let Some(p) = &self.proxy {
-            info!(proxy_url = p, "Setting the proxy for the HTTP client)";
+            info!(proxy_url = p, "Setting the proxy for the HTTP client");
             http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
         }
 
