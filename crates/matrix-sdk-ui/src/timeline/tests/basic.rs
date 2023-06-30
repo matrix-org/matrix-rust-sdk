@@ -55,7 +55,7 @@ async fn initial_events() {
         ])
         .await;
 
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_matches!(&*item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
@@ -174,8 +174,7 @@ async fn other_state() {
         )
         .await;
 
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
     let ev = assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::OtherState(ev) => ev);
@@ -252,8 +251,7 @@ async fn sanitized() {
         )
         .await;
 
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
     let event = item.as_event().unwrap();
@@ -281,8 +279,7 @@ async fn reply() {
         )
         .await;
 
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
     let first_event = item.as_event().unwrap();
@@ -337,8 +334,7 @@ async fn thread() {
         )
         .await;
 
-    let _day_divider =
-        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
     let first_event = item.as_event().unwrap();

@@ -37,7 +37,7 @@ async fn day_divider() {
         )
         .await;
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let ts = assert_matches!(
         day_divider.as_virtual().unwrap(),
         VirtualTimelineItem::DayDivider(ts) => *ts

@@ -2032,9 +2032,9 @@ async fn test_room_timeline() -> Result<(), Error> {
     assert_timeline_stream! {
         [timeline_items_stream]
         update[1] "$x0:bar.org";
-        insert[2] "$x1:bar.org";
+        append    "$x1:bar.org";
         update[2] "$x1:bar.org";
-        insert[3] "$x2:bar.org";
+        append    "$x2:bar.org";
     };
 
     Ok(())
