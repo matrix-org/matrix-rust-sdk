@@ -856,6 +856,9 @@ impl<'a> TimelineEventHandler<'a> {
                 // or at the start if there is no such item.
                 let mut insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
+                // Keep push semantics, if the index is 0 and the timeline is empty.
+                let should_push = insert_idx == 0 && self.items.is_empty();
+
                 if let Some(latest_event) = latest_event {
                     // Check if that event has the same date as the new one.
                     let old_ts = latest_event.timestamp();
@@ -864,14 +867,23 @@ impl<'a> TimelineEventHandler<'a> {
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
                         trace!("Adding day divider");
-                        self.items.insert(insert_idx, Arc::new(day_divider_item));
-                        insert_idx += 1;
+                        if should_push {
+                            self.items.push_back(Arc::new(day_divider_item));
+                        } else {
+                            self.items.insert(insert_idx, Arc::new(day_divider_item));
+                            insert_idx += 1;
+                        }
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider");
-                    self.items.insert(insert_idx, Arc::new(TimelineItem::day_divider(timestamp)));
-                    insert_idx += 1;
+                    if should_push {
+                        self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
+                    } else {
+                        self.items
+                            .insert(insert_idx, Arc::new(TimelineItem::day_divider(timestamp)));
+                        insert_idx += 1;
+                    }
                 }
 
                 if self.track_read_receipts {
@@ -885,7 +897,11 @@ impl<'a> TimelineEventHandler<'a> {
                 }
 
                 trace!("Adding new remote timeline item after all non-pending events");
-                self.items.insert(insert_idx, Arc::new(item.into()));
+                if should_push {
+                    self.items.push_back(Arc::new(item.into()));
+                } else {
+                    self.items.insert(insert_idx, Arc::new(item.into()));
+                }
             }
 
             #[cfg(feature = "e2e-encryption")]
