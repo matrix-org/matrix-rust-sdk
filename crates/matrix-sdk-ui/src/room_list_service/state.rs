@@ -20,7 +20,9 @@ use async_trait::async_trait;
 use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncList, SlidingSyncMode};
 use once_cell::sync::Lazy;
 use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
+    api::client::sync::sync_events::v4::SyncRequestListFilters,
+    assign,
+    events::{StateEventType, TimelineEventType},
 };
 
 use super::Error;
@@ -118,7 +120,12 @@ impl Action for AddVisibleRoomsList {
                         is_invite: Some(false),
                         is_tombstoned: Some(false),
                         not_room_types: vec!["m.space".to_owned()],
-                    }))),
+                    })))
+                    .bump_event_types(&[
+                        TimelineEventType::RoomMessage,
+                        TimelineEventType::RoomEncrypted,
+                        TimelineEventType::Sticker,
+                    ]),
             )
             .await
             .map_err(Error::SlidingSync)?;
