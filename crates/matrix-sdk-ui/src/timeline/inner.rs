@@ -498,7 +498,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         // The local echoes are always at the end of the timeline, we must first make
         // sure the remote echo hasn't showed up yet.
-        // TODO this is expensive to use `rfind_event_item` in that case!
         if rfind_event_item(&state.items, |it| {
             new_event_id.is_some() && it.event_id() == new_event_id && it.as_remote().is_some()
         })

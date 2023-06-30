@@ -809,19 +809,18 @@ impl<'a> TimelineEventHandler<'a> {
                     assert_ne!(
                         idx, 0,
                         "there is never an event item at index 0 because \
-                             the first event item is preceded by a day divider"
+                         the first event item is preceded by a day divider"
                     );
 
                     // Pre-requisites for removing the day divider:
                     // 1. there is one preceding the old item at all
                     if self.items[idx - 1].is_day_divider()
-                            // 2. the item after the old one that was removed
-                            //    is virtual (it should be impossible for this
-                            //    to be a read marker)
-                            && self
-                                .items
-                                .get(idx)
-                                .map_or(true, |item| item.is_virtual())
+                        // 2. the item after the old one that was removed is virtual (it should be
+                        //    impossible for this to be a read marker)
+                        && self
+                            .items
+                            .get(idx)
+                            .map_or(true, |item| item.is_virtual())
                     {
                         trace!("Removing day divider");
                         self.items.remove(idx - 1);

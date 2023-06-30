@@ -217,7 +217,7 @@ async fn dedup_by_event_id_late() {
                 .set_body_json(&json!({ "event_id": event_id }))
                 // Not great to use a timer for this, but it's what wiremock gives us right now.
                 // Ideally we'd wait on a channel to produce a value or sth. like that.
-                .set_delay(Duration::from_millis(1000)),
+                .set_delay(Duration::from_millis(100)),
         )
         .mount(&server)
         .await;
