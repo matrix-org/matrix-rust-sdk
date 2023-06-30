@@ -195,18 +195,21 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (
             FeatureSet::NoEncryption,
-            "--no-default-features --features sqlite,native-tls,experimental-sliding-sync",
+            "--no-default-features --features sqlite,native-tls,experimental-sliding-sync,testing",
         ),
-        (FeatureSet::NoSqlite, "--no-default-features --features e2e-encryption,native-tls"),
-        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features native-tls"),
+        (
+            FeatureSet::NoSqlite,
+            "--no-default-features --features e2e-encryption,native-tls,testing",
+        ),
+        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features native-tls,testing"),
         (
             FeatureSet::SqliteCryptostore,
-            "--no-default-features --features e2e-encryption,sqlite,native-tls",
+            "--no-default-features --features e2e-encryption,sqlite,native-tls,testing",
         ),
-        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
-        (FeatureSet::Markdown, "--features markdown"),
-        (FeatureSet::Socks, "--features socks"),
-        (FeatureSet::SsoLogin, "--features sso-login"),
+        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls,testing"),
+        (FeatureSet::Markdown, "--features markdown,testing"),
+        (FeatureSet::Socks, "--features socks,testing"),
+        (FeatureSet::SsoLogin, "--features sso-login,testing"),
     ]);
 
     let run = |arg_set: &str| {
@@ -237,25 +240,29 @@ fn run_crypto_tests() -> Result<()> {
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
     )
     .run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features --features testing").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1,testing")
+        .run()?;
+    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1,testing")
+        .run()?;
     cmd!(
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=experimental-algorithms -- -D warnings"
     )
     .run()?;
     cmd!(
-        "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-algorithms"
+        "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     ).run()?;
     cmd!(
-        "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms"
+        "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     )
     .run()?;
 
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store")
-        .run()?;
+    cmd!(
+        "rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store,testing"
+    )
+    .run()?;
 
     Ok(())
 }
