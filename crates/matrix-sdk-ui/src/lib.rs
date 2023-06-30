@@ -17,9 +17,9 @@ mod events;
 #[cfg(feature = "experimental-encryption-sync")]
 pub mod encryption_sync;
 #[cfg(feature = "experimental-room-list")]
-pub mod room_list;
+pub mod room_list_service;
 pub mod timeline;
 
 #[cfg(feature = "experimental-room-list")]
-pub use self::room_list::RoomListService;
+pub use self::room_list_service::RoomListService;
 pub use self::timeline::Timeline;

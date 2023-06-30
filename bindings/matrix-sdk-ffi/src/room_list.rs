@@ -57,9 +57,9 @@ pub enum RoomListError {
     InvalidRoomId { error: String },
 }
 
-impl From<matrix_sdk_ui::room_list::Error> for RoomListError {
-    fn from(value: matrix_sdk_ui::room_list::Error) -> Self {
-        use matrix_sdk_ui::room_list::Error::*;
+impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
+    fn from(value: matrix_sdk_ui::room_list_service::Error) -> Self {
+        use matrix_sdk_ui::room_list_service::Error::*;
 
         match value {
             SlidingSync(error) => Self::SlidingSync { error: error.to_string() },
@@ -87,7 +87,7 @@ pub enum RoomListInput {
     Viewport { ranges: Vec<RoomListRange> },
 }
 
-impl From<RoomListInput> for matrix_sdk_ui::room_list::Input {
+impl From<RoomListInput> for matrix_sdk_ui::room_list_service::Input {
     fn from(value: RoomListInput) -> Self {
         match value {
             RoomListInput::Viewport { ranges } => Self::Viewport(
@@ -122,7 +122,7 @@ impl RoomListService {
     }
 
     fn is_syncing(&self) -> bool {
-        use matrix_sdk_ui::room_list::State;
+        use matrix_sdk_ui::room_list_service::State;
 
         matches!(self.inner.state().get(), State::SettingUp | State::Running)
     }
@@ -172,7 +172,7 @@ impl RoomListService {
 #[derive(uniffi::Object)]
 pub struct RoomList {
     room_list_service: Arc<RoomListService>,
-    inner: Arc<matrix_sdk_ui::room_list::RoomList>,
+    inner: Arc<matrix_sdk_ui::room_list_service::RoomList>,
 }
 
 #[uniffi::export]
@@ -239,9 +239,9 @@ pub enum RoomListServiceState {
     Terminated,
 }
 
-impl From<matrix_sdk_ui::room_list::State> for RoomListServiceState {
-    fn from(value: matrix_sdk_ui::room_list::State) -> Self {
-        use matrix_sdk_ui::room_list::State::*;
+impl From<matrix_sdk_ui::room_list_service::State> for RoomListServiceState {
+    fn from(value: matrix_sdk_ui::room_list_service::State) -> Self {
+        use matrix_sdk_ui::room_list_service::State::*;
 
         match value {
             Init => Self::Init,
@@ -259,9 +259,9 @@ pub enum RoomListLoadingState {
     Loaded { maximum_number_of_rooms: Option<u32> },
 }
 
-impl From<matrix_sdk_ui::room_list::RoomListLoadingState> for RoomListLoadingState {
-    fn from(value: matrix_sdk_ui::room_list::RoomListLoadingState) -> Self {
-        use matrix_sdk_ui::room_list::RoomListLoadingState::*;
+impl From<matrix_sdk_ui::room_list_service::RoomListLoadingState> for RoomListLoadingState {
+    fn from(value: matrix_sdk_ui::room_list_service::RoomListLoadingState) -> Self {
+        use matrix_sdk_ui::room_list_service::RoomListLoadingState::*;
 
         match value {
             NotLoaded => Self::NotLoaded,
@@ -326,7 +326,7 @@ pub trait RoomListEntriesListener: Send + Sync + Debug {
 
 #[derive(uniffi::Object)]
 pub struct RoomListItem {
-    inner: Arc<matrix_sdk_ui::room_list::Room>,
+    inner: Arc<matrix_sdk_ui::room_list_service::Room>,
 }
 
 #[uniffi::export]
