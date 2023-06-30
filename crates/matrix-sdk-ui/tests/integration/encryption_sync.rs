@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::SlidingSync;
 use matrix_sdk_test::async_test;
@@ -10,7 +12,7 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, EncryptionSyncMode::NeverStop).await?;
+        EncryptionSync::new("tests".to_owned(), client, EncryptionSyncMode::Loop).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
@@ -131,9 +133,16 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
 async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, EncryptionSyncMode::RunFixedIterations(1))
-            .await?;
+    let encryption_sync = EncryptionSync::new(
+        "tests".to_owned(),
+        client,
+        EncryptionSyncMode::LimitedMode {
+            num_iterations: 1,
+            proxy_timeout: Duration::ZERO,
+            network_timeout: Duration::ZERO,
+        },
+    )
+    .await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
@@ -167,9 +176,16 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
 async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, EncryptionSyncMode::RunFixedIterations(2))
-            .await?;
+    let encryption_sync = EncryptionSync::new(
+        "tests".to_owned(),
+        client,
+        EncryptionSyncMode::LimitedMode {
+            num_iterations: 2,
+            proxy_timeout: Duration::ZERO,
+            network_timeout: Duration::ZERO,
+        },
+    )
+    .await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
@@ -216,8 +232,7 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     let (client, server) = logged_in_client().await;
 
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client.clone(), EncryptionSyncMode::NeverStop)
-            .await?;
+        EncryptionSync::new("tests".to_owned(), client.clone(), EncryptionSyncMode::Loop).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);

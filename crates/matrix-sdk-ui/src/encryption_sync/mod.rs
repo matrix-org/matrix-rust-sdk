@@ -38,11 +38,16 @@ use tracing::{error, trace};
 
 #[derive(Clone, Copy)]
 pub enum EncryptionSyncMode {
-    /// Run the loop for a fixed amount of iterations.
-    RunFixedIterations(u8),
+    /// Run the loop for a fixed amount of iterations, for very short durations.
+    ///
+    /// This should be used only for a short-lived process (like iOS's
+    /// [NSE](https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension)),
+    /// and should be only used internally. For that reason, the durations can
+    /// be customized.
+    LimitedMode { num_iterations: u8, proxy_timeout: Duration, network_timeout: Duration },
 
     /// Never stop running the loop, except if asked to stop.
-    NeverStop,
+    Loop,
 }
 
 /// High-level helper for synchronizing encryption events using sliding sync.
@@ -77,8 +82,8 @@ impl EncryptionSync {
             )
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}));
 
-        if matches!(mode, EncryptionSyncMode::RunFixedIterations(..)) {
-            builder = builder.with_timeouts(Duration::from_secs(4), Duration::from_secs(4));
+        if let EncryptionSyncMode::LimitedMode { proxy_timeout, network_timeout, .. } = mode {
+            builder = builder.with_timeouts(proxy_timeout, network_timeout);
         }
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
@@ -112,7 +117,7 @@ impl EncryptionSync {
 
             loop {
                 let guard = match &mut mode {
-                    EncryptionSyncMode::RunFixedIterations(ref mut val) => {
+                    EncryptionSyncMode::LimitedMode { num_iterations: ref mut val, .. } => {
                         if *val == 0 {
                             // The previous attempt was the last one, stop now.
                             break;
@@ -157,7 +162,7 @@ impl EncryptionSync {
                         guard
                     }
 
-                    EncryptionSyncMode::NeverStop => self
+                    EncryptionSyncMode::Loop => self
                         .client
                         .encryption()
                         .spin_lock_store(Some(60000))

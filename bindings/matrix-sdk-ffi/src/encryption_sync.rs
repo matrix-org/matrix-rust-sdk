@@ -110,7 +110,7 @@ impl Client {
         id: String,
         listener: Box<dyn EncryptionSyncListener>,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
-        self.encryption_sync(id, listener, EncryptionSyncMode::NeverStop)
+        self.encryption_sync(id, listener, EncryptionSyncMode::Loop)
     }
 
     /// Encryption loop for a notification process.
@@ -129,6 +129,14 @@ impl Client {
         listener: Box<dyn EncryptionSyncListener>,
         num_iters: u8,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
-        self.encryption_sync(id, listener, EncryptionSyncMode::RunFixedIterations(num_iters))
+        self.encryption_sync(
+            id,
+            listener,
+            EncryptionSyncMode::LimitedMode {
+                num_iterations: num_iters,
+                proxy_timeout: std::time::Duration::ZERO,
+                network_timeout: std::time::Duration::ZERO,
+            },
+        )
     }
 }
