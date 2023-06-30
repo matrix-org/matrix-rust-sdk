@@ -63,7 +63,6 @@
 //! machine's state, which can be pretty helpful for the client app.
 
 mod room;
-#[allow(clippy::module_inception)]
 mod room_list;
 mod state;
 
