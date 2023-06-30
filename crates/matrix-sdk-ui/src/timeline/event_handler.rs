@@ -682,12 +682,12 @@ impl<'a> TimelineEventHandler<'a> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
-                        trace!("Adding day divider");
+                        trace!("Adding day divider (local)");
                         self.items.push_back(Arc::new(day_divider_item));
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    trace!("Adding first day divider");
+                    trace!("Adding first day divider (local)");
                     self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
@@ -837,23 +837,30 @@ impl<'a> TimelineEventHandler<'a> {
 
                 // Local echoes that are pending should stick to the bottom,
                 // find the latest event that isn't that.
-                let (latest_event_idx, latest_event) = self
+                let mut latest_event_stream = self
                     .items
                     .iter()
                     .enumerate()
                     .rev()
-                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)));
+
+                // Find the latest event, independently of success or failure status.
+                let latest_event = latest_event_stream.clone().next().unzip().1;
+
+                // Find the index of the latest non-failure event.
+                let latest_nonfailed_event_idx = latest_event_stream
                     .find(|(_, evt)| {
                         !matches!(
                             evt.send_state(),
                             Some(EventSendState::NotSentYet | EventSendState::Sent { .. })
                         )
                     })
-                    .unzip();
+                    .unzip()
+                    .0;
 
                 // Insert the next item after the latest non-failed event item,
                 // or at the start if there is no such item.
-                let mut insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
+                let mut insert_idx = latest_nonfailed_event_idx.map_or(0, |idx| idx + 1);
 
                 // Keep push semantics, if we're inserting at the end.
                 let should_push = insert_idx == self.items.len();
@@ -865,7 +872,7 @@ impl<'a> TimelineEventHandler<'a> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
-                        trace!("Adding day divider");
+                        trace!("Adding day divider (remote)");
                         if should_push {
                             self.items.push_back(Arc::new(day_divider_item));
                         } else {
@@ -875,7 +882,7 @@ impl<'a> TimelineEventHandler<'a> {
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    trace!("Adding first day divider");
+                    trace!("Adding first day divider (remote)");
                     if should_push {
                         self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
                     } else {

@@ -76,13 +76,11 @@ async fn test_toggling_reaction() -> Result<()> {
         let _join_rules = stream.next().await;
         let _history_visibility = stream.next().await;
         let _guest_access = stream.next().await;
-        let _remove_local_event = stream.next().await;
     }
 
     // Check we have the remote echo
     {
-        let event =
-            assert_matches!(stream.next().await, Some(VectorDiff::PushBack { value }) => value);
+        let event = assert_matches!(stream.next().await, Some(VectorDiff::Set { index: 7, value }) => value);
         let event = event.as_event().unwrap();
         assert_eq!(event.event_id().unwrap(), &event_id);
         assert!(!event.is_local_echo());
