@@ -28,6 +28,7 @@ use ruma::api::{
     error::FromHttpResponseError,
     IncomingResponse, OutgoingRequest,
 };
+use tracing::{info, warn};
 
 use super::{response_to_http_response, HttpClient, TransmissionProgress, DEFAULT_REQUEST_TIMEOUT};
 use crate::{config::RequestConfig, error::HttpError, RumaApiError};
@@ -139,10 +140,12 @@ impl HttpSettings {
             reqwest::Client::builder().user_agent(user_agent).timeout(self.timeout);
 
         if self.disable_ssl_verification {
+            warn!("SSL verification disabled in the HTTP client!");
             http_client = http_client.danger_accept_invalid_certs(true)
         }
 
         if let Some(p) = &self.proxy {
+            info!(proxy_url = p, "Setting the proxy for the HTTP client");
             http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
         }
 

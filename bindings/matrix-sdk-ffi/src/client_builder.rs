@@ -25,6 +25,8 @@ pub struct ClientBuilder {
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     sliding_sync_proxy: Option<String>,
+    proxy: Option<String>,
+    disable_ssl_verification: bool,
     inner: MatrixClientBuilder,
 }
 
@@ -83,6 +85,18 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.proxy = Some(url);
+        Arc::new(builder)
+    }
+
+    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_ssl_verification = true;
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
         Ok(self.build_inner()?)
     }
@@ -114,6 +128,14 @@ impl ClientBuilder {
             return Err(anyhow!(
                 "Failed to build: One of homeserver_url, server_name or username must be called."
             ));
+        }
+
+        if let Some(proxy) = builder.proxy {
+            inner_builder = inner_builder.proxy(proxy);
+        }
+
+        if builder.disable_ssl_verification {
+            inner_builder = inner_builder.disable_ssl_verification();
         }
 
         if let Some(user_agent) = builder.user_agent {
@@ -165,6 +187,8 @@ impl Default for ClientBuilder {
             passphrase: Zeroizing::new(None),
             user_agent: None,
             sliding_sync_proxy: None,
+            proxy: None,
+            disable_ssl_verification: false,
             inner: MatrixClient::builder(),
         }
     }
