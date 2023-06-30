@@ -119,14 +119,14 @@ async fn echo() {
     // New day divider is added
     let new_item = assert_matches!(
         timeline_stream.next().await,
-        Some(VectorDiff::Insert { index: 0, value }) => value
+        Some(VectorDiff::PushBack { value }) => value
     );
     assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     // Remote echo is added
     let remote_echo = assert_matches!(
         timeline_stream.next().await,
-        Some(VectorDiff::Insert { index: 1, value }) => value
+        Some(VectorDiff::PushBack { value }) => value
     );
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());

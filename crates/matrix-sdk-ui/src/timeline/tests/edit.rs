@@ -41,7 +41,7 @@ async fn live_redacted() {
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
 
@@ -73,7 +73,7 @@ async fn live_sanitized() {
 
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);
@@ -153,7 +153,7 @@ async fn aggregated_sanitized() {
     timeline.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
 
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     let message = assert_matches!(first_event.content(), TimelineItemContent::Message(msg) => msg);
     let text = assert_matches!(message.msgtype(), MessageType::Text(text) => text);

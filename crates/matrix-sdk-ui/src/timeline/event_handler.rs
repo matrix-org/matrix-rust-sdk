@@ -856,8 +856,8 @@ impl<'a> TimelineEventHandler<'a> {
                 // or at the start if there is no such item.
                 let mut insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
-                // Keep push semantics, if the index is 0 and the timeline is empty.
-                let should_push = insert_idx == 0 && self.items.is_empty();
+                // Keep push semantics, if we're inserting at the end.
+                let should_push = insert_idx == self.items.len();
 
                 if let Some(latest_event) = latest_event {
                     // Check if that event has the same date as the new one.

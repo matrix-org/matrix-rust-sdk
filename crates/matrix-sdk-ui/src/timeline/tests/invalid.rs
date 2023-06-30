@@ -36,7 +36,7 @@ async fn invalid_edit() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "test");
 
@@ -73,7 +73,7 @@ async fn invalid_event_content() {
         }))
         .await;
 
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.sender(), "@alice:example.org");
     assert_eq!(item.event_id().unwrap(), "$eeG0HA0FAZ37wP8kXlNkxx3I");
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(10)));
@@ -96,7 +96,7 @@ async fn invalid_event_content() {
         }))
         .await;
 
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.sender(), "@alice:example.org");
     assert_eq!(item.event_id().unwrap(), "$d5G0HA0FAZ37wP8kXlNkxx3I");
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(2179)));

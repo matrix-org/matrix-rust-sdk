@@ -31,7 +31,7 @@ async fn reaction_redaction() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.reactions().len(), 0);
 
     let msg_event_id = item.event_id().unwrap();
@@ -71,7 +71,7 @@ async fn reaction_redaction_timeline_filter() {
 
     // Adding a room message
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
-    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     // Creates a day divider and the message.
     assert_eq!(timeline.inner.items().await.len(), 2);
 
