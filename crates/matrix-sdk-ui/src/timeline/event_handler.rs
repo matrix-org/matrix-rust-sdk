@@ -682,12 +682,12 @@ impl<'a> TimelineEventHandler<'a> {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
-                        trace!("Adding day divider");
+                        trace!("Adding day divider (local)");
                         self.items.push_back(Arc::new(day_divider_item));
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    trace!("Adding first day divider");
+                    trace!("Adding first day divider (local)");
                     self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
@@ -799,36 +799,35 @@ impl<'a> TimelineEventHandler<'a> {
                         trace!(idx, "Replacing existing event");
                         self.items.set(idx, Arc::new(item.into()));
                         return;
-                    } else {
-                        // In more complex cases, remove the item and day
-                        // divider (if necessary) before re-adding the item.
-                        trace!("Removing local echo or duplicate timeline item");
-                        self.items.remove(idx);
-
-                        assert_ne!(
-                            idx, 0,
-                            "there is never an event item at index 0 because \
-                             the first event item is preceded by a day divider"
-                        );
-
-                        // Pre-requisites for removing the day divider:
-                        // 1. there is one preceding the old item at all
-                        if self.items[idx - 1].is_day_divider()
-                            // 2. the item after the old one that was removed
-                            //    is virtual (it should be impossible for this
-                            //    to be a read marker)
-                            && self
-                                .items
-                                .get(idx)
-                                .map_or(true, |item| item.is_virtual())
-                        {
-                            trace!("Removing day divider");
-                            self.items.remove(idx - 1);
-                        }
-
-                        // no return here, below code for adding a new event
-                        // will run to re-add the removed item
                     }
+
+                    // In more complex cases, remove the item and day
+                    // divider (if necessary) before re-adding the item.
+                    trace!("Removing local echo or duplicate timeline item");
+                    self.items.remove(idx);
+
+                    assert_ne!(
+                        idx, 0,
+                        "there is never an event item at index 0 because \
+                         the first event item is preceded by a day divider"
+                    );
+
+                    // Pre-requisites for removing the day divider:
+                    // 1. there is one preceding the old item at all
+                    if self.items[idx - 1].is_day_divider()
+                        // 2. the item after the old one that was removed is virtual (it should be
+                        //    impossible for this to be a read marker)
+                        && self
+                            .items
+                            .get(idx)
+                            .map_or(true, |item| item.is_virtual())
+                    {
+                        trace!("Removing day divider");
+                        self.items.remove(idx - 1);
+                    }
+
+                    // no return here, below code for adding a new event
+                    // will run to re-add the removed item
                 } else if txn_id.is_some() {
                     warn!(
                         "Received event with transaction ID, but didn't \
@@ -836,26 +835,66 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                // Check if the latest event has the same date as this event.
-                if let Some(latest_event) = self.items.iter().rev().find_map(|item| item.as_event())
-                {
+                // Local echoes that are pending should stick to the bottom,
+                // find the latest event that isn't that.
+                let mut latest_event_stream = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)));
+
+                // Find the latest event, independently of success or failure status.
+                let latest_event = latest_event_stream.clone().next().unzip().1;
+
+                // Find the index of the latest non-failure event.
+                let latest_nonfailed_event_idx = latest_event_stream
+                    .find(|(_, evt)| {
+                        !matches!(
+                            evt.send_state(),
+                            Some(EventSendState::NotSentYet | EventSendState::Sent { .. })
+                        )
+                    })
+                    .unzip()
+                    .0;
+
+                // Insert the next item after the latest non-failed event item,
+                // or at the start if there is no such item.
+                let mut insert_idx = latest_nonfailed_event_idx.map_or(0, |idx| idx + 1);
+
+                // Keep push semantics, if we're inserting at the end.
+                let should_push = insert_idx == self.items.len();
+
+                if let Some(latest_event) = latest_event {
+                    // Check if that event has the same date as the new one.
                     let old_ts = latest_event.timestamp();
 
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(old_ts, timestamp)
                     {
-                        trace!("Adding day divider");
-                        self.items.push_back(Arc::new(day_divider_item));
+                        trace!("Adding day divider (remote)");
+                        if should_push {
+                            self.items.push_back(Arc::new(day_divider_item));
+                        } else {
+                            self.items.insert(insert_idx, Arc::new(day_divider_item));
+                            insert_idx += 1;
+                        }
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
-                    trace!("Adding first day divider");
-                    self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
+                    trace!("Adding first day divider (remote)");
+                    if should_push {
+                        self.items.push_back(Arc::new(TimelineItem::day_divider(timestamp)));
+                    } else {
+                        self.items
+                            .insert(insert_idx, Arc::new(TimelineItem::day_divider(timestamp)));
+                        insert_idx += 1;
+                    }
                 }
 
                 if self.track_read_receipts {
                     maybe_add_implicit_read_receipt(
-                        self.items.len(),
+                        insert_idx,
                         &mut item,
                         self.meta.is_own_event,
                         self.items,
@@ -863,8 +902,12 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                trace!("Adding new remote timeline item at the end");
-                self.items.push_back(Arc::new(item.into()));
+                trace!("Adding new remote timeline item after all non-pending events");
+                if should_push {
+                    self.items.push_back(Arc::new(item.into()));
+                } else {
+                    self.items.insert(insert_idx, Arc::new(item.into()));
+                }
             }
 
             #[cfg(feature = "e2e-encryption")]

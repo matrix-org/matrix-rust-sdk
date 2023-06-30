@@ -246,15 +246,15 @@ async fn dedup_by_event_id_late() {
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. }); // day divider
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, .. }); // day divider
     let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 1, value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
     // Local echo and its day divider are removed.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 1 }));
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
 }
 
 #[async_test]

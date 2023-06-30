@@ -125,8 +125,11 @@ async fn remote_echo_new_position() {
 
     // … and another event that comes back before the remote echo
     timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("test")).await;
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _bob_message = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    // … and is inserted before the local echo item
+    let _day_divider =
+        assert_next_matches!(stream, VectorDiff::Insert { index: 0, value } => value);
+    let _bob_message =
+        assert_next_matches!(stream, VectorDiff::Insert { index: 1, value } => value);
 
     // When the remote echo comes in…
     timeline
@@ -146,9 +149,9 @@ async fn remote_echo_new_position() {
         .await;
 
     // … the local echo should be removed
-    assert_next_matches!(stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
     // … along with its day divider
-    assert_next_matches!(stream, VectorDiff::Remove { index: 0 });
+    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
     // … and the remote echo added (no new day divider because both bob's and
     // alice's message are from the same day according to server timestamps)

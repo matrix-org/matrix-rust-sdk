@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{EventId, OwnedTransactionId};
+use std::sync::Arc;
 
-use super::EventSendState;
+use matrix_sdk::Error;
+use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
@@ -42,4 +43,25 @@ impl LocalEventTimelineItem {
     pub fn with_send_state(&self, send_state: EventSendState) -> Self {
         Self { send_state, ..self.clone() }
     }
+}
+
+/// This type represents the "send state" of a local event timeline item.
+#[derive(Clone, Debug)]
+pub enum EventSendState {
+    /// The local event has not been sent yet.
+    NotSentYet,
+    /// The local event has been sent to the server, but unsuccessfully: The
+    /// sending has failed.
+    SendingFailed {
+        /// Details about how sending the event failed.
+        error: Arc<Error>,
+    },
+    /// Sending has been cancelled because an earlier event in the
+    /// message-sending queue failed.
+    Cancelled,
+    /// The local event has been sent successfully to the server.
+    Sent {
+        /// The event ID assigned by the server.
+        event_id: OwnedEventId,
+    },
 }
