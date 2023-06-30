@@ -140,7 +140,7 @@ impl HttpSettings {
             reqwest::Client::builder().user_agent(user_agent).timeout(self.timeout);
 
         if self.disable_ssl_verification {
-            warn!("SSL verification disabled!");
+            warn!("SSL verification disabled in the HTTP client!");
             http_client = http_client.danger_accept_invalid_certs(true)
         }
 
