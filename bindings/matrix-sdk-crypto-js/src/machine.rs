@@ -4,11 +4,13 @@ use std::{collections::BTreeMap, ops::Deref, time::Duration};
 
 use futures_util::StreamExt;
 use js_sys::{Array, Function, Map, Promise, Set};
+use matrix_sdk_crypto::store::RecoveryKey;
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::{json, Value as JsonValue};
 use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
+use zeroize::Zeroize;
 
 use crate::{
     device, encryption,
@@ -20,7 +22,7 @@ use crate::{
     responses::{self, response_from_string},
     store,
     store::RoomKeyInfo,
-    sync_events, types, verification, vodozemac,
+    sync_events, types, verification, vodozemac, backup_recovery_key::BackupRecoveryKey,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -761,6 +763,36 @@ impl OlmMachine {
                 "keys": keys,
             }))?)
         }))
+    }
+
+
+    /// Store the recovery key in the crypto store.
+    ///
+    /// This is useful if the client wants to support gossiping of the backup
+    /// key.
+    #[wasm_bindgen(js_name = "saveBackupRecoveryKey")]
+    pub fn save_recovery_key(
+        &self,
+        key: Option<BackupRecoveryKey>,
+        version: Option<String>,
+    ) -> Result<Promise, JsError> {
+        let key = key.map(|k| {
+            // We need to clone here due to FFI limitations but RecoveryKey does
+            // not want to expose clone since it's private key material.
+            let mut encoded: String = k.to_base64().into();
+            let key = RecoveryKey::from_base64(&encoded)
+                .expect("Encoding and decoding from base64 should always work");
+            encoded.zeroize();
+            key
+        });
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            me.backup_machine().save_recovery_key(key, version).await?;
+            Ok(JsValue::NULL)
+        }))
+       
     }
 
     /// Encrypt the list of exported room keys using the given passphrase.

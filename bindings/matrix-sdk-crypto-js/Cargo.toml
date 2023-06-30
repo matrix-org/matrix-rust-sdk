@@ -38,13 +38,19 @@ tracing = []
 anyhow = { workspace = true }
 console_error_panic_hook = "0.1.7"
 futures-util = "0.3.27"
+hmac = "0.12.1"
 http = { workspace = true }
+pbkdf2 = "0.11.0"
+rand = "0.8.5"
 js-sys = "0.3.49"
 matrix-sdk-common = { version = "0.6.0", path = "../../crates/matrix-sdk-common", features = ["js"] }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../../crates/matrix-sdk-indexeddb" }
 matrix-sdk-qrcode = { version = "0.4.0", path = "../../crates/matrix-sdk-qrcode", optional = true }
 ruma = { workspace = true, features = ["js", "rand"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
+serde-wasm-bindgen = "0.5.0"
+sha2 = "0.10.2"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.14", default-features = false, features = ["registry", "std"] }
 vodozemac = { workspace = true, features = ["js"] }
@@ -56,4 +62,4 @@ zeroize = { workspace = true }
 path = "../../crates/matrix-sdk-crypto"
 version = "0.6.0"
 default_features = false
-features = ["js", "automatic-room-key-forwarding"]
+features = ["js", "backups_v1", "automatic-room-key-forwarding"]

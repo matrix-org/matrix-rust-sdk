@@ -37,6 +37,7 @@ mod tracing;
 pub mod types;
 pub mod verification;
 pub mod vodozemac;
+pub mod backup_recovery_key;
 
 use js_sys::JsString;
 use wasm_bindgen::prelude::*;
