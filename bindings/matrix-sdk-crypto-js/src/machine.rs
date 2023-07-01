@@ -837,7 +837,7 @@ impl OlmMachine {
     /// trusted, otherwise we might be encrypting room keys that a malicious
     /// party could decrypt.
     ///
-    /// The [`OlmMachine::verifyBackup`] method can be used to so.
+    /// The [`OlmMachine::verify_backup`] method can be used to so.
     #[wasm_bindgen(js_name = "enableBackupV1")]
     pub fn enable_backup_v1(
         &self,
