@@ -850,7 +850,7 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            let _ = me.backup_machine().enable_backup_v1(backup_key).await?;
+            me.backup_machine().enable_backup_v1(backup_key).await?;
             Ok(JsValue::NULL)
         }))
     }

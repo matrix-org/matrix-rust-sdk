@@ -221,9 +221,9 @@ pub enum SignatureState {
     ValidAndTrusted = 3,
 }
 
-impl Into<SignatureState> for InnerSignatureState {
-    fn into(self) -> SignatureState {
-        match self {
+impl From<InnerSignatureState> for SignatureState {
+    fn from(val: InnerSignatureState) -> Self {
+        match val {
             InnerSignatureState::Missing => SignatureState::Missing,
             InnerSignatureState::Invalid => SignatureState::Invalid,
             InnerSignatureState::ValidButNotTrusted => SignatureState::ValidButNotTrusted,
