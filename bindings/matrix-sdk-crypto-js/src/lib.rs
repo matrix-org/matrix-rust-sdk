@@ -19,6 +19,7 @@
 #![allow(clippy::drop_non_drop)]
 
 pub mod attachment;
+pub mod backup_recovery_key;
 pub mod device;
 pub mod encryption;
 pub mod events;
@@ -37,7 +38,6 @@ mod tracing;
 pub mod types;
 pub mod verification;
 pub mod vodozemac;
-pub mod backup_recovery_key;
 
 use js_sys::JsString;
 use wasm_bindgen::prelude::*;

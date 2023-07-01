@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use js_sys::{Map, JSON};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 use wasm_bindgen::prelude::*;
 
@@ -14,8 +14,8 @@ use crate::{
 };
 
 use matrix_sdk_crypto::{
-    backups::SignatureVerification as InnerSignatureVerification,
     backups::SignatureState as InnerSignatureState,
+    backups::SignatureVerification as InnerSignatureVerification,
 };
 
 /// A collection of `Signature`.
@@ -95,34 +95,40 @@ impl Signatures {
     }
 
     /// Get the json with all signatures
-    #[wasm_bindgen(js_name="asJSON")]
+    #[wasm_bindgen(js_name = "asJSON")]
     pub fn as_json(&self) -> JsValue {
         trace!(?self.inner, "The signature");
         // can't use directly serde_wasm_bindgen as there is an issue with BTreeMap
         // It's always returning an empty {} if I do:
         // serde_wasm_bindgen::to_value(&self.inner).unwrap()
-        
+
         // Keep it like that for now as it's working
-        let map : BTreeMap<String, BTreeMap<String,String>> = self.inner.clone().into_iter().map(|(u,sign)| {
-            (
-                u.as_str().to_owned(),
-                sign.iter().map(|(device, maybe_sign)| {
-                    (
-                        device.as_str().to_owned(),
-                        match maybe_sign {
-                           Ok(s) => s.to_base64(),
-                           Err(e) => e.source.to_owned()
-                        }
-                    )
-                }).collect()
-            )
-        }).collect();
+        let map: BTreeMap<String, BTreeMap<String, String>> = self
+            .inner
+            .clone()
+            .into_iter()
+            .map(|(u, sign)| {
+                (
+                    u.as_str().to_owned(),
+                    sign.iter()
+                        .map(|(device, maybe_sign)| {
+                            (
+                                device.as_str().to_owned(),
+                                match maybe_sign {
+                                    Ok(s) => s.to_base64(),
+                                    Err(e) => e.source.to_owned(),
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
 
         let raw_string = serde_json::to_string(&map).unwrap();
 
         JSON::parse(&raw_string).unwrap()
     }
-
 }
 
 /// Represents a potentially decoded signature (but not a validated
@@ -194,12 +200,11 @@ impl MaybeSignature {
     }
 }
 
-
 /// The result of a signature verification of a signed JSON object.
 #[derive(Debug)]
 #[wasm_bindgen]
 pub struct SignatureVerification {
-    pub(crate) inner: InnerSignatureVerification
+    pub(crate) inner: InnerSignatureVerification,
 }
 
 /// The result of a signature check.
@@ -231,22 +236,20 @@ impl Into<SignatureState> for InnerSignatureState {
 
 #[wasm_bindgen]
 impl SignatureVerification {
-
-    /// Give the backup signature state from the current device. 
+    /// Give the backup signature state from the current device.
     /// See SignatureState for values
-    #[wasm_bindgen(getter, js_name="deviceState")]
+    #[wasm_bindgen(getter, js_name = "deviceState")]
     pub fn device_state(&self) -> SignatureState {
         self.inner.device_signature.into()
     }
 
-    /// Give the backup signature state from the current user identity. 
+    /// Give the backup signature state from the current user identity.
     /// See SignatureState for values
-    #[wasm_bindgen(getter, js_name="userState")]
+    #[wasm_bindgen(getter, js_name = "userState")]
     pub fn user_state(&self) -> SignatureState {
         self.inner.user_identity_signature.into()
     }
 }
-
 
 /// Struct holding the number of room keys we have.
 #[derive(Debug, Serialize, Deserialize)]
@@ -254,7 +257,7 @@ pub struct RoomKeyCounts {
     /// The total number of room keys.
     pub total: i64,
     /// The number of backed up room keys.
-    #[serde(rename="backedUp")]
+    #[serde(rename = "backedUp")]
     pub backed_up: i64,
 }
 
@@ -262,9 +265,9 @@ pub struct RoomKeyCounts {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BackupKeys {
     /// The total number of room keys.
-    #[serde(rename="recoveryKeyBase58")]
+    #[serde(rename = "recoveryKeyBase58")]
     pub recovery_key: Option<String>,
     /// The number of backed up room keys.
-    #[serde(rename="backupVersion")]
+    #[serde(rename = "backupVersion")]
     pub backup_version: Option<String>,
 }
