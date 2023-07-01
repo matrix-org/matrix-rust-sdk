@@ -907,26 +907,27 @@ describe(OlmMachine.name, () => {
     });
 
     describe("can manage key backups", () => {
-        
         test("test unknown signature", async () => {
             let m = await machine();
 
             let backupData = {
-                    "version": "2",
-                    "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-                    "auth_data": {
-                        "public_key": "ddIQtIjfCzfR69I/imE7XiGsPPKA1KF74aclXsiWh08",
-                        "signatures": {
-                            "@web:example.org": {
-                                "ed25519:WVJSAIOBUZ": "zzqyWl3ek5dSWKKeNPrpMFDQyu9ZlHrA2XpAaXtcSyo8BoZIu0K2flfT+N0YgVee2gmAZdLAribwgoCopvTeAg",
-                                "ed25519:LHMKRoMYl7haWnst5Xo54DuRqjZ5h/Sk1lxc4heSEcI": "YwRj5UqKrbMbAb/VK0Dwj4HspiOjSN64cM5SwFQ7HEcFiHp4gJmHtV90kl+12OLiE5JqRWvgzsx61hSXM/JDCA"
-                            }
-                        }
+                version: "2",
+                algorithm: "m.megolm_backup.v1.curve25519-aes-sha2",
+                auth_data: {
+                    public_key: "ddIQtIjfCzfR69I/imE7XiGsPPKA1KF74aclXsiWh08",
+                    signatures: {
+                        "@web:example.org": {
+                            "ed25519:WVJSAIOBUZ":
+                                "zzqyWl3ek5dSWKKeNPrpMFDQyu9ZlHrA2XpAaXtcSyo8BoZIu0K2flfT+N0YgVee2gmAZdLAribwgoCopvTeAg",
+                            "ed25519:LHMKRoMYl7haWnst5Xo54DuRqjZ5h/Sk1lxc4heSEcI":
+                                "YwRj5UqKrbMbAb/VK0Dwj4HspiOjSN64cM5SwFQ7HEcFiHp4gJmHtV90kl+12OLiE5JqRWvgzsx61hSXM/JDCA",
+                        },
                     },
-                    "etag": "0",
-                    "count": 0
-                }
-            
+                },
+                etag: "0",
+                count: 0,
+            };
+
             const state = await m.verifyBackup(backupData);
 
             expect(state.deviceState).toStrictEqual(SignatureState.Missing);
@@ -934,15 +935,14 @@ describe(OlmMachine.name, () => {
         });
 
         test("test validate own signatures", async () => {
-
             let m = await machine();
             let _ = m.bootstrapCrossSigning(true);
 
             let keyBackupKey = BackupRecoveryKey.createRandomKey();
 
             let auth_data = {
-                public_key: keyBackupKey.megolmV1PublicKey.publicKeyBase64
-            }
+                public_key: keyBackupKey.megolmV1PublicKey.publicKeyBase64,
+            };
 
             let canonical = JSON.stringify(auth_data);
 
@@ -952,20 +952,17 @@ describe(OlmMachine.name, () => {
                 algorithm: keyBackupKey.megolmV1PublicKey.algorithm,
                 auth_data: {
                     signatures: signatures,
-                    ...auth_data
-                }
-            }
+                    ...auth_data,
+                },
+            };
 
             const state = await m.verifyBackup(backupData);
 
             expect(state.deviceState).toStrictEqual(SignatureState.ValidAndTrusted);
             expect(state.userState).toStrictEqual(SignatureState.ValidAndTrusted);
-
         });
 
-
         test("test backup keys", async () => {
-
             let m = await machine();
 
             await m.shareRoomKey(room, [new UserId("@bob:example.org")], new EncryptionSettings());
@@ -977,7 +974,6 @@ describe(OlmMachine.name, () => {
 
             let backupEnabled = await m.isBackupEnabled();
             expect(backupEnabled).toStrictEqual(false);
-
 
             let keyBackupKey = BackupRecoveryKey.createRandomKey();
 
@@ -997,7 +993,7 @@ describe(OlmMachine.name, () => {
             let session_data = Object.values(sessions)[0].session_data;
 
             // should decrypt with the created key
-            let decrypted = keyBackupKey.decryptV1(session_data.ephemeral,session_data.mac, session_data.ciphertext);
+            let decrypted = keyBackupKey.decryptV1(session_data.ephemeral, session_data.mac, session_data.ciphertext);
             expect(decrypted.algorithm).toStrictEqual("m.megolm.v1.aes-sha2");
 
             // simulate key backed up
@@ -1007,11 +1003,9 @@ describe(OlmMachine.name, () => {
 
             expect(newCounts.total).toStrictEqual(1);
             expect(newCounts.backedUp).toStrictEqual(1);
-
         });
 
         test("test save and get private key", async () => {
-
             let m = await machine();
 
             let keyBackupKey = BackupRecoveryKey.createRandomKey();
@@ -1022,7 +1016,6 @@ describe(OlmMachine.name, () => {
 
             expect(savedKey.recoveryKeyBase58).toStrictEqual(keyBackupKey.toBase58());
             expect(savedKey.backupVersion).toStrictEqual("3");
-            
         });
     });
 });
