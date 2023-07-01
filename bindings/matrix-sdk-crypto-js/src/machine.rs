@@ -4,9 +4,13 @@ use std::{collections::BTreeMap, ops::Deref, time::Duration};
 
 use futures_util::StreamExt;
 use js_sys::{Array, Function, Map, Promise, Set};
-use matrix_sdk_crypto::store::RecoveryKey;
+use matrix_sdk_crypto::{
+    store::RecoveryKey,
+    types::RoomKeyBackupInfo, backups::MegolmV1BackupKey,
+    };
 use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::{json, Value as JsonValue};
+use serde_wasm_bindgen;
 use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
@@ -22,7 +26,7 @@ use crate::{
     responses::{self, response_from_string},
     store,
     store::RoomKeyInfo,
-    sync_events, types, verification, vodozemac, backup_recovery_key::BackupRecoveryKey,
+    sync_events, types::{self, SignatureVerification, RoomKeyCounts}, verification, vodozemac, backup_recovery_key::BackupRecoveryKey,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -794,6 +798,138 @@ impl OlmMachine {
         }))
        
     }
+
+    /// Check if the given backup has been verified by us or by another of our
+    /// devices that we trust.
+    ///
+    /// The `backup_info` should be a JSON object with the following
+    /// format:
+    ///
+    /// ```json
+    /// {
+    ///     "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+    ///     "auth_data": {
+    ///         "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+    ///         "signatures": {}
+    ///     }
+    /// }
+    /// ```
+    /// Returns a SignatureVerification object
+    #[wasm_bindgen(js_name = "verifyBackup")]
+    pub fn verify_backup(
+        &self,
+        backup_info: JsValue,
+    ) -> Result<Promise, JsError> {
+        let backup_info: RoomKeyBackupInfo = serde_wasm_bindgen::from_value(backup_info)?;
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            let result = me.backup_machine().verify_backup(backup_info, false).await?;
+            Ok(SignatureVerification {
+                inner: result
+            })
+        }))
+
+    }
+
+    /// Activate the given backup key to be used with the given backup version.
+    ///
+    /// **Warning**: The caller needs to make sure that the given `BackupKey` is
+    /// trusted, otherwise we might be encrypting room keys that a malicious
+    /// party could decrypt.
+    ///
+    /// The [`OlmMachine::verifyBackup`] method can be used to so.
+    #[wasm_bindgen(js_name = "enableBackupV1")]
+    pub fn enable_backup_v1(
+        &self,
+        public_key_base_64: String,
+        version: String,
+    ) -> Result<Promise, JsError> {
+        let backup_key = MegolmV1BackupKey::from_base64(
+            &public_key_base_64
+        )?;
+        backup_key.set_version(version);
+        
+        let me = self.inner.clone();
+
+        Ok(
+            future_to_promise(async move {
+                let _ = me.backup_machine().enable_backup_v1(backup_key).await?;
+                Ok(JsValue::NULL)
+            })
+        )
+    }
+
+    /// Are we able to encrypt room keys.
+    ///
+    /// This returns true if we have an active `BackupKey` and backup version
+    /// registered with the state machine.
+    #[wasm_bindgen(js_name = "isBackupEnabled")]
+    pub fn backup_enabled(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let enabled = me.backup_machine().enabled().await;
+            Ok(JsValue::from_bool(enabled))
+        })
+        
+    }
+
+    /// Disable and reset our backup state.
+    ///
+    /// This will remove any pending backup request, remove the backup key and
+    /// reset the backup state of each room key we have.
+    #[wasm_bindgen(js_name = "disabledBackup")]
+    pub fn disable_backup(&self) -> Promise {
+
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            me.backup_machine().disable_backup().await?;
+            Ok(JsValue::NULL)
+        })
+    
+    }
+
+    /// Encrypt a batch of room keys and return a request that needs to be sent
+    /// out to backup the room keys.
+    /// This returns an optional `JsValue` representing a `KeysBackupRequest`.
+    #[wasm_bindgen(js_name = "backupRoomKeys")]
+    pub fn backup_room_keys(&self) -> Promise {
+
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let request = me.backup_machine().backup()
+            .await?
+            .map(OutgoingRequest);
+            
+            match request {
+                None => Ok(JsValue::NULL),
+                Some(r) => Ok(JsValue::try_from(r)?)
+            }
+        })
+    }
+
+    /// Get the number of backed up room keys and the total number of room keys.
+    /// Returns a {"total":1,"backedUp":0} json object 
+    #[wasm_bindgen(js_name = "roomKeyCounts")]
+    pub fn room_key_counts(&self) -> Promise {
+
+        let me = self.inner.clone();
+        future_to_promise(async move {
+            let inner = me.backup_machine().room_key_counts().await?;
+            let count = RoomKeyCounts {
+                total: inner.total.try_into()?,
+                backed_up: inner.backed_up.try_into()?
+            };
+            let js_value =serde_wasm_bindgen::to_value(&count).unwrap();
+            Ok(js_value)
+        })
+
+    }
+
 
     /// Encrypt the list of exported room keys using the given passphrase.
     ///
