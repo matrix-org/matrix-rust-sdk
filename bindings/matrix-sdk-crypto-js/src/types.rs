@@ -3,6 +3,9 @@
 use std::collections::BTreeMap;
 
 use js_sys::{Map, JSON};
+use matrix_sdk_crypto::backups::{
+    SignatureState as InnerSignatureState, SignatureVerification as InnerSignatureVerification,
+};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 use wasm_bindgen::prelude::*;
@@ -11,11 +14,6 @@ use crate::{
     identifiers::{DeviceKeyId, UserId},
     impl_from_to_inner,
     vodozemac::Ed25519Signature,
-};
-
-use matrix_sdk_crypto::{
-    backups::SignatureState as InnerSignatureState,
-    backups::SignatureVerification as InnerSignatureVerification,
 };
 
 /// A collection of `Signature`.

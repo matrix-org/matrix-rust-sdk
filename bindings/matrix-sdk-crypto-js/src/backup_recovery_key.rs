@@ -2,16 +2,14 @@
 
 use std::{collections::HashMap, iter, ops::DerefMut};
 
-use js_sys::{JsString, JSON};
-use wasm_bindgen::prelude::*;
-
 use hmac::Hmac;
+use js_sys::{JsString, JSON};
 use matrix_sdk_crypto::{backups::MegolmV1BackupKey as InnerMegolmV1BackupKey, store::RecoveryKey};
-
 use pbkdf2::pbkdf2;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde_wasm_bindgen;
 use sha2::Sha512;
+use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
 
 /// The private part of the backup key, the one used for recovery.
