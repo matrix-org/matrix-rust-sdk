@@ -972,8 +972,6 @@ describe(OlmMachine.name, () => {
 
             let counts = await m.roomKeyCounts();
 
-            console.log("Counts " + JSON.stringify(counts));
-
             expect(counts.total).toStrictEqual(1);
             expect(counts.backedUp).toStrictEqual(0);
 
@@ -1010,6 +1008,21 @@ describe(OlmMachine.name, () => {
             expect(newCounts.total).toStrictEqual(1);
             expect(newCounts.backedUp).toStrictEqual(1);
 
+        });
+
+        test("test save and get private key", async () => {
+
+            let m = await machine();
+
+            let keyBackupKey = BackupRecoveryKey.createRandomKey();
+
+            await m.saveBackupRecoveryKey(keyBackupKey.toBase58(), "3");
+
+            let savedKey = await m.getBackupKeys();
+
+            expect(savedKey.recoveryKeyBase58).toStrictEqual(keyBackupKey.toBase58());
+            expect(savedKey.backupVersion).toStrictEqual("3");
+            
         });
     });
 });

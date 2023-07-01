@@ -14,7 +14,6 @@ use serde_wasm_bindgen;
 use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use zeroize::Zeroize;
 
 use crate::{
     device, encryption,
@@ -26,7 +25,7 @@ use crate::{
     responses::{self, response_from_string},
     store,
     store::RoomKeyInfo,
-    sync_events, types::{self, SignatureVerification, RoomKeyCounts}, verification, vodozemac, backup_recovery_key::BackupRecoveryKey,
+    sync_events, types::{self, SignatureVerification, RoomKeyCounts, BackupKeys}, verification, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -777,26 +776,34 @@ impl OlmMachine {
     #[wasm_bindgen(js_name = "saveBackupRecoveryKey")]
     pub fn save_recovery_key(
         &self,
-        key: Option<BackupRecoveryKey>,
-        version: Option<String>,
+        recovery_key_base_58: String,
+        version: String,
     ) -> Result<Promise, JsError> {
-        let key = key.map(|k| {
-            // We need to clone here due to FFI limitations but RecoveryKey does
-            // not want to expose clone since it's private key material.
-            let mut encoded: String = k.to_base64().into();
-            let key = RecoveryKey::from_base64(&encoded)
-                .expect("Encoding and decoding from base64 should always work");
-            encoded.zeroize();
-            key
-        });
+        let key = RecoveryKey::from_base58(&recovery_key_base_58)?;
 
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            me.backup_machine().save_recovery_key(key, version).await?;
+            me.backup_machine().save_recovery_key(Some(key), Some(version)).await?;
             Ok(JsValue::NULL)
         }))
-       
+    }
+
+    /// Get the backup keys we have saved in our crypto store.
+    /// Returns a json object {recoveryKeyBase58: "", backupVersion: ""}
+    #[wasm_bindgen(js_name = "getBackupKeys")]
+    pub fn get_backup_keys(&self) -> Promise {
+
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            let inner = me.backup_machine().get_backup_keys().await?;
+            let backup_keys = BackupKeys {
+                recovery_key: inner.recovery_key.map(|k| k.to_base58()),
+                backup_version: inner.backup_version
+            };
+            Ok(serde_wasm_bindgen::to_value(&backup_keys).unwrap())
+        })
     }
 
     /// Check if the given backup has been verified by us or by another of our

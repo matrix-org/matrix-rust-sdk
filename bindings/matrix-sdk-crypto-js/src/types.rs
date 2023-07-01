@@ -257,3 +257,14 @@ pub struct RoomKeyCounts {
     #[serde(rename="backedUp")]
     pub backed_up: i64,
 }
+
+/// The backup recovery key has saved by sdk
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BackupKeys {
+    /// The total number of room keys.
+    #[serde(rename="recoveryKeyBase58")]
+    pub recovery_key: Option<String>,
+    /// The number of backed up room keys.
+    #[serde(rename="backupVersion")]
+    pub backup_version: Option<String>,
+}
