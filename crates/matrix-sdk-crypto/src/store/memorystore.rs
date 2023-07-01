@@ -63,6 +63,7 @@ pub struct MemoryStore {
     direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
     custom_values: Arc<DashMap<String, Vec<u8>>>,
     leases: Arc<DashMap<String, (String, Instant)>>,
+    backup_keys: Arc<DashMap<String, BackupKeys>>,
 }
 
 impl Default for MemoryStore {
@@ -78,6 +79,7 @@ impl Default for MemoryStore {
             direct_withheld_info: Default::default(),
             custom_values: Default::default(),
             leases: Default::default(),
+            backup_keys: Default::default(),
         }
     }
 }
@@ -166,6 +168,13 @@ impl CryptoStore for MemoryStore {
                     .or_insert_with(DashMap::new)
                     .insert(session_id, event);
             }
+        }
+
+        if let Some(key) = changes.recovery_key {
+            let backup_keys =
+                BackupKeys { recovery_key: Some(key), backup_version: changes.backup_version };
+
+            self.backup_keys.insert("key".to_owned(), backup_keys);
         }
 
         Ok(())
@@ -292,7 +301,19 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        Ok(BackupKeys::default())
+        let stored = self.backup_keys.get("key");
+        Ok(match stored {
+            None => BackupKeys::default(),
+            Some(k) => {
+                let export = k.value();
+                // can't clone or copy it, so..
+                let key = export.recovery_key.as_ref().map(|e| serde_json::to_string(e).unwrap());
+                BackupKeys {
+                    recovery_key: key.map(|s| serde_json::from_str(&s).unwrap()),
+                    backup_version: export.backup_version.clone(),
+                }
+            }
+        })
     }
 
     async fn get_withheld_info(
