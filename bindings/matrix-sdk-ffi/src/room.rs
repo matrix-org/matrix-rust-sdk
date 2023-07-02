@@ -826,7 +826,7 @@ impl Room {
 
         let mut location_content = LocationContent::new(geo_uri);
         location_content.description = description;
-        location_content.zoom_level = zoom_level.and_then(|zl| ZoomLevel::new(zl));
+        location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
         location_event_message_content.location = Some(location_content);
 
         let room_message_event_content =
