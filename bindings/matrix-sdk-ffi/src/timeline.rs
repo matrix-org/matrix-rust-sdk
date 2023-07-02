@@ -632,7 +632,9 @@ impl TryFrom<RumaMessageType> for MessageType {
                     body: c.body,
                     geo_uri: c.geo_uri,
                     description: c.location.clone().and_then(|l| l.description),
-                    zoom_level: c.location.and_then(|l| l.zoom_level.map(|z| z.get().into())),
+                    zoom_level: c
+                        .location
+                        .and_then(|l| l.zoom_level.and_then(|z| z.get().try_into().ok())),
                     asset: c.asset.and_then(|a| match a.type_ {
                         RumaAssetType::Self_ => Some(AssetType::Sender),
                         RumaAssetType::Pin => Some(AssetType::Pin),
@@ -887,7 +889,7 @@ pub struct LocationContent {
     pub body: String,
     pub geo_uri: String,
     pub description: Option<String>,
-    pub zoom_level: Option<u64>,
+    pub zoom_level: Option<u8>,
     pub asset: Option<AssetType>,
 }
 
