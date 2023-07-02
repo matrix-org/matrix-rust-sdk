@@ -11,7 +11,7 @@ use matrix_sdk::{
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
-            location::{AssetType as RumaAssetType, LocationContent},
+            location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
@@ -812,6 +812,7 @@ impl Room {
         body: String,
         geo_uri: String,
         description: Option<String>,
+        zoom_level: Option<u8>,
         asset_type: Option<AssetType>,
         txn_id: Option<String>,
     ) {
@@ -825,6 +826,7 @@ impl Room {
 
         let mut location_content = LocationContent::new(geo_uri);
         location_content.description = description;
+        location_content.zoom_level = zoom_level.and_then(|zl| ZoomLevel::new(zl));
         location_event_message_content.location = Some(location_content);
 
         let room_message_event_content =
