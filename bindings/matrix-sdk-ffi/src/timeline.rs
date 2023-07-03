@@ -634,7 +634,7 @@ impl TryFrom<RumaMessageType> for MessageType {
                     content: LocationContent {
                         body: c.body,
                         geo_uri: c.geo_uri,
-                        description: description,
+                        description,
                         zoom_level: zoom_level.and_then(|z| z.get().try_into().ok()),
                         asset: c.asset.and_then(|a| match a.type_ {
                             RumaAssetType::Self_ => Some(AssetType::Sender),
