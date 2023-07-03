@@ -94,7 +94,15 @@ impl Client {
         listener: Box<dyn EncryptionSyncListener>,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
         RUNTIME.block_on(async move {
-            let inner = Arc::new(MatrixEncryptionSync::new(id, self.inner.clone(), None).await?);
+            let inner = Arc::new(
+                MatrixEncryptionSync::new(
+                    id,
+                    self.inner.clone(),
+                    None,
+                    matrix_sdk_ui::encryption_sync::WithLocking::Yes,
+                )
+                .await?,
+            );
 
             let handle = EncryptionSync::start(inner.clone(), listener);
 

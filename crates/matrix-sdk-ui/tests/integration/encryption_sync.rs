@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::SlidingSync;
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::encryption_sync::EncryptionSync;
+use matrix_sdk_ui::encryption_sync::{EncryptionSync, WithLocking};
 use serde_json::json;
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
@@ -17,7 +17,8 @@ use crate::{
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
+    let encryption_sync =
+        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
@@ -196,7 +197,8 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
+    let encryption_sync =
+        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
     // Run all the iterations.
     encryption_sync.run_fixed_iterations(1).await?;
@@ -225,7 +227,8 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
+    let encryption_sync =
+        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
     encryption_sync.run_fixed_iterations(2).await?;
 
@@ -257,7 +260,8 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync = EncryptionSync::new("tests".to_owned(), client.clone(), None).await?;
+    let encryption_sync =
+        EncryptionSync::new("tests".to_owned(), client.clone(), None, WithLocking::Yes).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
