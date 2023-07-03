@@ -5,20 +5,25 @@ use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
-    ruma::events::room::{
-        message::{
-            AudioInfo as RumaAudioInfo, AudioMessageEventContent as RumaAudioMessageEventContent,
-            EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
-            FileMessageEventContent as RumaFileMessageEventContent,
-            FormattedBody as RumaFormattedBody,
-            ImageMessageEventContent as RumaImageMessageEventContent,
-            LocationMessageEventContent as RumaLocationMessageEventContent,
-            MessageType as RumaMessageType,
-            NoticeMessageEventContent as RumaNoticeMessageEventContent, RoomMessageEventContent,
-            TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
-            VideoMessageEventContent as RumaVideoMessageEventContent,
+    ruma::events::{
+        location::AssetType as RumaAssetType,
+        room::{
+            message::{
+                AudioInfo as RumaAudioInfo,
+                AudioMessageEventContent as RumaAudioMessageEventContent,
+                EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
+                FileMessageEventContent as RumaFileMessageEventContent,
+                FormattedBody as RumaFormattedBody,
+                ImageMessageEventContent as RumaImageMessageEventContent,
+                LocationMessageEventContent as RumaLocationMessageEventContent,
+                MessageType as RumaMessageType,
+                NoticeMessageEventContent as RumaNoticeMessageEventContent,
+                RoomMessageEventContent, TextMessageEventContent as RumaTextMessageEventContent,
+                VideoInfo as RumaVideoInfo,
+                VideoMessageEventContent as RumaVideoMessageEventContent,
+            },
+            ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
         },
-        ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
     },
 };
 use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
@@ -28,6 +33,7 @@ use tracing::warn;
 use crate::{
     error::{ClientError, TimelineError},
     helpers::unwrap_or_clone_arc,
+    room::AssetType,
 };
 
 #[uniffi::export]
@@ -621,9 +627,23 @@ impl TryFrom<RumaMessageType> for MessageType {
                     formatted: c.formatted.as_ref().map(Into::into),
                 },
             },
-            RumaMessageType::Location(c) => MessageType::Location {
-                content: LocationContent { body: c.body, geo_uri: c.geo_uri },
-            },
+            RumaMessageType::Location(c) => {
+                let (description, zoom_level) =
+                    c.location.map(|loc| (loc.description, loc.zoom_level)).unwrap_or((None, None));
+                MessageType::Location {
+                    content: LocationContent {
+                        body: c.body,
+                        geo_uri: c.geo_uri,
+                        description,
+                        zoom_level: zoom_level.and_then(|z| z.get().try_into().ok()),
+                        asset: c.asset.and_then(|a| match a.type_ {
+                            RumaAssetType::Self_ => Some(AssetType::Sender),
+                            RumaAssetType::Pin => Some(AssetType::Pin),
+                            _ => None,
+                        }),
+                    },
+                }
+            }
             _ => bail!("Unsupported type"),
         };
         Ok(message_type)
@@ -870,6 +890,9 @@ pub struct TextMessageContent {
 pub struct LocationContent {
     pub body: String,
     pub geo_uri: String,
+    pub description: Option<String>,
+    pub zoom_level: Option<u8>,
+    pub asset: Option<AssetType>,
 }
 
 #[derive(Clone, uniffi::Record)]

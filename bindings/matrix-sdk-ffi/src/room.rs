@@ -11,6 +11,7 @@ use matrix_sdk::{
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
+            location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
@@ -806,8 +807,28 @@ impl Room {
         });
     }
 
-    pub fn send_location(&self, body: String, geo_uri: String, txn_id: Option<String>) {
-        let location_event_message_content = LocationMessageEventContent::new(body, geo_uri);
+    pub fn send_location(
+        &self,
+        body: String,
+        geo_uri: String,
+        description: Option<String>,
+        zoom_level: Option<u8>,
+        asset_type: Option<AssetType>,
+        txn_id: Option<String>,
+    ) {
+        let mut location_event_message_content =
+            LocationMessageEventContent::new(body, geo_uri.clone());
+
+        if let Some(asset_type) = asset_type {
+            location_event_message_content =
+                location_event_message_content.with_asset_type(RumaAssetType::from(asset_type));
+        }
+
+        let mut location_content = LocationContent::new(geo_uri);
+        location_content.description = description;
+        location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
+        location_event_message_content.location = Some(location_content);
+
         let room_message_event_content =
             RoomMessageEventContent::new(MessageType::Location(location_event_message_content));
         self.send(Arc::new(room_message_event_content), txn_id)
@@ -965,5 +986,20 @@ impl From<PaginationOptions> for matrix_sdk_ui::timeline::PaginationOptions<'sta
         }
 
         opts
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum AssetType {
+    Sender,
+    Pin,
+}
+
+impl From<AssetType> for RumaAssetType {
+    fn from(value: AssetType) -> Self {
+        match value {
+            AssetType::Sender => Self::Self_,
+            AssetType::Pin => Self::Pin,
+        }
     }
 }
