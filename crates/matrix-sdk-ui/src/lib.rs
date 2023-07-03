@@ -14,6 +14,8 @@
 
 mod events;
 
+#[cfg(feature = "experimental-app")]
+pub mod app;
 #[cfg(feature = "experimental-encryption-sync")]
 pub mod encryption_sync;
 #[cfg(feature = "experimental-notification-client")]
