@@ -5,7 +5,7 @@ use xshell::{cmd, pushd};
 
 use crate::{build_docs, workspace, DenyWarnings, Result};
 
-const NIGHTLY: &str = "nightly-2023-05-06";
+const NIGHTLY: &str = "nightly-2023-07-03";
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";
 
