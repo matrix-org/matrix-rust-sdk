@@ -26,7 +26,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
 use ruma::{assign, UInt};
 use tracing::warn;
 
@@ -345,6 +345,10 @@ impl EventTimelineItem {
 
     pub fn read_receipts(&self) -> HashMap<String, Receipt> {
         self.0.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect()
+    }
+
+    pub fn origin(&self) -> Option<EventItemOrigin> {
+        self.0.origin()
     }
 }
 
