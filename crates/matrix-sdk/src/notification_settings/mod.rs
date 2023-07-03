@@ -68,11 +68,6 @@ impl NotificationSettings {
         Self { client, rules, push_rules_event_handler }
     }
 
-    /// Gets all user defined rules matching a given `room_id`.
-    async fn get_custom_rules_for_room(&self, room_id: &RoomId) -> Vec<(RuleKind, String)> {
-        self.rules.read().await.get_custom_rules_for_room(room_id)
-    }
-
     /// Gets the user defined notification mode for a room.
     pub async fn get_user_defined_room_notification_mode(
         &self,
@@ -193,12 +188,13 @@ impl NotificationSettings {
         &self,
         room_id: &RoomId,
     ) -> Result<(), NotificationSettingsError> {
-        let custom_rules = self.get_custom_rules_for_room(room_id).await;
+        let rules = self.rules.read().await.clone();
+
+        let custom_rules = rules.get_custom_rules_for_room(room_id);
         if custom_rules.is_empty() {
             return Ok(());
         }
 
-        let rules = self.rules.read().await.clone();
         let mut rule_commands = RuleCommands::new(&rules.ruleset);
         for (kind, rule_id) in custom_rules {
             rule_commands.delete_rule(kind, rule_id)?;
@@ -221,8 +217,10 @@ impl NotificationSettings {
         is_encrypted: bool,
         members_count: u64,
     ) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
+
         // Check if there is a user defined mode
-        if let Some(room_mode) = self.get_user_defined_room_notification_mode(room_id).await {
+        if let Some(room_mode) = rules.get_user_defined_room_notification_mode(room_id) {
             if room_mode != RoomNotificationMode::Mute {
                 // Already unmuted
                 return Ok(());
@@ -230,7 +228,7 @@ impl NotificationSettings {
 
             // Get default mode for this room
             let default_mode =
-                self.get_default_room_notification_mode(is_encrypted, members_count).await;
+                rules.get_default_room_notification_mode(is_encrypted, members_count);
 
             // If the default mode is `Mute`, set it to `AllMessages`
             if default_mode == RoomNotificationMode::Mute {
@@ -338,6 +336,13 @@ pub(crate) mod tests {
         NotificationSettings::new(client.to_owned(), rule_commands.rules)
     }
 
+    async fn get_custom_rules_for_room(
+        notification_settings: &NotificationSettings,
+        room_id: &RoomId,
+    ) -> Vec<(RuleKind, std::string::String)> {
+        notification_settings.rules.read().await.get_custom_rules_for_room(room_id)
+    }
+
     #[async_test]
     async fn test_get_custom_rules_for_room() {
         let server = MockServer::start().await;
@@ -347,7 +352,7 @@ pub(crate) mod tests {
         let notification_settings =
             build_notification_settings(&client, vec![(RuleKind::Room, &room_id, true)]);
 
-        let custom_rules = notification_settings.get_custom_rules_for_room(&room_id).await;
+        let custom_rules = get_custom_rules_for_room(&notification_settings, &room_id).await;
         assert_eq!(custom_rules.len(), 1);
         assert_eq!(custom_rules[0], (RuleKind::Room, room_id.to_string()));
 
@@ -355,7 +360,7 @@ pub(crate) mod tests {
             &client,
             vec![(RuleKind::Room, &room_id, true), (RuleKind::Override, &room_id, true)],
         );
-        let custom_rules = notification_settings.get_custom_rules_for_room(&room_id).await;
+        let custom_rules = get_custom_rules_for_room(&notification_settings, &room_id).await;
         assert_eq!(custom_rules.len(), 2);
         assert_eq!(custom_rules[0], (RuleKind::Override, room_id.to_string()));
         assert_eq!(custom_rules[1], (RuleKind::Room, room_id.to_string()));
@@ -602,7 +607,6 @@ pub(crate) mod tests {
         assert!(!rule.enabled());
     }
 
-    #[ignore]
     #[async_test]
     async fn test_set_room_notification_mode() {
         let server = MockServer::start().await;
@@ -767,9 +771,9 @@ pub(crate) mod tests {
         notification_settings.delete_user_defined_room_rules(&room_id_a).await.unwrap();
 
         // Only the rules for room_id_b should remain
-        let remaining_rules = notification_settings.get_custom_rules_for_room(&room_id_b).await;
-        assert_eq!(remaining_rules.len(), 2);
-        assert!(notification_settings.get_custom_rules_for_room(&room_id_a).await.is_empty());
+        let updated_rules = notification_settings.rules.read().await;
+        assert_eq!(updated_rules.get_custom_rules_for_room(&room_id_b).len(), 2);
+        assert!(updated_rules.get_custom_rules_for_room(&room_id_a).is_empty());
     }
 
     #[async_test]
@@ -795,7 +799,7 @@ pub(crate) mod tests {
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
 
-        let room_rules = notification_settings.get_custom_rules_for_room(&room_id).await;
+        let room_rules = get_custom_rules_for_room(&notification_settings, &room_id).await;
         assert_eq!(room_rules.len(), 1);
         assert_matches!(notification_settings.rules.read().await.ruleset.get(RuleKind::Room, &room_id),
             Some(AnyPushRuleRef::Room(rule)) => {
@@ -848,7 +852,7 @@ pub(crate) mod tests {
             notification_settings.get_user_defined_room_notification_mode(&room_id).await
         );
 
-        let room_rules = notification_settings.get_custom_rules_for_room(&room_id).await;
+        let room_rules = get_custom_rules_for_room(&notification_settings, &room_id).await;
         assert_eq!(room_rules.len(), 1);
         assert_matches!(notification_settings.rules.read().await.ruleset.get(RuleKind::Room, &room_id),
             Some(AnyPushRuleRef::Room(rule)) => {

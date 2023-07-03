@@ -202,9 +202,9 @@ impl Rules {
     /// between the time the command was created and the time it is applied.
     pub(crate) fn apply(&mut self, commands: &RuleCommands) {
         for command in &commands.commands {
-            match command.clone() {
+            match command {
                 Command::DeletePushRule { scope: _, kind, rule_id } => {
-                    _ = self.ruleset.remove(kind, rule_id);
+                    _ = self.ruleset.remove(kind.clone(), rule_id);
                 }
                 Command::SetRoomPushRule { scope: _, room_id: _, notify: _ }
                 | Command::SetOverridePushRule { scope: _, rule_id: _, room_id: _, notify: _ } => {
@@ -213,7 +213,7 @@ impl Rules {
                     }
                 }
                 Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
-                    _ = self.ruleset.set_enabled(kind, rule_id, enabled);
+                    _ = self.ruleset.set_enabled(kind.clone(), rule_id, *enabled);
                 }
             }
         }

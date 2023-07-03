@@ -9,6 +9,8 @@ use ruma::{
 use super::command::Command;
 use crate::NotificationSettingsError;
 
+/// A `RuleCommand` allows to generate a list of `Command` needed to modify a
+/// `Ruleset`
 #[derive(Clone, Debug)]
 pub(crate) struct RuleCommands {
     pub(crate) commands: Vec<Command>,
@@ -20,6 +22,7 @@ impl RuleCommands {
         RuleCommands { commands: vec![], rules: rules.clone() }
     }
 
+    /// Insert a new rule
     pub(crate) fn insert_rule(
         &mut self,
         kind: RuleKind,
@@ -55,7 +58,7 @@ impl RuleCommands {
         Ok(())
     }
 
-    /// Build a list of commands needed to delete rules
+    /// Delete a rule
     pub(crate) fn delete_rule(
         &mut self,
         kind: RuleKind,
@@ -67,7 +70,7 @@ impl RuleCommands {
         Ok(())
     }
 
-    /// Build a list of commands needed to set whether a rule is enabled
+    /// Set whether a rule is enabled
     pub(crate) fn set_rule_enabled(
         &mut self,
         kind: RuleKind,
@@ -85,7 +88,6 @@ impl RuleCommands {
         }
     }
 
-    /// Build a command needed to set whether a rule is enabled
     fn set_enabled(
         &mut self,
         kind: RuleKind,
@@ -103,8 +105,7 @@ impl RuleCommands {
         Ok(())
     }
 
-    /// Build a list of commands needed to set whether a `IsUserMention` is
-    /// enabled
+    /// Set whether `IsUserMention` is enabled
     fn set_user_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
         // Add a command for the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
@@ -136,8 +137,7 @@ impl RuleCommands {
         Ok(())
     }
 
-    /// Build a list of commands needed to set whether a `IsRoomMention` is
-    /// enabled
+    /// Set whether `IsRoomMention` is enabled
     fn set_room_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
         // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.

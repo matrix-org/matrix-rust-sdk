@@ -16,7 +16,7 @@ use crate::NotificationSettingsError;
 pub(crate) enum Command {
     /// Set a new `Room` push rule
     SetRoomPushRule { scope: RuleScope, room_id: OwnedRoomId, notify: bool },
-    /// Set a new `Override` push rule
+    /// Set a new `Override` push rule matching a `RoomId`
     SetOverridePushRule { scope: RuleScope, rule_id: String, room_id: OwnedRoomId, notify: bool },
     /// Set whether a push rule is enabled
     SetPushRuleEnabled { scope: RuleScope, kind: RuleKind, rule_id: String, enabled: bool },
