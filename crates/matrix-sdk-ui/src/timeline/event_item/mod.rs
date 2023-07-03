@@ -259,6 +259,20 @@ impl EventTimelineItem {
         }
     }
 
+    /// Get the origin of the event, i.e. where it came from.
+    ///
+    /// May return `None` in some edge cases that are subject to change.
+    pub fn origin(&self) -> Option<EventItemOrigin> {
+        match &self.kind {
+            EventTimelineItemKind::Local(_) => Some(EventItemOrigin::Local),
+            EventTimelineItemKind::Remote(remote_event) => match remote_event.origin {
+                RemoteEventOrigin::Sync => Some(EventItemOrigin::Sync),
+                RemoteEventOrigin::Pagination => Some(EventItemOrigin::Pagination),
+                _ => None,
+            },
+        }
+    }
+
     pub(super) fn set_content(&mut self, content: TimelineItemContent) {
         self.content = content;
     }
@@ -356,4 +370,15 @@ impl<T> TimelineDetails<T> {
     {
         matches!(self, Self::Ready(v) if v == value)
     }
+}
+
+/// Where this event came.
+#[derive(Clone, Copy, Debug)]
+pub enum EventItemOrigin {
+    /// The event was created locally.
+    Local,
+    /// The event came from a sync response.
+    Sync,
+    /// The event came from pagination.
+    Pagination,
 }

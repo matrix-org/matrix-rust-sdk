@@ -70,9 +70,9 @@ pub(crate) use self::builder::TimelineBuilder;
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
-        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
+        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
+        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
     futures::SendAttachment,
