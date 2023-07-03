@@ -1,18 +1,23 @@
-use std::time::Duration;
+use std::sync::Mutex;
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::SlidingSync;
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::encryption_sync::{EncryptionSync, EncryptionSyncMode};
+use matrix_sdk_ui::encryption_sync::EncryptionSync;
+use serde_json::json;
+use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
-use crate::{logged_in_client, sliding_sync_then_assert_request_and_fake_response};
+use crate::{
+    logged_in_client,
+    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher},
+    sliding_sync_then_assert_request_and_fake_response,
+};
 
 #[async_test]
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, EncryptionSyncMode::Loop).await?;
+    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
@@ -129,45 +134,87 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
+    let pos = Mutex::new(0);
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str
+            }))
+        })
+        .mount_as_scoped(&server)
+        .await
+}
+
+async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
+    let mut num_requests = 0;
+
+    for request in
+        server.received_requests().await.expect("Request recording has been disabled").iter()
+    {
+        if !SlidingSyncMatcher.matches(request) {
+            continue;
+        }
+
+        assert!(
+            num_requests < expected_requests.len(),
+            "unexpected extra requests received in the server"
+        );
+
+        let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+        // Strip the transaction id, if present.
+        if let Some(root) = json_value.as_object_mut() {
+            root.remove("txn_id");
+        }
+
+        if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
+            &json_value,
+            &expected_requests[num_requests],
+            assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
+        ) {
+            dbg!(json_value);
+            panic!("{}", error);
+        }
+
+        num_requests += 1;
+    }
+
+    assert_eq!(num_requests, expected_requests.len(), "missing requests");
+}
+
 #[async_test]
 async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync = EncryptionSync::new(
-        "tests".to_owned(),
-        client,
-        EncryptionSyncMode::LimitedMode {
-            num_iterations: 1,
-            proxy_timeout: Duration::ZERO,
-            network_timeout: Duration::ZERO,
-        },
-    )
-    .await?;
+    let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let stream = encryption_sync.sync();
-    pin_mut!(stream);
+    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
 
-    sliding_sync_then_assert_request_and_fake_response! {
-        [server, stream]
-        assert request = {
-            "conn_id": "encryption",
-            "extensions": {
-                "e2ee": {
-                    "enabled": true
-                },
-                "to_device": {
-                    "enabled": true
-                }
+    // Run all the iterations.
+    encryption_sync.run_fixed_iterations(1).await?;
+
+    // Check the requests are the ones we've expected.
+    let expected_requests = [json!({
+        "conn_id": "encryption",
+        "extensions": {
+            "e2ee": {
+                "enabled": true
+            },
+            "to_device": {
+                "enabled": true
             }
-        },
-        respond with = {
-            "pos": "0"
-        },
-    };
+        }
+    })];
 
-    // Only run once, so the next iteration on the stream should stop it.
-    assert!(stream.next().await.is_none());
-    assert!(stream.next().await.is_none());
+    check_requests(server, &expected_requests).await;
 
     Ok(())
 }
@@ -176,24 +223,16 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
 async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync = EncryptionSync::new(
-        "tests".to_owned(),
-        client,
-        EncryptionSyncMode::LimitedMode {
-            num_iterations: 2,
-            proxy_timeout: Duration::ZERO,
-            network_timeout: Duration::ZERO,
-        },
-    )
-    .await?;
+    let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let stream = encryption_sync.sync();
-    pin_mut!(stream);
+    let encryption_sync = EncryptionSync::new("tests".to_owned(), client, None).await?;
+
+    encryption_sync.run_fixed_iterations(2).await?;
 
     // First iteration fills the whole request.
-    sliding_sync_then_assert_request_and_fake_response! {
-        [server, stream]
-        assert request = {
+    // Second iteration only sends non-sticky parameters.
+    let expected_requests = [
+        json!({
             "conn_id": "encryption",
             "extensions": {
                 "e2ee": {
@@ -203,26 +242,13 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
                     "enabled": true
                 }
             }
-        },
-        respond with = {
-            "pos": "0"
-        },
-    };
-
-    // Second iteration only sends non-sticky parameters.
-    sliding_sync_then_assert_request_and_fake_response! {
-        [server, stream]
-        assert request = {
+        }),
+        json!({
             "conn_id": "encryption",
-        },
-        respond with = {
-            "pos": "1",
-        },
-    };
+        }),
+    ];
 
-    // This was the last iteration, there should be no next one.
-    assert!(stream.next().await.is_none());
-    assert!(stream.next().await.is_none());
+    check_requests(server, &expected_requests).await;
 
     Ok(())
 }
@@ -231,8 +257,7 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client.clone(), EncryptionSyncMode::Loop).await?;
+    let encryption_sync = EncryptionSync::new("tests".to_owned(), client.clone(), None).await?;
 
     let stream = encryption_sync.sync();
     pin_mut!(stream);
