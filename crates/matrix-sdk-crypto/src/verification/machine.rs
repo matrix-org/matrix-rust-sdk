@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     sync::Arc,
 };
@@ -49,7 +50,7 @@ use crate::{
 pub struct VerificationMachine {
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<DashMap<OwnedUserId, DashMap<String, VerificationRequest>>>,
+    requests: Arc<DashMap<OwnedUserId, HashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -153,13 +154,13 @@ impl VerificationMachine {
         user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
-        self.requests.get(user_id).and_then(|v| v.get(flow_id.as_ref()).map(|s| s.clone()))
+        self.requests.get(user_id)?.get(flow_id.as_ref()).cloned()
     }
 
     pub fn get_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
         self.requests
             .get(user_id)
-            .map(|v| v.iter().map(|i| i.value().clone()).collect())
+            .map(|v| v.iter().map(|(_, value)| value.clone()).collect())
             .unwrap_or_default()
     }
 
@@ -172,15 +173,13 @@ impl VerificationMachine {
             return;
         }
 
-        let entry = self.requests.entry(request.other_user().to_owned()).or_default();
-        let user_requests = entry.value();
+        let mut entry = self.requests.entry(request.other_user().to_owned()).or_default();
+        let user_requests = entry.value_mut();
 
         // Cancel all the old verifications requests as well as the new one we
         // have for this user if someone tries to have two verifications going
         // on at once.
-        for old in user_requests {
-            let old_verification = old.value();
-
+        for old_verification in user_requests.values_mut() {
             if !old_verification.is_cancelled() {
                 warn!(
                     "Received a new verification request whilst another request \
@@ -246,7 +245,7 @@ impl VerificationMachine {
     pub fn garbage_collect(&self) -> Vec<Raw<AnyToDeviceEvent>> {
         let mut events = vec![];
 
-        for user_verification in self.requests.iter() {
+        for mut user_verification in self.requests.iter_mut() {
             user_verification.retain(|_, v| !(v.is_done() || v.is_cancelled()));
         }
         self.requests.retain(|_, v| !v.is_empty());
@@ -256,7 +255,7 @@ impl VerificationMachine {
             .iter()
             .flat_map(|v| {
                 let requests: Vec<OutgoingVerificationRequest> =
-                    v.value().iter().filter_map(|v| v.cancel_if_timed_out()).collect();
+                    v.value().iter().filter_map(|(_, v)| v.cancel_if_timed_out()).collect();
                 requests
             })
             .collect();
