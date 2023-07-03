@@ -71,3 +71,9 @@ callback interface SessionVerificationControllerDelegate {
     void did_cancel();
     void did_finish();
 };
+
+enum EventItemOrigin {
+    "Local",
+    "Sync",
+    "Pagination",
+};

@@ -43,6 +43,7 @@ use matrix_sdk::{
     ruma::events::room::{message::RoomMessageEventContent, MediaSource},
     SlidingSyncListLoadingState,
 };
+use matrix_sdk_ui::timeline::EventItemOrigin;
 
 use self::{
     client::{CreateRoomParameters, RoomPreset, RoomVisibility},
