@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -20,7 +20,7 @@ use futures_core::Stream;
 use matrix_sdk_test::async_test;
 use ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
-    server_name, EventId, OwnedEventId, TransactionId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
 };
 use stream_assert::assert_next_matches;
 
@@ -202,6 +202,39 @@ async fn toggle_during_request_resolves_new_action() {
     assert_no_more_updates(&mut stream).await;
 }
 
+#[async_test]
+async fn reactions_store_timestamp() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
+    let reaction = create_reaction(&msg_id);
+
+    // Creating a reaction adds a valid timestamp.
+    let timestamp_before = MilliSecondsSinceUnixEpoch::now();
+    let _ = timeline.toggle_reaction_local(&reaction).await.unwrap();
+    let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
+    let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
+    let timestamp = reactions.senders().next().unwrap().timestamp;
+    assert!(timestamp_range_until_now_from(timestamp_before).contains(&timestamp));
+
+    // Failing a redaction.
+    let _ = timeline.toggle_reaction_local(&reaction).await.unwrap();
+    let _ = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
+    timeline
+        .handle_reaction_response(
+            &reaction,
+            &ReactionToggleResult::RedactFailure { event_id: msg_id.clone() },
+        )
+        .await
+        .unwrap();
+
+    // Restores an event with a valid timestamp.
+    let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
+    let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
+    let new_timestamp = reactions.senders().next().unwrap().timestamp;
+    assert!(timestamp_range_until_now_from(timestamp_before).contains(&new_timestamp));
+}
+
 fn create_reaction(related_message_id: &EventId) -> Annotation {
     let reaction_key = REACTION_KEY.to_owned();
     let msg_id = related_message_id.to_owned();
@@ -262,4 +295,10 @@ async fn assert_reactions_are_removed(
     let event = assert_event_is_updated(stream, related_to, message_position).await;
     let reactions = event.reactions().get(&REACTION_KEY.to_owned());
     assert!(reactions.is_none());
+}
+
+fn timestamp_range_until_now_from(
+    timestamp: MilliSecondsSinceUnixEpoch,
+) -> RangeInclusive<MilliSecondsSinceUnixEpoch> {
+    timestamp..=MilliSecondsSinceUnixEpoch::now()
 }

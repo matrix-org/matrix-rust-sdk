@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use ruma::{server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
+use itertools::Itertools;
+use ruma::{server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
 
 use crate::timeline::{
     event_item::{EventItemIdentifier, ReactionSenderData},
@@ -90,6 +91,27 @@ fn senders_are_deduplicated() {
 
     let senders = group.senders().map(|v| &v.sender_id).collect::<Vec<_>>();
     assert_eq!(senders, vec![&ALICE.to_owned(), &BOB.to_owned()]);
+}
+
+#[test]
+fn timestamps_are_stored() {
+    let reaction = new_reaction();
+    let reaction_2 = new_reaction();
+    let timestamp = MilliSecondsSinceUnixEpoch(uint!(0));
+    let timestamp_2 = MilliSecondsSinceUnixEpoch::now();
+    let mut reaction_group = ReactionGroup::default();
+    reaction_group
+        .0
+        .insert(reaction, ReactionSenderData { sender_id: ALICE.to_owned(), timestamp });
+    reaction_group.0.insert(
+        reaction_2,
+        ReactionSenderData { sender_id: BOB.to_owned(), timestamp: timestamp_2 },
+    );
+
+    assert_eq!(
+        reaction_group.senders().map(|v| v.timestamp).collect_vec(),
+        vec![timestamp, timestamp_2]
+    );
 }
 
 fn insert(group: &mut ReactionGroup, sender: &UserId, count: u64) {
