@@ -48,8 +48,9 @@ jobs:
       with:
         python-version: 3.8
 
-    - uses: gnunicorn/setup-matrix-synapse@main
+    - uses: michaelkaye/setup-matrix-synapse@main
       with:
+        installer: poetry
         uploadLogs: true
         httpPort: 8228
         disableRateLimiting: true
