@@ -159,3 +159,332 @@ impl RuleCommands {
         Ok(())
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::push::RuleScope,
+        push::{
+            NewPushRule, NewSimplePushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
+            RemovePushRuleError, RuleKind, Ruleset,
+        },
+        OwnedRoomId, RoomId, UserId,
+    };
+
+    use super::RuleCommands;
+    use crate::{error::NotificationSettingsError, notification_settings::command::Command};
+
+    fn get_server_default_ruleset() -> Ruleset {
+        let user_id = UserId::parse("@user:matrix.org").unwrap();
+        Ruleset::server_default(&user_id)
+    }
+
+    fn get_test_room_id() -> OwnedRoomId {
+        RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
+    }
+
+    #[async_test]
+    async fn test_insert_rule_room() {
+        let room_id = get_test_room_id();
+        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+        rule_commands.insert_rule(RuleKind::Room, &room_id, true).unwrap();
+
+        // A rule must have been inserted in the ruleset
+        assert!(rule_commands.rules.get(RuleKind::Room, &room_id).is_some());
+
+        // A command must have been created
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetRoomPushRule { scope, room_id: command_room_id, notify } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(command_room_id, &room_id);
+                assert!(notify);
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_insert_rule_override() {
+        let room_id = get_test_room_id();
+        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+        rule_commands.insert_rule(RuleKind::Override, &room_id, true).unwrap();
+
+        // A rule must have been inserted in the ruleset
+        assert!(rule_commands.rules.get(RuleKind::Override, &room_id).is_some());
+
+        // A command must have been created
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetOverridePushRule { scope, room_id: command_room_id, rule_id, notify } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(command_room_id, &room_id);
+                assert_eq!(rule_id, room_id.as_str());
+                assert!(notify);
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_insert_rule_unsupported() {
+        let room_id = get_test_room_id();
+        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+
+        assert_matches!(
+            rule_commands.insert_rule(RuleKind::Underride, &room_id, true),
+            Err(NotificationSettingsError::InvalidParameter(_)) => {}
+        );
+
+        assert_matches!(
+            rule_commands.insert_rule(RuleKind::Content, &room_id, true),
+            Err(NotificationSettingsError::InvalidParameter(_)) => {}
+        );
+
+        assert_matches!(
+            rule_commands.insert_rule(RuleKind::Sender, &room_id, true),
+            Err(NotificationSettingsError::InvalidParameter(_)) => {}
+        );
+    }
+
+    #[async_test]
+    async fn test_delete_rule() {
+        let room_id = get_test_room_id();
+        let mut ruleset = get_server_default_ruleset();
+
+        let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
+        ruleset.insert(NewPushRule::Room(new_rule), None, None).unwrap();
+
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        // Delete must succeed
+        rule_commands.delete_rule(RuleKind::Room, room_id.to_string()).unwrap();
+
+        // The ruleset must have been updated
+        assert!(rule_commands.rules.get(RuleKind::Room, &room_id).is_none());
+
+        // A command must have been created
+        assert_matches!(&rule_commands.commands[0],
+            Command::DeletePushRule { scope, kind, rule_id } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(kind, &RuleKind::Room);
+                assert_eq!(rule_id, room_id.as_str());
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_delete_rule_not_found_error() {
+        let room_id = get_test_room_id();
+        let ruleset = get_server_default_ruleset();
+
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        // Deletion should fail if an attempt is made to delete a rule that does not
+        // exist
+        assert_matches!(
+            rule_commands.delete_rule(RuleKind::Room, room_id.to_string()),
+            Err(RemovePushRuleError::NotFound) => {}
+        );
+    }
+
+    #[async_test]
+    async fn test_delete_rule_server_default_error() {
+        let ruleset = get_server_default_ruleset();
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        // Deletion should fail if an attempt is made to delete a default server rule
+        assert_matches!(
+            rule_commands.delete_rule(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string()),
+            Err(RemovePushRuleError::ServerDefault) => {}
+        );
+    }
+
+    #[async_test]
+    async fn test_set_rule_enabled() {
+        let mut ruleset = get_server_default_ruleset();
+
+        // Initialize with `Reaction` rule disabled
+        ruleset.set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction, false).unwrap();
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        rule_commands
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), true)
+            .unwrap();
+
+        // The ruleset must have been updated
+        let rule = rule_commands
+            .rules
+            .get(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
+            .unwrap();
+        assert!(rule.enabled());
+
+        // A command must have been created
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(kind, &RuleKind::Override);
+                assert_eq!(rule_id, PredefinedOverrideRuleId::Reaction.as_str());
+                assert!(enabled);
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_set_rule_enabled_not_found() {
+        let ruleset = get_server_default_ruleset();
+        let mut rule_commands = RuleCommands::new(&ruleset);
+        assert_eq!(
+            rule_commands.set_enabled(RuleKind::Room, "unknown_rule_id", true),
+            Err(NotificationSettingsError::RuleNotFound)
+        );
+    }
+
+    #[async_test]
+    async fn test_set_rule_enabled_user_mention() {
+        let mut ruleset = get_server_default_ruleset();
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        ruleset
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
+            .unwrap();
+
+        #[allow(deprecated)]
+        {
+            ruleset
+                .set_enabled(
+                    RuleKind::Override,
+                    PredefinedOverrideRuleId::ContainsDisplayName,
+                    false,
+                )
+                .unwrap();
+            ruleset
+                .set_enabled(RuleKind::Content, PredefinedContentRuleId::ContainsUserName, false)
+                .unwrap();
+        }
+
+        // User Mention
+        rule_commands
+            .set_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::IsUserMention.as_str(),
+                true,
+            )
+            .unwrap();
+
+        // The ruleset must have been updated
+        assert!(rule_commands
+            .rules
+            .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
+            .unwrap()
+            .enabled());
+        #[allow(deprecated)]
+        {
+            assert!(rule_commands
+                .rules
+                .get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
+                .unwrap()
+                .enabled());
+            assert!(rule_commands
+                .rules
+                .get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
+                .unwrap()
+                .enabled());
+        }
+
+        // Three commands are expected
+        assert_eq!(rule_commands.commands.len(), 3);
+
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(kind, &RuleKind::Override);
+                assert_eq!(rule_id, PredefinedOverrideRuleId::IsUserMention.as_str());
+                assert!(enabled);
+            }
+        );
+
+        #[allow(deprecated)]
+        {
+            assert_matches!(&rule_commands.commands[1],
+                Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                    assert_eq!(scope, &RuleScope::Global);
+                    assert_eq!(kind, &RuleKind::Content);
+                    assert_eq!(rule_id, PredefinedContentRuleId::ContainsUserName.as_str());
+                    assert!(enabled);
+                }
+            );
+
+            assert_matches!(&rule_commands.commands[2],
+                Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                    assert_eq!(scope, &RuleScope::Global);
+                    assert_eq!(kind, &RuleKind::Override);
+                    assert_eq!(rule_id, PredefinedOverrideRuleId::ContainsDisplayName.as_str());
+                    assert!(enabled);
+                }
+            );
+        }
+    }
+
+    #[async_test]
+    async fn test_set_rule_enabled_room_mention() {
+        let mut ruleset = get_server_default_ruleset();
+        let mut rule_commands = RuleCommands::new(&ruleset);
+
+        ruleset
+            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
+            .unwrap();
+
+        #[allow(deprecated)]
+        {
+            ruleset
+                .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif, false)
+                .unwrap();
+        }
+
+        rule_commands
+            .set_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::IsRoomMention.as_str(),
+                true,
+            )
+            .unwrap();
+
+        // The ruleset must have been updated
+        assert!(rule_commands
+            .rules
+            .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
+            .unwrap()
+            .enabled());
+        #[allow(deprecated)]
+        {
+            assert!(rule_commands
+                .rules
+                .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
+                .unwrap()
+                .enabled());
+        }
+
+        // Two commands are expected
+        assert_eq!(rule_commands.commands.len(), 2);
+
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(kind, &RuleKind::Override);
+                assert_eq!(rule_id, PredefinedOverrideRuleId::IsRoomMention.as_str());
+                assert!(enabled);
+            }
+        );
+
+        #[allow(deprecated)]
+        {
+            assert_matches!(&rule_commands.commands[1],
+                Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
+                    assert_eq!(scope, &RuleScope::Global);
+                    assert_eq!(kind, &RuleKind::Override);
+                    assert_eq!(rule_id, PredefinedOverrideRuleId::RoomNotif.as_str());
+                    assert!(enabled);
+                }
+            );
+        }
+    }
+}
