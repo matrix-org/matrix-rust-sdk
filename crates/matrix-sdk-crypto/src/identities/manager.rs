@@ -599,7 +599,9 @@ impl IdentityManager {
         for (user_id, master_key) in &response.master_keys {
             // Get the master and self-signing key for each identity, those are required for
             // every user identity type, if we don't have those we skip over.
-            let Some((master_key, self_signing)) = Self::get_minimal_set_of_keys(master_key.cast_ref(), response) else {
+            let Some((master_key, self_signing)) =
+                Self::get_minimal_set_of_keys(master_key.cast_ref(), response)
+            else {
                 continue;
             };
 

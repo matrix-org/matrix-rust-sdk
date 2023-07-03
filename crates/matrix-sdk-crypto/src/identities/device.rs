@@ -229,9 +229,9 @@ impl Device {
             // `device_keys` and downloaded by us using a `/keys/query` request.
             //
             // A `Device` is considered to be the owner of a room key iff:
-            //     1. The `Curve25519` key that was used to establish the Olm `Session`
-            //        that was used to decrypt the event is binding the `Ed25519`key
-            //        of this `Device`.
+            //     1. The `Curve25519` key that was used to establish the Olm `Session` that
+            //        was used to decrypt the event is binding the `Ed25519`key of this
+            //        `Device`.
             //     2. The `Ed25519` key of this device has signed a `device_keys` object
             //        that contains the `Curve25519` key from step 1.
             //

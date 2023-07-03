@@ -971,17 +971,18 @@ impl GossipMachine {
         };
 
         let Some(request) =
-            self.inner.store.get_secret_request_by_info(&info.clone().into()).await? else {
-                warn!(
-                    sender_key = ?sender_key,
-                    room_id = ?info.room_id(),
-                    session_id = info.session_id(),
-                    sender_key = ?sender_key,
-                    algorithm = ?info.algorithm(),
-                    "Received a forwarded room key that we didn't request",
-                );
-                return Ok(None);
-            };
+            self.inner.store.get_secret_request_by_info(&info.clone().into()).await?
+        else {
+            warn!(
+                sender_key = ?sender_key,
+                room_id = ?info.room_id(),
+                session_id = info.session_id(),
+                sender_key = ?sender_key,
+                algorithm = ?info.algorithm(),
+                "Received a forwarded room key that we didn't request",
+            );
+            return Ok(None);
+        };
 
         if self.should_accept_forward(&request, sender_key).await? {
             self.accept_forwarded_room_key(&request, sender_key, event).await

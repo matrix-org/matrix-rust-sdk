@@ -451,8 +451,10 @@ impl VerificationMachine {
                     return Ok(());
                 }
 
-                let Some((content, request_info)) =
-                    sas.receive_any_event(event.sender(), &content) else { return Ok(()) };
+                let Some((content, request_info)) = sas.receive_any_event(event.sender(), &content)
+                else {
+                    return Ok(());
+                };
 
                 self.queue_up_content(
                     sas.other_user_id(),

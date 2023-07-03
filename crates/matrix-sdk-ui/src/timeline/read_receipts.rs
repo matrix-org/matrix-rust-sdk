@@ -159,11 +159,11 @@ impl TimelineInnerState {
 
         // If we only have one, return it.
         let Some((pub_event_id, pub_receipt)) = &public_read_receipt else {
-    return private_read_receipt;
-};
+            return private_read_receipt;
+        };
         let Some((priv_event_id, priv_receipt)) = &private_read_receipt else {
-    return public_read_receipt;
-};
+            return public_read_receipt;
+        };
 
         // Compare by position in the timeline.
         if let Some(relative_pos) =

@@ -710,8 +710,8 @@ impl OlmMachine {
     ///    method. This method call should be locked per call.
     ///
     /// 2. Share a room key with all the room members using the
-    ///    [`share_room_key()`](Self::share_room_key). This method
-    ///    call should be locked per room.
+    ///    [`share_room_key()`](Self::share_room_key). This method call should
+    ///    be locked per room.
     ///
     /// 3. Encrypt the event using this method.
     ///
