@@ -627,21 +627,23 @@ impl TryFrom<RumaMessageType> for MessageType {
                     formatted: c.formatted.as_ref().map(Into::into),
                 },
             },
-            RumaMessageType::Location(c) => MessageType::Location {
-                content: LocationContent {
-                    body: c.body,
-                    geo_uri: c.geo_uri,
-                    description: c.location.clone().and_then(|l| l.description),
-                    zoom_level: c
-                        .location
-                        .and_then(|l| l.zoom_level.and_then(|z| z.get().try_into().ok())),
-                    asset: c.asset.and_then(|a| match a.type_ {
-                        RumaAssetType::Self_ => Some(AssetType::Sender),
-                        RumaAssetType::Pin => Some(AssetType::Pin),
-                        _ => None,
-                    }),
-                },
-            },
+            RumaMessageType::Location(c) => {
+                let (description, zoom_level) =
+                    c.location.map(|loc| (loc.description, loc.zoom_level)).unwrap_or((None, None));
+                MessageType::Location {
+                    content: LocationContent {
+                        body: c.body,
+                        geo_uri: c.geo_uri,
+                        description: description,
+                        zoom_level: zoom_level.and_then(|z| z.get().try_into().ok()),
+                        asset: c.asset.and_then(|a| match a.type_ {
+                            RumaAssetType::Self_ => Some(AssetType::Sender),
+                            RumaAssetType::Pin => Some(AssetType::Pin),
+                            _ => None,
+                        }),
+                    },
+                }
+            }
             _ => bail!("Unsupported type"),
         };
         Ok(message_type)
