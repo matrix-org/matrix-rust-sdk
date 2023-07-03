@@ -34,8 +34,8 @@ use stream_assert::assert_next_matches;
 
 use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
 use crate::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails, TimelineItem,
-    TimelineItemContent, VirtualTimelineItem,
+    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
@@ -56,7 +56,7 @@ async fn initial_events() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(&*item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -203,8 +203,11 @@ async fn dedup_pagination() {
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 2);
-    assert_matches!(*timeline_items[0], TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
-    assert_matches!(*timeline_items[1], TimelineItem::Event(_));
+    assert_matches!(
+        timeline_items[0].kind,
+        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
+    );
+    assert_matches!(timeline_items[1].kind, TimelineItemKind::Event(_));
 }
 
 #[async_test]

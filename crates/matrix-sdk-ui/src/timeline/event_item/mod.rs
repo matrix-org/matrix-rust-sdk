@@ -200,19 +200,6 @@ impl EventTimelineItem {
         }
     }
 
-    /// Get a unique identifier to identify the event item, either by using
-    /// transaction ID or event ID in case of a local event, or by event ID in
-    /// case of a remote event.
-    pub fn unique_identifier(&self) -> String {
-        match &self.kind {
-            EventTimelineItemKind::Local(item) => match &item.send_state {
-                EventSendState::Sent { event_id } => event_id.to_string(),
-                _ => item.transaction_id.to_string(),
-            },
-            EventTimelineItemKind::Remote(item) => item.event_id.to_string(),
-        }
-    }
-
     /// Get the event's send state, if it is a local echo.
     pub fn send_state(&self) -> Option<&EventSendState> {
         match &self.kind {

@@ -11,7 +11,7 @@ use matrix_sdk_ui::{
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
-    timeline::{TimelineItem, VirtualTimelineItem},
+    timeline::{TimelineItemKind, VirtualTimelineItem},
     RoomListService,
 };
 use ruma::{
@@ -2027,12 +2027,12 @@ async fn test_room_timeline() -> Result<(), Error> {
 
     // Previous timeline items.
     assert_matches!(
-        previous_timeline_items[0].as_ref(),
-        TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_))
+        **previous_timeline_items[0],
+        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
     );
     assert_matches!(
-        previous_timeline_items[1].as_ref(),
-        TimelineItem::Event(item) => {
+        &**previous_timeline_items[1],
+        TimelineItemKind::Event(item) => {
             assert_eq!(item.event_id().unwrap().as_str(), "$x0:bar.org");
         }
     );

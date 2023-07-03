@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
+use std::{ops::Deref, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
 use eyeball::{SharedObservable, Subscriber};
@@ -42,7 +42,7 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -82,6 +82,7 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
+    event_item::EventTimelineItemKind,
     inner::{ReactionAction, TimelineInner, TimelineInnerState},
     queue::LocalMessage,
     reactions::ReactionToggleResult,
@@ -708,10 +709,9 @@ impl<S: Stream> Stream for TimelineStream<S> {
     }
 }
 
-/// A single entry in timeline.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum TimelineItem {
+pub enum TimelineItemKind {
     /// An event or aggregation of multiple events.
     Event(EventTimelineItem),
     /// An item that doesn't correspond to an event, for example the user's own
@@ -719,55 +719,119 @@ pub enum TimelineItem {
     Virtual(VirtualTimelineItem),
 }
 
+/// A single entry in timeline.
+#[derive(Clone, Debug)]
+pub struct TimelineItem {
+    kind: TimelineItemKind,
+    internal_id: u64,
+}
+
 impl TimelineItem {
-    /// Get the inner `EventTimelineItem`, if this is a `TimelineItem::Event`.
+    pub(crate) fn with_kind(&self, kind: impl Into<TimelineItemKind>) -> Arc<Self> {
+        Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
+    }
+
+    /// Get the inner `EventTimelineItem`, if this is a
+    /// `TimelineItemKind::Event`.
     pub fn as_event(&self) -> Option<&EventTimelineItem> {
-        match self {
-            Self::Event(v) => Some(v),
+        match &self.kind {
+            TimelineItemKind::Event(v) => Some(v),
             _ => None,
         }
     }
 
     /// Get the inner `VirtualTimelineItem`, if this is a
-    /// `TimelineItem::Virtual`.
+    /// `TimelineItemKind::Virtual`.
     pub fn as_virtual(&self) -> Option<&VirtualTimelineItem> {
-        match self {
-            Self::Virtual(v) => Some(v),
+        match &self.kind {
+            TimelineItemKind::Virtual(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Creates a new day divider from the given timestamp.
-    fn day_divider(ts: MilliSecondsSinceUnixEpoch) -> Self {
-        Self::Virtual(VirtualTimelineItem::DayDivider(ts))
+    /// Get a unique ID for this timeline item.
+    ///
+    /// It identifies the item on a best-effort basis. For instance, edits to an
+    /// [`EventTimelineItem`] will not change the ID of the enclosing
+    /// `TimelineItem`. For some virtual items like day dividers, identity isn't
+    /// easy to define though and you might see a new ID getting generated for a
+    /// day divider that you perceive to be "the same" as a previous one.
+    pub fn unique_id(&self) -> u64 {
+        self.internal_id
     }
 
-    fn read_marker() -> Self {
-        Self::Virtual(VirtualTimelineItem::ReadMarker)
+    fn read_marker() -> Arc<TimelineItem> {
+        Arc::new(Self {
+            kind: TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker),
+            internal_id: u64::MAX,
+        })
     }
 
     fn is_virtual(&self) -> bool {
-        matches!(self, Self::Virtual(_))
+        matches!(self.kind, TimelineItemKind::Virtual(_))
     }
 
     fn is_day_divider(&self) -> bool {
-        matches!(self, Self::Virtual(VirtualTimelineItem::DayDivider(_)))
+        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)))
     }
 
     fn is_read_marker(&self) -> bool {
-        matches!(self, Self::Virtual(VirtualTimelineItem::ReadMarker))
+        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker))
     }
 }
 
-impl From<EventTimelineItem> for TimelineItem {
+impl Deref for TimelineItem {
+    type Target = TimelineItemKind;
+
+    fn deref(&self) -> &Self::Target {
+        &self.kind
+    }
+}
+
+impl From<EventTimelineItem> for TimelineItemKind {
     fn from(item: EventTimelineItem) -> Self {
         Self::Event(item)
     }
 }
 
-impl From<VirtualTimelineItem> for TimelineItem {
+impl From<VirtualTimelineItem> for TimelineItemKind {
     fn from(item: VirtualTimelineItem) -> Self {
         Self::Virtual(item)
+    }
+}
+
+fn timeline_item(kind: impl Into<TimelineItemKind>, internal_id: u64) -> Arc<TimelineItem> {
+    Arc::new(TimelineItem { kind: kind.into(), internal_id })
+}
+
+fn new_timeline_item(
+    kind: impl Into<TimelineItemKind>,
+    next_internal_id: &mut u64,
+) -> Arc<TimelineItem> {
+    let internal_id = *next_internal_id;
+    *next_internal_id += 1;
+    timeline_item(kind, internal_id)
+}
+
+struct EventTimelineItemWithId<'a> {
+    inner: &'a EventTimelineItem,
+    internal_id: u64,
+}
+
+impl<'a> EventTimelineItemWithId<'a> {
+    fn with_inner_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Arc<TimelineItem> {
+        Arc::new(TimelineItem {
+            kind: self.inner.with_kind(kind).into(),
+            internal_id: self.internal_id,
+        })
+    }
+}
+
+impl Deref for EventTimelineItemWithId<'_> {
+    type Target = EventTimelineItem;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
     }
 }
 
@@ -776,18 +840,23 @@ impl From<VirtualTimelineItem> for TimelineItem {
 fn rfind_event_item(
     items: &Vector<Arc<TimelineItem>>,
     mut f: impl FnMut(&EventTimelineItem) -> bool,
-) -> Option<(usize, &EventTimelineItem)> {
+) -> Option<(usize, EventTimelineItemWithId<'_>)> {
     items
         .iter()
         .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| f(it))
+        .filter_map(|(idx, item)| {
+            Some((
+                idx,
+                EventTimelineItemWithId { inner: item.as_event()?, internal_id: item.internal_id },
+            ))
+        })
+        .rfind(|(_, it)| f(it.inner))
 }
 
 fn rfind_event_by_id<'a>(
     items: &'a Vector<Arc<TimelineItem>>,
     event_id: &EventId,
-) -> Option<(usize, &'a EventTimelineItem)> {
+) -> Option<(usize, EventTimelineItemWithId<'a>)> {
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
