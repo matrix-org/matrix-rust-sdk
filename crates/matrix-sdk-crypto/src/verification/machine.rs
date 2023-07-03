@@ -261,7 +261,7 @@ impl VerificationMachine {
             })
             .collect();
 
-        requests.extend(self.verifications.garbage_collect().into_iter());
+        requests.extend(self.verifications.garbage_collect());
 
         for request in requests {
             if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
