@@ -70,9 +70,9 @@ pub(crate) use self::builder::TimelineBuilder;
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
-        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
+        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
+        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
+        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
     futures::SendAttachment,
@@ -390,7 +390,7 @@ impl Timeline {
         let room = self.joined_room();
 
         let Ok(room) = room else {
-            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
+            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
         };
 
         let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
@@ -408,9 +408,7 @@ impl Timeline {
         txn_id: OwnedTransactionId,
     ) -> ReactionToggleResult {
         let room = self.joined_room();
-        let Ok(room) = room else {
-            return ReactionToggleResult::AddFailure { txn_id }
-        };
+        let Ok(room) = room else { return ReactionToggleResult::AddFailure { txn_id } };
 
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
