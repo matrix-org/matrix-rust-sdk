@@ -858,6 +858,15 @@ impl Encryption {
     ///
     /// The provided `lock_value` must be a unique identifier for this process.
     pub async fn enable_cross_process_store_lock(&self, lock_value: String) -> Result<(), Error> {
+        // If the lock has already been created, don't recreate it from scratch.
+        if let Some(prev_lock) = self.client.inner.cross_process_crypto_store_lock.get() {
+            let prev_holder = prev_lock.lock_holder();
+            if prev_holder == lock_value {
+                return Ok(());
+            }
+            warn!("recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
+        }
+
         let olm_machine = self.client.base_client().olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
 
