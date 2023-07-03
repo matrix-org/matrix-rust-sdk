@@ -411,6 +411,7 @@ jobs:
 
       - uses: michaelkaye/setup-matrix-synapse@main
         with:
+          installer: poetry
           uploadLogs: true
           httpPort: 8228
           disableRateLimiting: true

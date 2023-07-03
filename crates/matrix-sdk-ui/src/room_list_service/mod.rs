@@ -74,7 +74,7 @@ use futures_util::{pin_mut, Stream, StreamExt};
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode,
+    SlidingSyncListBuilder, SlidingSyncMode,
 };
 pub use room::*;
 pub use room_list::*;
@@ -150,7 +150,7 @@ impl RoomListService {
         let sliding_sync = builder
             // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
             // fast
-            .add_list(
+            .add_list(configure_all_or_visible_rooms_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
                     .timeline_limit(1)
@@ -158,18 +158,8 @@ impl RoomListService {
                         (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
-                    ])
-                    .filters(Some(assign!(SyncRequestListFilters::default(), {
-                        is_invite: Some(false),
-                        is_tombstoned: Some(false),
-                        not_room_types: vec!["m.space".to_owned()],
-                    })))
-                    .bump_event_types(&[
-                        TimelineEventType::RoomMessage,
-                        TimelineEventType::RoomEncrypted,
-                        TimelineEventType::Sticker,
                     ]),
-            )
+            ))
             .build()
             .await
             .map(Arc::new)
@@ -334,6 +324,28 @@ impl RoomListService {
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
+}
+
+/// Configure the Sliding Sync list for `ALL_ROOMS_LIST_NAME` and
+/// `VISIBLE_ROOMS_LIST_NAME`.
+///
+/// This function configures the `sort`, the `filters` and the`bump_event_types`
+/// properties, so that they are exactly the same.
+fn configure_all_or_visible_rooms_list(
+    list_builder: SlidingSyncListBuilder,
+) -> SlidingSyncListBuilder {
+    list_builder
+        .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+        .filters(Some(assign!(SyncRequestListFilters::default(), {
+            is_invite: Some(false),
+            is_tombstoned: Some(false),
+            not_room_types: vec!["m.space".to_owned()],
+        })))
+        .bump_event_types(&[
+            TimelineEventType::RoomMessage,
+            TimelineEventType::RoomEncrypted,
+            TimelineEventType::Sticker,
+        ])
 }
 
 /// [`RoomList`]'s errors.

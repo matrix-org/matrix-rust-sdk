@@ -1252,7 +1252,7 @@ mod tests {
         };
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_generator_selective_with_modifying_ranges_on_the_fly() {
         let (sender, _receiver) = channel(4);
 
@@ -1460,7 +1460,7 @@ mod tests {
         };
     }
 
-    #[tokio::test]
+    #[async_test]
     #[allow(clippy::await_holding_lock)]
     async fn test_sliding_sync_inner_update_state_room_list_and_maximum_number_of_rooms() {
         let (sender, _receiver) = channel(1);

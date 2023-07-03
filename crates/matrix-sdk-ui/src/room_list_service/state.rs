@@ -107,19 +107,14 @@ pub const VISIBLE_ROOMS_DEFAULT_RANGE: Range = 0..=19;
 impl Action for AddVisibleRoomsList {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
-            .add_list(
+            .add_list(super::configure_all_or_visible_rooms_list(
                 SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective().add_range(VISIBLE_ROOMS_DEFAULT_RANGE),
                     )
                     .timeline_limit(20)
-                    .required_state(vec![(StateEventType::RoomEncryption, "".to_owned())])
-                    .filters(Some(assign!(SyncRequestListFilters::default(), {
-                        is_invite: Some(false),
-                        is_tombstoned: Some(false),
-                        not_room_types: vec!["m.space".to_owned()],
-                    }))),
-            )
+                    .required_state(vec![(StateEventType::RoomEncryption, "".to_owned())]),
+            ))
             .await
             .map_err(Error::SlidingSync)?;
 
