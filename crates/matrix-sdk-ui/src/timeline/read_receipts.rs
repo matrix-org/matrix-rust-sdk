@@ -25,7 +25,8 @@ use tracing::{error, warn};
 
 use super::{
     compare_events_positions, event_item::EventTimelineItemKind, inner::TimelineInnerState,
-    rfind_event_by_id, traits::RoomDataProvider, EventTimelineItem, RelativePosition, TimelineItem,
+    rfind_event_by_id, timeline_item, traits::RoomDataProvider, EventTimelineItem,
+    RelativePosition, TimelineItem,
 };
 
 struct FullReceipt<'a> {
@@ -44,10 +45,11 @@ impl TimelineInnerState {
         receipt: Receipt,
     ) {
         let Some(pos) = receipt_item_pos else { return };
-        let Some(mut event_item) = self.items[pos].as_event().cloned() else { return };
+        let timeline_item = self.items[pos].clone();
+        let Some(mut event_item) = timeline_item.as_event().cloned() else { return };
 
         event_item.as_remote_mut().unwrap().add_read_receipt(user_id, receipt);
-        self.items.set(pos, Arc::new(event_item.into()));
+        self.items.set(pos, timeline_item.with_kind(event_item));
     }
 
     pub(super) fn handle_explicit_read_receipts(
@@ -273,6 +275,7 @@ fn maybe_update_read_receipt(
 
         if !is_own_user_id {
             // Remove the read receipt for this user from the old event.
+            let old_event_item_id = old_event_item.internal_id;
             let mut old_event_item = old_event_item.clone();
             if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
                 if !old_remote_event_item.remove_read_receipt(receipt.user_id) {
@@ -281,7 +284,8 @@ fn maybe_update_read_receipt(
                          receipt doesn't have a receipt for the user"
                     );
                 }
-                timeline_items.set(old_receipt_pos, Arc::new(old_event_item.into()));
+                timeline_items
+                    .set(old_receipt_pos, timeline_item(old_event_item, old_event_item_id));
             } else {
                 warn!("received a read receipt for a local item, this should not be possible");
             }

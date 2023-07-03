@@ -22,7 +22,9 @@ use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::timeline::{SlidingSyncRoomExt, TimelineItem, VirtualTimelineItem};
+use matrix_sdk_ui::timeline::{
+    SlidingSyncRoomExt, TimelineItem, TimelineItemKind, VirtualTimelineItem,
+};
 use ruma::{room_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
@@ -80,8 +82,8 @@ macro_rules! assert_timeline_stream {
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::PushBack { value })) => {
                             assert_matches!(
-                                value.as_ref(),
-                                TimelineItem::Virtual(
+                                **value,
+                                TimelineItemKind::Virtual(
                                     VirtualTimelineItem::DayDivider(_)
                                 )
                             );
@@ -105,8 +107,8 @@ macro_rules! assert_timeline_stream {
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::PushBack { value })) => {
                             assert_matches!(
-                                value.as_ref(),
-                                TimelineItem::Event(event_timeline_item) => {
+                                &**value,
+                                TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );
@@ -130,8 +132,8 @@ macro_rules! assert_timeline_stream {
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::Insert { index: $index, value })) => {
                             assert_matches!(
-                                value.as_ref(),
-                                TimelineItem::Event(event_timeline_item) => {
+                                &**value,
+                                TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );
@@ -155,8 +157,8 @@ macro_rules! assert_timeline_stream {
                         $stream.next().now_or_never(),
                         Some(Some(VectorDiff::Set { index: $index, value })) => {
                             assert_matches!(
-                                value.as_ref(),
-                                TimelineItem::Event(event_timeline_item) => {
+                                &**value,
+                                TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );

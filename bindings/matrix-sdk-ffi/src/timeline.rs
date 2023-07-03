@@ -218,21 +218,20 @@ impl TimelineItem {
 #[uniffi::export]
 impl TimelineItem {
     pub fn as_event(self: Arc<Self>) -> Option<Arc<EventTimelineItem>> {
-        use matrix_sdk_ui::timeline::TimelineItem as Item;
-        unwrap_or_clone_arc_into_variant!(self, .0, Item::Event(evt) => {
-            Arc::new(EventTimelineItem(evt))
-        })
+        let event_item = self.0.as_event()?;
+        Some(Arc::new(EventTimelineItem(event_item.clone())))
     }
 
     pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
-        use matrix_sdk_ui::timeline::{TimelineItem as Item, VirtualTimelineItem as VItem};
-        match &self.0 {
-            Item::Virtual(VItem::DayDivider(ts)) => {
-                Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() })
-            }
-            Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
-            Item::Event(_) => None,
+        use matrix_sdk_ui::timeline::VirtualTimelineItem as VItem;
+        match self.0.as_virtual()? {
+            VItem::DayDivider(ts) => Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() }),
+            VItem::ReadMarker => Some(VirtualTimelineItem::ReadMarker),
         }
+    }
+
+    pub fn unique_id(&self) -> u64 {
+        self.0.unique_id()
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -279,10 +278,6 @@ impl EventTimelineItem {
 
     pub fn is_remote(&self) -> bool {
         !self.0.is_local_echo()
-    }
-
-    pub fn unique_identifier(&self) -> String {
-        self.0.unique_identifier()
     }
 
     pub fn transaction_id(&self) -> Option<String> {

@@ -23,7 +23,7 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::timeline::{TimelineItem, VirtualTimelineItem};
+use crate::timeline::{TimelineItemKind, VirtualTimelineItem};
 
 #[async_test]
 async fn day_divider() {
@@ -132,7 +132,7 @@ async fn update_read_marker() {
 
     // Now the read marker is reinserted after the second event.
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
-    assert_matches!(*marker, TimelineItem::Virtual(VirtualTimelineItem::ReadMarker));
+    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
 
     // Nothing should happen if the fully read event is set back to an older event.
     timeline.inner.set_fully_read_event(first_event_id).await;
@@ -153,5 +153,5 @@ async fn update_read_marker() {
     // The read marker is moved after the third event.
     assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 4, value } => value);
-    assert_matches!(*marker, TimelineItem::Virtual(VirtualTimelineItem::ReadMarker));
+    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
 }

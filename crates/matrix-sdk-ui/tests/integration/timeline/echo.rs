@@ -20,7 +20,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, TimelineTestEvent};
 use matrix_sdk_ui::timeline::{
-    EventSendState, RoomExt, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    EventSendState, RoomExt, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use ruma::{
     event_id,
@@ -121,7 +121,7 @@ async fn echo() {
         timeline_stream.next().await,
         Some(VectorDiff::PushBack { value }) => value
     );
-    assert_matches!(&*new_item, TimelineItem::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_matches!(**new_item, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
 
     // Remote echo is added
     let remote_echo = assert_matches!(

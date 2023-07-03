@@ -64,12 +64,13 @@ use super::{
     },
     event_item::{EventItemIdentifier, ReactionSenderData},
     reactions::ReactionToggleResult,
-    rfind_event_by_id, rfind_event_item,
+    rfind_event_by_id, rfind_event_item, timeline_item,
     traits::RoomDataProvider,
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
+    TimelineItemKind,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::new_timeline_item};
 
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
@@ -81,6 +82,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
 #[derive(Debug, Default)]
 pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
+    pub(super) next_internal_id: u64,
     /// Reaction event / txn ID => sender and reaction data.
     pub(super) reaction_map: HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
     /// ID of event that is not in the timeline yet => List of reaction event
@@ -602,8 +604,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
 
-        let new_item = TimelineItem::Event(item.with_kind(local_item.with_send_state(send_state)));
-        state.items.set(idx, Arc::new(new_item));
+        let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
+        state.items.set(idx, new_item);
 
         if is_error {
             // When there is an error, sending further messages is paused. This
@@ -611,12 +613,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // events to cancelled.
             let num_items = state.items.len();
             for idx in 0..num_items {
-                let Some(item) = state.items[idx].as_event() else { continue };
-                let Some(local_item) = item.as_local() else { continue };
+                let item = state.items[idx].clone();
+                let Some(event_item) = item.as_event() else { continue };
+                let Some(local_item) = event_item.as_local() else { continue };
                 if matches!(&local_item.send_state, EventSendState::NotSentYet) {
-                    let new_item =
-                        item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
-                    state.items.set(idx, Arc::new(TimelineItem::Event(new_item)));
+                    let new_event_item =
+                        event_item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
+                    state.items.set(idx, item.with_kind(new_event_item));
                 }
             }
         }
@@ -691,12 +694,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             EventSendState::SendingFailed { .. } | EventSendState::Cancelled => {}
         }
 
-        let new_item = TimelineItem::Event(
-            item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
-        );
-
+        let new_item = item.with_inner_kind(local_item.with_send_state(EventSendState::NotSentYet));
         let content = item.content.clone();
-        state.items.set(idx, Arc::new(new_item));
+        state.items.set(idx, new_item);
 
         Some(content)
     }
@@ -894,9 +894,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     async fn set_non_ready_sender_profiles(&self, profile_state: TimelineDetails<Profile>) {
         let mut state = self.state.lock().await;
         for idx in 0..state.items.len() {
-            let Some(event_item) = state.items[idx].as_event() else { continue };
+            let item = state.items[idx].clone();
+            let Some(event_item) = item.as_event() else { continue };
             if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
-                let item = Arc::new(TimelineItem::Event(
+                let item = item.with_kind(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
                 ));
                 state.items.set(idx, item);
@@ -919,20 +920,21 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
             assert_eq!(state.items.len(), num_items);
 
-            let event_item = state.items[idx].as_event().unwrap();
+            let item = state.items[idx].clone();
+            let event_item = item.as_event().unwrap();
             match maybe_profile {
                 Some(profile) => {
                     if !event_item.sender_profile().contains(&profile) {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        state.items.set(idx, Arc::new(TimelineItem::Event(updated_item)));
+                        state.items.set(idx, item.with_kind(updated_item));
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        state.items.set(idx, Arc::new(TimelineItem::Event(updated_item)));
+                        state.items.set(idx, item.with_kind(updated_item));
                     }
                 }
             }
@@ -1028,6 +1030,7 @@ impl TimelineInner {
         };
 
         trace!("Updating in-reply-to details");
+        let internal_id = item.internal_id;
         let mut item = item.clone();
         item.set_content(TimelineItemContent::Message(
             message.with_in_reply_to(InReplyToDetails {
@@ -1035,7 +1038,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, Arc::new(item.into()));
+        state.items.set(index, timeline_item(item, internal_id));
 
         Ok(())
     }
@@ -1279,7 +1282,9 @@ async fn fetch_replied_to_event(
         event: TimelineDetails::Pending,
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
-    state.items.set(index, Arc::new(event_item.into()));
+
+    let state_ref = &mut *state;
+    state_ref.items.set(index, new_timeline_item(event_item, &mut state_ref.next_internal_id));
 
     // Don't hold the state lock while the network request is made
     drop(state);
@@ -1384,7 +1389,7 @@ fn update_timeline_reaction(
         }
     }
 
-    state.items.set(idx, Arc::new(TimelineItem::Event(new_related)));
+    state.items.set(idx, timeline_item(new_related, related.internal_id));
 
     Ok(())
 }
