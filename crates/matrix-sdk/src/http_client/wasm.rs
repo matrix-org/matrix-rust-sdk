@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use bytes::Bytes;
 use bytesize::ByteSize;
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
 
 use super::{response_to_http_response, HttpClient, TransmissionProgress};
