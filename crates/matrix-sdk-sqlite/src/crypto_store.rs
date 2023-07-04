@@ -1118,43 +1118,6 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(())
     }
 
-    async fn insert_custom_value_if_missing(&self, key: &str, value: Vec<u8>) -> Result<bool> {
-        let key = key.to_owned();
-        let serialized = if let Some(cipher) = &self.store_cipher {
-            let encrypted = cipher.encrypt_value_data(value)?;
-            rmp_serde::to_vec_named(&encrypted)?
-        } else {
-            value
-        };
-
-        let num_touched = self
-            .acquire()
-            .await?
-            .with_transaction(move |txn| {
-                txn.execute(
-                    "INSERT INTO kv VALUES(?1, ?2) ON CONFLICT (key) DO NOTHING",
-                    (key, serialized),
-                )
-            })
-            .await?;
-
-        assert!(num_touched <= 1);
-
-        Ok(num_touched != 0)
-    }
-
-    async fn remove_custom_value(&self, key: &str) -> Result<bool> {
-        let key = key.to_owned();
-
-        let num_touched = self
-            .acquire()
-            .await?
-            .with_transaction(move |txn| txn.execute("DELETE FROM kv WHERE key = ?", (key,)))
-            .await?;
-
-        Ok(num_touched == 1)
-    }
-
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
