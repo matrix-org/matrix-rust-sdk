@@ -5,7 +5,7 @@ use std::{
 };
 
 use cfg_vis::cfg_vis;
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
 use ruma::events::room::{EncryptedFile, EncryptedFileInit};

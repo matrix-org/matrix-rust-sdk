@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use eyeball::unique::Observable;
+use eyeball::Observable;
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugListOfRawEventsNoId, DebugNotificationMap},

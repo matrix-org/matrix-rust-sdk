@@ -22,7 +22,7 @@ use std::{
 use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 use bytes::Bytes;
 use bytesize::ByteSize;
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use ruma::api::{
     client::error::{ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind},
     error::FromHttpResponseError,

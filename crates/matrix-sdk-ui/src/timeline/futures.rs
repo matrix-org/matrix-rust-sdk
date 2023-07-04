@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
 };
 
-use eyeball::{shared::Observable as SharedObservable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{attachment::AttachmentConfig, room::Room, TransmissionProgress};
 use mime::Mime;
 

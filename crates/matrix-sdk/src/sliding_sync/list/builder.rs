@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::unique::Observable;
+use eyeball::Observable;
 use eyeball_im::ObservableVector;
 use imbl::Vector;
 use ruma::{
