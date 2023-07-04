@@ -9,20 +9,30 @@ use ruma::{
 use crate::event::TimelineEvent;
 
 #[derive(uniffi::Record)]
+pub struct NotificationSenderInfo {
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct NotificationRoomInfo {
+    pub id: String,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub joined_members_count: u64,
+    pub is_encrypted: Option<bool>,
+    pub is_direct: bool,
+}
+
+#[derive(uniffi::Record)]
 pub struct NotificationItem {
     pub event: Arc<TimelineEvent>,
-    pub room_id: String,
 
-    pub sender_display_name: Option<String>,
-    pub sender_avatar_url: Option<String>,
-
-    pub room_display_name: String,
-    pub room_avatar_url: Option<String>,
-    pub room_canonical_alias: Option<String>,
+    pub sender_info: NotificationSenderInfo,
+    pub room_info: NotificationRoomInfo,
 
     pub is_noisy: bool,
-    pub is_direct: bool,
-    pub is_encrypted: Option<bool>,
 }
 
 impl NotificationItem {
@@ -72,18 +82,23 @@ impl NotificationItem {
         }
 
         let is_noisy = actions.iter().any(|a| a.sound().is_some());
-        let item = Self {
-            event: Arc::new(TimelineEvent(event)),
-            room_id: room.room_id().to_string(),
-            sender_display_name,
-            sender_avatar_url,
-            room_display_name: room.display_name().await?.to_string(),
-            room_avatar_url: room.avatar_url().map(|s| s.to_string()),
-            room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
-            is_noisy,
-            is_direct: room.is_direct().await?,
+
+        let room_info = NotificationRoomInfo {
+            id: room.room_id().to_string(),
+            display_name: room.display_name().await?.to_string(),
+            avatar_url: room.avatar_url().map(|s| s.to_string()),
+            canonical_alias: room.canonical_alias().map(|c| c.to_string()),
+            joined_members_count: room.joined_members_count(),
             is_encrypted: room.is_encrypted().await.ok(),
+            is_direct: room.is_direct().await?,
         };
+
+        let sender_info = NotificationSenderInfo {
+            display_name: sender_display_name,
+            avatar_url: sender_avatar_url,
+        };
+
+        let item = Self { event: Arc::new(TimelineEvent(event)), sender_info, room_info, is_noisy };
         Ok(item)
     }
 }
