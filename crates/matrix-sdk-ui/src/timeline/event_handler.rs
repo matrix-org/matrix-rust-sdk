@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
-use eyeball_im::{ObservableVector, Vector};
+use eyeball_im::ObservableVector;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -25,13 +25,12 @@ use ruma::{
         relation::{Annotation, Replacement},
         room::{
             encrypted::RoomEncryptedEventContent,
-            member::{Change, RoomMemberEventContent},
+            member::RoomMemberEventContent,
             message::{self, sanitize::RemoveReplyFallback, MessageType, RoomMessageEventContent},
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
         },
-        sticker::StickerEventContent,
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
@@ -44,13 +43,12 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, MemberProfileChange, OtherState, Profile, RemoteEventOrigin,
-        RemoteEventTimelineItem, RoomMembershipChange, Sticker,
+        LocalEventTimelineItem, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, MembershipChange, Message,
-    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
+    Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
 use crate::events::SyncTimelineEventWithoutContent;
@@ -295,11 +293,11 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(NewEventTimelineItem::message(c, relations, self.items));
+                    self.add(TimelineItemContent::message(c, relations, self.items));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
-                AnyMessageLikeEventContent::Sticker(c) => {
-                    self.add(NewEventTimelineItem::sticker(c));
+                AnyMessageLikeEventContent::Sticker(content) => {
+                    self.add(TimelineItemContent::Sticker(Sticker { content }));
                 }
                 // TODO
                 _ => {
@@ -312,7 +310,7 @@ impl<'a> TimelineEventHandler<'a> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction {
-                    self.add(NewEventTimelineItem::redacted_message());
+                    self.add(TimelineItemContent::RedactedMessage);
                 }
             }
 
@@ -324,19 +322,19 @@ impl<'a> TimelineEventHandler<'a> {
             }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
-                self.add(NewEventTimelineItem::room_member(user_id, content, sender));
+                self.add(TimelineItemContent::room_member(user_id, content, sender));
             }
 
             TimelineEventKind::OtherState { state_key, content } => {
-                self.add(NewEventTimelineItem::other_state(state_key, content));
+                self.add(TimelineItemContent::OtherState(OtherState { state_key, content }));
             }
 
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
-                self.add(NewEventTimelineItem::failed_to_parse_message_like(event_type, error));
+                self.add(TimelineItemContent::FailedToParseMessageLike { event_type, error });
             }
 
             TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
-                self.add(NewEventTimelineItem::failed_to_parse_state(event_type, state_key, error));
+                self.add(TimelineItemContent::FailedToParseState { event_type, state_key, error });
             }
         }
 
@@ -489,7 +487,7 @@ impl<'a> TimelineEventHandler<'a> {
     #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
         // TODO: Handle replacements if the replaced event is also UTD
-        self.add(NewEventTimelineItem::unable_to_decrypt(c));
+        self.add(TimelineItemContent::unable_to_decrypt(c));
     }
 
     // Redacted redactions are no-ops (unfortunately)
@@ -614,10 +612,9 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     /// Add a new event item in the timeline.
-    fn add(&mut self, item: NewEventTimelineItem) {
+    fn add(&mut self, content: TimelineItemContent) {
         self.result.item_added = true;
 
-        let NewEventTimelineItem { content } = item;
         let sender = self.meta.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
         let timestamp = self.meta.timestamp;
@@ -1065,127 +1062,4 @@ fn maybe_create_day_divider_from_timestamps(
 ) -> Option<TimelineItem> {
     (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
         .then(|| TimelineItem::day_divider(new_ts))
-}
-
-struct NewEventTimelineItem {
-    content: TimelineItemContent,
-}
-
-impl NewEventTimelineItem {
-    // These constructors could also be `From` implementations, but that would
-    // allow users to call them directly, which should not be supported
-    fn message(
-        c: RoomMessageEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-        timeline_items: &Vector<Arc<TimelineItem>>,
-    ) -> Self {
-        let content =
-            TimelineItemContent::Message(Message::from_event(c, relations, timeline_items));
-
-        Self::from_content(content)
-    }
-
-    fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
-        Self::from_content(TimelineItemContent::UnableToDecrypt(content.into()))
-    }
-
-    fn redacted_message() -> Self {
-        Self::from_content(TimelineItemContent::RedactedMessage)
-    }
-
-    fn sticker(content: StickerEventContent) -> Self {
-        Self::from_content(TimelineItemContent::Sticker(Sticker { content }))
-    }
-
-    fn room_member(
-        user_id: OwnedUserId,
-        full_content: FullStateEventContent<RoomMemberEventContent>,
-        sender: OwnedUserId,
-    ) -> Self {
-        use ruma::events::room::member::MembershipChange as MChange;
-        let item_content = match &full_content {
-            FullStateEventContent::Original { content, prev_content } => {
-                let membership_change = content.membership_change(
-                    prev_content.as_ref().map(|c| c.details()),
-                    &sender,
-                    &user_id,
-                );
-
-                if let MChange::ProfileChanged { displayname_change, avatar_url_change } =
-                    membership_change
-                {
-                    TimelineItemContent::ProfileChange(MemberProfileChange {
-                        user_id,
-                        displayname_change: displayname_change.map(|c| Change {
-                            new: c.new.map(ToOwned::to_owned),
-                            old: c.old.map(ToOwned::to_owned),
-                        }),
-                        avatar_url_change: avatar_url_change.map(|c| Change {
-                            new: c.new.map(ToOwned::to_owned),
-                            old: c.old.map(ToOwned::to_owned),
-                        }),
-                    })
-                } else {
-                    let change = match membership_change {
-                        MChange::None => MembershipChange::None,
-                        MChange::Error => MembershipChange::Error,
-                        MChange::Joined => MembershipChange::Joined,
-                        MChange::Left => MembershipChange::Left,
-                        MChange::Banned => MembershipChange::Banned,
-                        MChange::Unbanned => MembershipChange::Unbanned,
-                        MChange::Kicked => MembershipChange::Kicked,
-                        MChange::Invited => MembershipChange::Invited,
-                        MChange::KickedAndBanned => MembershipChange::KickedAndBanned,
-                        MChange::InvitationAccepted => MembershipChange::InvitationAccepted,
-                        MChange::InvitationRejected => MembershipChange::InvitationRejected,
-                        MChange::InvitationRevoked => MembershipChange::InvitationRevoked,
-                        MChange::Knocked => MembershipChange::Knocked,
-                        MChange::KnockAccepted => MembershipChange::KnockAccepted,
-                        MChange::KnockRetracted => MembershipChange::KnockRetracted,
-                        MChange::KnockDenied => MembershipChange::KnockDenied,
-                        MChange::ProfileChanged { .. } => unreachable!(),
-                        _ => MembershipChange::NotImplemented,
-                    };
-
-                    TimelineItemContent::MembershipChange(RoomMembershipChange {
-                        user_id,
-                        content: full_content,
-                        change: Some(change),
-                    })
-                }
-            }
-            FullStateEventContent::Redacted(_) => {
-                TimelineItemContent::MembershipChange(RoomMembershipChange {
-                    user_id,
-                    content: full_content,
-                    change: None,
-                })
-            }
-        };
-
-        Self::from_content(item_content)
-    }
-
-    fn other_state(state_key: String, content: AnyOtherFullStateEventContent) -> Self {
-        Self::from_content(TimelineItemContent::OtherState(OtherState { state_key, content }))
-    }
-
-    fn failed_to_parse_message_like(
-        event_type: MessageLikeEventType,
-        error: Arc<serde_json::Error>,
-    ) -> NewEventTimelineItem {
-        Self::from_content(TimelineItemContent::FailedToParseMessageLike { event_type, error })
-    }
-
-    fn failed_to_parse_state(
-        event_type: StateEventType,
-        state_key: String,
-        error: Arc<serde_json::Error>,
-    ) -> NewEventTimelineItem {
-        Self::from_content(TimelineItemContent::FailedToParseState { event_type, state_key, error })
-    }
-
-    fn from_content(content: TimelineItemContent) -> Self {
-        Self { content }
-    }
 }
