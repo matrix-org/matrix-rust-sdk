@@ -186,10 +186,11 @@ mod tests {
         let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
         rule_commands.insert_rule(RuleKind::Room, &room_id, true).unwrap();
 
-        // A rule must have been inserted in the ruleset
+        // A rule must have been inserted in the ruleset.
         assert!(rule_commands.rules.get(RuleKind::Room, &room_id).is_some());
 
-        // A command must have been created
+        // Exactly one command must have been created.
+        assert_eq!(rule_commands.commands.len(), 1);
         assert_matches!(&rule_commands.commands[0],
             Command::SetRoomPushRule { scope, room_id: command_room_id, notify } => {
                 assert_eq!(scope, &RuleScope::Global);
@@ -205,10 +206,11 @@ mod tests {
         let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
         rule_commands.insert_rule(RuleKind::Override, &room_id, true).unwrap();
 
-        // A rule must have been inserted in the ruleset
+        // A rule must have been inserted in the ruleset.
         assert!(rule_commands.rules.get(RuleKind::Override, &room_id).is_some());
 
-        // A command must have been created
+        // Exactly one command must have been created.
+        assert_eq!(rule_commands.commands.len(), 1);
         assert_matches!(&rule_commands.commands[0],
             Command::SetOverridePushRule { scope, room_id: command_room_id, rule_id, notify } => {
                 assert_eq!(scope, &RuleScope::Global);
@@ -250,13 +252,14 @@ mod tests {
 
         let mut rule_commands = RuleCommands::new(ruleset);
 
-        // Delete must succeed
+        // Delete must succeed.
         rule_commands.delete_rule(RuleKind::Room, room_id.to_string()).unwrap();
 
-        // The ruleset must have been updated
+        // The ruleset must have been updated.
         assert!(rule_commands.rules.get(RuleKind::Room, &room_id).is_none());
 
-        // A command must have been created
+        // Exactly one command must have been created.
+        assert_eq!(rule_commands.commands.len(), 1);
         assert_matches!(&rule_commands.commands[0],
             Command::DeletePushRule { scope, kind, rule_id } => {
                 assert_eq!(scope, &RuleScope::Global);
@@ -267,46 +270,37 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_delete_rule_not_found_error() {
+    async fn test_delete_rule_errors() {
         let room_id = get_test_room_id();
         let ruleset = get_server_default_ruleset();
 
         let mut rule_commands = RuleCommands::new(ruleset);
 
-        // Deletion should fail if an attempt is made to delete a rule that does not
-        // exist
+        // Deletion should fail if an attempt is made to delete a rule that does not exist.
         assert_matches!(
             rule_commands.delete_rule(RuleKind::Room, room_id.to_string()),
             Err(RemovePushRuleError::NotFound) => {}
         );
-    }
 
-    #[async_test]
-    async fn test_delete_rule_server_default_error() {
-        let ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(ruleset);
-
-        // Deletion should fail if an attempt is made to delete a default server rule
+        // Deletion should fail if an attempt is made to delete a default server rule.
         assert_matches!(
             rule_commands.delete_rule(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string()),
             Err(RemovePushRuleError::ServerDefault) => {}
         );
+
+        assert!(rule_commands.commands.is_empty());
     }
 
     #[async_test]
     async fn test_set_rule_enabled() {
         let mut ruleset = get_server_default_ruleset();
 
-        // Initialize with `Reaction` rule disabled
+        // Initialize with `Reaction` rule disabled.
         ruleset.set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction, false).unwrap();
-        let mut rule_commands = RuleCommands::new(ruleset);
 
+        let mut rule_commands = RuleCommands::new(ruleset);
         rule_commands
-            .set_enabled_internal(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::Reaction.as_str(),
-                true,
-            )
+            .set_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), true)
             .unwrap();
 
         // The ruleset must have been updated
@@ -316,7 +310,8 @@ mod tests {
             .unwrap();
         assert!(rule.enabled());
 
-        // A command must have been created
+        // Exactly one command must have been created.
+        assert_eq!(rule_commands.commands.len(), 1);
         assert_matches!(&rule_commands.commands[0],
             Command::SetPushRuleEnabled { scope, kind, rule_id, enabled } => {
                 assert_eq!(scope, &RuleScope::Global);
@@ -332,7 +327,7 @@ mod tests {
         let ruleset = get_server_default_ruleset();
         let mut rule_commands = RuleCommands::new(ruleset);
         assert_eq!(
-            rule_commands.set_enabled_internal(RuleKind::Room, "unknown_rule_id", true),
+            rule_commands.set_rule_enabled(RuleKind::Room, "unknown_rule_id", true),
             Err(NotificationSettingsError::RuleNotFound)
         );
     }
@@ -360,7 +355,7 @@ mod tests {
                 .unwrap();
         }
 
-        // User Mention
+        // Enable the user mention rule.
         rule_commands
             .set_rule_enabled(
                 RuleKind::Override,
@@ -369,7 +364,7 @@ mod tests {
             )
             .unwrap();
 
-        // The ruleset must have been updated
+        // The ruleset must have been updated.
         assert!(rule_commands
             .rules
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
@@ -389,7 +384,7 @@ mod tests {
                 .enabled());
         }
 
-        // Three commands are expected
+        // Three commands are expected.
         assert_eq!(rule_commands.commands.len(), 3);
 
         assert_matches!(&rule_commands.commands[0],
@@ -447,7 +442,7 @@ mod tests {
             )
             .unwrap();
 
-        // The ruleset must have been updated
+        // The ruleset must have been updated.
         assert!(rule_commands
             .rules
             .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
@@ -462,7 +457,7 @@ mod tests {
                 .enabled());
         }
 
-        // Two commands are expected
+        // Two commands are expected.
         assert_eq!(rule_commands.commands.len(), 2);
 
         assert_matches!(&rule_commands.commands[0],
