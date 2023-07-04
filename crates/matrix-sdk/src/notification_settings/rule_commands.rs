@@ -66,6 +66,22 @@ impl RuleCommands {
         Ok(())
     }
 
+    fn set_enabled_internal(
+        &mut self,
+        kind: RuleKind,
+        rule_id: &str,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        self.rules.set_enabled(kind.clone(), rule_id, enabled)?;
+        self.commands.push(Command::SetPushRuleEnabled {
+            scope: RuleScope::Global,
+            kind,
+            rule_id: rule_id.to_owned(),
+            enabled,
+        });
+        Ok(())
+    }
+
     /// Set whether a rule is enabled
     pub(crate) fn set_rule_enabled(
         &mut self,
@@ -80,32 +96,15 @@ impl RuleCommands {
             // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
             self.set_user_mention_enabled(enabled)
         } else {
-            self.set_enabled(kind, rule_id, enabled)
+            self.set_enabled_internal(kind, rule_id, enabled)
         }
-    }
-
-    fn set_enabled(
-        &mut self,
-        kind: RuleKind,
-        rule_id: &str,
-        enabled: bool,
-    ) -> Result<(), NotificationSettingsError> {
-        self.rules.set_enabled(kind.clone(), rule_id, enabled)?;
-        self.commands.push(Command::SetPushRuleEnabled {
-            scope: RuleScope::Global,
-            kind,
-            rule_id: rule_id.to_owned(),
-            enabled,
-        });
-
-        Ok(())
     }
 
     /// Set whether `IsUserMention` is enabled
     fn set_user_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
         // Add a command for the `IsUserMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.set_enabled(
+        self.set_enabled_internal(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsUserMention.as_str(),
             enabled,
@@ -116,14 +115,14 @@ impl RuleCommands {
         #[allow(deprecated)]
         {
             // `ContainsUserName`
-            self.set_enabled(
+            self.set_enabled_internal(
                 RuleKind::Content,
                 PredefinedContentRuleId::ContainsUserName.as_str(),
                 enabled,
             )?;
 
             // `ContainsDisplayName`
-            self.set_enabled(
+            self.set_enabled_internal(
                 RuleKind::Override,
                 PredefinedOverrideRuleId::ContainsDisplayName.as_str(),
                 enabled,
@@ -137,7 +136,7 @@ impl RuleCommands {
     fn set_room_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
         // Sets the `IsRoomMention` `Override` rule (MSC3952).
         // This is a new push rule that may not yet be present.
-        self.set_enabled(
+        self.set_enabled_internal(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsRoomMention.as_str(),
             enabled,
@@ -146,7 +145,7 @@ impl RuleCommands {
         // For compatibility purpose, we still need to set `RoomNotif` (deprecated
         // rule).
         #[allow(deprecated)]
-        self.set_enabled(
+        self.set_enabled_internal(
             RuleKind::Override,
             PredefinedOverrideRuleId::RoomNotif.as_str(),
             enabled,
@@ -303,7 +302,11 @@ pub(crate) mod tests {
         let mut rule_commands = RuleCommands::new(ruleset);
 
         rule_commands
-            .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), true)
+            .set_enabled_internal(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::Reaction.as_str(),
+                true,
+            )
             .unwrap();
 
         // The ruleset must have been updated
@@ -329,7 +332,7 @@ pub(crate) mod tests {
         let ruleset = get_server_default_ruleset();
         let mut rule_commands = RuleCommands::new(ruleset);
         assert_eq!(
-            rule_commands.set_enabled(RuleKind::Room, "unknown_rule_id", true),
+            rule_commands.set_enabled_internal(RuleKind::Room, "unknown_rule_id", true),
             Err(NotificationSettingsError::RuleNotFound)
         );
     }
