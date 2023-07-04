@@ -132,6 +132,87 @@ impl TimelineItemContent {
     pub(crate) fn is_redacted(&self) -> bool {
         matches!(self, Self::RedactedMessage)
     }
+
+    // These constructors could also be `From` implementations, but that would
+    // allow users to call them directly, which should not be supported
+    pub(crate) fn message(
+        c: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> Self {
+        Self::Message(Message::from_event(c, relations, timeline_items))
+    }
+
+    pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
+        TimelineItemContent::UnableToDecrypt(content.into())
+    }
+
+    pub(crate) fn room_member(
+        user_id: OwnedUserId,
+        full_content: FullStateEventContent<RoomMemberEventContent>,
+        sender: OwnedUserId,
+    ) -> Self {
+        use ruma::events::room::member::MembershipChange as MChange;
+        match &full_content {
+            FullStateEventContent::Original { content, prev_content } => {
+                let membership_change = content.membership_change(
+                    prev_content.as_ref().map(|c| c.details()),
+                    &sender,
+                    &user_id,
+                );
+
+                if let MChange::ProfileChanged { displayname_change, avatar_url_change } =
+                    membership_change
+                {
+                    TimelineItemContent::ProfileChange(MemberProfileChange {
+                        user_id,
+                        displayname_change: displayname_change.map(|c| Change {
+                            new: c.new.map(ToOwned::to_owned),
+                            old: c.old.map(ToOwned::to_owned),
+                        }),
+                        avatar_url_change: avatar_url_change.map(|c| Change {
+                            new: c.new.map(ToOwned::to_owned),
+                            old: c.old.map(ToOwned::to_owned),
+                        }),
+                    })
+                } else {
+                    let change = match membership_change {
+                        MChange::None => MembershipChange::None,
+                        MChange::Error => MembershipChange::Error,
+                        MChange::Joined => MembershipChange::Joined,
+                        MChange::Left => MembershipChange::Left,
+                        MChange::Banned => MembershipChange::Banned,
+                        MChange::Unbanned => MembershipChange::Unbanned,
+                        MChange::Kicked => MembershipChange::Kicked,
+                        MChange::Invited => MembershipChange::Invited,
+                        MChange::KickedAndBanned => MembershipChange::KickedAndBanned,
+                        MChange::InvitationAccepted => MembershipChange::InvitationAccepted,
+                        MChange::InvitationRejected => MembershipChange::InvitationRejected,
+                        MChange::InvitationRevoked => MembershipChange::InvitationRevoked,
+                        MChange::Knocked => MembershipChange::Knocked,
+                        MChange::KnockAccepted => MembershipChange::KnockAccepted,
+                        MChange::KnockRetracted => MembershipChange::KnockRetracted,
+                        MChange::KnockDenied => MembershipChange::KnockDenied,
+                        MChange::ProfileChanged { .. } => unreachable!(),
+                        _ => MembershipChange::NotImplemented,
+                    };
+
+                    TimelineItemContent::MembershipChange(RoomMembershipChange {
+                        user_id,
+                        content: full_content,
+                        change: Some(change),
+                    })
+                }
+            }
+            FullStateEventContent::Redacted(_) => {
+                TimelineItemContent::MembershipChange(RoomMembershipChange {
+                    user_id,
+                    content: full_content,
+                    change: None,
+                })
+            }
+        }
+    }
 }
 
 /// An `m.room.message` event or extensible event, including edits.
