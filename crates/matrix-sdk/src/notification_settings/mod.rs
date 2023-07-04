@@ -290,7 +290,7 @@ impl NotificationSettings {
 
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) mod tests {
+mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
