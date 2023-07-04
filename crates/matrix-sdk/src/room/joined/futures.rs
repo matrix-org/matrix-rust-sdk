@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
 };
 
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use mime::Mime;
 use ruma::api::client::message::send_message_event;
 use tracing::{Instrument, Span};

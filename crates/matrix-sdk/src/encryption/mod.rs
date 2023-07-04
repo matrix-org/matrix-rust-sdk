@@ -23,7 +23,7 @@ use std::{
     path::PathBuf,
 };
 
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use futures_util::{
     future::try_join,
     stream::{self, StreamExt},

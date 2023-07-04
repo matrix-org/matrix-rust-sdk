@@ -14,7 +14,7 @@
 
 use std::{ops::Add, sync::Arc, time::Duration};
 
-use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard, WeakObservable};
+use eyeball::{ObservableWriteGuard, SharedObservable, WeakObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::instant::Instant;

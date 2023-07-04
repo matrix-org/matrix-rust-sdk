@@ -24,7 +24,7 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use ruma::{
     api::{
         error::{FromHttpResponseError, IntoHttpError},

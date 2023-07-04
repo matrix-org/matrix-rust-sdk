@@ -2,7 +2,7 @@
 use std::sync::Arc;
 use std::{borrow::Borrow, ops::Deref};
 
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::RoomMemberships;
 use matrix_sdk_common::instant::{Duration, Instant};

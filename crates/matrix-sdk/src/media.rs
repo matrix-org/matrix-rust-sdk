@@ -21,7 +21,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;

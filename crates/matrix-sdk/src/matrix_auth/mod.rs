@@ -20,7 +20,7 @@ use std::fmt;
 #[cfg(feature = "sso-login")]
 use std::future::Future;
 
-use eyeball::shared::Observable as SharedObservable;
+use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::SessionMeta;

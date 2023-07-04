@@ -25,7 +25,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use eyeball::{shared::Observable as SharedObservable, unique::Observable, Subscriber};
+use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;

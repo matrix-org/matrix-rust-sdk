@@ -14,7 +14,7 @@
 
 use std::future::ready;
 
-use eyeball::{shared::Observable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
@@ -29,7 +29,7 @@ use super::{Error, State};
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync_list: SlidingSyncList,
-    loading_state: Observable<RoomListLoadingState>,
+    loading_state: SharedObservable<RoomListLoadingState>,
     loading_state_task: JoinHandle<()>,
 }
 
@@ -49,7 +49,7 @@ impl RoomList {
             .on_list(sliding_sync_list_name, |list| ready(list.clone()))
             .await
             .ok_or_else(|| Error::UnknownList(sliding_sync_list_name.to_owned()))?;
-        let loading_state = Observable::new(RoomListLoadingState::NotLoaded);
+        let loading_state = SharedObservable::new(RoomListLoadingState::NotLoaded);
 
         Ok(Self {
             sliding_sync_list: sliding_sync_list.clone(),

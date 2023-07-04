@@ -69,7 +69,7 @@ mod state;
 use std::{collections::BTreeMap, future::ready, sync::Arc};
 
 use async_stream::stream;
-use eyeball::{shared::Observable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
 pub use matrix_sdk::RoomListEntry;
 use matrix_sdk::{
@@ -99,7 +99,7 @@ pub struct RoomListService {
     /// The current state of the `RoomListService`.
     ///
     /// `RoomListService` is a simple state-machine.
-    state: Observable<State>,
+    state: SharedObservable<State>,
 
     /// Room cache, to avoid recreating `Room`s everytime users fetch them.
     rooms: Arc<RwLock<BTreeMap<OwnedRoomId, Room>>>,
@@ -167,7 +167,7 @@ impl RoomListService {
 
         Ok(Self {
             sliding_sync,
-            state: Observable::new(State::Init),
+            state: SharedObservable::new(State::Init),
             rooms: Default::default(),
             viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
         })

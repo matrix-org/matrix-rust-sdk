@@ -21,7 +21,7 @@ use std::{
     sync::Arc,
 };
 
-use eyeball::{shared::Observable as SharedObservable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
