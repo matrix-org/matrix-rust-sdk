@@ -483,11 +483,23 @@ impl SlidingSync {
             if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
                 debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
-                let (e2ee_uploads, response) =
-                    futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                        .await;
+                // If the sliding sync request fails faster than the e2ee requests get their
+                // responses, we want to fail as early as possible, so as to invalidate the
+                // sliding sync session as early as possible.
+                //
+                // Also, we don't want an interruption in the sliding sync request to abort
+                // processing of the e2ee response.
+                //
+                // For those reasons, start the e2ee requests in a background task.
 
-                if let Err(error) = e2ee_uploads {
+                let client = self.inner.client.clone();
+                let e2ee_uploads = spawn(async move { client.send_outgoing_requests().await });
+
+                // Wait on the sliding sync request success or failure early.
+                let response = request.await?;
+
+                // Then only log the e2ee response, if needs be.
+                if let Err(error) = e2ee_uploads.await {
                     error!(?error, "Error while sending outgoing E2EE requests");
                 }
 
@@ -495,9 +507,9 @@ impl SlidingSync {
             } else {
                 debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
 
-                request.await
+                request.await?
             }
-        }?;
+        };
 
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
