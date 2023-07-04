@@ -29,29 +29,25 @@ impl RuleCommands {
         room_id: &RoomId,
         notify: bool,
     ) -> Result<(), NotificationSettingsError> {
-        let command;
-        match kind {
-            RuleKind::Room => {
-                command = Command::SetRoomPushRule {
-                    scope: RuleScope::Global,
-                    room_id: room_id.to_owned(),
-                    notify,
-                };
-            }
-            RuleKind::Override => {
-                command = Command::SetOverridePushRule {
-                    scope: RuleScope::Global,
-                    rule_id: room_id.to_string(),
-                    room_id: room_id.to_owned(),
-                    notify,
-                };
-            }
+        let command = match kind {
+            RuleKind::Room => Command::SetRoomPushRule {
+                scope: RuleScope::Global,
+                room_id: room_id.to_owned(),
+                notify,
+            },
+            RuleKind::Override => Command::SetOverridePushRule {
+                scope: RuleScope::Global,
+                rule_id: room_id.to_string(),
+                room_id: room_id.to_owned(),
+                notify,
+            },
             _ => {
                 return Err(NotificationSettingsError::InvalidParameter(
                     "cannot insert a rule for this kind.".to_owned(),
                 ))
             }
-        }
+        };
+
         self.rules.insert(command.to_push_rule()?, None, None)?;
         self.commands.push(command);
 
