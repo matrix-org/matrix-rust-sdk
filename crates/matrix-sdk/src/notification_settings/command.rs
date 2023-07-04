@@ -11,7 +11,7 @@ use ruma::{
 
 use crate::NotificationSettingsError;
 
-/// enum describing the commands required to modify the owner's account data.
+/// Enum describing the commands required to modify the owner's account data.
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
     /// Set a new `Room` push rule
@@ -24,39 +24,42 @@ pub(crate) enum Command {
     DeletePushRule { scope: RuleScope, kind: RuleKind, rule_id: String },
 }
 
-impl Command {
-    fn build_actions(&self, notify: bool) -> Vec<Action> {
-        if notify {
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
-        } else {
-            vec![]
-        }
+fn get_notify_actions(notify: bool) -> Vec<Action> {
+    if notify {
+        vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+    } else {
+        vec![]
     }
+}
 
+impl Command {
     /// Tries to create a push rule corresponding to this command
     pub(crate) fn to_push_rule(&self) -> Result<NewPushRule, NotificationSettingsError> {
         match self {
             Self::SetRoomPushRule { scope: _, room_id, notify } => {
                 // `Room` push rule for this `room_id`
-                let new_rule =
-                    NewSimplePushRule::new(room_id.to_owned(), self.build_actions(*notify));
+                let new_rule = NewSimplePushRule::new(room_id.clone(), get_notify_actions(*notify));
                 Ok(NewPushRule::Room(new_rule))
             }
+
             Self::SetOverridePushRule { scope: _, rule_id, room_id, notify } => {
                 // `Override` push rule matching this `room_id`
                 let new_rule = NewConditionalPushRule::new(
-                    rule_id.to_owned(),
+                    rule_id.clone(),
                     vec![PushCondition::EventMatch {
-                        key: "room_id".into(),
+                        key: "room_id".to_owned(),
                         pattern: room_id.to_string(),
                     }],
-                    self.build_actions(*notify),
+                    get_notify_actions(*notify),
                 );
                 Ok(NewPushRule::Override(new_rule))
             }
-            _ => Err(NotificationSettingsError::InvalidParameter(
-                "cannot create a push rule from this command.".to_owned(),
-            )),
+
+            Self::SetPushRuleEnabled { .. } | Self::DeletePushRule { .. } => {
+                Err(NotificationSettingsError::InvalidParameter(
+                    "cannot create a push rule from this command.".to_owned(),
+                ))
+            }
         }
     }
 }
