@@ -324,8 +324,8 @@ mod tests {
         rules: Vec<(RuleKind, &RoomId, bool)>,
     ) -> NotificationSettings {
         let ruleset = get_server_default_ruleset();
-        // XXX would be slightly better to only use `Ruleset` here too, and no `RuleCommands` so
-        // we're testing things more in isolation.
+        // XXX would be slightly better to only use `Ruleset` here too, and no
+        // `RuleCommands` so we're testing things more in isolation.
         let mut rule_commands = RuleCommands::new(ruleset);
         for (kind, room_id, notify) in rules {
             rule_commands.insert_rule(kind, room_id, notify).unwrap();

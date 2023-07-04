@@ -274,8 +274,8 @@ pub(crate) mod tests {
         for (kind, room_id, notify) in rule_list {
             commands.insert_rule(kind, room_id, notify).unwrap();
         }
-        // XXX this should not make use of `apply()`, see other comment. Such a helper should
-        // return a `Ruleset`, and not have to do anything with `Rules`.
+        // XXX this should not make use of `apply()`, see other comment. Such a helper
+        // should return a `Ruleset`, and not have to do anything with `Rules`.
         rules.apply(commands);
         rules
     }
@@ -288,10 +288,11 @@ pub(crate) mod tests {
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 0);
 
         // Initialize with one rule.
-        // XXX this is not testing things in isolation: `build_rules` makes use of `apply`, and
-        // then we use `get_custom_rules_for_room`. Instead, this test should create a `Ruleset` by
-        // hand, then test single functions in isolation in it. `build_rules` should not use
-        // `Rules` method, since we're testing `Rules` methods here!
+        // XXX this is not testing things in isolation: `build_rules` makes use of
+        // `apply`, and then we use `get_custom_rules_for_room`. Instead, this
+        // test should create a `Ruleset` by hand, then test single functions in
+        // isolation in it. `build_rules` should not use `Rules` method, since
+        // we're testing `Rules` methods here!
         let rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
 

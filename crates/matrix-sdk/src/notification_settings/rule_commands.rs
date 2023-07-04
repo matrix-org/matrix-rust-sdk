@@ -276,7 +276,8 @@ mod tests {
 
         let mut rule_commands = RuleCommands::new(ruleset);
 
-        // Deletion should fail if an attempt is made to delete a rule that does not exist.
+        // Deletion should fail if an attempt is made to delete a rule that does not
+        // exist.
         assert_matches!(
             rule_commands.delete_rule(RuleKind::Room, room_id.to_string()),
             Err(RemovePushRuleError::NotFound) => {}
