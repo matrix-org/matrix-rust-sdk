@@ -156,7 +156,7 @@ impl RuleCommands {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
