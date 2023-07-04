@@ -196,24 +196,23 @@ impl Rules {
         }
     }
 
-    /// Apply a command to the managed ruleset.
+    /// Apply a group of commands to the managed ruleset.
     ///
     /// The command may silently fail because the ruleset may have changed
     /// between the time the command was created and the time it is applied.
-    pub(crate) fn apply(&mut self, commands: &RuleCommands) {
-        for command in &commands.commands {
+    pub(crate) fn apply(&mut self, commands: RuleCommands) {
+        for command in commands.commands {
             match command {
                 Command::DeletePushRule { scope: _, kind, rule_id } => {
-                    _ = self.ruleset.remove(kind.clone(), rule_id);
+                    _ = self.ruleset.remove(kind, rule_id);
                 }
-                Command::SetRoomPushRule { scope: _, room_id: _, notify: _ }
-                | Command::SetOverridePushRule { scope: _, rule_id: _, room_id: _, notify: _ } => {
+                Command::SetRoomPushRule { .. } | Command::SetOverridePushRule { .. } => {
                     if let Ok(push_rule) = command.to_push_rule() {
                         _ = self.ruleset.insert(push_rule, None, None);
                     }
                 }
                 Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
-                    _ = self.ruleset.set_enabled(kind.clone(), rule_id, *enabled);
+                    _ = self.ruleset.set_enabled(kind, rule_id, enabled);
                 }
             }
         }
@@ -274,7 +273,7 @@ pub(crate) mod tests {
         for (kind, room_id, notify) in rule_list {
             commands.insert_rule(kind, room_id, notify).unwrap();
         }
-        rules.apply(&commands);
+        rules.apply(commands);
         rules
     }
 
@@ -579,7 +578,7 @@ pub(crate) mod tests {
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
         rules_commands.delete_rule(RuleKind::Override, room_id.to_string()).unwrap();
 
-        rules.apply(&rules_commands);
+        rules.apply(rules_commands);
 
         // The rule must have been removed from the updated rules
         assert!(rules.get_custom_rules_for_room(&room_id).is_empty());
@@ -594,7 +593,7 @@ pub(crate) mod tests {
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
         rules_commands.insert_rule(RuleKind::Override, &room_id, false).unwrap();
 
-        rules.apply(&rules_commands);
+        rules.apply(rules_commands);
 
         // The rule must have been removed from the updated rules
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
@@ -619,7 +618,7 @@ pub(crate) mod tests {
             )
             .unwrap();
 
-        rules.apply(&rules_commands);
+        rules.apply(rules_commands);
 
         // The rule must have been disabled in the updated rules
         assert!(!rules

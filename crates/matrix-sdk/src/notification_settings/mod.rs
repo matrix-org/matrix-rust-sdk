@@ -113,16 +113,13 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
 
-        // Build the commands needed to update the push rule
         let mut rule_commands = RuleCommands::new(rules.ruleset);
         rule_commands.set_rule_enabled(kind, rule_id, enabled)?;
 
-        // Execute the commands
-        self.execute(&rule_commands).await?;
+        self.run_server_commands(&rule_commands).await?;
 
-        // Update the internal ruleset by applying the commands
         let rules = &mut *self.rules.write().await;
-        rules.apply(&rule_commands);
+        rules.apply(rule_commands);
 
         Ok(())
     }
@@ -172,12 +169,10 @@ impl NotificationSettings {
             rule_commands.delete_rule(kind, rule_id)?;
         }
 
-        // Execute the commands
-        self.execute(&rule_commands).await?;
+        self.run_server_commands(&rule_commands).await?;
 
-        // Update the internal ruleset by applying the commands
         let rules = &mut *self.rules.write().await;
-        rules.apply(&rule_commands);
+        rules.apply(rule_commands);
 
         Ok(())
     }
@@ -199,12 +194,10 @@ impl NotificationSettings {
             rule_commands.delete_rule(kind, rule_id)?;
         }
 
-        // Execute the commands
-        self.execute(&rule_commands).await?;
+        self.run_server_commands(&rule_commands).await?;
 
-        // Update the internal ruleset by applying the commands
         let rules = &mut *self.rules.write().await;
-        rules.apply(&rule_commands);
+        rules.apply(rule_commands);
 
         Ok(())
     }
@@ -243,8 +236,11 @@ impl NotificationSettings {
         }
     }
 
-    /// Execute commands
-    async fn execute(&self, rule_commands: &RuleCommands) -> Result<(), NotificationSettingsError> {
+    /// Convert commands into requests to the server, and run them.
+    async fn run_server_commands(
+        &self,
+        rule_commands: &RuleCommands,
+    ) -> Result<(), NotificationSettingsError> {
         for command in &rule_commands.commands {
             match command {
                 Command::DeletePushRule { scope, kind, rule_id } => {
