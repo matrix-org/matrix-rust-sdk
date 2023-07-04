@@ -270,7 +270,7 @@ pub(crate) mod tests {
 
     fn build_rules(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Rules {
         let mut rules = Rules::new(get_server_default_ruleset());
-        let mut commands = RuleCommands::new(&rules.ruleset);
+        let mut commands = RuleCommands::new(rules.ruleset.clone());
         for (kind, room_id, notify) in rule_list {
             commands.insert_rule(kind, room_id, notify).unwrap();
         }
@@ -576,7 +576,7 @@ pub(crate) mod tests {
         let mut rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
 
         // Build a `RuleCommands` deleting this rule
-        let mut rules_commands = RuleCommands::new(&rules.ruleset);
+        let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
         rules_commands.delete_rule(RuleKind::Override, room_id.to_string()).unwrap();
 
         rules.apply(&rules_commands);
@@ -591,7 +591,7 @@ pub(crate) mod tests {
         let mut rules = build_rules(vec![]);
 
         // Build a `RuleCommands` inserting a rule
-        let mut rules_commands = RuleCommands::new(&rules.ruleset);
+        let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
         rules_commands.insert_rule(RuleKind::Override, &room_id, false).unwrap();
 
         rules.apply(&rules_commands);
@@ -610,7 +610,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Build a `RuleCommands` disabling the rule
-        let mut rules_commands = RuleCommands::new(&rules.ruleset);
+        let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
         rules_commands
             .set_rule_enabled(
                 RuleKind::Override,

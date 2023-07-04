@@ -114,7 +114,7 @@ impl NotificationSettings {
         let rules = self.rules.read().await.clone();
 
         // Build the commands needed to update the push rule
-        let mut rule_commands = RuleCommands::new(&rules.ruleset);
+        let mut rule_commands = RuleCommands::new(rules.ruleset);
         rule_commands.set_rule_enabled(kind, rule_id, enabled)?;
 
         // Execute the commands
@@ -156,19 +156,18 @@ impl NotificationSettings {
             }
         };
 
-        let mut rule_commands = RuleCommands::new(&rules.ruleset);
-        rule_commands.insert_rule(new_rule_kind.clone(), room_id, notify)?;
-
-        // Build the command list to delete all other custom rules, with the exception
-        // of the newly inserted rule
+        // Extract all the custom rules except the one we just created.
         let new_rule_id = room_id.as_str();
-
         let custom_rules: Vec<(RuleKind, String)> = rules
             .get_custom_rules_for_room(room_id)
             .into_iter()
             .filter(|(kind, rule_id)| kind != &new_rule_kind || rule_id != new_rule_id)
             .collect();
 
+        // Build the command list to delete all other custom rules, with the exception
+        // of the newly inserted rule.
+        let mut rule_commands = RuleCommands::new(rules.ruleset);
+        rule_commands.insert_rule(new_rule_kind.clone(), room_id, notify)?;
         for (kind, rule_id) in custom_rules {
             rule_commands.delete_rule(kind, rule_id)?;
         }
@@ -195,7 +194,7 @@ impl NotificationSettings {
             return Ok(());
         }
 
-        let mut rule_commands = RuleCommands::new(&rules.ruleset);
+        let mut rule_commands = RuleCommands::new(rules.ruleset);
         for (kind, rule_id) in custom_rules {
             rule_commands.delete_rule(kind, rule_id)?;
         }
@@ -329,7 +328,7 @@ pub(crate) mod tests {
         rules: Vec<(RuleKind, &RoomId, bool)>,
     ) -> NotificationSettings {
         let ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
         for (kind, room_id, notify) in rules {
             rule_commands.insert_rule(kind, room_id, notify).unwrap();
         }
@@ -339,7 +338,7 @@ pub(crate) mod tests {
     async fn get_custom_rules_for_room(
         notification_settings: &NotificationSettings,
         room_id: &RoomId,
-    ) -> Vec<(RuleKind, std::string::String)> {
+    ) -> Vec<(RuleKind, String)> {
         notification_settings.rules.read().await.get_custom_rules_for_room(room_id)
     }
 

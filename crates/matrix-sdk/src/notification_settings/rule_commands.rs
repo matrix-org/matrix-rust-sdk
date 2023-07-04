@@ -18,8 +18,8 @@ pub(crate) struct RuleCommands {
 }
 
 impl RuleCommands {
-    pub(crate) fn new(rules: &Ruleset) -> Self {
-        RuleCommands { commands: vec![], rules: rules.clone() }
+    pub(crate) fn new(rules: Ruleset) -> Self {
+        RuleCommands { commands: vec![], rules }
     }
 
     /// Insert a new rule
@@ -184,7 +184,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_insert_rule_room() {
         let room_id = get_test_room_id();
-        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+        let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
         rule_commands.insert_rule(RuleKind::Room, &room_id, true).unwrap();
 
         // A rule must have been inserted in the ruleset
@@ -203,7 +203,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_insert_rule_override() {
         let room_id = get_test_room_id();
-        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+        let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
         rule_commands.insert_rule(RuleKind::Override, &room_id, true).unwrap();
 
         // A rule must have been inserted in the ruleset
@@ -223,7 +223,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_insert_rule_unsupported() {
         let room_id = get_test_room_id();
-        let mut rule_commands = RuleCommands::new(&get_server_default_ruleset());
+        let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
 
         assert_matches!(
             rule_commands.insert_rule(RuleKind::Underride, &room_id, true),
@@ -249,7 +249,7 @@ pub(crate) mod tests {
         let new_rule = NewSimplePushRule::new(room_id.to_owned(), vec![]);
         ruleset.insert(NewPushRule::Room(new_rule), None, None).unwrap();
 
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
 
         // Delete must succeed
         rule_commands.delete_rule(RuleKind::Room, room_id.to_string()).unwrap();
@@ -272,7 +272,7 @@ pub(crate) mod tests {
         let room_id = get_test_room_id();
         let ruleset = get_server_default_ruleset();
 
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
 
         // Deletion should fail if an attempt is made to delete a rule that does not
         // exist
@@ -285,7 +285,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_delete_rule_server_default_error() {
         let ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
 
         // Deletion should fail if an attempt is made to delete a default server rule
         assert_matches!(
@@ -300,7 +300,7 @@ pub(crate) mod tests {
 
         // Initialize with `Reaction` rule disabled
         ruleset.set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction, false).unwrap();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
 
         rule_commands
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str(), true)
@@ -327,7 +327,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_set_rule_enabled_not_found() {
         let ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset);
         assert_eq!(
             rule_commands.set_enabled(RuleKind::Room, "unknown_rule_id", true),
             Err(NotificationSettingsError::RuleNotFound)
@@ -337,7 +337,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_set_rule_enabled_user_mention() {
         let mut ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset.clone());
 
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
@@ -423,7 +423,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_set_rule_enabled_room_mention() {
         let mut ruleset = get_server_default_ruleset();
-        let mut rule_commands = RuleCommands::new(&ruleset);
+        let mut rule_commands = RuleCommands::new(ruleset.clone());
 
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
