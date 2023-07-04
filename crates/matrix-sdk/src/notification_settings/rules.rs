@@ -67,6 +67,7 @@ impl Rules {
             // enabled
             x.enabled &&
             // with a condition of type `EventMatch` for this `room_id`
+            // XXX why not checking against x.rule_id here?
             x.conditions.iter().any(|x| matches!(
                 x,
                 PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
@@ -118,7 +119,7 @@ impl Rules {
     }
 
     /// Get whether the `IsUserMention` rule is enabled.
-    pub(crate) fn is_user_mention_enabled(&self) -> bool {
+    fn is_user_mention_enabled(&self) -> bool {
         // Search for an enabled `Override` rule `IsUserMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) =
@@ -152,7 +153,7 @@ impl Rules {
     }
 
     /// Get whether the `IsRoomMention` rule is enabled.
-    pub(crate) fn is_room_mention_enabled(&self) -> bool {
+    fn is_room_mention_enabled(&self) -> bool {
         // Search for an enabled `Override` rule `IsRoomMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) =
@@ -273,6 +274,8 @@ pub(crate) mod tests {
         for (kind, room_id, notify) in rule_list {
             commands.insert_rule(kind, room_id, notify).unwrap();
         }
+        // XXX this should not make use of `apply()`, see other comment. Such a helper should
+        // return a `Ruleset`, and not have to do anything with `Rules`.
         rules.apply(commands);
         rules
     }
@@ -284,7 +287,11 @@ pub(crate) mod tests {
         let rules = Rules::new(get_server_default_ruleset());
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 0);
 
-        // Initialize with one rule
+        // Initialize with one rule.
+        // XXX this is not testing things in isolation: `build_rules` makes use of `apply`, and
+        // then we use `get_custom_rules_for_room`. Instead, this test should create a `Ruleset` by
+        // hand, then test single functions in isolation in it. `build_rules` should not use
+        // `Rules` method, since we're testing `Rules` methods here!
         let rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
 
@@ -315,63 +322,40 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_get_user_defined_room_notification_mode_none() {
+    async fn test_get_user_defined_room_notification_mode() {
         let room_id = get_test_room_id();
         let rules = Rules::new(get_server_default_ruleset());
         assert_eq!(rules.get_user_defined_room_notification_mode(&room_id), None);
-    }
-
-    #[async_test]
-    async fn test_get_user_defined_room_notification_mode_mute() {
-        let room_id = get_test_room_id();
 
         // Initialize with an `Override` rule that doesn't notify
         let rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
-
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::Mute)
         );
-    }
-
-    #[async_test]
-    async fn test_get_user_defined_room_notification_mode_mentions_and_keywords() {
-        let room_id = get_test_room_id();
 
         // Initialize with a `Room` rule that doesn't notify
         let rules = build_rules(vec![(RuleKind::Room, &room_id, false)]);
-
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::MentionsAndKeywordsOnly)
         );
-    }
-
-    #[async_test]
-    async fn test_get_user_defined_room_notification_mode_all_messages() {
-        let room_id = get_test_room_id();
 
         // Initialize with a `Room` rule that doesn't notify
         let rules = build_rules(vec![(RuleKind::Room, &room_id, true)]);
-
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::AllMessages)
         );
-    }
 
-    #[async_test]
-    async fn test_get_user_defined_room_notification_mode_multiple_override_rules() {
         let room_id_a = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
         let room_id_b = RoomId::parse("!BBBbBBBBBbbBBbbbbb:matrix.org").unwrap();
-
         let rules = build_rules(vec![
             // A mute rule for room_id_a
             (RuleKind::Override, &room_id_a, false),
             // A notifying rule for room_id_b
             (RuleKind::Override, &room_id_b, true),
         ]);
-
         let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
 
         // The mode should be Mute as there is an Override rule that doesn't notify,
@@ -435,6 +419,7 @@ pub(crate) mod tests {
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true)
             .unwrap();
+
         let rules = Rules::new(ruleset);
         assert!(rules.is_user_mention_enabled());
         // is_enabled() should also return `true` for
@@ -506,6 +491,7 @@ pub(crate) mod tests {
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, true)
             .unwrap();
+
         let rules = Rules::new(ruleset);
         assert!(rules.is_room_mention_enabled());
         // is_enabled() should also return `true` for
@@ -530,6 +516,7 @@ pub(crate) mod tests {
                 vec![Action::Notify],
             )
             .unwrap();
+
         let rules = Rules::new(ruleset);
         assert!(rules.is_room_mention_enabled());
         // is_enabled() should also return `true` for
