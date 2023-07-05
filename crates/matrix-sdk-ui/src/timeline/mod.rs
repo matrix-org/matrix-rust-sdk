@@ -19,6 +19,7 @@
 use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -97,8 +98,12 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 #[derive(Debug)]
 pub struct Timeline {
     inner: Arc<TimelineInner<room::Common>>,
+
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
+    /// Observable for whether a pagination is currently running
+    back_pagination_status: SharedObservable<BackPaginationStatus>,
+
     _end_token: Mutex<Option<String>>,
     msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
@@ -145,18 +150,23 @@ impl Timeline {
         self.inner.clear().await;
     }
 
+    /// Subscribe to the back-pagination status of the timeline.
+    pub fn back_pagination_status(&self) -> Subscriber<BackPaginationStatus> {
+        self.back_pagination_status.subscribe()
+    }
+
     /// Add more events to the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
     pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
         let mut start_lock = self.start_token.lock().await;
         if start_lock.is_none()
-            && self.inner.items().await.front().is_some_and(|item| item.is_timeline_start())
+            && self.back_pagination_status.get() == BackPaginationStatus::TimelineStartReached
         {
             warn!("Start of timeline reached, ignoring backwards-pagination request");
             return Ok(());
         }
 
-        self.inner.add_loading_indicator().await;
+        self.back_pagination_status.set(BackPaginationStatus::Paginating);
 
         if start_lock.is_none() && options.wait_for_token {
             info!("No prev_batch token, waiting");
@@ -180,7 +190,11 @@ impl Timeline {
                     from,
                     limit: limit.into(),
                 }))
-                .await?;
+                .await
+                .map_err(|e| {
+                    self.back_pagination_status.set(BackPaginationStatus::Idle);
+                    e
+                })?;
 
             let process_events_result = async {
                 outcome.events_received = messages.chunk.len().try_into().ok()?;
@@ -216,7 +230,12 @@ impl Timeline {
             }
         }
 
-        self.inner.remove_loading_indicator(from.is_some()).await;
+        let back_pagination_state = if from.is_some() {
+            BackPaginationStatus::Idle
+        } else {
+            BackPaginationStatus::TimelineStartReached
+        };
+        self.back_pagination_status.set(back_pagination_state);
         *start_lock = from;
 
         Ok(())
@@ -727,14 +746,6 @@ impl TimelineItem {
         Self::Virtual(VirtualTimelineItem::ReadMarker)
     }
 
-    fn loading_indicator() -> Self {
-        Self::Virtual(VirtualTimelineItem::LoadingIndicator)
-    }
-
-    fn timeline_start() -> Self {
-        Self::Virtual(VirtualTimelineItem::TimelineStart)
-    }
-
     fn is_virtual(&self) -> bool {
         matches!(self, Self::Virtual(_))
     }
@@ -745,14 +756,6 @@ impl TimelineItem {
 
     fn is_read_marker(&self) -> bool {
         matches!(self, Self::Virtual(VirtualTimelineItem::ReadMarker))
-    }
-
-    fn is_loading_indicator(&self) -> bool {
-        matches!(self, Self::Virtual(VirtualTimelineItem::LoadingIndicator))
-    }
-
-    fn is_timeline_start(&self) -> bool {
-        matches!(self, Self::Virtual(VirtualTimelineItem::TimelineStart))
     }
 }
 
@@ -790,6 +793,13 @@ fn rfind_event_by_id<'a>(
 
 fn find_read_marker(items: &Vector<Arc<TimelineItem>>) -> Option<usize> {
     items.iter().rposition(|item| item.is_read_marker())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackPaginationStatus {
+    Idle,
+    Paginating,
+    TimelineStartReached,
 }
 
 /// Errors specific to the timeline.

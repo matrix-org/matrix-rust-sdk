@@ -704,32 +704,23 @@ impl<'a> TimelineEventHandler<'a> {
 
                 trace!("Adding new remote timeline item at the start");
 
-                // If there is a loading indicator at the top, check for / insert the day
-                // divider at position 1 and the new event at 2 rather than 0 and 1.
-                let offset = match self.items.front().and_then(|item| item.as_virtual()) {
-                    Some(
-                        VirtualTimelineItem::LoadingIndicator | VirtualTimelineItem::TimelineStart,
-                    ) => 1,
-                    _ => 0,
-                };
-
                 // Check if the earliest day divider has the same date as this event.
                 if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
-                    self.items.get(offset).and_then(|item| item.as_virtual())
+                    self.items.front().and_then(|item| item.as_virtual())
                 {
                     if let Some(day_divider_item) =
                         maybe_create_day_divider_from_timestamps(*divider_ts, timestamp)
                     {
-                        self.items.insert(offset, Arc::new(day_divider_item));
+                        self.items.push_front(Arc::new(day_divider_item));
                     }
                 } else {
                     // The list must always start with a day divider.
-                    self.items.insert(offset, Arc::new(TimelineItem::day_divider(timestamp)));
+                    self.items.push_front(Arc::new(TimelineItem::day_divider(timestamp)));
                 }
 
                 if self.track_read_receipts {
                     maybe_add_implicit_read_receipt(
-                        offset,
+                        0,
                         &mut item,
                         self.meta.is_own_event,
                         self.items,
@@ -737,7 +728,7 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                self.items.insert(offset + 1, Arc::new(item.into()));
+                self.items.insert(1, Arc::new(item.into()));
             }
 
             Flow::Remote {
@@ -857,20 +848,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                 // Insert the next item after the latest non-failed event item,
                 // or at the start if there is no such item.
-                let mut insert_idx = latest_nonfailed_event_idx.map_or_else(
-                    || {
-                        // If no event is found, check for a loading indicator
-                        // (or timeline start) and insert after if it exists.
-                        match self.items.front().and_then(|item| item.as_virtual()) {
-                            Some(
-                                VirtualTimelineItem::LoadingIndicator
-                                | VirtualTimelineItem::TimelineStart,
-                            ) => 1,
-                            _ => 0,
-                        }
-                    },
-                    |idx| idx + 1,
-                );
+                let mut insert_idx = latest_nonfailed_event_idx.map_or(0, |idx| idx + 1);
 
                 // Keep push semantics, if we're inserting at the end.
                 let should_push = insert_idx == self.items.len();
