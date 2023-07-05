@@ -326,53 +326,57 @@ fn create_range(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::RangeInclusive;
+
+    use assert_matches::assert_matches;
+
     use super::*;
 
     #[test]
     fn test_create_range_from() {
         // From 0, we want 100 items.
-        assert_eq!(create_range(0, 100, None, None), Ok(0..=99));
+        assert_matches!(create_range(0, 100, None, None), Ok(range) if range == RangeInclusive::new(0, 99));
 
         // From 100, we want 100 items.
-        assert_eq!(create_range(100, 100, None, None), Ok(100..=199));
+        assert_matches!(create_range(100, 100, None, None), Ok(range) if range == RangeInclusive::new(100, 199));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
-        assert_eq!(create_range(0, 100, Some(50), None), Ok(0..=49));
+        assert_matches!(create_range(0, 100, Some(50), None), Ok(range) if range == RangeInclusive::new(0, 49));
 
         // From 49, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, Some(50), None), Ok(49..=49));
+        assert_matches!(create_range(49, 100, Some(50), None), Ok(range) if range == RangeInclusive::new(49, 49));
 
         // From 50, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50.
-        assert_eq!(
+        assert_matches!(
             create_range(50, 100, Some(50), None),
             Err(Error::InvalidRange { start: 50, end: 49 })
         );
 
         // From 0, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
-        assert_eq!(create_range(0, 100, None, Some(50)), Ok(0..=49));
+        assert_matches!(create_range(0, 100, None, Some(50)), Ok(range) if range == RangeInclusive::new(0, 49));
 
         // From 49, we want 100 items, but there is a maximum number of rooms defined at
         // 50. There is 1 item to load.
-        assert_eq!(create_range(49, 100, None, Some(50)), Ok(49..=49));
+        assert_matches!(create_range(49, 100, None, Some(50)), Ok(range) if range == RangeInclusive::new(49, 49));
 
         // From 50, we want 100 items, but there is a maximum number of rooms defined at
         // 50.
-        assert_eq!(
+        assert_matches!(
             create_range(50, 100, None, Some(50)),
             Err(Error::InvalidRange { start: 50, end: 49 })
         );
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 75, and a maximum number of rooms defined at 50.
-        assert_eq!(create_range(0, 100, Some(75), Some(50)), Ok(0..=49));
+        assert_matches!(create_range(0, 100, Some(75), Some(50)), Ok(range) if range == RangeInclusive::new(0, 49));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to fetch
         // defined at 50, and a maximum number of rooms defined at 75.
-        assert_eq!(create_range(0, 100, Some(50), Some(75)), Ok(0..=49));
+        assert_matches!(create_range(0, 100, Some(50), Some(75)), Ok(range) if range == RangeInclusive::new(0, 49));
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod error;
 mod list;
 mod room;
 mod sticky_parameters;
+mod utils;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -52,6 +53,7 @@ use tokio::{
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
+use utils::JoinHandleExt as _;
 
 use self::{
     cache::restore_sliding_sync_state,
@@ -483,21 +485,51 @@ impl SlidingSync {
             if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
                 debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
-                let (e2ee_uploads, response) =
-                    futures_util::future::join(self.inner.client.send_outgoing_requests(), request)
-                        .await;
+                // Here, we need to run 2 things:
+                //
+                // 1. Send the sliding sync request and get a response,
+                // 2. Send the E2EE requests.
+                //
+                // We don't want to use a `join` or `try_join` because we want to fail if and
+                // only if sending the sliding sync request fails. Failing to send the E2EE
+                // requests should just result in a log.
+                //
+                // We also want to give the priority to sliding sync request. E2EE requests are
+                // sent concurrently to the sliding sync request, but the priority is on waiting
+                // a sliding sync response.
+                //
+                // If sending sliding sync request fails, the sending of E2EE requests must be
+                // aborted as soon as possible.
 
-                if let Err(error) = e2ee_uploads {
-                    error!(?error, "Error while sending outgoing E2EE requests");
-                }
+                let client = self.inner.client.clone();
+                let e2ee_uploads = spawn(async move {
+                    if let Err(error) = client.send_outgoing_requests().await {
+                        error!(?error, "Error while sending outoging E2EE requests");
+                    }
+                })
+                // Ensure that the task is not running in detached mode. It is aborted when it's
+                // dropped.
+                .abort_on_drop();
+
+                // Wait on the sliding sync request success or failure early.
+                let response = request.await?;
+
+                // At this point, if `request` has been resolved successfully, we wait on
+                // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
+                // long. Otherwise —if `request` has failed— `e2ee_uploads` has
+                // been dropped, so aborted.
+                e2ee_uploads.await.map_err(|error| Error::JoinError {
+                    task_description: "e2ee_uploads".to_owned(),
+                    error,
+                })?;
 
                 response
             } else {
                 debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
 
-                request.await
+                request.await?
             }
-        }?;
+        };
 
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
