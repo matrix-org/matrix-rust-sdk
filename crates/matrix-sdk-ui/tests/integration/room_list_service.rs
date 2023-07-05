@@ -248,7 +248,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "0",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 200,
+                    "count": 1000,
                     "ops": [
                         // let's ignore them for now
                     ],
@@ -269,7 +269,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [
-                        [0, 49],
+                        [0, 199],
                     ],
                 },
                 VISIBLE_ROOMS: {
@@ -312,7 +312,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 200,
+                    "count": 1000,
                     "ops": [
                         // let's ignore them for now
                     ],
@@ -339,7 +339,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 399]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
@@ -353,7 +353,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 200,
+                    "count": 1000,
                     "ops": [
                         // let's ignore them for now
                     ],
@@ -380,7 +380,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 149]],
+                    "ranges": [[0, 599]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
@@ -394,7 +394,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 200,
+                    "count": 1000,
                     "ops": [
                         // let's ignore them for now
                     ],
@@ -421,7 +421,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 199]],
+                    "ranges": [[0, 799]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
@@ -435,7 +435,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 200,
+                    "count": 1000,
                     "ops": [
                         // let's ignore them for now
                     ],
@@ -626,7 +626,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 410,
                 },
             },
             "rooms": {},
@@ -643,7 +643,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `SettingUp`, the sync-mode has changed to growing, with
                     // its initial range.
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     // Hello new list.
@@ -680,7 +680,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `Running`, the sync-mode is still growing, but the range
                     // hasn't been modified due to previous error.
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
@@ -696,7 +696,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 410,
                 },
                 INVITES: {
                     "count": 3,
@@ -716,7 +716,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `Running`, the sync-mode is still growing, and the range
                     // has made progress.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 399]],
                 },
                 VISIBLE_ROOMS: {
                     // Despites the error, the range is kept.
@@ -749,7 +749,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     // Due to the error, the range is reset to its initial value.
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     // Despites the error, the range is kept.
@@ -765,7 +765,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "pos": "3",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 410,
                 },
                 INVITES: {
                     "count": 0,
@@ -784,7 +784,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     // No error. The range is making progress.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 399]],
                 },
                 VISIBLE_ROOMS: {
                     // No error. The range is still here.
@@ -800,7 +800,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "pos": "4",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 410,
                 },
             },
             "rooms": {},
@@ -817,7 +817,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // Range is making progress and is even reaching the maximum
                     // number of rooms.
-                    "ranges": [[0, 109]],
+                    "ranges": [[0, 409]],
                 },
                 VISIBLE_ROOMS: {
                     // The range is still here.
@@ -852,7 +852,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     // An error was received at the previous sync iteration.
                     // The list is still in growing sync-mode, but its range has
                     // been reset.
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     // The range is still here.
@@ -868,7 +868,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             "pos": "5",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 410,
                 },
             },
             "rooms": {},
@@ -905,7 +905,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
             },
             "rooms": {},
@@ -929,7 +929,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `SettingUp`, the sync-mode has changed to growing, with
                     // its initial range.
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     // Hello new list.
@@ -945,7 +945,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
             },
             "rooms": {},
@@ -972,7 +972,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `Running`, the sync-mode is still growing, the previous termination
                     // didn't restart the whole growing.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 399]],
                 },
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
@@ -988,7 +988,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
                 INVITES: {
                     "count": 3,
@@ -1015,7 +1015,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // In `Running`, the sync-mode is still growing, the previous termination
                     // didn't restart the whole growing.
-                    "ranges": [[0, 109]],
+                    "ranges": [[0, 599]],
                 },
                 VISIBLE_ROOMS: {
                     // Despites the termination, the range is kept.
@@ -1031,7 +1031,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "3",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
                 INVITES: {
                     "count": 0,
@@ -1050,7 +1050,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     // No termination.
-                    "ranges": [[0, 109]],
+                    "ranges": [[0, 799]],
                 },
                 VISIBLE_ROOMS: {
                     // No termination. The range is still here.
@@ -1066,7 +1066,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "4",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
             },
             "rooms": {},
@@ -1090,7 +1090,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 ALL_ROOMS: {
                     // The termination doesn't invalidate the range, we're still in the stable
                     // state.
-                    "ranges": [[0, 109]],
+                    "ranges": [[0, 999]],
                 },
                 VISIBLE_ROOMS: {
                     // The range is still here.
@@ -1106,7 +1106,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "5",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 110,
+                    "count": 1000,
                 },
             },
             "rooms": {},
@@ -2177,7 +2177,7 @@ async fn test_input_viewport() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
@@ -2214,7 +2214,7 @@ async fn test_input_viewport() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 49]],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[10, 15], [20, 25]],
