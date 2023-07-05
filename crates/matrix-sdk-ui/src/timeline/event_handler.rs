@@ -46,10 +46,11 @@ use super::{
         EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
         RemoteEventTimelineItem,
     },
-    find_read_marker, new_timeline_item,
+    find_read_marker,
+    item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, timeline_item, EventTimelineItem, Message, OtherState,
-    ReactionGroup, Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
+    Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
 use crate::{events::SyncTimelineEventWithoutContent, timeline::event_item::ReactionSenderData};
