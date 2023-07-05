@@ -860,7 +860,20 @@ impl<'a> TimelineEventHandler<'a> {
 
                 // Insert the next item after the latest non-failed event item,
                 // or at the start if there is no such item.
-                let mut insert_idx = latest_nonfailed_event_idx.map_or(0, |idx| idx + 1);
+                let mut insert_idx = latest_nonfailed_event_idx.map_or_else(
+                    || {
+                        // If no event is found, check for a loading indicator
+                        // (or timeline start) and insert after if it exists.
+                        match self.items.front().and_then(|item| item.as_virtual()) {
+                            Some(
+                                VirtualTimelineItem::LoadingIndicator
+                                | VirtualTimelineItem::TimelineStart,
+                            ) => 1,
+                            _ => 0,
+                        }
+                    },
+                    |idx| idx + 1,
+                );
 
                 // Keep push semantics, if we're inserting at the end.
                 let should_push = insert_idx == self.items.len();
