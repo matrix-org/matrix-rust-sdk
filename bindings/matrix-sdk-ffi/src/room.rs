@@ -23,7 +23,7 @@ use matrix_sdk::{
     },
     RoomMemberships,
 };
-use matrix_sdk_ui::timeline::{RoomExt, Timeline};
+use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
 use tokio::{
     sync::{Mutex, RwLock},
@@ -238,7 +238,6 @@ impl Room {
             .await
             .get_or_insert_with(|| {
                 let room = self.inner.clone();
-                #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
                 let timeline = RUNTIME.block_on(room.timeline());
                 Arc::new(timeline)
             })
@@ -258,6 +257,27 @@ impl Room {
             items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
             items_stream: Arc::new(timeline_stream),
         }
+    }
+
+    pub fn subscribe_to_back_pagination_state(
+        &self,
+        listener: Box<dyn BackPaginationStatusListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let mut subscriber = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => t.back_pagination_status(),
+            None => {
+                return Err(anyhow!(
+                    "Timeline not set up, can't subscribe to back-pagination status"
+                )
+                .into());
+            }
+        };
+
+        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while let Some(status) = subscriber.next().await {
+                listener.on_update(status);
+            }
+        }))))
     }
 
     /// Loads older messages into the timeline.
@@ -961,6 +981,11 @@ impl SendAttachmentJoinHandle {
 pub struct RoomTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub items_stream: Arc<TaskHandle>,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait BackPaginationStatusListener: Sync + Send {
+    fn on_update(&self, status: BackPaginationStatus);
 }
 
 #[derive(uniffi::Enum)]

@@ -690,34 +690,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .await
     }
 
-    #[instrument(skip_all)]
-    pub(super) async fn add_loading_indicator(&self) {
-        let mut state = self.state.lock().await;
-
-        if state.items.front().is_some_and(|item| item.is_loading_indicator()) {
-            warn!("There is already a loading indicator");
-            return;
-        }
-
-        state.items.push_front(Arc::new(TimelineItem::loading_indicator()));
-    }
-
-    #[instrument(skip(self))]
-    pub(super) async fn remove_loading_indicator(&self, more_messages: bool) {
-        let mut state = self.state.lock().await;
-
-        if !state.items.front().is_some_and(|item| item.is_loading_indicator()) {
-            warn!("There is no loading indicator");
-            return;
-        }
-
-        if more_messages {
-            state.items.pop_front();
-        } else {
-            state.items.set(0, Arc::new(TimelineItem::timeline_start()));
-        }
-    }
-
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
         self.state.lock().await.set_fully_read_event(fully_read_event_id)
     }

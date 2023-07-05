@@ -63,3 +63,9 @@ enum EventItemOrigin {
     "Sync",
     "Pagination",
 };
+
+enum BackPaginationStatus {
+    "Idle",
+    "Paginating",
+    "TimelineStartReached",
+};
