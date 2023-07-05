@@ -34,7 +34,7 @@ futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
-itertools = "0.10.5"
+itertools = "0.11.0"
 ruma = { git = "https://github.com/ruma/ruma", rev = "5fde57460aaa71e16ac68f79376843089f9c3dfc", features = ["client-api-c", "compat-user-id"] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "5fde57460aaa71e16ac68f79376843089f9c3dfc" }
 once_cell = "1.16.0"
