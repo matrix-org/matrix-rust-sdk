@@ -25,7 +25,7 @@ use tracing::{error, warn};
 
 use super::{
     compare_events_positions, event_item::EventTimelineItemKind, inner::TimelineInnerState,
-    rfind_event_by_id, timeline_item, traits::RoomDataProvider, EventTimelineItem,
+    item::timeline_item, rfind_event_by_id, traits::RoomDataProvider, EventTimelineItem,
     RelativePosition, TimelineItem,
 };
 

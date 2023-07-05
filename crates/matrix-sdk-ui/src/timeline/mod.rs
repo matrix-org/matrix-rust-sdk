@@ -53,6 +53,7 @@ mod event_handler;
 mod event_item;
 mod futures;
 mod inner;
+mod item;
 mod pagination;
 mod queue;
 mod reactions;
@@ -77,6 +78,7 @@ pub use self::{
         TimelineDetails, TimelineItemContent,
     },
     futures::SendAttachment,
+    item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
@@ -707,110 +709,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
     ) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
     }
-}
-
-#[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum TimelineItemKind {
-    /// An event or aggregation of multiple events.
-    Event(EventTimelineItem),
-    /// An item that doesn't correspond to an event, for example the user's own
-    /// read marker.
-    Virtual(VirtualTimelineItem),
-}
-
-/// A single entry in timeline.
-#[derive(Clone, Debug)]
-pub struct TimelineItem {
-    kind: TimelineItemKind,
-    internal_id: u64,
-}
-
-impl TimelineItem {
-    pub(crate) fn with_kind(&self, kind: impl Into<TimelineItemKind>) -> Arc<Self> {
-        Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
-    }
-
-    /// Get the inner `EventTimelineItem`, if this is a
-    /// `TimelineItemKind::Event`.
-    pub fn as_event(&self) -> Option<&EventTimelineItem> {
-        match &self.kind {
-            TimelineItemKind::Event(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Get the inner `VirtualTimelineItem`, if this is a
-    /// `TimelineItemKind::Virtual`.
-    pub fn as_virtual(&self) -> Option<&VirtualTimelineItem> {
-        match &self.kind {
-            TimelineItemKind::Virtual(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Get a unique ID for this timeline item.
-    ///
-    /// It identifies the item on a best-effort basis. For instance, edits to an
-    /// [`EventTimelineItem`] will not change the ID of the enclosing
-    /// `TimelineItem`. For some virtual items like day dividers, identity isn't
-    /// easy to define though and you might see a new ID getting generated for a
-    /// day divider that you perceive to be "the same" as a previous one.
-    pub fn unique_id(&self) -> u64 {
-        self.internal_id
-    }
-
-    fn read_marker() -> Arc<TimelineItem> {
-        Arc::new(Self {
-            kind: TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker),
-            internal_id: u64::MAX,
-        })
-    }
-
-    fn is_virtual(&self) -> bool {
-        matches!(self.kind, TimelineItemKind::Virtual(_))
-    }
-
-    fn is_day_divider(&self) -> bool {
-        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)))
-    }
-
-    fn is_read_marker(&self) -> bool {
-        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker))
-    }
-}
-
-impl Deref for TimelineItem {
-    type Target = TimelineItemKind;
-
-    fn deref(&self) -> &Self::Target {
-        &self.kind
-    }
-}
-
-impl From<EventTimelineItem> for TimelineItemKind {
-    fn from(item: EventTimelineItem) -> Self {
-        Self::Event(item)
-    }
-}
-
-impl From<VirtualTimelineItem> for TimelineItemKind {
-    fn from(item: VirtualTimelineItem) -> Self {
-        Self::Virtual(item)
-    }
-}
-
-fn timeline_item(kind: impl Into<TimelineItemKind>, internal_id: u64) -> Arc<TimelineItem> {
-    Arc::new(TimelineItem { kind: kind.into(), internal_id })
-}
-
-fn new_timeline_item(
-    kind: impl Into<TimelineItemKind>,
-    next_internal_id: &mut u64,
-) -> Arc<TimelineItem> {
-    let internal_id = *next_internal_id;
-    *next_internal_id += 1;
-    timeline_item(kind, internal_id)
 }
 
 struct EventTimelineItemWithId<'a> {
