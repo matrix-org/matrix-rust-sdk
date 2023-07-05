@@ -12,7 +12,7 @@ use tokio::task::{JoinError, JoinHandle};
 pub(crate) struct AbortOnDrop<T>(JoinHandle<T>);
 
 impl<T> AbortOnDrop<T> {
-    pub fn new(join_handle: JoinHandle<T>) -> Self {
+    fn new(join_handle: JoinHandle<T>) -> Self {
         Self(join_handle)
     }
 }

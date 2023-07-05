@@ -485,16 +485,21 @@ impl SlidingSync {
             if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
                 debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
-                // If the sliding sync request fails faster than the e2ee requests get their
-                // responses, we want to fail as early as possible, so as to invalidate the
-                // sliding sync session as early as possible.
+                // Here, we need to run 2 things:
                 //
-                // Also, we don't want an interruption in the sliding sync request to abort
-                // processing of the e2ee response.
+                // 1. Send the sliding sync request and get a response,
+                // 2. Send the E2EE requests.
                 //
-                // For those reasons, start the e2ee requests in a background task. If this is
-                // aborted while everything is running, the same data might be sent later, which
-                // is fine.
+                // We don't want to use a `join` or `try_join` because we want to fail if and
+                // only if sending the sliding sync request fails. Failing to send the E2EE
+                // requests should just result in a log.
+                //
+                // We also want to give the priority to sliding sync request. E2EE requests are
+                // sent concurrently to the sliding sync request, but the priority is on waiting
+                // a sliding sync response.
+                //
+                // If sending sliding sync request fails, the sending of E2EE requests must be
+                // aborted as soon as possible.
 
                 let client = self.inner.client.clone();
                 let e2ee_uploads = spawn(async move {
@@ -513,7 +518,10 @@ impl SlidingSync {
                 // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
                 // long. Otherwise —if `request` has failed— `e2ee_uploads` has
                 // been dropped, so aborted.
-                e2ee_uploads.await.map_err(|_| Error::JoinError("e2ee_uploads".to_string()))?;
+                e2ee_uploads.await.map_err(|error| Error::JoinError {
+                    task_description: "e2ee_uploads".to_owned(),
+                    error,
+                })?;
 
                 response
             } else {
