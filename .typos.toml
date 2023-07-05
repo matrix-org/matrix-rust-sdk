@@ -13,6 +13,9 @@ extend-ignore-re = [
     "\\b[a-z0-9+/=][A-Za-z0-9+/=]{7,}[a-z0-9+/=][A-Z]\\b",
 ]
 
+[default.extend-identifiers]
+WeeChat = "WeeChat"
+
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
 # automatically ignored, we ignore them here.
