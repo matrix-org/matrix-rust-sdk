@@ -2,16 +2,19 @@ use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use ruma::RoomId;
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::{
+            v4::RoomSubscription as RumaRoomSubscription,
+            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        },
+        assign, RoomId,
+    },
+    RoomListEntry as MatrixRoomListEntry,
+};
 use tokio::sync::RwLock;
 
-use crate::{
-    client::Client,
-    room::Room,
-    sliding_sync::{RoomListEntry, RoomSubscription, UnreadNotificationsCount},
-    timeline::EventTimelineItem,
-    TaskHandle, RUNTIME,
-};
+use crate::{client::Client, room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
 
 #[uniffi::export]
 impl Client {
@@ -382,5 +385,87 @@ impl RoomListItem {
 
     fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
         Arc::new(self.inner.unread_notifications().into())
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum RoomListEntry {
+    Empty,
+    Invalidated { room_id: String },
+    Filled { room_id: String },
+}
+
+impl From<MatrixRoomListEntry> for RoomListEntry {
+    fn from(value: MatrixRoomListEntry) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<&MatrixRoomListEntry> for RoomListEntry {
+    fn from(value: &MatrixRoomListEntry) -> Self {
+        match value {
+            MatrixRoomListEntry::Empty => Self::Empty,
+            MatrixRoomListEntry::Filled(room_id) => Self::Filled { room_id: room_id.to_string() },
+            MatrixRoomListEntry::Invalidated(room_id) => {
+                Self::Invalidated { room_id: room_id.to_string() }
+            }
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RequiredState {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomSubscription {
+    pub required_state: Option<Vec<RequiredState>>,
+    pub timeline_limit: Option<u32>,
+}
+
+impl From<RoomSubscription> for RumaRoomSubscription {
+    fn from(val: RoomSubscription) -> Self {
+        assign!(RumaRoomSubscription::default(), {
+            required_state: val.required_state.map(|r|
+                r.into_iter().map(|s| (s.key.into(), s.value)).collect()
+            ).unwrap_or_default(),
+            timeline_limit: val.timeline_limit.map(|u| u.into())
+        })
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct UnreadNotificationsCount {
+    highlight_count: u32,
+    notification_count: u32,
+}
+
+#[uniffi::export]
+impl UnreadNotificationsCount {
+    pub fn highlight_count(&self) -> u32 {
+        self.highlight_count
+    }
+    pub fn notification_count(&self) -> u32 {
+        self.notification_count
+    }
+    pub fn has_notifications(&self) -> bool {
+        self.notification_count != 0 || self.highlight_count != 0
+    }
+}
+
+impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
+    fn from(inner: RumaUnreadNotificationsCount) -> Self {
+        UnreadNotificationsCount {
+            highlight_count: inner
+                .highlight_count
+                .and_then(|x| x.try_into().ok())
+                .unwrap_or_default(),
+            notification_count: inner
+                .notification_count
+                .and_then(|x| x.try_into().ok())
+                .unwrap_or_default(),
+        }
     }
 }
