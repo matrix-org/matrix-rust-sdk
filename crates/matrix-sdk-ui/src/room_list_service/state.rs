@@ -59,35 +59,33 @@ impl State {
             Init => (SettingUp, Actions::none()),
             SettingUp => (Running, Actions::first_rooms_are_loaded()),
             Running => (Running, Actions::none()),
+
             // If the state was `Error` or `Terminated`, the next state is calculated again, because
             // it means the sync has been restarted. In this case, let's jump back on
-            // the previous state that led to the termination. No action is required in
-            // this scenario.
-            Error { from: previous_state } | Terminated { from: previous_state } => {
-                match previous_state.as_ref() {
-                    state @ Init | state @ SettingUp => {
-                        // Do nothing.
-                        (state.to_owned(), Actions::none())
-                    }
-
-                    Running => {
-                        // Refresh the lists only if our sync ran into an error (in particular,
-                        // when the session was invalidated by the server). Otherwise, keep on
-                        // iterating on the previous list.
-                        if matches!(self, Error { .. }) {
-                            (Running, Actions::refresh_lists())
-                        } else {
-                            (Running, Actions::none())
-                        }
-                    }
-
-                    Error { .. } | Terminated { .. } => {
-                        // Having `Error { from: Error { .. } }` or `Terminated { from: Terminated {
-                        // … } }` is not allowed.
-                        unreachable!("It's impossible to reach `Error` from `Error`, or `Terminated` from `Terminated`");
-                    }
+            // the previous state that led to the termination.
+            Terminated { from: previous_state } => match previous_state.as_ref() {
+                // Unreachable state.
+                Error { .. } | Terminated { .. } => {
+                    unreachable!(
+                        "It's impossible to reach `Error` or `Terminated` from `Terminated`"
+                    );
                 }
-            }
+
+                // Do nothing.
+                state => (state.to_owned(), Actions::none()),
+            },
+            Error { from: previous_state } => match previous_state.as_ref() {
+                // Unreachable state.
+                Error { .. } | Terminated { .. } => {
+                    unreachable!("It's impossible to reach `Error` or `Terminated` from `Error`");
+                }
+
+                // Refresh the lists.
+                Running => (Running, Actions::refresh_lists()),
+
+                // Do nothing.
+                state => (state.to_owned(), Actions::none()),
+            },
         };
 
         for action in actions.iter() {
@@ -135,7 +133,7 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(50));
+                list.set_sync_mode(SlidingSyncMode::new_growing(200));
 
                 ready(())
             })
@@ -354,7 +352,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 50, .. }
+                    SlidingSyncMode::Growing { batch_size: 200, .. }
                 )))
                 .await,
             Some(true)
