@@ -8,11 +8,10 @@ members = [
     "crates/*",
     "testing/*",
     "examples/*",
-    "labs/*",
     "uniffi-bindgen",
     "xtask",
 ]
-# xtask, labs, testing and the bindings should only be built when invoked explicitly.
+# xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
