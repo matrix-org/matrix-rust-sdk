@@ -39,4 +39,8 @@ pub enum Error {
     /// The name of the Sliding Sync instance is too long.
     #[error("The Sliding Sync instance's identifier must be less than 16 chars long")]
     InvalidSlidingSyncIdentifier,
+
+    /// A task failed to execute to completion.
+    #[error("A task failed to execute to completion; task description: {0}")]
+    JoinError(String),
 }

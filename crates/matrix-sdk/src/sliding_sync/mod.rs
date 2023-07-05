@@ -22,6 +22,7 @@ mod error;
 mod list;
 mod room;
 mod sticky_parameters;
+mod utils;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -52,6 +53,7 @@ use tokio::{
 };
 use tracing::{debug, error, instrument, warn, Instrument, Span};
 use url::Url;
+use utils::JoinHandleExt as _;
 
 use self::{
     cache::restore_sliding_sync_state,
@@ -490,18 +492,28 @@ impl SlidingSync {
                 // Also, we don't want an interruption in the sliding sync request to abort
                 // processing of the e2ee response.
                 //
-                // For those reasons, start the e2ee requests in a background task.
+                // For those reasons, start the e2ee requests in a background task. If this is
+                // aborted while everything is running, the same data might be sent later, which
+                // is fine.
 
                 let client = self.inner.client.clone();
-                let e2ee_uploads = spawn(async move { client.send_outgoing_requests().await });
+                let e2ee_uploads = spawn(async move {
+                    if let Err(error) = client.send_outgoing_requests().await {
+                        error!(?error, "Error while sending outoging E2EE requests");
+                    }
+                })
+                // Ensure that the task is not running in detached mode. It is aborted when it's
+                // dropped.
+                .abort_on_drop();
 
                 // Wait on the sliding sync request success or failure early.
                 let response = request.await?;
 
-                // Then only log the e2ee response, if needs be.
-                if let Err(error) = e2ee_uploads.await {
-                    error!(?error, "Error while sending outgoing E2EE requests");
-                }
+                // At this point, if `request` has been resolved successfully, we wait on
+                // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
+                // long. Otherwise —if `request` has failed— `e2ee_uploads` has
+                // been dropped, so aborted.
+                e2ee_uploads.await.map_err(|_| Error::JoinError("e2ee_uploads".to_string()))?;
 
                 response
             } else {
