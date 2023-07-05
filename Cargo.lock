@@ -567,9 +567,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.3.2"
+version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dbe3c979c178231552ecba20214a8272df4e09f232a87aef4320cf06539aded"
+checksum = "630be753d4e58660abd17930c71b647fe46c27ea6b63cc59e1e3851406972e42"
 
 [[package]]
 name = "bitmaps"
@@ -2592,7 +2592,7 @@ dependencies = [
  "assert_matches",
  "assign",
  "async-trait",
- "bitflags 2.3.2",
+ "bitflags 2.3.3",
  "ctor",
  "dashmap",
  "eyeball",
@@ -3064,7 +3064,7 @@ version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ede2d12cd6fce44da537a4be1f5510c73be2506c2e32dfaaafd1f36968f3a0e"
 dependencies = [
- "bitflags 2.3.2",
+ "bitflags 2.3.3",
  "ctor",
  "napi-derive",
  "napi-sys",
