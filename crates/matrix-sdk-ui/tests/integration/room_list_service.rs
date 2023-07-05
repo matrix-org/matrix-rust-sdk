@@ -970,9 +970,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // In `Running`, the sync-mode is still growing, but the range
-                    // hasn't been modified due to previous termination.
-                    "ranges": [[0, 49]],
+                    // In `Running`, the sync-mode is still growing, the previous termination
+                    // didn't restart the whole growing.
+                    "ranges": [[0, 99]],
                 },
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
@@ -1013,9 +1013,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // In `Running`, the sync-mode is still growing, but the range
-                    // hasn't been modified due to the previous termination.
-                    "ranges": [[0, 49]],
+                    // In `Running`, the sync-mode is still growing, the previous termination
+                    // didn't restart the whole growing.
+                    "ranges": [[0, 109]],
                 },
                 VISIBLE_ROOMS: {
                     // Despites the termination, the range is kept.
@@ -1049,8 +1049,8 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // No termination. The range is making progress.
-                    "ranges": [[0, 99]],
+                    // No termination.
+                    "ranges": [[0, 109]],
                 },
                 VISIBLE_ROOMS: {
                     // No termination. The range is still here.
@@ -1088,10 +1088,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // A termination was received at the previous sync iteration.
-                    // The list is still in growing sync-mode, but its range has
-                    // been reset.
-                    "ranges": [[0, 49]],
+                    // The termination doesn't invalidate the range, we're still in the stable
+                    // state.
+                    "ranges": [[0, 109]],
                 },
                 VISIBLE_ROOMS: {
                     // The range is still here.

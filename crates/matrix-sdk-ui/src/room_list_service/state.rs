@@ -71,8 +71,14 @@ impl State {
                     }
 
                     Running => {
-                        // Refresh the lists.
-                        (Running, Actions::refresh_lists())
+                        // Refresh the lists only if our sync ran into an error (in particular,
+                        // when the session was invalidated by the server). Otherwise, keep on
+                        // iterating on the previous list.
+                        if matches!(self, Error { .. }) {
+                            (Running, Actions::refresh_lists())
+                        } else {
+                            (Running, Actions::none())
+                        }
                     }
 
                     Error { .. } | Terminated { .. } => {
