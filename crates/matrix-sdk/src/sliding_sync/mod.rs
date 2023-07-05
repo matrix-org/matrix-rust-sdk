@@ -783,10 +783,8 @@ impl StickyData for SlidingSyncStickyParameters {
     type Request = v4::Request;
 
     fn apply(&self, request: &mut Self::Request) {
-        assign!(request, {
-            room_subscriptions: self.room_subscriptions.clone(),
-            extensions: self.extensions.clone(),
-        });
+        request.room_subscriptions = self.room_subscriptions.clone();
+        request.extensions = self.extensions.clone();
     }
 }
 
