@@ -1,14 +1,12 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context};
-use eyeball::SharedObservable;
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     room::Room as SdkRoom,
     ruma::{
         api::client::{
             account::whoami,
-            error::ErrorKind,
             media::get_content_thumbnail::v3::Method,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
@@ -24,7 +22,7 @@ use matrix_sdk::{
         serde::Raw,
         EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
-    Client as MatrixClient, Error, LoopCtrl,
+    Client as MatrixClient,
 };
 use ruma::{
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
@@ -32,7 +30,7 @@ use ruma::{
 };
 use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
@@ -135,7 +133,6 @@ pub struct Client {
     notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
-    pub(crate) sliding_sync_reset_broadcast_tx: Arc<SharedObservable<()>>,
 }
 
 impl Client {
@@ -161,7 +158,6 @@ impl Client {
             delegate: Arc::new(RwLock::new(None)),
             notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
-            sliding_sync_reset_broadcast_tx: Default::default(),
         };
 
         let mut unknown_token_error_receiver = client.inner.subscribe_to_unknown_token_errors();
@@ -674,21 +670,6 @@ impl From<&search_users::v3::User> for UserProfile {
 }
 
 impl Client {
-    /// Process a sync error and return loop control accordingly
-    pub(crate) fn process_sync_error(&self, sync_error: Error) -> LoopCtrl {
-        let client_api_error_kind = sync_error.client_api_error_kind();
-        match client_api_error_kind {
-            Some(ErrorKind::UnknownPos) => {
-                self.sliding_sync_reset_broadcast_tx.set(());
-                LoopCtrl::Continue
-            }
-            _ => {
-                warn!("Ignoring sync error: {sync_error:?}");
-                LoopCtrl::Continue
-            }
-        }
-    }
-
     fn process_unknown_token_error(&self, unknown_token: matrix_sdk::UnknownToken) {
         if let Some(delegate) = &*self.delegate.read().unwrap() {
             delegate.did_receive_auth_error(unknown_token.soft_logout);
