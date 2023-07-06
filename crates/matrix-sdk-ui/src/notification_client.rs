@@ -59,9 +59,9 @@ impl NotificationClient {
     ) -> Result<Option<NotificationItem>, Error> {
         // TODO(bnjbvr) invites don't have access to the room! Make a separate path to
         // handle those?
-        let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
+        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-        let mut timeline_event = room.event(&event_id).await?;
+        let mut timeline_event = room.event(event_id).await?;
 
         if self.filter_by_push_rules
             && !timeline_event.push_actions.iter().any(|a| a.should_notify())
@@ -102,18 +102,36 @@ impl NotificationClient {
             )
             .await;
 
-            if let Ok(sync) = encryption_sync {
-                if sync.run_fixed_iterations(2).await.is_ok() {
-                    if let Ok(decrypted_event) =
-                        room.decrypt_event(&timeline_event.event.cast_ref()).await
-                    {
-                        timeline_event = decrypted_event;
-                        raw_event = timeline_event
-                            .event
-                            .deserialize()
-                            .map_err(|_| Error::InvalidRumaEvent)?
-                            .into();
+            // Just log out errors, but don't have them abort the notification processing: an
+            // undecrypted notification is still better than no notifications.
+
+            match encryption_sync {
+                Ok(sync) => match sync.run_fixed_iterations(2).await {
+                    Ok(()) => match room.decrypt_event(timeline_event.event.cast_ref()).await {
+                        Ok(decrypted_event) => {
+                            timeline_event = decrypted_event;
+                            raw_event = timeline_event
+                                .event
+                                .deserialize()
+                                .map_err(|_| Error::InvalidRumaEvent)?
+                                .into();
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "error when retrying decryption in get_notification: {err:#}"
+                            );
+                        }
+                    },
+                    Err(err) => {
+                        tracing::warn!(
+                            "error when running encryption_sync in get_notification: {err:#}"
+                        );
                     }
+                },
+                Err(err) => {
+                    tracing::warn!(
+                        "error when building encryption_sync in get_notification: {err:#}",
+                    );
                 }
             }
         }
