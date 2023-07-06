@@ -24,7 +24,10 @@ use ruma::{
 };
 
 use super::Error;
-use crate::{timeline::EventTimelineItem, Timeline};
+use crate::{
+    timeline::{EventTimelineItem, SlidingSyncRoomExt},
+    Timeline,
+};
 
 /// A room in the room list.
 ///
@@ -47,10 +50,6 @@ struct RoomInner {
 
     /// The timeline of the room.
     timeline: AsyncOnceCell<Arc<Timeline>>,
-
-    /// The “sneaky” timeline of the room, i.e. this timeline doesn't track the
-    /// read marker nor the receipts.
-    sneaky_timeline: AsyncOnceCell<Arc<Timeline>>,
 }
 
 impl Room {
@@ -70,7 +69,6 @@ impl Room {
                 sliding_sync_room,
                 room,
                 timeline: AsyncOnceCell::new(),
-                sneaky_timeline: AsyncOnceCell::new(),
             }),
         })
     }
@@ -131,28 +129,14 @@ impl Room {
             .clone()
     }
 
-    /// Get the latest event of the timeline.
+    /// Get the latest event in the timeline, if we already have it cached. Does
+    /// not fetch any events or calculate anything - if it's not already
+    /// available, we return None.
     ///
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner
-            .sneaky_timeline
-            .get_or_init(async {
-                Arc::new(
-                    Timeline::builder(&self.inner.room)
-                        .events(
-                            self.inner.sliding_sync_room.prev_batch(),
-                            self.inner.sliding_sync_room.timeline_queue(),
-                        )
-                        .read_only()
-                        .build()
-                        .await,
-                )
-            })
-            .await
-            .latest_event()
-            .await
+    pub fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.sliding_sync_room.latest_timeline_item()
     }
 
     /// Is there any unread notifications?

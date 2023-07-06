@@ -45,7 +45,7 @@ pub struct SlidingSyncRoom {
 
 impl SlidingSyncRoom {
     /// Create a new `SlidingSyncRoom`.
-    pub(super) fn new(
+    pub fn new(
         client: Client,
         room_id: OwnedRoomId,
         inner: v4::SlidingSyncRoom,
@@ -123,6 +123,11 @@ impl SlidingSyncRoom {
     /// Get a clone of the associated client.
     pub fn client(&self) -> Client {
         self.inner.client.clone()
+    }
+
+    /// Find the latest event in this room
+    pub fn latest_event(&self) -> Option<SyncTimelineEvent> {
+        self.inner.client.get_room(&self.inner.room_id).and_then(|room| room.latest_event())
     }
 
     pub(super) fn update(

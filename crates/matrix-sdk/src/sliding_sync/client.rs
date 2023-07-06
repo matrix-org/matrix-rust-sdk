@@ -14,11 +14,9 @@ impl Client {
         Ok(SlidingSync::builder(id.into(), self.clone())?)
     }
 
+    /// Handle all the information provided in a sliding sync response
     #[instrument(skip(self, response))]
-    pub(crate) async fn process_sliding_sync(
-        &self,
-        response: &v4::Response,
-    ) -> Result<SyncResponse> {
+    pub async fn process_sliding_sync(&self, response: &v4::Response) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
         debug!("done processing on base_client");
         self.handle_sync_response(&response).await?;

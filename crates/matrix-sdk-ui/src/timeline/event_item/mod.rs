@@ -15,13 +15,15 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::EncryptionInfo, Error};
+use matrix_sdk::{deserialized_responses::EncryptionInfo, Error, SlidingSyncRoom};
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedUserId, TransactionId, UserId,
 };
+use tracing::warn;
 
 mod content;
 mod local;
@@ -76,6 +78,69 @@ impl EventTimelineItem {
         kind: EventTimelineItemKind,
     ) -> Self {
         Self { sender, sender_profile, timestamp, content, kind }
+    }
+
+    /// If the supplied low-level SyncTimelineEventy is suitable for use as the
+    /// latest_event in a message preview, wrap it as an EventTimelineItem,
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn from_latest_event(
+        room: &SlidingSyncRoom,
+        sync_event: SyncTimelineEvent,
+    ) -> Option<EventTimelineItem> {
+        let raw_sync_event = sync_event.event;
+
+        let encryption_info = sync_event.encryption_info;
+
+        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+            warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
+            return None;
+        };
+
+        let timestamp = event.origin_server_ts();
+        let sender = event.sender().to_owned();
+        let event_id = event.event_id().to_owned();
+        let is_own = room.client().user_id().map(|uid| uid == sender).unwrap_or(false);
+
+        // If we don't (yet) know how to handle this type of message, return None here.
+        // If we do, convert it into a TimelineItemContent.
+        let item_content = TimelineItemContent::from_latest_event_content(event)?;
+
+        // We don't currently bundle any reactions with the main event. This could
+        // conceivably be wanted in the message preview in future.
+        let reactions = IndexMap::new();
+
+        // The message preview probably never needs read receipts.
+        let read_receipts = IndexMap::new();
+
+        // Being highlighted is _probably_ not relevant to the message preview.
+        let is_highlighted = false;
+
+        // We may need this, depending on how we are going to display edited messages in
+        // previews.
+        let latest_edit_json = None;
+
+        // Probably the origin of the event doesn't matter for the preview.
+        let origin = RemoteEventOrigin::Sync;
+
+        let event_kind = RemoteEventTimelineItem {
+            event_id,
+            reactions,
+            read_receipts,
+            is_own,
+            is_highlighted,
+            encryption_info,
+            original_json: raw_sync_event,
+            latest_edit_json,
+            origin,
+        }
+        .into();
+
+        // If we need to sender profiles in the message previews, we will need to
+        // cache the contents of a Profile struct inside RoomInfo similar to how we
+        // are caching the event at the moment.
+        let sender_profile = TimelineDetails::Unavailable;
+
+        Some(EventTimelineItem::new(sender, sender_profile, timestamp, item_content, event_kind))
     }
 
     /// Check whether this item is a local echo.
@@ -381,4 +446,105 @@ pub enum EventItemOrigin {
     Sync,
     /// The event came from pagination.
     Pagination,
+}
+
+#[cfg(test)]
+mod test {
+    use assert_matches::assert_matches;
+    use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
+    use matrix_sdk_base::{BaseClient, SessionMeta};
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::{client::sync::sync_events::v4, MatrixVersion},
+        device_id,
+        events::room::message::MessageFormat,
+        room_id, user_id, RoomId, UInt,
+    };
+    use serde_json::json;
+
+    use super::*;
+
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn latest_message_event_can_be_wrapped_as_a_timeline_item() {
+        // Given a sync event that is suitable to be used as a latest_event
+
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let room = SlidingSyncRoom::new(
+            logged_in_client(None).await,
+            room_id.to_owned(),
+            v4::SlidingSyncRoom::new(),
+            Vec::new(),
+        );
+
+        // When we construct a timeline event from it
+        let timeline_item = EventTimelineItem::from_latest_event(&room, event).unwrap();
+
+        // Then its properieis correctly translate
+        assert_eq!(timeline_item.sender, user_id);
+        assert_matches!(timeline_item.sender_profile, TimelineDetails::Unavailable);
+        assert_eq!(timeline_item.timestamp.0, UInt::new(122344).unwrap());
+        if let MessageType::Text(txt) = timeline_item.content.as_message().unwrap().msgtype() {
+            assert_eq!(txt.body, "**My M**");
+            let formatted = txt.formatted.as_ref().unwrap();
+            assert_eq!(formatted.format, MessageFormat::Html);
+            assert_eq!(formatted.body, "<b>My M</b>");
+        } else {
+            panic!("Unexpected message type");
+        }
+    }
+
+    fn message_event(
+        room_id: &RoomId,
+        user_id: &UserId,
+        body: &str,
+        formatted_body: &str,
+        ts: u64,
+    ) -> SyncTimelineEvent {
+        SyncTimelineEvent::new(
+            Raw::from_json_string(
+                json!({
+                    "event_id": "$eventid6",
+                    "sender": user_id,
+                    "origin_server_ts": ts,
+                    "type": "m.room.message",
+                    "room_id": room_id.to_string(),
+                    "content": {
+                        "body": body,
+                        "format": "org.matrix.custom.html",
+                        "formatted_body": formatted_body,
+                        "msgtype": "m.text"
+                    },
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+    }
+
+    /// Copied from matrix_sdk_base::sliding_sync::test
+    async fn logged_in_client(homeserver_url: Option<String>) -> Client {
+        let base_client = BaseClient::new();
+        base_client
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@u:e.uk").to_owned(),
+                device_id: device_id!("XYZ").to_owned(),
+            })
+            .await
+            .expect("Failed to set session meta");
+
+        test_client_builder(homeserver_url)
+            .request_config(RequestConfig::new().disable_retry())
+            .base_client(base_client)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
+        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
+        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+    }
 }

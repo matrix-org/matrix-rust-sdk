@@ -2087,7 +2087,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let room = room_list.room(room_id).await?;
 
     // The latest event does not exist.
-    assert!(room.latest_event().await.is_none());
+    assert!(room.latest_event().is_none());
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2107,7 +2107,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     // The latest event exists.
     assert_matches!(
-        room.latest_event().await,
+        room.latest_event(),
         Some(event) => {
             assert_eq!(event.event_id(), Some(event_id!("$x0:bar.org")));
         }
@@ -2131,7 +2131,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     // The latest event has been updated.
     assert_matches!(
-        room.latest_event().await,
+        room.latest_event(),
         Some(event) => {
             assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
         }
