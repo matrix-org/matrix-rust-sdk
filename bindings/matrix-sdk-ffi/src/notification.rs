@@ -89,26 +89,27 @@ impl NotificationClient {
         let room_id = RoomId::parse(room_id)?;
         let event_id = EventId::parse(event_id)?;
         RUNTIME.block_on(async move {
-            let notif = self
+            let item = self
                 .inner
                 .get_notification(&room_id, &event_id)
                 .await
-                .map_err(|err| ClientError::from(err))?;
-            Ok(notif.map(|notif| NotificationItem {
-                event: Arc::new(TimelineEvent(notif.event)),
+                .map_err(ClientError::from)?;
+
+            Ok(item.map(|item| NotificationItem {
+                event: Arc::new(TimelineEvent(item.event)),
                 sender_info: NotificationSenderInfo {
-                    display_name: notif.sender_display_name,
-                    avatar_url: notif.sender_avatar_url,
+                    display_name: item.sender_display_name,
+                    avatar_url: item.sender_avatar_url,
                 },
                 room_info: NotificationRoomInfo {
-                    display_name: notif.room_display_name,
-                    avatar_url: notif.room_avatar_url,
-                    canonical_alias: notif.room_canonical_alias,
-                    joined_members_count: notif.joined_members_count,
-                    is_encrypted: notif.is_room_encrypted,
-                    is_direct: notif.is_direct_message_room,
+                    display_name: item.room_display_name,
+                    avatar_url: item.room_avatar_url,
+                    canonical_alias: item.room_canonical_alias,
+                    joined_members_count: item.joined_members_count,
+                    is_encrypted: item.is_room_encrypted,
+                    is_direct: item.is_direct_message_room,
                 },
-                is_noisy: notif.is_noisy,
+                is_noisy: item.is_noisy,
             }))
         })
     }

@@ -102,8 +102,9 @@ impl NotificationClient {
             )
             .await;
 
-            // Just log out errors, but don't have them abort the notification processing: an
-            // undecrypted notification is still better than no notifications.
+            // Just log out errors, but don't have them abort the notification processing:
+            // an undecrypted notification is still better than no
+            // notifications.
 
             match encryption_sync {
                 Ok(sync) => match sync.run_fixed_iterations(2).await {

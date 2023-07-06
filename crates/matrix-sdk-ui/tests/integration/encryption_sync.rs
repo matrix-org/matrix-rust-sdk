@@ -150,7 +150,7 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
                 "pos": pos_as_str
             }))
         })
-        .mount_as_scoped(&server)
+        .mount_as_scoped(server)
         .await
 }
 

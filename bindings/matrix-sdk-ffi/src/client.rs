@@ -24,21 +24,14 @@ use matrix_sdk::{
     },
     Client as MatrixClient,
 };
-use ruma::{
-    push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    RoomId,
-};
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
 use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{
-    client,
-    notification::{NotificationClientBuilder, NotificationItem},
-    ClientError,
-};
+use crate::{client, notification::NotificationClientBuilder, ClientError};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -106,11 +99,6 @@ pub trait ClientDelegate: Sync + Send {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait NotificationDelegate: Sync + Send {
-    fn did_receive_notification(&self, notification: NotificationItem);
-}
-
-#[uniffi::export(callback_interface)]
 pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
@@ -134,7 +122,6 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
-    notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -160,7 +147,6 @@ impl Client {
         let client = Client {
             inner: sdk_client,
             delegate: Arc::new(RwLock::new(None)),
-            notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
         };
 
