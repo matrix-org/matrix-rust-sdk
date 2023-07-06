@@ -21,25 +21,27 @@ use thiserror::Error;
 
 use crate::encryption_sync::{EncryptionSync, WithLocking};
 
-/// A client specialized for handling push notifications received over the network, for an app.
+/// A client specialized for handling push notifications received over the
+/// network, for an app.
 ///
-/// In particular, it takes care of running a full decryption sync, in case the event in the
-/// notification was impossible to decrypt beforehands.
+/// In particular, it takes care of running a full decryption sync, in case the
+/// event in the notification was impossible to decrypt beforehands.
 pub struct NotificationClient {
     /// SDK client.
     client: Client,
 
-    /// Should we retry decrypting an event, after it was impossible to decrypt on the first
-    /// attempt?
+    /// Should we retry decrypting an event, after it was impossible to decrypt
+    /// on the first attempt?
     retry_decryption: bool,
 
-    /// Should the encryption sync happening in case the notification event was encrypted use a
-    /// cross-process lock?
+    /// Should the encryption sync happening in case the notification event was
+    /// encrypted use a cross-process lock?
     ///
     /// Only meaningful if `retry_decryption` is true.
     with_cross_process_lock: bool,
 
-    /// Should we try to filter out the notification event according to the push rules?
+    /// Should we try to filter out the notification event according to the push
+    /// rules?
     filter_by_push_rules: bool,
 }
 
@@ -55,8 +57,8 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
-        // TODO(bnjbvr) invites don't have access to the room! Make a separate path to handle
-        // those?
+        // TODO(bnjbvr) invites don't have access to the room! Make a separate path to
+        // handle those?
         let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
         let mut timeline_event = room.event(&event_id).await?;
@@ -169,17 +171,20 @@ impl NotificationClientBuilder {
         }
     }
 
-    /// Filter out the notification event according to the push rules present in the event.
+    /// Filter out the notification event according to the push rules present in
+    /// the event.
     pub fn filter_by_push_rules(mut self) -> Self {
         self.filter_by_push_rules = true;
         self
     }
 
-    /// Automatically retry decryption once, if the notification was received encrypted.
+    /// Automatically retry decryption once, if the notification was received
+    /// encrypted.
     ///
-    /// The boolean indicates whether we're making use of a cross-process lock for the
-    /// crypto-store. This should be set to true, if and only if, the notification is received in a
-    /// process that's different from the main app.
+    /// The boolean indicates whether we're making use of a cross-process lock
+    /// for the crypto-store. This should be set to true, if and only if,
+    /// the notification is received in a process that's different from the
+    /// main app.
     pub fn retry_decryption(mut self, with_cross_process_lock: bool) -> Self {
         self.retry_decryption = true;
         self.with_cross_process_lock = with_cross_process_lock;
@@ -221,7 +226,8 @@ pub struct NotificationItem {
     /// Numbers of members who joined the room.
     pub joined_members_count: u64,
 
-    /// Is it a noisy notification? (i.e. does any push action contain a sound action)
+    /// Is it a noisy notification? (i.e. does any push action contain a sound
+    /// action)
     pub is_noisy: bool,
 }
 
