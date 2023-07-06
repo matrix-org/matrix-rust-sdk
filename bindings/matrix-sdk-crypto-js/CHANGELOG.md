@@ -1,4 +1,4 @@
-# Next version
+# v0.1.1
 
 -   Add `verify` method to `Device`.
 
