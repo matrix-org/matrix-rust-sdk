@@ -937,7 +937,9 @@ impl<'a> TimelineEventHandler<'a> {
 
                 for reaction_event_id in reactions {
                     let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
-                    let Some((reaction_sender_data, annotation)) = self.reaction_map.get(&reaction_id) else {
+                    let Some((reaction_sender_data, annotation)) =
+                        self.reaction_map.get(&reaction_id)
+                    else {
                         error!(
                             "inconsistent state: reaction from pending_reactions not in reaction_map"
                         );
