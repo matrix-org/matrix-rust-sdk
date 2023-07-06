@@ -1571,7 +1571,7 @@ where
         Vec::new()
     };
 
-    // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then substract 1 in
+    // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then subtract 1 in
     // case of.
     let maximum_chunk_size = Limit::SQLITE_LIMIT_VARIABLE_NUMBER as i32 - 1;
     let maximum_chunk_size: usize = maximum_chunk_size
