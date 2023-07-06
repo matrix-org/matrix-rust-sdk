@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2023 The Matrix.org Foundation C.I.C..
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,118 +19,143 @@ use matrix_sdk_base::StoreError;
 use ruma::{events::AnySyncTimelineEvent, EventId, RoomId};
 use thiserror::Error;
 
-use crate::encryption_sync::{self, EncryptionSync, WithLocking};
+use crate::encryption_sync::{EncryptionSync, WithLocking};
 
+/// A client specialized for handling push notifications received over the network, for an app.
+///
+/// In particular, it takes care of running a full decryption sync, in case the event in the
+/// notification was impossible to decrypt beforehands.
 pub struct NotificationClient {
+    /// SDK client.
     client: Client,
-    with_cross_process_lock: bool,
+
+    /// Should we retry decrypting an event, after it was impossible to decrypt on the first
+    /// attempt?
     retry_decryption: bool,
+
+    /// Should the encryption sync happening in case the notification event was encrypted use a
+    /// cross-process lock?
+    ///
+    /// Only meaningful if `retry_decryption` is true.
+    with_cross_process_lock: bool,
+
+    /// Should we try to filter out the notification event according to the push rules?
     filter_by_push_rules: bool,
 }
 
 impl NotificationClient {
+    /// Create a new builder for a notification client.
     pub fn builder(client: Client) -> NotificationClientBuilder {
         NotificationClientBuilder::new(client)
     }
 
-    pub async fn get_notification_item(
+    /// Get a full notification, given a room id and event id.
+    pub async fn get_notification(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
+        // TODO(bnjbvr) invites don't have access to the room! Make a separate path to handle
+        // those?
         let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
-        let mut retry_decryption = self.retry_decryption;
+        let mut timeline_event = room.event(&event_id).await?;
 
-        let (ruma_event, event) = loop {
-            let ruma_event = room.event(&event_id).await?;
-            if self.filter_by_push_rules
-                && !ruma_event.push_actions.iter().any(|a| a.should_notify())
-            {
-                return Ok(None);
-            }
+        if self.filter_by_push_rules
+            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
+        {
+            return Ok(None);
+        }
 
-            let event: AnySyncTimelineEvent =
-                ruma_event.event.deserialize().map_err(|_| Error::InvalidRumaEvent)?.into();
+        let mut raw_event: AnySyncTimelineEvent =
+            timeline_event.event.deserialize().map_err(|_| Error::InvalidRumaEvent)?.into();
 
-            let event_type = event.event_type();
+        let event_type = raw_event.event_type();
 
-            let is_still_encrypted =
-                matches!(event_type, ruma::events::TimelineEventType::RoomEncrypted);
+        let is_still_encrypted =
+            matches!(event_type, ruma::events::TimelineEventType::RoomEncrypted);
 
-            #[cfg(feature = "unstable-msc3956")]
-            let is_still_encrypted = is_still_encrypted
-                || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
+        #[cfg(feature = "unstable-msc3956")]
+        let is_still_encrypted =
+            is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
 
-            if is_still_encrypted && retry_decryption {
-                // The message is still encrypted, and the client is configured to retry
-                // decryption.
-                //
-                // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
-                // - the first iteration allows to get SS events as well as send e2ee requests.
-                // - the second one let the SS proxy forward events triggered by the sending of
-                // e2ee requests.
-                //
-                // Keep timeouts small for both, since we might be short on time.
+        if is_still_encrypted && self.retry_decryption {
+            // The message is still encrypted, and the client is configured to retry
+            // decryption.
+            //
+            // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
+            // - the first iteration allows to get SS events as well as send e2ee requests.
+            // - the second one let the SS proxy forward events triggered by the sending of
+            // e2ee requests.
+            //
+            // Keep timeouts small for both, since we might be short on time.
 
-                // Don't iloop retrying decryption another time.
-                retry_decryption = false;
+            let with_locking = WithLocking::from(self.with_cross_process_lock);
 
-                let with_locking = WithLocking::from(self.with_cross_process_lock);
+            let encryption_sync = EncryptionSync::new(
+                "notifications".to_owned(),
+                self.client.clone(),
+                Some((Duration::from_secs(3), Duration::from_secs(1))),
+                with_locking,
+            )
+            .await;
 
-                let encryption_sync = EncryptionSync::new(
-                    "notifications".to_owned(),
-                    self.client.clone(),
-                    Some((Duration::from_secs(3), Duration::from_secs(1))),
-                    with_locking,
-                )
-                .await;
-
-                if let Ok(sync) = encryption_sync {
-                    if sync.run_fixed_iterations(2).await.is_ok() {
-                        continue;
+            if let Ok(sync) = encryption_sync {
+                if sync.run_fixed_iterations(2).await.is_ok() {
+                    if let Ok(decrypted_event) =
+                        room.decrypt_event(&timeline_event.event.cast_ref()).await
+                    {
+                        timeline_event = decrypted_event;
+                        raw_event = timeline_event
+                            .event
+                            .deserialize()
+                            .map_err(|_| Error::InvalidRumaEvent)?
+                            .into();
                     }
                 }
             }
-
-            break (ruma_event, event);
-        };
+        }
 
         let sender = match &room {
             Room::Invited(invited) => invited.invite_details().await?.inviter,
-            _ => room.get_member(event.sender()).await?,
+            _ => room.get_member(raw_event.sender()).await?,
         };
-        let mut sender_display_name = None;
-        let mut sender_avatar_url = None;
-        if let Some(sender) = sender {
-            sender_display_name = sender.display_name().map(|s| s.to_owned());
-            sender_avatar_url = sender.avatar_url().map(|s| s.to_string());
-        }
 
-        let is_noisy = ruma_event.push_actions.iter().any(|a| a.sound().is_some());
+        let (sender_display_name, sender_avatar_url) = match sender {
+            Some(sender) => (
+                sender.display_name().map(|s| s.to_owned()),
+                sender.avatar_url().map(|s| s.to_string()),
+            ),
+            None => (None, None),
+        };
+
+        let is_noisy = timeline_event.push_actions.iter().any(|a| a.sound().is_some());
 
         let item = NotificationItem {
-            event: Arc::new(event),
-            room_id: room.room_id().to_string(),
+            event: Arc::new(raw_event),
             sender_display_name,
             sender_avatar_url,
             room_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
-            is_noisy,
-            is_direct: room.is_direct().await?,
+            is_direct_message_room: room.is_direct().await?,
             is_room_encrypted: room.is_encrypted().await.ok(),
+            joined_members_count: room.joined_members_count(),
+            is_noisy,
         };
 
         Ok(Some(item))
     }
 }
 
+/// Builder for a `NotificationClient`.
+///
+/// Fields have the same meaning as in `NotificationClient`.
 pub struct NotificationClientBuilder {
+    client: Client,
+    retry_decryption: bool,
     with_cross_process_lock: bool,
     filter_by_push_rules: bool,
-    retry_decryption: bool,
-    client: Client,
 }
 
 impl NotificationClientBuilder {
@@ -143,21 +168,24 @@ impl NotificationClientBuilder {
         }
     }
 
-    pub fn with_cross_process_lock(mut self) -> Self {
-        self.with_cross_process_lock = true;
-        self
-    }
-
+    /// Filter out the notification event according to the push rules present in the event.
     pub fn filter_by_push_rules(mut self) -> Self {
         self.filter_by_push_rules = true;
         self
     }
 
-    pub fn retry_decryption(mut self) -> Self {
+    /// Automatically retry decryption once, if the notification was received encrypted.
+    ///
+    /// The boolean indicates whether we're making use of a cross-process lock for the
+    /// crypto-store. This should be set to true, if and only if, the notification is received in a
+    /// process that's different from the main app.
+    pub fn retry_decryption(mut self, with_cross_process_lock: bool) -> Self {
         self.retry_decryption = true;
+        self.with_cross_process_lock = with_cross_process_lock;
         self
     }
 
+    /// Finishes configuring the `NotificationClient`.
     pub fn build(self) -> NotificationClient {
         NotificationClient {
             client: self.client,
@@ -168,36 +196,50 @@ impl NotificationClientBuilder {
     }
 }
 
+/// A notification with its full content.
 pub struct NotificationItem {
+    /// Underlying Ruma event.
+    /// TODO(bnjbvr) can we get rid of this?
     pub event: Arc<AnySyncTimelineEvent>,
-    pub room_id: String,
 
+    /// Display name of the sender.
     pub sender_display_name: Option<String>,
+    /// Avatar URL of the sender.
     pub sender_avatar_url: Option<String>,
 
+    /// Room display name.
     pub room_display_name: String,
+    /// Room avatar URL.
     pub room_avatar_url: Option<String>,
+    /// Room canonical alias.
     pub room_canonical_alias: Option<String>,
-
-    pub is_noisy: bool,
-    pub is_direct: bool,
+    /// Is this room encrypted?
     pub is_room_encrypted: Option<bool>,
+    /// Is this room considered a direct message?
+    pub is_direct_message_room: bool,
+    /// Numbers of members who joined the room.
+    pub joined_members_count: u64,
+
+    /// Is it a noisy notification? (i.e. does any push action contain a sound action)
+    pub is_noisy: bool,
 }
 
+/// An error for the [`NotificationClient`].
 #[derive(Debug, Error)]
 pub enum Error {
+    /// The room associated to this event wasn't found.
     #[error("unknown room for a notification")]
     UnknownRoom,
 
+    /// The Ruma event contained within this notification couldn't be parsed.
     #[error("invalid ruma event")]
     InvalidRumaEvent,
 
+    /// An error forwarded from the client.
     #[error(transparent)]
     SdkError(#[from] matrix_sdk::Error),
 
+    /// An error forwarded from the underlying state store.
     #[error(transparent)]
     StoreError(#[from] StoreError),
-
-    #[error(transparent)]
-    EncryptionSync(#[from] encryption_sync::Error),
 }
