@@ -1571,9 +1571,9 @@ where
         Vec::new()
     };
 
-    // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then subtract 1 in
-    // case of.
-    let maximum_chunk_size = Limit::SQLITE_LIMIT_VARIABLE_NUMBER as i32 - 1;
+    // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then divide by 2 to
+    // let space for more static parameters (not part of `keys_to_chunk`).
+    let maximum_chunk_size = Limit::SQLITE_LIMIT_VARIABLE_NUMBER as i32 / 2;
     let maximum_chunk_size: usize = maximum_chunk_size
         .try_into()
         .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
