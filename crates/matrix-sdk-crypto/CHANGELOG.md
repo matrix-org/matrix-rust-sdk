@@ -1,5 +1,8 @@
 # v0.7.0
 
+- The `OlmMachine::export_cross_signing_keys()` method now returns a `Result`.
+  This removes an `unwrap()` from the codebase.
+
 - Add support for the `hkdf-hmac-sha256.v2` SAS message authentication code.
 
 - Ensure that the correct short authentication strings are used when accepting a

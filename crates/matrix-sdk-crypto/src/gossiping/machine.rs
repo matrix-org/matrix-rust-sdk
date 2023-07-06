@@ -269,7 +269,7 @@ impl GossipMachine {
             }
         };
 
-        let content = if let Some(secret) = self.inner.store.export_secret(secret_name).await {
+        let content = if let Some(secret) = self.inner.store.export_secret(secret_name).await? {
             SecretSendContent::new(event.content.request_id.to_owned(), secret)
         } else {
             info!(?secret_name, "Can't serve a secret request, secret isn't found");

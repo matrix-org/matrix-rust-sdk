@@ -1222,8 +1222,10 @@ impl OlmMachine {
     ///
     /// This method returns `None` if we don't have any private cross signing
     /// keys.
-    pub fn export_cross_signing_keys(&self) -> Option<CrossSigningKeyExport> {
-        self.runtime.block_on(self.inner.export_cross_signing_keys()).map(|e| e.into())
+    pub fn export_cross_signing_keys(
+        &self,
+    ) -> Result<Option<CrossSigningKeyExport>, CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.export_cross_signing_keys())?.map(|e| e.into()))
     }
 
     /// Import our private cross signing keys.
