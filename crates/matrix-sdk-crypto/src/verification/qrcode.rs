@@ -95,13 +95,26 @@ pub enum ScanError {
 #[derive(Debug, Clone)]
 pub enum QrVerificationState {
     /// The QR verification has been started.
+    ///
+    /// We have received the other device's details (from the
+    /// `m.key.verification.request` or `m.key.verification.ready`) and
+    /// established the shared secret, so can
+    /// display the QR code.
+    ///
+    /// Note that despite the name of this state, we have not yet sent or
+    /// received an `m.key.verification.start` message.
     Started,
     /// The QR verification has been scanned by the other side.
     Scanned,
-    /// The scanning of the QR code has been confirmed by us.
+    /// We have confirmed the other side's scan of the QR code.
     Confirmed,
     /// We have successfully scanned the QR code and are able to send a
     /// reciprocation event.
+    ///
+    /// Call `QrVerification::reciprocate` to build the reciprocation message.
+    ///
+    /// Note that, despite the name of this state, we have not necessarily
+    /// yet sent the `m.reciprocate.v1` message.
     Reciprocated,
     /// The verification process has been successfully concluded.
     Done {
@@ -676,11 +689,35 @@ impl QrVerification {
 
 #[derive(Debug, Clone)]
 enum InnerState {
+    /// We have received the other device's details (from the
+    /// `m.key.verification.request` or `m.key.verification.ready`) and
+    /// established the shared secret, so can
+    /// display the QR code.
     Created(QrState<Created>),
+
+    /// The other side has scanned our QR code and sent an
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1` with
+    /// matching shared secret.
     Scanned(QrState<Scanned>),
+
+    /// Our user has confirmed that the other device scanned successfully. We
+    /// have sent an `m.key.verification.done`.
     Confirmed(QrState<Confirmed>),
+
+    /// We have scanned the other side's QR code and are able to send a
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1`.
+    ///
+    /// Call `QrVerification::reciprocate` to build the start message.
+    ///
+    /// Note that, despite the name of this state, we have not necessarily
+    /// yet sent the `m.reciprocate.v1` message.
     Reciprocated(QrState<Reciprocated>),
+
+    /// Verification complete: we have received an `m.key.verification.done`
+    /// from the other side.
     Done(QrState<Done>),
+
+    /// Verification cancelled or failed.
     Cancelled(QrState<Cancelled>),
 }
 
