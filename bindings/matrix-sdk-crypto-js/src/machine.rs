@@ -407,7 +407,7 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         future_to_promise(async move {
-            Ok(me.export_cross_signing_keys().await.map(store::CrossSigningKeyExport::from))
+            Ok(me.export_cross_signing_keys().await?.map(store::CrossSigningKeyExport::from))
         })
     }
 
