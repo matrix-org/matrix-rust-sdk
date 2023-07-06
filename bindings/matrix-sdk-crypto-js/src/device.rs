@@ -198,6 +198,7 @@ impl Device {
     }
 
     /// Mark this device as verified.
+    /// Works only if the device is owned by the current user.
     ///
     /// Returns a signature upload request that needs to be sent out.
     pub fn verify(&self) -> Promise {
