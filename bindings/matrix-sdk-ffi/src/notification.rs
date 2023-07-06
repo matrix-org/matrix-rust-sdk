@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::room::Room;
-use ruma::{
-    api::client::push::get_notifications::v3::Notification, events::AnySyncTimelineEvent,
-    push::Action, EventId,
-};
+use ruma::{events::AnySyncTimelineEvent, EventId};
 
 use crate::event::TimelineEvent;
 
@@ -36,19 +33,6 @@ pub struct NotificationItem {
 }
 
 impl NotificationItem {
-    pub(crate) async fn new_from_notification(
-        notification: Notification,
-        room: Room,
-    ) -> anyhow::Result<Option<Self>> {
-        if !notification.actions.iter().any(|a| a.should_notify()) {
-            return Ok(None);
-        }
-
-        let deserialized_event = notification.event.deserialize()?;
-
-        Self::new(deserialized_event, room, notification.actions).await.map(Some)
-    }
-
     pub(crate) async fn new_from_event_id(
         event_id: &str,
         room: Room,
@@ -62,14 +46,8 @@ impl NotificationItem {
         }
 
         let event: AnySyncTimelineEvent = ruma_event.event.deserialize()?.into();
-        Self::new(event, room, ruma_event.push_actions).await.map(Some)
-    }
+        let actions = ruma_event.push_actions;
 
-    async fn new(
-        event: AnySyncTimelineEvent,
-        room: Room,
-        actions: Vec<Action>,
-    ) -> anyhow::Result<Self> {
         let sender = match &room {
             Room::Invited(invited) => invited.invite_details().await?.inviter,
             _ => room.get_member(event.sender()).await?,
@@ -99,6 +77,6 @@ impl NotificationItem {
         };
 
         let item = Self { event: Arc::new(TimelineEvent(event)), sender_info, room_info, is_noisy };
-        Ok(item)
+        Ok(Some(item))
     }
 }

@@ -591,36 +591,6 @@ impl Client {
         })
     }
 
-    /// Sets a notification delegate and a handler.
-    ///
-    /// The sliding sync requires to have registered m.room.member with value
-    /// $ME and m.room.power_levels to be able to intercept the events.
-    /// This function blocks execution and should be dispatched concurrently.
-    pub fn set_notification_delegate(
-        &self,
-        notification_delegate: Option<Box<dyn NotificationDelegate>>,
-    ) {
-        *self.notification_delegate.write().unwrap() = notification_delegate;
-        let notification_delegate = Arc::clone(&self.notification_delegate);
-        let handler = move |notification, room: SdkRoom, _| {
-            let notification_delegate = Arc::clone(&notification_delegate);
-            async move {
-                if let Ok(Some(notification_item)) =
-                    NotificationItem::new_from_notification(notification, room).await
-                {
-                    if let Some(notification_delegate) =
-                        notification_delegate.read().unwrap().as_ref()
-                    {
-                        notification_delegate.did_receive_notification(notification_item);
-                    }
-                }
-            }
-        };
-        RUNTIME.block_on(async move {
-            self.inner.register_notification_handler(handler).await;
-        })
-    }
-
     pub fn get_notification_item(
         &self,
         room_id: String,
