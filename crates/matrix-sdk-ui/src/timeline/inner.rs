@@ -81,7 +81,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
 pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
     /// Reaction event / txn ID => sender and reaction data.
-    pub(super) reaction_map: HashMap<EventItemIdentifier, (OwnedUserId, Annotation)>,
+    pub(super) reaction_map: HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
     /// ID of event that is not in the timeline yet => List of reaction event
     /// IDs.
     pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
@@ -1275,6 +1275,12 @@ fn update_timeline_reaction(
         error!("inconsistent state: reaction received on a non-remote event item");
         return Err(super::Error::FailedToToggleReaction);
     };
+    // Note: remote event is not synced yet, so we're adding an item
+    // with the local timestamp.
+    let reaction_sender_data = ReactionSenderData {
+        sender_id: own_user_id.to_owned(),
+        timestamp: MilliSecondsSinceUnixEpoch::now(),
+    };
 
     let new_reactions = {
         let mut reactions = remote_related.reactions.clone();
@@ -1292,15 +1298,9 @@ fn update_timeline_reaction(
         }
         // Add the remote echo to the related event
         if let Some(event_id) = remote_echo_to_add {
-            let own_user_id = own_user_id.to_owned();
             reaction_group.0.insert(
                 EventItemIdentifier::EventId(event_id.clone()),
-                // Note: remote event is not synced yet, so we're adding an item
-                // with the local timestamp.
-                ReactionSenderData {
-                    sender_id: own_user_id,
-                    timestamp: MilliSecondsSinceUnixEpoch::now(),
-                },
+                reaction_sender_data.clone(),
             );
         };
         if reaction_group.0.is_empty() {
@@ -1328,7 +1328,7 @@ fn update_timeline_reaction(
         if let Some(event_id) = remote_echo_to_add {
             state.reaction_map.insert(
                 EventItemIdentifier::EventId(event_id.clone()),
-                (own_user_id.to_owned(), annotation.clone()),
+                (reaction_sender_data, annotation.clone()),
             );
         }
     }

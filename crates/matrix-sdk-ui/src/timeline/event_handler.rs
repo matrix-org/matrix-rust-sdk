@@ -209,7 +209,7 @@ pub(super) struct TimelineEventHandler<'a> {
     meta: TimelineEventMetadata,
     flow: Flow,
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
-    reaction_map: &'a mut HashMap<EventItemIdentifier, (OwnedUserId, Annotation)>,
+    reaction_map: &'a mut HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
     pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     event_should_update_fully_read_marker: &'a mut bool,
@@ -489,7 +489,11 @@ impl<'a> TimelineEventHandler<'a> {
                 );
             }
         }
-        self.reaction_map.insert(reaction_id, (self.meta.sender.clone(), c.relates_to));
+        let reaction_sender_data = ReactionSenderData {
+            sender_id: self.meta.sender.clone(),
+            timestamp: self.meta.timestamp,
+        };
+        self.reaction_map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
 
     #[instrument(skip_all)]
@@ -944,7 +948,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                 for reaction_event_id in reactions {
                     let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
-                    let Some((sender, annotation)) = self.reaction_map.get(&reaction_id) else {
+                    let Some((reaction_sender_data, annotation)) = self.reaction_map.get(&reaction_id) else {
                         error!(
                             "inconsistent state: reaction from pending_reactions not in reaction_map"
                         );
@@ -953,13 +957,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                     let group: &mut ReactionGroup =
                         bundled.entry(annotation.key.clone()).or_default();
-                    group.0.insert(
-                        reaction_id,
-                        ReactionSenderData {
-                            sender_id: sender.clone(),
-                            timestamp: MilliSecondsSinceUnixEpoch::now(),
-                        },
-                    );
+                    group.0.insert(reaction_id, reaction_sender_data.clone());
                 }
 
                 Some(bundled)
