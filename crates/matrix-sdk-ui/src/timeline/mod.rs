@@ -97,7 +97,7 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: Arc<TimelineInner<room::Common>>,
+    inner: TimelineInner<room::Common>,
 
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
@@ -266,14 +266,14 @@ impl Timeline {
     /// # anyhow::Ok(()) };
     /// ```
     #[cfg(feature = "e2e-encryption")]
-    pub async fn retry_decryption<'a, S: AsRef<str> + 'a>(
-        &'a self,
-        session_ids: impl IntoIterator<Item = &'a S>,
+    pub async fn retry_decryption<S: Into<String>>(
+        &self,
+        session_ids: impl IntoIterator<Item = S>,
     ) {
         self.inner
             .retry_event_decryption(
                 self.room(),
-                Some(session_ids.into_iter().map(AsRef::as_ref).collect()),
+                Some(session_ids.into_iter().map(Into::into).collect()),
             )
             .await;
     }

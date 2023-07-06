@@ -44,7 +44,7 @@ pub(super) struct LocalMessage {
 
 #[instrument(skip_all, fields(room_id = ?room.room_id()))]
 pub(super) async fn send_queued_messages(
-    timeline_inner: Arc<TimelineInner>,
+    timeline_inner: TimelineInner,
     room: room::Common,
     mut msg_receiver: Receiver<LocalMessage>,
 ) {
@@ -100,7 +100,7 @@ async fn handle_message(
     room: room::Common,
     send_task: &mut SendMessageTask,
     queue: &mut VecDeque<LocalMessage>,
-    timeline_inner: &Arc<TimelineInner>,
+    timeline_inner: &TimelineInner,
 ) {
     if queue.is_empty() && send_task.is_idle() {
         match Room::from(room) {
@@ -129,7 +129,7 @@ async fn handle_task_ready(
     result: SendMessageResult,
     send_task: &mut SendMessageTask,
     queue: &mut VecDeque<LocalMessage>,
-    timeline_inner: &Arc<TimelineInner>,
+    timeline_inner: &TimelineInner,
 ) {
     match result {
         SendMessageResult::Success { room } => {
@@ -198,7 +198,7 @@ impl SendMessageTask {
         matches!(self, Self::Idle)
     }
 
-    fn start(&mut self, room: room::Joined, timeline_inner: Arc<TimelineInner>, msg: LocalMessage) {
+    fn start(&mut self, room: room::Joined, timeline_inner: TimelineInner, msg: LocalMessage) {
         debug!("Spawning message-sending task");
         let txn_id = msg.txn_id.clone();
         let join_handle = spawn(async move {

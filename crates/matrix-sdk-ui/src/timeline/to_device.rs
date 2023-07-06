@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, sync::Arc};
+use std::iter;
 
 use matrix_sdk::{event_handler::EventHandler, Client};
 use ruma::{
@@ -24,7 +24,7 @@ use tracing::{debug_span, error, trace, Instrument};
 use super::inner::TimelineInner;
 
 pub(super) fn handle_room_key_event(
-    inner: Arc<TimelineInner>,
+    inner: TimelineInner,
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceRoomKeyEvent, (Client,)> {
     move |event: ToDeviceRoomKeyEvent, client: Client| {
@@ -40,7 +40,7 @@ pub(super) fn handle_room_key_event(
 }
 
 pub(super) fn handle_forwarded_room_key_event(
-    inner: Arc<TimelineInner>,
+    inner: TimelineInner,
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceForwardedRoomKeyEvent, (Client,)> {
     move |event: ToDeviceForwardedRoomKeyEvent, client: Client| {
@@ -57,7 +57,7 @@ pub(super) fn handle_forwarded_room_key_event(
 
 async fn retry_decryption(
     client: Client,
-    inner: Arc<TimelineInner>,
+    inner: TimelineInner,
     room_id: OwnedRoomId,
     event_room_id: OwnedRoomId,
     session_id: String,
@@ -75,5 +75,5 @@ async fn retry_decryption(
         return;
     };
 
-    inner.retry_event_decryption(&room, Some(iter::once(session_id.as_str()).collect())).await;
+    inner.retry_event_decryption(&room, Some(iter::once(session_id).collect())).await;
 }
