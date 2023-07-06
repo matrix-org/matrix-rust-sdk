@@ -259,7 +259,7 @@ impl Room {
         }
     }
 
-    pub fn subscribe_to_back_pagination_state(
+    pub fn subscribe_to_back_pagination_status(
         &self,
         listener: Box<dyn BackPaginationStatusListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
