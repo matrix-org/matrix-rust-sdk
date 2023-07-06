@@ -47,17 +47,6 @@ interface MediaSource {
     string url();
 };
 
-interface SessionVerificationEmoji {};
-
-callback interface SessionVerificationControllerDelegate {
-    void did_accept_verification_request();
-    void did_start_sas_verification();
-    void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
-    void did_fail();
-    void did_cancel();
-    void did_finish();
-};
-
 enum EventItemOrigin {
     "Local",
     "Sync",
