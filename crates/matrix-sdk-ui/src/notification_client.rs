@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use matrix_sdk::{room::Room, Client};
 use matrix_sdk_base::StoreError;
@@ -132,7 +132,7 @@ impl NotificationClient {
         let is_noisy = timeline_event.push_actions.iter().any(|a| a.sound().is_some());
 
         let item = NotificationItem {
-            event: Arc::new(raw_event),
+            event: raw_event,
             sender_display_name,
             sender_avatar_url,
             room_display_name: room.display_name().await?.to_string(),
@@ -151,6 +151,7 @@ impl NotificationClient {
 /// Builder for a `NotificationClient`.
 ///
 /// Fields have the same meaning as in `NotificationClient`.
+#[derive(Clone)]
 pub struct NotificationClientBuilder {
     client: Client,
     retry_decryption: bool,
@@ -200,7 +201,7 @@ impl NotificationClientBuilder {
 pub struct NotificationItem {
     /// Underlying Ruma event.
     /// TODO(bnjbvr) can we get rid of this?
-    pub event: Arc<AnySyncTimelineEvent>,
+    pub event: AnySyncTimelineEvent,
 
     /// Display name of the sender.
     pub sender_display_name: Option<String>,
