@@ -458,9 +458,10 @@ impl Account {
             // to the device.
             if !matches!(*event, AnyDecryptedOlmEvent::RoomKey(_)) {
                 let Some(device) =
-                    self.store.get_device_from_curve_key(event.sender(), sender_key).await? else {
-                        return Err(EventError::MissingSigningKey.into());
-                    };
+                    self.store.get_device_from_curve_key(event.sender(), sender_key).await?
+                else {
+                    return Err(EventError::MissingSigningKey.into());
+                };
 
                 let Some(key) = device.ed25519_key() else {
                     return Err(EventError::MissingSigningKey.into());

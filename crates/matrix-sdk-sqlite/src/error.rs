@@ -69,22 +69,34 @@ pub enum OpenStoreError {
 pub enum Error {
     #[error(transparent)]
     Sqlite(rusqlite::Error),
+
+    #[error("Failed to compute the maximum variable number from {0}")]
+    SqliteMaximumVariableNumber(i32),
+
     #[error(transparent)]
     Pool(PoolError),
+
     #[error(transparent)]
     Encode(rmp_serde::encode::Error),
+
     #[error(transparent)]
     Decode(rmp_serde::decode::Error),
+
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
     #[error(transparent)]
     Encryption(matrix_sdk_store_encryption::Error),
+
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
+
     #[error(transparent)]
     Pickle(#[from] vodozemac::PickleError),
+
     #[error("An object failed to be decrypted while unpickling")]
     Unpickle,
+
     #[error("Redaction failed: {0}")]
     Redaction(#[source] ruma::canonical_json::RedactionError),
 }

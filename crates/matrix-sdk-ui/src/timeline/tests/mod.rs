@@ -367,6 +367,7 @@ impl TestTimeline {
     }
 }
 
+#[derive(Clone)]
 struct TestRoomDataProvider;
 
 #[async_trait]

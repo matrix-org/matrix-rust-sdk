@@ -1,10 +1,10 @@
 //! Sliding Sync errors.
 
 use thiserror::Error;
+use tokio::task::JoinError;
 
 /// Internal representation of errors in Sliding Sync.
 #[derive(Error, Debug)]
-#[cfg_attr(test, derive(PartialEq))]
 #[non_exhaustive]
 pub enum Error {
     /// The response we've received from the server can't be parsed or doesn't
@@ -39,4 +39,13 @@ pub enum Error {
     /// The name of the Sliding Sync instance is too long.
     #[error("The Sliding Sync instance's identifier must be less than 16 chars long")]
     InvalidSlidingSyncIdentifier,
+
+    /// A task failed to execute to completion.
+    #[error("A task failed to execute to completion; task description: {task_description}")]
+    JoinError {
+        /// Task description.
+        task_description: String,
+        /// The original `JoinError`.
+        error: JoinError,
+    },
 }

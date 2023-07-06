@@ -30,12 +30,9 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let Some(homeserver_url) = env::args().nth(1) else {
-                eprintln!(
-                    "Usage: {} <homeserver_url>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-        };
+        eprintln!("Usage: {} <homeserver_url>", env::args().next().unwrap());
+        exit(1)
+    };
 
     login_and_sync(homeserver_url).await?;
 

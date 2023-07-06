@@ -13,7 +13,7 @@ use std::{
 };
 
 pub use builder::*;
-use eyeball::unique::Observable;
+use eyeball::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use eyeball_im_util::{FilterVectorSubscriber, VectorExt};
 pub(super) use frozen::FrozenSlidingSyncList;

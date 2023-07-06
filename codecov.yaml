@@ -32,5 +32,4 @@ ignore:
   - "bindings/matrix-sdk-ffi"
   - "crates/matrix-sdk-indexeddb"
   - "testing"
-  - "labs"
   - "xtask"

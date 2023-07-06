@@ -9,7 +9,7 @@ use crate::{
     identifiers::{self, DeviceId, UserId},
     impl_from_to_inner,
     js::try_array_to_vec,
-    types, verification, vodozemac,
+    requests, types, verification, vodozemac,
 };
 
 /// A device represents a E2EE capable client of an user.
@@ -195,6 +195,18 @@ impl Device {
     #[wasm_bindgen(js_name = "firstTimeSeen")]
     pub fn first_time_seen(&self) -> u64 {
         self.inner.first_time_seen_ts().0.into()
+    }
+
+    /// Mark this device as verified.
+    /// Works only if the device is owned by the current user.
+    ///
+    /// Returns a signature upload request that needs to be sent out.
+    pub fn verify(&self) -> Promise {
+        let device = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(requests::SignatureUploadRequest::try_from(&device.verify().await?)?)
+        })
     }
 }
 

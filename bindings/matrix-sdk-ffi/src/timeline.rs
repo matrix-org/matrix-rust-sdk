@@ -26,7 +26,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_ui::timeline::{Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
 use ruma::{assign, UInt};
 use tracing::warn;
 
@@ -231,8 +231,6 @@ impl TimelineItem {
                 Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() })
             }
             Item::Virtual(VItem::ReadMarker) => Some(VirtualTimelineItem::ReadMarker),
-            Item::Virtual(VItem::LoadingIndicator) => Some(VirtualTimelineItem::LoadingIndicator),
-            Item::Virtual(VItem::TimelineStart) => Some(VirtualTimelineItem::TimelineStart),
             Item::Event(_) => None,
         }
     }
@@ -351,6 +349,10 @@ impl EventTimelineItem {
 
     pub fn read_receipts(&self) -> HashMap<String, Receipt> {
         self.0.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect()
+    }
+
+    pub fn origin(&self) -> Option<EventItemOrigin> {
+        self.0.origin()
     }
 }
 
@@ -1107,15 +1109,6 @@ pub enum VirtualTimelineItem {
 
     /// The user's own read marker.
     ReadMarker,
-
-    /// A loading indicator for a pagination request.
-    LoadingIndicator,
-
-    /// The beginning of the visible timeline.
-    ///
-    /// There might be earlier events the user is not allowed to see due to
-    /// history visibility.
-    TimelineStart,
 }
 
 #[extension_trait]

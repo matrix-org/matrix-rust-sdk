@@ -17,7 +17,7 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: nightly-2023-05-06
+        toolchain: nightly-2023-07-03
         components: rustfmt
 
     - name: Run Benchmarks

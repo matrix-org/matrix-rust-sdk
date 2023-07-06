@@ -18,7 +18,7 @@ mod sas_state;
 
 use std::sync::Arc;
 
-use eyeball::shared::{Observable as SharedObservable, ObservableWriteGuard};
+use eyeball::{ObservableWriteGuard, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use inner_sas::InnerSas;

@@ -1,3 +1,7 @@
+# v0.1.1
+
+-   Add `verify` method to `Device`.
+
 # v0.1.0
 
 ## Changes in the Javascript bindings

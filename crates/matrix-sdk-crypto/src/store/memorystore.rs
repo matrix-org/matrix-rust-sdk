@@ -320,20 +320,6 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn insert_custom_value_if_missing(&self, key: &str, value: Vec<u8>) -> Result<bool> {
-        if self.get_custom_value(key).await?.is_none() {
-            self.set_custom_value(key, value).await?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    async fn remove_custom_value(&self, key: &str) -> Result<bool> {
-        let was_there = self.custom_values.remove(key).is_some();
-        Ok(was_there)
-    }
-
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,

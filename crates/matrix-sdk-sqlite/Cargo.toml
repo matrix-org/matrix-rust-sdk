@@ -21,12 +21,13 @@ state-store = []
 [dependencies]
 async-trait = { workspace = true }
 deadpool-sqlite = "0.5.0"
+itertools = { workspace = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 rmp-serde = "1.1.1"
 ruma = { workspace = true }
-rusqlite = "0.28.0"
+rusqlite = { version = "0.28.0", features = ["limits"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

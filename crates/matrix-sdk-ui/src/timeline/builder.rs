@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use async_std::sync::Mutex;
+use eyeball::SharedObservable;
 use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
@@ -25,7 +26,10 @@ use tracing::{error, info, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
-use super::{inner::TimelineInner, queue::send_queued_messages, Timeline, TimelineDropHandle};
+use super::{
+    inner::TimelineInner, queue::send_queued_messages, BackPaginationStatus, Timeline,
+    TimelineDropHandle,
+};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -107,7 +111,7 @@ impl TimelineBuilder {
                 .await
             {
                 Ok(Some(read_receipt)) => {
-                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt);
+                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt).await;
                 }
                 Err(e) => {
                     error!("Failed to get public read receipt of own user from the store: {e}");
@@ -124,7 +128,9 @@ impl TimelineBuilder {
                 .await
             {
                 Ok(Some(private_read_receipt)) => {
-                    inner.set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt);
+                    inner
+                        .set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt)
+                        .await;
                 }
                 Err(e) => {
                     error!("Failed to get private read receipt of own user from the store: {e}");
@@ -140,7 +146,6 @@ impl TimelineBuilder {
             inner.load_fully_read_event().await;
         }
 
-        let inner = Arc::new(inner);
         let room = inner.room();
         let client = room.client();
 
@@ -218,6 +223,7 @@ impl TimelineBuilder {
             inner,
             start_token,
             start_token_condvar: Default::default(),
+            back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
             _end_token: Mutex::new(None),
             msg_sender,
             drop_handle: Arc::new(TimelineDropHandle {

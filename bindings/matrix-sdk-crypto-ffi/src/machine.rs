@@ -710,8 +710,8 @@ impl OlmMachine {
     ///    method. This method call should be locked per call.
     ///
     /// 2. Share a room key with all the room members using the
-    ///    [`share_room_key()`](Self::share_room_key). This method
-    ///    call should be locked per room.
+    ///    [`share_room_key()`](Self::share_room_key). This method call should
+    ///    be locked per room.
     ///
     /// 3. Encrypt the event using this method.
     ///
@@ -1222,8 +1222,10 @@ impl OlmMachine {
     ///
     /// This method returns `None` if we don't have any private cross signing
     /// keys.
-    pub fn export_cross_signing_keys(&self) -> Option<CrossSigningKeyExport> {
-        self.runtime.block_on(self.inner.export_cross_signing_keys()).map(|e| e.into())
+    pub fn export_cross_signing_keys(
+        &self,
+    ) -> Result<Option<CrossSigningKeyExport>, CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.export_cross_signing_keys())?.map(|e| e.into()))
     }
 
     /// Import our private cross signing keys.

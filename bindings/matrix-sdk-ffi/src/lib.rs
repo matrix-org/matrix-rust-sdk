@@ -33,16 +33,13 @@ mod room;
 mod room_list;
 mod room_member;
 mod session_verification;
-mod sliding_sync;
 mod task_handle;
 mod timeline;
 mod tracing;
 
 use async_compat::TOKIO1 as RUNTIME;
-use matrix_sdk::{
-    ruma::events::room::{message::RoomMessageEventContent, MediaSource},
-    SlidingSyncListLoadingState,
-};
+use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin};
 
 use self::{
     client::{CreateRoomParameters, RoomPreset, RoomVisibility},

@@ -303,11 +303,9 @@ async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     for name in V1_STORES {
         let source_tx = source.transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?;
         let source_obj = source_tx.object_store(name)?;
-        let Some(curs) = source_obj
-            .open_cursor()?
-            .await? else {
-                continue;
-            };
+        let Some(curs) = source_obj.open_cursor()?.await? else {
+            continue;
+        };
 
         let data = curs.into_vec(0).await?;
 
