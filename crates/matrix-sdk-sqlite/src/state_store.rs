@@ -5,7 +5,6 @@ use std::{
     fmt,
     future::Future,
     iter,
-    ops::Not,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -1579,7 +1578,7 @@ where
         .try_into()
         .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
 
-    while keys_to_chunk.is_empty().not() {
+    while !keys_to_chunk.is_empty() {
         let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
         let chunk = keys_to_chunk;
         keys_to_chunk = tail;
