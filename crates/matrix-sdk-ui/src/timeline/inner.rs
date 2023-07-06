@@ -69,9 +69,9 @@ use super::{
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
-    state: Mutex<TimelineInnerState>,
+    state: Arc<Mutex<TimelineInnerState>>,
     room_data_provider: P,
     track_read_receipts: bool,
 }
@@ -128,7 +128,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             items: ObservableVector::with_capacity(32),
             ..Default::default()
         };
-        Self { state: Mutex::new(state), room_data_provider, track_read_receipts: false }
+        Self { state: Arc::new(Mutex::new(state)), room_data_provider, track_read_receipts: false }
     }
 
     pub(super) fn with_read_receipt_tracking(mut self, track_read_receipts: bool) -> Self {
@@ -280,14 +280,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         Ok(result)
     }
 
-    pub(super) fn set_initial_user_receipt(
+    pub(super) async fn set_initial_user_receipt(
         &mut self,
         receipt_type: ReceiptType,
         receipt: (OwnedEventId, Receipt),
     ) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
         self.state
-            .get_mut()
+            .lock()
+            .await
             .users_read_receipts
             .entry(own_user_id)
             .or_default()
@@ -302,7 +303,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         debug!("Adding {} initial events", events.len());
 
-        let state = self.state.get_mut();
+        let mut state = self.state.lock().await;
         for event in events {
             state
                 .handle_remote_event(
@@ -699,34 +700,32 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn retry_event_decryption(
         &self,
         room: &room::Common,
-        session_ids: Option<BTreeSet<&str>>,
+        session_ids: Option<BTreeSet<String>>,
     ) {
-        self.retry_event_decryption_inner(room, session_ids).await
+        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
     }
 
     #[cfg(all(test, feature = "e2e-encryption"))]
     pub(super) async fn retry_event_decryption_test(
         &self,
         room_id: &RoomId,
-        olm_machine: &OlmMachine,
-        session_ids: Option<BTreeSet<&str>>,
+        olm_machine: OlmMachine,
+        session_ids: Option<BTreeSet<String>>,
     ) {
-        self.retry_event_decryption_inner((olm_machine, room_id), session_ids).await
+        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
     }
 
     #[cfg(feature = "e2e-encryption")]
     async fn retry_event_decryption_inner(
         &self,
         decryptor: impl Decryptor,
-        session_ids: Option<BTreeSet<&str>>,
+        session_ids: Option<BTreeSet<String>>,
     ) {
         use super::EncryptedMessage;
 
-        trace!("Retrying decryption");
+        let mut state = self.state.clone().lock_owned().await;
 
-        let push_rules_context = self.room_data_provider.push_rules_and_context().await;
-
-        let should_retry = |session_id: &str| {
+        let should_retry = move |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
             } else {
@@ -734,82 +733,112 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        let retry_one = |item: Arc<TimelineItem>| {
-            async move {
-                let event_item = item.as_event()?;
+        let retry_indices: Vec<_> = state
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
+                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
+                    if should_retry(session_id) =>
+                {
+                    Some(idx)
+                }
+                EncryptedMessage::MegolmV1AesSha2 { .. }
+                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+                | EncryptedMessage::Unknown => None,
+            })
+            .collect();
 
-                let session_id = match event_item.content().as_unable_to_decrypt()? {
-                    EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                        if should_retry(session_id) =>
-                    {
-                        session_id
-                    }
-                    EncryptedMessage::MegolmV1AesSha2 { .. }
-                    | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                    | EncryptedMessage::Unknown => return None,
-                };
+        if retry_indices.is_empty() {
+            return;
+        }
 
-                tracing::Span::current().record("session_id", session_id);
+        debug!("Retrying decryption");
 
-                let Some(remote_event) = event_item.as_remote() else {
-                    error!("Key for unable-to-decrypt timeline item is not an event ID");
-                    return None;
-                };
+        let track_read_receipts = self.track_read_receipts;
+        let room_data_provider = self.room_data_provider.clone();
+        let push_rules_context = room_data_provider.push_rules_and_context().await;
 
-                tracing::Span::current().record("event_id", debug(&remote_event.event_id));
+        matrix_sdk::executor::spawn(async move {
+            let retry_one = |item: Arc<TimelineItem>| {
+                let decryptor = decryptor.clone();
+                let should_retry = &should_retry;
+                async move {
+                    let event_item = item.as_event()?;
 
-                match decryptor.decrypt_event_impl(&remote_event.original_json).await {
-                    Ok(event) => {
-                        trace!("Successfully decrypted event that previously failed to decrypt");
-                        Some(event)
-                    }
-                    Err(e) => {
-                        info!("Failed to decrypt event after receiving room key: {e}");
-                        None
+                    let session_id = match event_item.content().as_unable_to_decrypt()? {
+                        EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
+                            if should_retry(session_id) =>
+                        {
+                            session_id
+                        }
+                        EncryptedMessage::MegolmV1AesSha2 { .. }
+                        | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+                        | EncryptedMessage::Unknown => return None,
+                    };
+
+                    tracing::Span::current().record("session_id", session_id);
+
+                    let Some(remote_event) = event_item.as_remote() else {
+                        error!("Key for unable-to-decrypt timeline item is not an event ID");
+                        return None;
+                    };
+
+                    tracing::Span::current().record("event_id", debug(&remote_event.event_id));
+
+                    match decryptor.decrypt_event_impl(&remote_event.original_json).await {
+                        Ok(event) => {
+                            trace!(
+                                "Successfully decrypted event that previously failed to decrypt"
+                            );
+                            Some(event)
+                        }
+                        Err(e) => {
+                            info!("Failed to decrypt event after receiving room key: {e}");
+                            None
+                        }
                     }
                 }
-            }
-            .instrument(info_span!(
-                "retry_one",
-                session_id = field::Empty,
-                event_id = field::Empty
-            ))
-        };
-
-        let mut state = self.state.lock().await;
-
-        // We loop through all the items in the timeline, if we successfully
-        // decrypt a UTD item we either replace it or remove it and update
-        // another one.
-        let mut idx = 0;
-        while let Some(item) = state.items.get(idx) {
-            let Some(mut event) = retry_one(item.clone()).await else {
-                idx += 1;
-                continue;
+                .instrument(info_span!(
+                    "retry_one",
+                    session_id = field::Empty,
+                    event_id = field::Empty
+                ))
             };
 
-            event.push_actions = push_rules_context
-                .as_ref()
-                .map(|(push_rules, push_context)| {
-                    push_rules.get_actions(&event.event, push_context).to_owned()
-                })
-                .unwrap_or_default();
+            // Loop through all the indices, in order so we don't decrypt edits
+            // before the event being edited, if both were UTD. Keep track of
+            // index change as UTDs are removed instead of updated.
+            let mut offset = 0;
+            for idx in retry_indices {
+                let idx = idx - offset;
+                let Some(mut event) = retry_one(state.items[idx].clone()).await else {
+                    continue;
+                };
 
-            let result = state
-                .handle_remote_event(
-                    event.into(),
-                    TimelineItemPosition::Update(idx),
-                    &self.room_data_provider,
-                    self.track_read_receipts,
-                )
-                .await;
+                event.push_actions = push_rules_context
+                    .as_ref()
+                    .map(|(push_rules, push_context)| {
+                        push_rules.get_actions(&event.event, push_context).to_owned()
+                    })
+                    .unwrap_or_default();
 
-            // If the UTD was removed rather than updated, run the loop again
-            // with the same index.
-            if !result.item_removed {
-                idx += 1;
+                let result = state
+                    .handle_remote_event(
+                        event.into(),
+                        TimelineItemPosition::Update(idx),
+                        &room_data_provider,
+                        track_read_receipts,
+                    )
+                    .await;
+
+                // If the UTD was removed rather than updated, offset all
+                // subsequent loop iterations.
+                if result.item_removed {
+                    offset += 1;
+                }
             }
-        }
+        });
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
