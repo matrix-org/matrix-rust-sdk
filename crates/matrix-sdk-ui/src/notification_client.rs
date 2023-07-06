@@ -76,8 +76,7 @@ impl NotificationClient {
                 // Don't iloop retrying decryption another time.
                 retry_decryption = false;
 
-                let with_locking =
-                    if self.with_cross_process_lock { WithLocking::Yes } else { WithLocking::No };
+                let with_locking = WithLocking::from(self.with_cross_process_lock);
 
                 let encryption_sync = EncryptionSync::new(
                     "notifications".to_owned(),

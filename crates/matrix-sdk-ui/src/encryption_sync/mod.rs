@@ -42,6 +42,16 @@ pub enum WithLocking {
     No,
 }
 
+impl From<bool> for WithLocking {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Yes
+        } else {
+            Self::No
+        }
+    }
+}
+
 /// High-level helper for synchronizing encryption events using sliding sync.
 ///
 /// See the module's documentation for more details.
