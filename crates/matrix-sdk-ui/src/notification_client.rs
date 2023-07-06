@@ -25,7 +25,7 @@ use crate::encryption_sync::{EncryptionSync, WithLocking};
 /// network, for an app.
 ///
 /// In particular, it takes care of running a full decryption sync, in case the
-/// event in the notification was impossible to decrypt beforehands.
+/// event in the notification was impossible to decrypt beforehand.
 pub struct NotificationClient {
     /// SDK client.
     client: Client,
