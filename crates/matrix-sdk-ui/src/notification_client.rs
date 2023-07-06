@@ -40,6 +40,8 @@ impl NotificationClient {
     ) -> Result<Option<NotificationItem>, Error> {
         let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
+        let mut retry_decryption = self.retry_decryption;
+
         let (ruma_event, event) = loop {
             let ruma_event = room.event(&event_id).await?;
             if self.filter_by_push_rules
@@ -60,7 +62,7 @@ impl NotificationClient {
             let is_still_encrypted = is_still_encrypted
                 || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
 
-            if is_still_encrypted && self.retry_decryption {
+            if is_still_encrypted && retry_decryption {
                 // The message is still encrypted, and the client is configured to retry
                 // decryption.
                 //
@@ -70,6 +72,9 @@ impl NotificationClient {
                 // e2ee requests.
                 //
                 // Keep timeouts small for both, since we might be short on time.
+
+                // Don't iloop retrying decryption another time.
+                retry_decryption = false;
 
                 let with_locking =
                     if self.with_cross_process_lock { WithLocking::Yes } else { WithLocking::No };
