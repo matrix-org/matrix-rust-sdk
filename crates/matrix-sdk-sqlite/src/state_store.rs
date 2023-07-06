@@ -12,6 +12,7 @@ use std::{
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
+use itertools::Itertools;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
@@ -1590,14 +1591,10 @@ where
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-fn repeat_vars(count: usize) -> String {
+fn repeat_vars(count: usize) -> impl fmt::Display {
     assert_ne!(count, 0);
 
-    let mut str = "?,".repeat(count);
-    // Remove trailing comma.
-    str.pop();
-
-    str
+    iter::repeat("?").take(count).format(",")
 }
 
 #[cfg(test)]

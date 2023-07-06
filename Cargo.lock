@@ -2870,6 +2870,7 @@ dependencies = [
  "ctor",
  "deadpool-sqlite",
  "glob",
+ "itertools 0.11.0",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
