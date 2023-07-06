@@ -230,12 +230,12 @@ impl Timeline {
             }
         }
 
-        let back_pagination_state = if from.is_some() {
+        let status = if from.is_some() {
             BackPaginationStatus::Idle
         } else {
             BackPaginationStatus::TimelineStartReached
         };
-        self.back_pagination_status.set(back_pagination_state);
+        self.back_pagination_status.set(status);
         *start_lock = from;
 
         Ok(())
