@@ -17,10 +17,11 @@ use std::{ops::RangeInclusive, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use imbl::vector;
 use matrix_sdk_test::async_test;
 use ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
+    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
 };
 use stream_assert::assert_next_matches;
 
@@ -28,7 +29,10 @@ use crate::timeline::{
     event_item::EventItemIdentifier,
     inner::ReactionAction,
     reactions::ReactionToggleResult,
-    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline, ALICE, BOB},
+    tests::{
+        assert_event_is_updated, assert_no_more_updates, sync_timeline_event, TestTimeline, ALICE,
+        BOB,
+    },
     TimelineItem,
 };
 
@@ -233,6 +237,36 @@ async fn reactions_store_timestamp() {
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
     let new_timestamp = reactions.senders().next().unwrap().timestamp;
     assert!(timestamp_range_until_now_from(timestamp_before).contains(&new_timestamp));
+}
+
+#[async_test]
+async fn initial_reaction_timestamps_is_stored() {
+    let mut timeline = TestTimeline::new();
+
+    let message_event_id = EventId::new(server_name!("dummy.server"));
+    let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
+
+    timeline
+        .inner
+        .add_initial_events(vector![
+            sync_timeline_event(timeline.make_reaction(
+                *ALICE,
+                &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
+                reaction_timestamp
+            )),
+            sync_timeline_event(timeline.make_message_event_with_id(
+                *ALICE,
+                RoomMessageEventContent::text_plain("A"),
+                message_event_id
+            ))
+        ])
+        .await;
+
+    let items = timeline.inner.items().await;
+    let reactions = items.last().unwrap().as_event().unwrap().reactions();
+    let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
+
+    assert_eq!(reaction_timestamp, entry.senders().next().unwrap().timestamp);
 }
 
 fn create_reaction(related_message_id: &EventId) -> Annotation {

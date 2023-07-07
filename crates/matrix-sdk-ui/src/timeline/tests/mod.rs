@@ -262,10 +262,19 @@ impl TestTimeline {
         sender: &UserId,
         content: C,
     ) -> JsonValue {
+        self.make_message_event_with_id(sender, content, EventId::new(server_name!("dummy.server")))
+    }
+
+    fn make_message_event_with_id<C: MessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        content: C,
+        event_id: OwnedEventId,
+    ) -> JsonValue {
         json!({
             "type": content.event_type(),
             "content": content,
-            "event_id": EventId::new(server_name!("dummy.server")),
+            "event_id": event_id,
             "sender": sender,
             "origin_server_ts": self.next_server_ts(),
         })
@@ -336,6 +345,27 @@ impl TestTimeline {
                 "origin_server_ts": self.next_server_ts(),
                 "type": "m.room.redaction",
             },
+        })
+    }
+
+    fn make_reaction(
+        &self,
+        sender: &UserId,
+        annotation: &Annotation,
+        timestamp: MilliSecondsSinceUnixEpoch,
+    ) -> JsonValue {
+        json!({
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "content": {
+                "m.relates_to": {
+                    "event_id": annotation.event_id,
+                    "key": annotation.key,
+                    "rel_type": "m.annotation"
+                }
+            },
+            "sender": sender,
+            "type": "m.reaction",
+            "origin_server_ts": timestamp
         })
     }
 
