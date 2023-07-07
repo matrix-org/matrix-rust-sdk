@@ -1523,6 +1523,7 @@ mod test {
             .push(Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap());
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     fn make_event(event_id: &str) -> SyncTimelineEvent {
         SyncTimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
