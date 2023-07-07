@@ -1635,9 +1635,10 @@ mod tests {
     #[cfg(feature = "qrcode")]
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
-    #[cfg(feature = "qrcode")]
-    use ruma::events::key::verification::VerificationMethod;
-    use ruma::{event_id, room_id, to_device::DeviceIdOrAllDevices, UserId};
+    use ruma::{
+        event_id, events::key::verification::VerificationMethod, room_id,
+        to_device::DeviceIdOrAllDevices, UserId,
+    };
 
     use super::VerificationRequest;
     use crate::{
