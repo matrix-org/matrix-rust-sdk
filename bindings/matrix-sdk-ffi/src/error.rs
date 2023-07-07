@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use matrix_sdk::{self, encryption::CryptoStoreError, HttpError, IdParseError, StoreError};
+use matrix_sdk::{
+    self, encryption::CryptoStoreError, HttpError, IdParseError,
+    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+};
 use matrix_sdk_ui::{encryption_sync, timeline};
 
 #[derive(Debug, thiserror::Error)]
@@ -103,4 +106,53 @@ pub enum TimelineError {
     MissingMediaInfoField,
     #[error("Media info field invalid")]
     InvalidMediaInfoField,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum NotificationSettingsError {
+    #[error("client error: {msg}")]
+    Generic { msg: String },
+    /// Invalid parameter.
+    #[error("Invalid parameter `{0}`")]
+    InvalidParameter(String),
+    /// Invalid room id.
+    #[error("Invalid room ID `{0}`")]
+    InvalidRoomId(String),
+    /// Rule not found
+    #[error("Rule not found")]
+    RuleNotFound,
+    /// Unable to add push rule.
+    #[error("Unable to add push rule")]
+    UnableToAddPushRule,
+    /// Unable to remove push rule.
+    #[error("Unable to remove push rule")]
+    UnableToRemovePushRule,
+    /// Unable to save the push rules
+    #[error("Unable to save push rules")]
+    UnableToSavePushRules,
+    /// Unable to update push rule.
+    #[error("Unable to update push rule")]
+    UnableToUpdatePushRule,
+}
+
+impl From<SdkNotificationSettingsError> for NotificationSettingsError {
+    fn from(value: SdkNotificationSettingsError) -> Self {
+        match value {
+            SdkNotificationSettingsError::RuleNotFound => Self::RuleNotFound,
+            SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
+            SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,
+            SdkNotificationSettingsError::UnableToSavePushRules => Self::UnableToSavePushRules,
+            SdkNotificationSettingsError::InvalidParameter(parameter) => {
+                Self::InvalidParameter(parameter)
+            }
+            SdkNotificationSettingsError::UnableToUpdatePushRule => Self::UnableToUpdatePushRule,
+        }
+    }
+}
+
+impl From<matrix_sdk::Error> for NotificationSettingsError {
+    fn from(e: matrix_sdk::Error) -> Self {
+        Self::Generic { msg: e.to_string() }
+    }
 }
