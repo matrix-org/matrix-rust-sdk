@@ -14,43 +14,7 @@ use matrix_sdk::{
 };
 use tokio::sync::RwLock;
 
-use crate::{client::Client, room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
-
-// TODO(bnjbvr) remove
-#[uniffi::export]
-impl Client {
-    /// Get a new `RoomListService` instance.
-    ///
-    /// In this case, it is the user's responsibility to create an
-    /// `EncryptionSync` that runs in the background too.
-    pub fn room_list_service(&self) -> Result<Arc<RoomListService>, RoomListError> {
-        Ok(Arc::new(RoomListService {
-            inner: Arc::new(
-                RUNTIME
-                    .block_on(async {
-                        matrix_sdk_ui::RoomListService::new(self.inner.clone()).await
-                    })
-                    .map_err(RoomListError::from)?,
-            ),
-        }))
-    }
-
-    /// Get a new `RoomListService` instance with encryption enabled.
-    ///
-    /// In this case, no instance of `EncryptionSync` must exist.
-    pub fn room_list_service_with_encryption(&self) -> Result<Arc<RoomListService>, RoomListError> {
-        Ok(Arc::new(RoomListService {
-            inner: Arc::new(
-                RUNTIME
-                    .block_on(async {
-                        matrix_sdk_ui::RoomListService::new_with_encryption(self.inner.clone())
-                            .await
-                    })
-                    .map_err(RoomListError::from)?,
-            ),
-        }))
-    }
-}
+use crate::{room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
 
 #[derive(uniffi::Error)]
 pub enum RoomListError {

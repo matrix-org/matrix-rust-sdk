@@ -24,7 +24,6 @@ mod app;
 mod authentication_service;
 mod client;
 mod client_builder;
-mod encryption_sync;
 mod error;
 mod event;
 mod helpers;
