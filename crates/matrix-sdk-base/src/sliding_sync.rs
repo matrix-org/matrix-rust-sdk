@@ -200,6 +200,7 @@ impl BaseClient {
         let required_state = Self::deserialize_events(&room_data.required_state);
 
         // Find or create the room in the store
+        #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room) = self.process_sliding_sync_room_membership(
             room_data,
             &required_state,

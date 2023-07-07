@@ -19,7 +19,7 @@ use std::{
 
 use bitflags::bitflags;
 use futures_util::stream::{self, StreamExt};
-#[cfg(all(feature = "experimental-sliding-sync"))]
+#[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
@@ -391,7 +391,7 @@ impl Room {
     /// to decrypt these, the most recent relevant one will replace
     /// latest_event. (We can't tell which one is relevant until
     /// they are decrypted.)
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub(crate) fn latest_encrypted_events(&self) -> Vec<Raw<AnySyncTimelineEvent>> {
         self.latest_encrypted_events.read().unwrap().iter().cloned().collect()
     }
