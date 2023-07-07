@@ -1,3 +1,10 @@
+# v0.1.2
+
+## Changes in the Javascript bindings
+
+-   Add `Qr.state()` method to inspect the current state of QR code
+    verifications.
+
 # v0.1.1
 
 -   Add `verify` method to `Device`.

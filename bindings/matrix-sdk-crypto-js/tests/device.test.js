@@ -27,7 +27,7 @@ const {
     QrCodeScan,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { zip, addMachineToMachine } = require("./helper");
-const { Tracing, LoggerLevel, VerificationRequestPhase } = require("../pkg");
+const { Tracing, LoggerLevel, VerificationRequestPhase, QrState } = require("../pkg");
 
 new Tracing(LoggerLevel.Trace).turnOn();
 
@@ -856,6 +856,7 @@ describe("Key Verification", () => {
 
             expect(qr2).toBeInstanceOf(Qr);
 
+            expect(qr2.state()).toEqual(QrState.Created);
             expect(qr2.hasBeenScanned()).toStrictEqual(false);
             expect(qr2.hasBeenConfirmed()).toStrictEqual(false);
             expect(qr2.userId.toString()).toStrictEqual(userId2.toString());
@@ -970,6 +971,7 @@ describe("Key Verification", () => {
 
             expect(qr1).toBeInstanceOf(Qr);
 
+            expect(qr1.state()).toEqual(QrState.Reciprocated);
             expect(qr1.hasBeenScanned()).toStrictEqual(false);
             expect(qr1.hasBeenConfirmed()).toStrictEqual(false);
             expect(qr1.userId.toString()).toStrictEqual(userId1.toString());
@@ -1004,6 +1006,7 @@ describe("Key Verification", () => {
 
         // can confirm QR code has been scanned
         {
+            expect(qr2.state()).toEqual(QrState.Scanned);
             expect(qr2.hasBeenScanned()).toStrictEqual(true);
         }
 
@@ -1020,6 +1023,7 @@ describe("Key Verification", () => {
 
         // can confirm QR code has been confirmed
         {
+            expect(qr2.state()).toEqual(QrState.Confirmed);
             expect(qr2.hasBeenConfirmed()).toStrictEqual(true);
         }
     });
