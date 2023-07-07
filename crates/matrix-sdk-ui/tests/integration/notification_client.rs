@@ -13,7 +13,7 @@ use wiremock::{
 use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
-async fn test_notification_client_simple() {
+async fn test_notification_client_legacy() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
 
@@ -83,7 +83,7 @@ async fn test_notification_client_simple() {
         mock_encryption_state(&server, false).await;
     }
 
-    let item = notification_client.get_notification(room_id, event_id).await.unwrap();
+    let item = notification_client.legacy_get_notification(room_id, event_id).await.unwrap();
 
     server.reset().await;
 
