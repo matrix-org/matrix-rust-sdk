@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 
 use crate::{client::Client, room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
 
+// TODO(bnjbvr) remove
 #[uniffi::export]
 impl Client {
     /// Get a new `RoomListService` instance.
@@ -102,28 +103,11 @@ impl From<RoomListInput> for matrix_sdk_ui::room_list_service::Input {
 
 #[derive(uniffi::Object)]
 pub struct RoomListService {
-    inner: Arc<matrix_sdk_ui::RoomListService>,
+    pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
 }
 
 #[uniffi::export]
 impl RoomListService {
-    fn sync(&self) {
-        let this = self.inner.clone();
-
-        RUNTIME.spawn(async move {
-            let sync_stream = this.sync();
-            pin_mut!(sync_stream);
-
-            while sync_stream.next().await.is_some() {
-                // keep going!
-            }
-        });
-    }
-
-    fn stop_sync(&self) -> Result<(), RoomListError> {
-        self.inner.stop_sync().map_err(Into::into)
-    }
-
     fn is_syncing(&self) -> bool {
         use matrix_sdk_ui::room_list_service::State;
 
