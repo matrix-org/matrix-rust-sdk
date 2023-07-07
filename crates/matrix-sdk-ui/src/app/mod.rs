@@ -12,13 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-//! Unified API for both the Room List API and the Encryption Sync API, that takes care of all the
-//! underlying details. This is an opiniated way to run both APIs, with high-level callbacks that
-//! should be called in reaction to user actions and/or system events.
+//! Unified API for both the Room List API and the Encryption Sync API, that
+//! takes care of all the underlying details. This is an opiniated way to run
+//! both APIs, with high-level callbacks that should be called in reaction to
+//! user actions and/or system events.
 
 use std::sync::{Arc, Mutex};
 
-use eyeball::shared::Observable;
+use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
@@ -27,17 +28,18 @@ use tokio::task::{spawn, JoinHandle};
 
 use crate::{
     encryption_sync::{self, EncryptionSync, WithLocking},
-    room_list::{self, RoomListService},
+    room_list_service::{self, RoomListService},
 };
 
 /// Current state of the application.
 ///
-/// This is a high-level state indicating what's the status of the underlying syncs.
-/// The application starts in `Running` mode, and then hits a terminal state `Terminated` (if it
-/// gracefully exited) or `Error` (in case any of the underlying syncs ran into an error).
+/// This is a high-level state indicating what's the status of the underlying
+/// syncs. The application starts in `Running` mode, and then hits a terminal
+/// state `Terminated` (if it gracefully exited) or `Error` (in case any of the
+/// underlying syncs ran into an error).
 ///
-/// It is the responsibility of the caller to restart the application using the [`App::start`]
-/// method, in case it terminated, gracefully or not.
+/// It is the responsibility of the caller to restart the application using the
+/// [`App::start`] method, in case it terminated, gracefully or not.
 ///
 /// This can be observed with [`App::observe_state`].
 #[derive(Clone)]
@@ -54,7 +56,7 @@ pub struct App {
     room_list: Arc<RoomListService>,
     encryption_sync: Option<Arc<EncryptionSync>>,
     task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    state_observer: Observable<AppState>,
+    state_observer: SharedObservable<AppState>,
 }
 
 impl App {
@@ -63,7 +65,8 @@ impl App {
         AppBuilder::new(client)
     }
 
-    /// Get the underlying `RoomListService` instance for easier access to its methods.
+    /// Get the underlying `RoomListService` instance for easier access to its
+    /// methods.
     pub fn room_list_service(&self) -> &RoomListService {
         &*self.room_list
     }
@@ -77,8 +80,9 @@ impl App {
 
     /// Start (or restart) the underlying sliding syncs.
     ///
-    /// This can be called multiple times safely: if a previous task had been spawned to run the
-    /// syncs, then it will be properly aborted and restarted.
+    /// This can be called multiple times safely: if a previous task had been
+    /// spawned to run the syncs, then it will be properly aborted and
+    /// restarted.
     pub async fn start(&self) -> Result<(), Error> {
         let room_list = self.room_list.clone();
         let encryption_sync = self.encryption_sync.clone();
@@ -86,8 +90,9 @@ impl App {
 
         let mut task_handle_lock = self.task_handle.lock().unwrap();
 
-        // If there was a task running already with the streams, stop it gently. In the case it was
-        // already terminated, that's fine as it won't cause any harm to abort it.
+        // If there was a task running already with the streams, stop it gently. In the
+        // case it was already terminated, that's fine as it won't cause any
+        // harm to abort it.
         if let Some(task) = task_handle_lock.take() {
             task.abort();
             drop(task);
@@ -103,8 +108,8 @@ impl App {
 
                 pin_mut!(encryption_sync_stream);
 
-                // Note: any error on one of the two syncs will cause the overall stream to error
-                // and the loop to terminate.
+                // Note: any error on one of the two syncs will cause the overall stream to
+                // error and the loop to terminate.
 
                 loop {
                     tokio::select! {
@@ -153,8 +158,9 @@ impl App {
 
     /// Stop the underlying sliding syncs.
     ///
-    /// This must be called when the app goes into the background. It's better to call this API
-    /// when the application exits, although not strictly necessary.
+    /// This must be called when the app goes into the background. It's better
+    /// to call this API when the application exits, although not strictly
+    /// necessary.
     pub fn pause(&self) -> Result<(), Error> {
         self.room_list.stop_sync()?;
         if let Some(ref encryption_sync) = self.encryption_sync {
@@ -168,14 +174,15 @@ pub struct AppBuilder {
     /// SDK client.
     client: Client,
 
-    /// Is the encryption sync running as a separate instance of sliding sync (true), or is it
-    /// fused in the main `RoomList` sliding sync (false)?
+    /// Is the encryption sync running as a separate instance of sliding sync
+    /// (true), or is it fused in the main `RoomList` sliding sync (false)?
     with_encryption_sync: bool,
 
     /// Is the cross-process lock for the crypto store enabled?
     with_cross_process_lock: bool,
 
-    /// Application identifier, used the cross-process lock value, if applicable.
+    /// Application identifier, used the cross-process lock value, if
+    /// applicable.
     identifier: String,
 }
 
@@ -191,18 +198,19 @@ impl AppBuilder {
 
     /// Enables the encryption sync for this application.
     ///
-    /// This will run a second sliding sync instance, that can independently process encryption
-    /// events, which can speed up some use cases.
+    /// This will run a second sliding sync instance, that can independently
+    /// process encryption events, which can speed up some use cases.
     ///
-    /// It's also a prerequisite if another process can *also* process encryption events; in that
-    /// case, the `with_cross_process_lock` boolean must be set to `true` to enable the
-    /// cross-process crypto store lock. This is only applicable to very specific use cases, like
+    /// It's also a prerequisite if another process can *also* process
+    /// encryption events; in that case, the `with_cross_process_lock`
+    /// boolean must be set to `true` to enable the cross-process crypto
+    /// store lock. This is only applicable to very specific use cases, like
     /// an external process attempting to decrypt notifications. In general,
     /// `with_cross_process_lock` can remain `false`.
     ///
-    /// If the cross-process lock is enabled, then an app identifier can be provided too, to
-    /// identify the current process; if it's not provided, a default value of "app" is used as the
-    /// application identifier.
+    /// If the cross-process lock is enabled, then an app identifier can be
+    /// provided too, to identify the current process; if it's not provided,
+    /// a default value of "app" is used as the application identifier.
     pub fn with_encryption_sync(
         mut self,
         with_cross_process_lock: bool,
@@ -218,8 +226,9 @@ impl AppBuilder {
 
     /// Finish setting up the `App`.
     ///
-    /// This creates the underlying sliding syncs, and will start them in the background. The
-    /// resulting `App` must be kept alive as long as the sliding syncs are supposed to run.
+    /// This creates the underlying sliding syncs, and will start them in the
+    /// background. The resulting `App` must be kept alive as long as the
+    /// sliding syncs are supposed to run.
     pub async fn build(self) -> Result<App, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
@@ -236,7 +245,7 @@ impl AppBuilder {
         let app = App {
             room_list: Arc::new(room_list),
             encryption_sync,
-            state_observer: Observable::new(AppState::Running),
+            state_observer: SharedObservable::new(AppState::Running),
             task_handle: Default::default(),
         };
 
@@ -251,7 +260,7 @@ impl AppBuilder {
 pub enum Error {
     /// An error received from the `RoomList` API.
     #[error(transparent)]
-    RoomList(#[from] room_list::Error),
+    RoomList(#[from] room_list_service::Error),
 
     /// An error received from the `EncryptionSync` API.
     #[error(transparent)]
