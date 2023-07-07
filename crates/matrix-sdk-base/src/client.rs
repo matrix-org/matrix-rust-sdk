@@ -563,7 +563,8 @@ impl BaseClient {
         changed_devices: &api::sync::sync_events::DeviceLists,
         one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
-        changes: &mut StateChanges,
+        #[cfg(feature = "experimental-sliding-sync")] changes: &mut StateChanges,
+        #[cfg(not(feature = "experimental-sliding-sync"))] _changes: &mut StateChanges,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
         if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
@@ -585,6 +586,8 @@ impl BaseClient {
                     self.decrypt_latest_events(&mut room, changes).await;
                 }
             }
+            #[cfg(not(feature = "experimental-sliding-sync"))]
+            drop(room_key_updates); // Silence unused variable warning
 
             Ok(events)
         } else {
