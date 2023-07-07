@@ -1616,7 +1616,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     #[cfg(feature = "qrcode")]
     use ruma::events::key::verification::VerificationMethod;
-    use ruma::{event_id, room_id, to_device::DeviceIdOrAllDevices};
+    use ruma::{event_id, room_id, to_device::DeviceIdOrAllDevices, UserId};
 
     use super::VerificationRequest;
     use crate::{
@@ -1626,7 +1626,7 @@ mod tests {
                 CancelContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
             },
             test::{alice_id, bob_id, setup_stores},
-            FlowId, Verification,
+            FlowId, Verification, VerificationStore,
         },
         OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequestState,
     };
@@ -1689,29 +1689,9 @@ mod tests {
         let (alice_store, bob_store) = setup_stores().await;
         let bob_device = ReadOnlyDevice::from_account(&bob_store.account).await;
 
-        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
-
-        let bob_request = VerificationRequest::new(
-            VerificationCache::new(),
-            bob_store,
-            flow_id,
-            alice_id(),
-            vec![],
-            None,
-        );
-
-        let request = bob_request.request_to_device();
-        let content: OutgoingContent = request.try_into().unwrap();
-        let content = RequestContent::try_from(&content).unwrap();
-        let flow_id = bob_request.flow_id().to_owned();
-
-        let alice_request = VerificationRequest::from_request(
-            VerificationCache::new(),
-            alice_store,
-            bob_id(),
-            flow_id,
-            &content,
-        );
+        // Set up the pair of verification requests
+        let bob_request = build_test_request(&bob_store, alice_id(), None);
+        let alice_request = build_incoming_verification_request(&alice_store, &bob_request);
 
         let outgoing_request = alice_request.cancel().unwrap();
 
@@ -1772,13 +1752,7 @@ mod tests {
             &(&content).into(),
         );
 
-        let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
-        let content = ReadyContent::try_from(&content).unwrap();
-
-        bob_request.receive_ready(alice_id(), &content);
-
-        assert!(bob_request.is_ready());
-        assert!(alice_request.is_ready());
+        do_accept_request(&alice_request, &bob_request, None);
 
         let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
@@ -1807,37 +1781,10 @@ mod tests {
         let (alice_store, bob_store) = setup_stores().await;
         let bob_device = ReadOnlyDevice::from_account(&bob_store.account).await;
 
-        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
-
-        let bob_request = VerificationRequest::new(
-            VerificationCache::new(),
-            bob_store,
-            flow_id,
-            alice_id(),
-            vec![],
-            None,
-        );
-
-        let request = bob_request.request_to_device();
-        let content: OutgoingContent = request.try_into().unwrap();
-        let content = RequestContent::try_from(&content).unwrap();
-        let flow_id = bob_request.flow_id().to_owned();
-
-        let alice_request = VerificationRequest::from_request(
-            VerificationCache::new(),
-            alice_store,
-            bob_id(),
-            flow_id,
-            &content,
-        );
-
-        let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
-        let content = ReadyContent::try_from(&content).unwrap();
-
-        bob_request.receive_ready(alice_id(), &content);
-
-        assert!(bob_request.is_ready());
-        assert!(alice_request.is_ready());
+        // Set up the pair of verification requests
+        let bob_request = build_test_request(&bob_store, alice_id(), None);
+        let alice_request = build_incoming_verification_request(&alice_store, &bob_request);
+        do_accept_request(&alice_request, &bob_request, None);
 
         let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
@@ -1868,43 +1815,18 @@ mod tests {
     async fn can_scan_another_qr_after_creating_mine() {
         let (alice_store, bob_store) = setup_stores().await;
 
-        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
-
-        // We setup the initial verification request
-        let bob_request = VerificationRequest::new(
-            VerificationCache::new(),
-            bob_store,
-            flow_id.clone(),
+        // Set up the pair of verification requests
+        let bob_request = build_test_request(
+            &bob_store,
             alice_id(),
-            vec![],
             Some(vec![VerificationMethod::QrCodeScanV1, VerificationMethod::QrCodeShowV1]),
         );
-
-        let request = bob_request.request_to_device();
-        let content: OutgoingContent = request.try_into().unwrap();
-        let content = RequestContent::try_from(&content).unwrap();
-
-        let alice_request = VerificationRequest::from_request(
-            VerificationCache::new(),
-            alice_store,
-            bob_id(),
-            flow_id,
-            &content,
+        let alice_request = build_incoming_verification_request(&alice_store, &bob_request);
+        do_accept_request(
+            &alice_request,
+            &bob_request,
+            Some(vec![VerificationMethod::QrCodeScanV1, VerificationMethod::QrCodeShowV1]),
         );
-
-        let content: OutgoingContent = alice_request
-            .accept_with_methods(vec![
-                VerificationMethod::QrCodeScanV1,
-                VerificationMethod::QrCodeShowV1,
-            ])
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let content = ReadyContent::try_from(&content).unwrap();
-        bob_request.receive_ready(alice_id(), &content);
-
-        assert!(bob_request.is_ready());
-        assert!(alice_request.is_ready());
 
         // Each side can start its own QR verification flow by generating QR code
         let alice_verification = alice_request.generate_qr_code().await.unwrap();
@@ -1945,47 +1867,10 @@ mod tests {
     async fn can_start_sas_after_generating_qr_code() {
         let (alice_store, bob_store) = setup_stores().await;
 
-        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
-
-        // We setup the initial verification request
-        let bob_request = VerificationRequest::new(
-            VerificationCache::new(),
-            bob_store,
-            flow_id.clone(),
-            alice_id(),
-            vec![],
-            Some(vec![
-                VerificationMethod::QrCodeScanV1,
-                VerificationMethod::QrCodeShowV1,
-                VerificationMethod::SasV1,
-            ]),
-        );
-
-        let request = bob_request.request_to_device();
-        let content: OutgoingContent = request.try_into().unwrap();
-        let content = RequestContent::try_from(&content).unwrap();
-
-        let alice_request = VerificationRequest::from_request(
-            VerificationCache::new(),
-            alice_store,
-            bob_id(),
-            flow_id,
-            &content,
-        );
-
-        let content: OutgoingContent = alice_request
-            .accept_with_methods(vec![
-                VerificationMethod::QrCodeScanV1,
-                VerificationMethod::QrCodeShowV1,
-            ])
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let content = ReadyContent::try_from(&content).unwrap();
-        bob_request.receive_ready(alice_id(), &content);
-
-        assert!(bob_request.is_ready());
-        assert!(alice_request.is_ready());
+        // Set up the pair of verification requests
+        let bob_request = build_test_request(&bob_store, alice_id(), Some(all_methods()));
+        let alice_request = build_incoming_verification_request(&alice_store, &bob_request);
+        do_accept_request(&alice_request, &bob_request, Some(all_methods()));
 
         // Each side can start its own QR verification flow by generating QR code
         let alice_verification = alice_request.generate_qr_code().await.unwrap();
@@ -2007,5 +1892,91 @@ mod tests {
             VerificationRequestState::Transitioned { verification: Verification::SasV1(_) }
         );
         assert!(!sas.is_cancelled());
+    }
+
+    /// Build an outgoing Verification request
+    ///
+    /// # Arguments
+    ///
+    /// * `verification_store` - The `VerificationStore` for the user making the
+    ///   request.
+    /// * `other_user_id` - The ID of the user we want to verify
+    /// * `methods` - A list of `VerificationMethods` to say we support. If
+    ///   `None`, will use the default list.
+    fn build_test_request(
+        verification_store: &VerificationStore,
+        other_user_id: &UserId,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> VerificationRequest {
+        VerificationRequest::new(
+            VerificationCache::new(),
+            verification_store.clone(),
+            FlowId::ToDevice("TEST_FLOW_ID".into()),
+            other_user_id,
+            vec![],
+            methods,
+        )
+    }
+
+    /// Given an outgoing `VerificationRequest`, create an incoming
+    /// `VerificationRequest` for the other side.
+    ///
+    /// Tells the outgoing request to generate an `m.key.verification.request`
+    /// to-device message, and uses it to build a new request for the incoming
+    /// side.
+    fn build_incoming_verification_request(
+        verification_store: &VerificationStore,
+        outgoing_request: &VerificationRequest,
+    ) -> VerificationRequest {
+        let request = outgoing_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+        let content = RequestContent::try_from(&content).unwrap();
+
+        VerificationRequest::from_request(
+            VerificationCache::new(),
+            verification_store.clone(),
+            outgoing_request.own_user_id(),
+            outgoing_request.flow_id().clone(),
+            &content,
+        )
+    }
+
+    /// Have a `VerificationRequest` generate an `m.key.verification.ready` and
+    /// feed it into another `VerificationRequest`.
+    ///
+    /// # Arguments
+    ///
+    /// * `accepting_request` - The request which should send the acceptance.
+    /// * `initiating_request` - The request which initiated the flow -- i.e.,
+    ///   the one that should *receive* the acceptance.
+    /// * `methods` - The list of methods to say we support. If `None`, the
+    ///   default list of methods will be used.
+    fn do_accept_request(
+        accepting_request: &VerificationRequest,
+        initiating_request: &VerificationRequest,
+        methods: Option<Vec<VerificationMethod>>,
+    ) {
+        let request = match methods {
+            Some(methods) => accepting_request.accept_with_methods(methods),
+            None => accepting_request.accept(),
+        };
+        let content: OutgoingContent = request.unwrap().try_into().unwrap();
+        let content = ReadyContent::try_from(&content).unwrap();
+        initiating_request.receive_ready(accepting_request.own_user_id(), &content);
+
+        assert!(initiating_request.is_ready());
+        assert!(accepting_request.is_ready());
+    }
+
+    /// Get a list of all the verification methods, including those used for QR
+    /// codes.
+    #[cfg(feature = "qrcode")]
+    fn all_methods() -> Vec<VerificationMethod> {
+        vec![
+            VerificationMethod::SasV1,
+            VerificationMethod::QrCodeScanV1,
+            VerificationMethod::QrCodeShowV1,
+            VerificationMethod::ReciprocateV1,
+        ]
     }
 }
