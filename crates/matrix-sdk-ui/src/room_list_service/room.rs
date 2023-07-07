@@ -135,8 +135,8 @@ impl Room {
     ///
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
-    pub fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.sliding_sync_room.latest_timeline_item()
+    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.sliding_sync_room.latest_timeline_item().await
     }
 
     /// Is there any unread notifications?

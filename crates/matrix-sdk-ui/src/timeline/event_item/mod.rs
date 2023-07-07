@@ -83,10 +83,12 @@ impl EventTimelineItem {
     /// If the supplied low-level SyncTimelineEventy is suitable for use as the
     /// latest_event in a message preview, wrap it as an EventTimelineItem,
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn from_latest_event(
+    pub(crate) async fn from_latest_event(
         room: &SlidingSyncRoom,
         sync_event: SyncTimelineEvent,
     ) -> Option<EventTimelineItem> {
+        use super::traits::RoomDataProvider;
+
         let raw_sync_event = sync_event.event;
 
         let encryption_info = sync_event.encryption_info;
@@ -135,10 +137,15 @@ impl EventTimelineItem {
         }
         .into();
 
-        // If we need to sender profiles in the message previews, we will need to
-        // cache the contents of a Profile struct inside RoomInfo similar to how we
-        // are caching the event at the moment.
-        let sender_profile = TimelineDetails::Unavailable;
+        let room = room.client().get_room(room.room_id());
+        let sender_profile = if let Some(room) = room {
+            room.profile(&sender)
+                .await
+                .map(TimelineDetails::Ready)
+                .unwrap_or(TimelineDetails::Unavailable)
+        } else {
+            TimelineDetails::Unavailable
+        };
 
         Some(EventTimelineItem::new(sender, sender_profile, timestamp, item_content, event_kind))
     }
@@ -480,9 +487,9 @@ mod test {
         );
 
         // When we construct a timeline event from it
-        let timeline_item = EventTimelineItem::from_latest_event(&room, event).unwrap();
+        let timeline_item = EventTimelineItem::from_latest_event(&room, event).await.unwrap();
 
-        // Then its properieis correctly translate
+        // Then its properties correctly translate
         assert_eq!(timeline_item.sender, user_id);
         assert_matches!(timeline_item.sender_profile, TimelineDetails::Unavailable);
         assert_eq!(timeline_item.timestamp.0, UInt::new(122344).unwrap());
@@ -494,6 +501,77 @@ mod test {
         } else {
             panic!("Unexpected message type");
         }
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender() {
+        // Given a sync event that is suitable to be used as a latest_event, and a room
+        // with a member event for the sender
+
+        use ruma::owned_mxc_uri;
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let client = logged_in_client(None).await;
+        let mut room = v4::SlidingSyncRoom::new();
+        room.timeline.push(member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs"));
+        let ss_room =
+            SlidingSyncRoom::new(client.clone(), room_id.to_owned(), room.clone(), Vec::new());
+
+        // And the room is stored in the client so it can be extracted when needed
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.unwrap();
+
+        // When we construct a timeline event from it
+        let timeline_item = EventTimelineItem::from_latest_event(&ss_room, event).await.unwrap();
+
+        // Then its sender is properly populated
+        let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
+        assert_eq!(
+            profile,
+            Profile {
+                display_name: Some("Alice Margatroid".to_owned()),
+                display_name_ambiguous: false,
+                avatar_url: Some(owned_mxc_uri!("mxc://e.org/SEs"))
+            }
+        );
+    }
+
+    fn member_event(
+        room_id: &RoomId,
+        user_id: &UserId,
+        display_name: &str,
+        avatar_url: &str,
+    ) -> Raw<AnySyncTimelineEvent> {
+        Raw::from_json_string(
+            json!({
+                "type": "m.room.member",
+                "content": {
+                    "avatar_url": avatar_url,
+                    "displayname": display_name,
+                    "membership": "join",
+                    "reason": ""
+                },
+                "event_id": "$143273582443PhrSn:example.org",
+                "origin_server_ts": 143273583,
+                "room_id": room_id,
+                "sender": "@example:example.org",
+                "state_key": user_id,
+                "type": "m.room.member",
+                "unsigned": {
+                  "age": 1234
+                }
+            })
+            .to_string(),
+        )
+        .unwrap()
+    }
+
+    async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
+        let mut response = v4::Response::new("6".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+        response
     }
 
     fn message_event(

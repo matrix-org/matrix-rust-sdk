@@ -14,7 +14,7 @@
 
 use async_trait::async_trait;
 use matrix_sdk::SlidingSyncRoom;
-use tracing::{error, instrument, warn};
+use tracing::{error, instrument};
 
 use super::{EventTimelineItem, Timeline, TimelineBuilder};
 
@@ -27,7 +27,7 @@ pub trait SlidingSyncRoomExt {
     ///
     /// Use `Timeline::latest_event` instead if you already have a timeline for
     /// this `SlidingSyncRoom`.
-    fn latest_timeline_item(&self) -> Option<EventTimelineItem>;
+    async fn latest_timeline_item(&self) -> Option<EventTimelineItem>;
 }
 
 #[async_trait]
@@ -40,8 +40,9 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
     /// This method wraps latest_event, converting the event into an
     /// EventTimelineItem.
     #[instrument(skip_all)]
-    fn latest_timeline_item(&self) -> Option<EventTimelineItem> {
-        self.latest_event().and_then(|e| EventTimelineItem::from_latest_event(self, e))
+    async fn latest_timeline_item(&self) -> Option<EventTimelineItem> {
+        let latest_event = self.latest_event()?;
+        EventTimelineItem::from_latest_event(self, latest_event).await
     }
 }
 
@@ -82,7 +83,7 @@ mod tests {
         let room = SlidingSyncRoom::new(client, room_id, v4::SlidingSyncRoom::new(), Vec::new());
 
         // When we ask for the latest event, it is None
-        assert!(room.latest_timeline_item().is_none());
+        assert!(room.latest_timeline_item().await.is_none());
     }
 
     #[async_test]
@@ -101,7 +102,7 @@ mod tests {
             v4::SlidingSyncRoom::new(),
             Vec::new(),
         );
-        let actual = room.latest_timeline_item().unwrap();
+        let actual = room.latest_timeline_item().await.unwrap();
 
         // Then it is wrapped as an EventTimelineItem
         assert_eq!(actual.sender, user_id);
