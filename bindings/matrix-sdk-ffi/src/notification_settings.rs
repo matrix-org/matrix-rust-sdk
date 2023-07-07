@@ -50,6 +50,7 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
 }
 
 /// Delegate to notify of changes in push rules
+#[uniffi::export(callback_interface)]
 pub trait NotificationSettingsDelegate: Sync + Send {
     fn settings_did_change(&self);
 }
