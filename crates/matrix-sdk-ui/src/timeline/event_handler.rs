@@ -63,6 +63,7 @@ pub(super) enum Flow {
         txn_id: Option<OwnedTransactionId>,
         raw_event: Raw<AnySyncTimelineEvent>,
         position: TimelineItemPosition,
+        should_add: bool,
     },
 }
 
@@ -264,20 +265,24 @@ impl<'a> TimelineEventHandler<'a> {
     pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> HandleEventResult {
         let span = tracing::Span::current();
 
-        match &self.flow {
+        let should_add = match &self.flow {
             Flow::Local { txn_id, .. } => {
                 span.record("txn_id", debug(txn_id));
+
+                true
             }
 
-            Flow::Remote { event_id, txn_id, position, .. } => {
+            Flow::Remote { event_id, txn_id, position, should_add, .. } => {
                 span.record("event_id", debug(event_id));
                 span.record("position", debug(position));
 
                 if let Some(txn_id) = txn_id {
                     span.record("txn_id", debug(txn_id));
                 }
+
+                *should_add
             }
-        }
+        };
 
         trace!("Handling event");
 
@@ -293,11 +298,11 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(TimelineItemContent::message(c, relations, self.items));
+                    self.add(should_add, TimelineItemContent::message(c, relations, self.items));
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(content) => {
-                    self.add(TimelineItemContent::Sticker(Sticker { content }));
+                    self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
                 // TODO
                 _ => {
@@ -310,7 +315,7 @@ impl<'a> TimelineEventHandler<'a> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction {
-                    self.add(TimelineItemContent::RedactedMessage);
+                    self.add(should_add, TimelineItemContent::RedactedMessage);
                 }
             }
 
@@ -322,19 +327,28 @@ impl<'a> TimelineEventHandler<'a> {
             }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
-                self.add(TimelineItemContent::room_member(user_id, content, sender));
+                self.add(should_add, TimelineItemContent::room_member(user_id, content, sender));
             }
 
             TimelineEventKind::OtherState { state_key, content } => {
-                self.add(TimelineItemContent::OtherState(OtherState { state_key, content }));
+                self.add(
+                    should_add,
+                    TimelineItemContent::OtherState(OtherState { state_key, content }),
+                );
             }
 
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
-                self.add(TimelineItemContent::FailedToParseMessageLike { event_type, error });
+                self.add(
+                    should_add,
+                    TimelineItemContent::FailedToParseMessageLike { event_type, error },
+                );
             }
 
             TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
-                self.add(TimelineItemContent::FailedToParseState { event_type, state_key, error });
+                self.add(
+                    should_add,
+                    TimelineItemContent::FailedToParseState { event_type, state_key, error },
+                );
             }
         }
 
@@ -487,7 +501,7 @@ impl<'a> TimelineEventHandler<'a> {
     #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
         // TODO: Handle replacements if the replaced event is also UTD
-        self.add(TimelineItemContent::unable_to_decrypt(c));
+        self.add(true, TimelineItemContent::unable_to_decrypt(c));
     }
 
     // Redacted redactions are no-ops (unfortunately)
@@ -612,7 +626,11 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     /// Add a new event item in the timeline.
-    fn add(&mut self, content: TimelineItemContent) {
+    fn add(&mut self, should_add: bool, content: TimelineItemContent) {
+        if !should_add {
+            return;
+        }
+
         self.result.item_added = true;
 
         let sender = self.meta.sender.to_owned();

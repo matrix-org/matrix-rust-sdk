@@ -26,7 +26,7 @@ use ruma::{
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use tracing::{debug, error};
 
-use super::Profile;
+use super::{Profile, TimelineBuilder};
 use crate::timeline::Timeline;
 
 #[async_trait]
@@ -36,13 +36,29 @@ pub trait RoomExt {
     /// This offers a higher-level API than event handlers, in treating things
     /// like edits and reactions as updates of existing items rather than new
     /// independent events.
+    ///
+    /// This is the same as using `room.timeline_builder().build()`.
     async fn timeline(&self) -> Timeline;
+
+    /// Get a [`TimelineBuilder`] for this room.
+    ///
+    /// [`Timeline`] offers a higher-level API than event handlers, in treating
+    /// things like edits and reactions as updates of existing items rather
+    /// than new independent events.
+    ///
+    /// This allows to customize settings of the [`Timeline`] before
+    /// constructing it.
+    fn timeline_builder(&self) -> TimelineBuilder;
 }
 
 #[async_trait]
 impl RoomExt for room::Common {
     async fn timeline(&self) -> Timeline {
-        Timeline::builder(self).track_read_marker_and_receipts().build().await
+        self.timeline_builder().build().await
+    }
+
+    fn timeline_builder(&self) -> TimelineBuilder {
+        Timeline::builder(self).track_read_marker_and_receipts()
     }
 }
 

@@ -14,7 +14,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use eyeball_im::{ObservableVector, VectorSubscriber};
 #[cfg(any(test, feature = "testing"))]
@@ -43,6 +43,7 @@ use ruma::{
         relation::Annotation,
         room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncTimelineEvent,
     },
     push::Action,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -73,7 +74,7 @@ use crate::events::SyncTimelineEventWithoutContent;
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
     state: Arc<Mutex<TimelineInnerState>>,
     room_data_provider: P,
-    track_read_receipts: bool,
+    settings: TimelineInnerSettings,
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +120,34 @@ pub(super) enum ReactionState {
     Sending(OwnedTransactionId),
 }
 
+#[derive(Clone)]
+pub(super) struct TimelineInnerSettings {
+    pub(super) track_read_receipts: bool,
+    pub(super) event_filter: Arc<TimelineEventFilterFn>,
+    pub(super) add_failed_to_parse: bool,
+}
+
+impl fmt::Debug for TimelineInnerSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineInnerSettings")
+            .field("track_read_receipts", &self.track_read_receipts)
+            .field("add_failed_to_parse", &self.add_failed_to_parse)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for TimelineInnerSettings {
+    fn default() -> Self {
+        Self {
+            track_read_receipts: false,
+            event_filter: Arc::new(|_| true),
+            add_failed_to_parse: true,
+        }
+    }
+}
+
+pub(super) type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent) -> bool + Send + Sync;
+
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState {
@@ -128,11 +157,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             items: ObservableVector::with_capacity(32),
             ..Default::default()
         };
-        Self { state: Arc::new(Mutex::new(state)), room_data_provider, track_read_receipts: false }
+        Self {
+            state: Arc::new(Mutex::new(state)),
+            room_data_provider,
+            settings: TimelineInnerSettings::default(),
+        }
     }
 
-    pub(super) fn with_read_receipt_tracking(mut self, track_read_receipts: bool) -> Self {
-        self.track_read_receipts = track_read_receipts;
+    pub(super) fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
+        self.settings = settings;
         self
     }
 
@@ -310,7 +343,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     event,
                     TimelineItemPosition::End { from_cache: true },
                     &self.room_data_provider,
-                    self.track_read_receipts,
+                    &self.settings,
                 )
                 .await;
         }
@@ -323,13 +356,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
         let mut state = self.state.lock().await;
-        state
-            .handle_sync_timeline(
-                update.timeline,
-                &self.room_data_provider,
-                self.track_read_receipts,
-            )
-            .await;
+        state.handle_sync_timeline(update.timeline, &self.room_data_provider, &self.settings).await;
 
         for raw_event in update.account_data {
             match raw_event.deserialize() {
@@ -363,7 +390,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state
             .lock()
             .await
-            .handle_sync_timeline(timeline, &self.room_data_provider, self.track_read_receipts)
+            .handle_sync_timeline(timeline, &self.room_data_provider, &self.settings)
             .await;
     }
 
@@ -372,7 +399,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state
             .lock()
             .await
-            .handle_live_event(event, &self.room_data_provider, self.track_read_receipts)
+            .handle_live_event(event, &self.room_data_provider, &self.settings)
             .await;
     }
 
@@ -415,7 +442,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let flow = Flow::Local { txn_id };
         let kind = TimelineEventKind::Message { content, relations: Default::default() };
 
-        TimelineEventHandler::new(event_meta, flow, state, self.track_read_receipts)
+        TimelineEventHandler::new(event_meta, flow, state, self.settings.track_read_receipts)
             .handle_event(kind);
     }
 
@@ -469,14 +496,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 event_meta.clone(),
                 flow.clone(),
                 state,
-                self.track_read_receipts,
+                self.settings.track_read_receipts,
             )
             .handle_event(kind);
         }
         if let Some(redacts) = to_redact_remote {
             let kind = TimelineEventKind::Redaction { redacts, content };
 
-            TimelineEventHandler::new(event_meta, flow, state, self.track_read_receipts)
+            TimelineEventHandler::new(event_meta, flow, state, self.settings.track_read_receipts)
                 .handle_event(kind);
         }
     }
@@ -686,7 +713,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 event.into(),
                 TimelineItemPosition::Start,
                 &self.room_data_provider,
-                self.track_read_receipts,
+                &self.settings,
             )
             .await
     }
@@ -755,7 +782,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         debug!("Retrying decryption");
 
-        let track_read_receipts = self.track_read_receipts;
+        let settings = self.settings.clone();
         let room_data_provider = self.room_data_provider.clone();
         let push_rules_context = room_data_provider.push_rules_and_context().await;
 
@@ -828,7 +855,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                         event.into(),
                         TimelineItemPosition::Update(idx),
                         &room_data_provider,
-                        track_read_receipts,
+                        &settings,
                     )
                     .await;
 
@@ -1079,7 +1106,7 @@ impl TimelineInnerState {
         &mut self,
         timeline: Timeline,
         room_data_provider: &P,
-        track_read_receipts: bool,
+        settings: &TimelineInnerSettings,
     ) {
         if timeline.limited {
             debug!("Got limited sync response, resetting timeline");
@@ -1087,7 +1114,7 @@ impl TimelineInnerState {
         }
 
         for event in timeline.events {
-            self.handle_live_event(event, room_data_provider, track_read_receipts).await;
+            self.handle_live_event(event, room_data_provider, settings).await;
         }
     }
 
@@ -1099,13 +1126,13 @@ impl TimelineInnerState {
         &mut self,
         event: SyncTimelineEvent,
         room_data_provider: &P,
-        track_read_receipts: bool,
+        settings: &TimelineInnerSettings,
     ) -> HandleEventResult {
         self.handle_remote_event(
             event,
             TimelineItemPosition::End { from_cache: false },
             room_data_provider,
-            track_read_receipts,
+            settings,
         )
         .await
     }
@@ -1118,25 +1145,38 @@ impl TimelineInnerState {
         event: SyncTimelineEvent,
         position: TimelineItemPosition,
         room_data_provider: &P,
-        track_read_receipts: bool,
+        settings: &TimelineInnerSettings,
     ) -> HandleEventResult {
+        let should_add_event = &*settings.event_filter;
         let raw = event.event;
-        let (event_id, sender, timestamp, txn_id, event_kind) = match raw.deserialize() {
-            Ok(event) => (
-                event.event_id().to_owned(),
-                event.sender().to_owned(),
-                event.origin_server_ts(),
-                event.transaction_id().map(ToOwned::to_owned),
-                event.into(),
-            ),
+        let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
+        {
+            Ok(event) => {
+                let should_add = should_add_event(&event);
+                (
+                    event.event_id().to_owned(),
+                    event.sender().to_owned(),
+                    event.origin_server_ts(),
+                    event.transaction_id().map(ToOwned::to_owned),
+                    event.into(),
+                    should_add,
+                )
+            }
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
-                Ok(event) => (
+                Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
                     TimelineEventKind::failed_to_parse(event, e),
+                    true,
                 ),
+                Ok(event) => {
+                    let event_type = event.event_type();
+                    let event_id = event.event_id();
+                    warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
+                    return HandleEventResult::default();
+                }
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
@@ -1149,7 +1189,7 @@ impl TimelineInnerState {
         let is_own_event = sender == room_data_provider.own_user_id();
         let encryption_info = event.encryption_info;
         let sender_profile = room_data_provider.profile(&sender).await;
-        let read_receipts = if track_read_receipts {
+        let read_receipts = if settings.track_read_receipts {
             self.load_read_receipts_for_event(&event_id, room_data_provider).await
         } else {
             Default::default()
@@ -1164,9 +1204,9 @@ impl TimelineInnerState {
             read_receipts,
             is_highlighted,
         };
-        let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position };
+        let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add };
 
-        TimelineEventHandler::new(event_meta, flow, self, track_read_receipts)
+        TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
             .handle_event(event_kind)
     }
 
