@@ -1,5 +1,5 @@
 //! Utilities for working with events to decide whether they are suitable for
-//! use as a [RoomInfo::latest_event].
+//! use as a [crate::RoomInfo::latest_event].
 
 use ruma::events::{
     room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
