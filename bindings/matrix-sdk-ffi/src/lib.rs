@@ -44,7 +44,6 @@ use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin};
 use self::{
     client::{CreateRoomParameters, RoomPreset, RoomVisibility},
     error::ClientError,
-    session_verification::{SessionVerificationControllerDelegate, SessionVerificationEmoji},
     task_handle::TaskHandle,
     timeline::MediaSourceExt,
 };

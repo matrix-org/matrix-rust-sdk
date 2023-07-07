@@ -47,7 +47,7 @@ impl RoomExt for room::Common {
 }
 
 #[async_trait]
-pub(super) trait RoomDataProvider {
+pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn own_user_id(&self) -> &UserId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
@@ -115,13 +115,13 @@ impl RoomDataProvider for room::Common {
 // object, which is annoying to create for testing and not really needed
 #[cfg(feature = "e2e-encryption")]
 #[async_trait]
-pub(super) trait Decryptor: Copy {
+pub(super) trait Decryptor: Clone + Send + Sync + 'static {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent>;
 }
 
 #[cfg(feature = "e2e-encryption")]
 #[async_trait]
-impl Decryptor for &room::Common {
+impl Decryptor for room::Common {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         self.decrypt_event(raw.cast_ref()).await
     }
@@ -129,7 +129,7 @@ impl Decryptor for &room::Common {
 
 #[cfg(all(test, feature = "e2e-encryption"))]
 #[async_trait]
-impl Decryptor for (&matrix_sdk_base::crypto::OlmMachine, &ruma::RoomId) {
+impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         let (olm_machine, room_id) = self;
         let event = olm_machine.decrypt_room_event(raw.cast_ref(), room_id).await?;

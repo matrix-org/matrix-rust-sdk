@@ -13,6 +13,7 @@ use matrix_sdk::{
 use super::RUNTIME;
 use crate::error::ClientError;
 
+#[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {
     symbol: String,
     description: String,
@@ -29,6 +30,7 @@ impl SessionVerificationEmoji {
     }
 }
 
+#[uniffi::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: Sync + Send {
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
