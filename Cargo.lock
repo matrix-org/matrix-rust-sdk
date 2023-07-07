@@ -3408,6 +3408,7 @@ dependencies = [
  "tokio",
  "tracing",
  "unicode-normalization",
+ "uniffi",
  "url",
  "wiremock",
 ]

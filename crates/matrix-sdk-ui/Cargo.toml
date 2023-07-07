@@ -14,6 +14,8 @@ e2e-encryption = ["matrix-sdk/e2e-encryption"]
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
+uniffi = ["dep:uniffi"]
+
 [dependencies]
 as_variant = { workspace = true }
 async_cell = "0.2.2"
@@ -43,6 +45,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization = "0.1.22"
+uniffi = { workspace = true, optional = true }
 url = "2.2.2"
 
 [dev-dependencies]

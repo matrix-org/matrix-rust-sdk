@@ -48,7 +48,6 @@ use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::ruma::events::room::{
     message::RoomMessageEventContentWithoutRelation, MediaSource,
 };
-use matrix_sdk_ui::timeline::{BackPaginationStatus, EventItemOrigin};
 
 use self::{
     error::ClientError,
