@@ -240,7 +240,7 @@ async fn reactions_store_timestamp() {
 }
 
 #[async_test]
-async fn initial_reaction_timestamps_is_stored() {
+async fn initial_reaction_timestamp_is_stored() {
     let mut timeline = TestTimeline::new();
 
     let message_event_id = EventId::new(server_name!("dummy.server"));
