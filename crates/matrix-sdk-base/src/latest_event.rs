@@ -1,6 +1,8 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::RoomInfo::latest_event].
 
+#![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+
 use ruma::events::{
     room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     OriginalSyncMessageLikeEvent, SyncMessageLikeEvent,
@@ -28,7 +30,6 @@ pub enum PossibleLatestEvent<'a> {
 
 /// Decide whether an event could be stored as the latest event in a room.
 /// Returns a LatestEvent representing our decision.
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLatestEvent<'_> {
     match event {
         // Suitable - we have an m.room.message that was not redacted

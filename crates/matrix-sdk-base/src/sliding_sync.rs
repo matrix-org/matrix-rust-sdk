@@ -27,12 +27,13 @@ use ruma::{
 use tracing::{debug, info, instrument, warn};
 
 use super::BaseClient;
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
     deserialized_responses::AmbiguityChanges,
     error::Result,
-    latest_event::{is_suitable_for_latest_event, PossibleLatestEvent},
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoom, Rooms, SyncResponse},

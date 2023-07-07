@@ -139,7 +139,7 @@ describe(OlmMachine.name, () => {
             await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys),
         );
 
-        expect(receiveSyncChanges).toEqual([]);
+        expect(receiveSyncChanges).toEqual([[],[]]);
     });
 
     test("can get the outgoing requests that need to be send out", async () => {
@@ -153,7 +153,7 @@ describe(OlmMachine.name, () => {
             await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys),
         );
 
-        expect(receiveSyncChanges).toEqual([]);
+        expect(receiveSyncChanges).toEqual([[], []]);
 
         const outgoingRequests = await m.outgoingRequests();
 

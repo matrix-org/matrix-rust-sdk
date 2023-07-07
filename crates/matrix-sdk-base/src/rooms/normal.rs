@@ -19,6 +19,7 @@ use std::{
 
 use bitflags::bitflags;
 use futures_util::stream::{self, StreamExt};
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
@@ -37,14 +38,15 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
     room::RoomType,
-    serde::Raw,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
     RoomId, RoomVersionId, UserId,
 };
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 
