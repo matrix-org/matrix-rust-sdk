@@ -20,6 +20,7 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
+mod app;
 mod authentication_service;
 mod client;
 mod client_builder;

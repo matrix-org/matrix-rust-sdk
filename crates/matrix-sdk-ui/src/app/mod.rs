@@ -53,7 +53,7 @@ pub enum AppState {
 }
 
 pub struct App {
-    room_list: Arc<RoomListService>,
+    room_list_service: Arc<RoomListService>,
     encryption_sync: Option<Arc<EncryptionSync>>,
     task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     state_observer: SharedObservable<AppState>,
@@ -67,8 +67,8 @@ impl App {
 
     /// Get the underlying `RoomListService` instance for easier access to its
     /// methods.
-    pub fn room_list_service(&self) -> &RoomListService {
-        &*self.room_list
+    pub fn room_list_service(&self) -> Arc<RoomListService> {
+        self.room_list_service.clone()
     }
 
     /// Observe the current state of the application.
@@ -84,7 +84,7 @@ impl App {
     /// spawned to run the syncs, then it will be properly aborted and
     /// restarted.
     pub async fn start(&self) -> Result<(), Error> {
-        let room_list = self.room_list.clone();
+        let room_list = self.room_list_service.clone();
         let encryption_sync = self.encryption_sync.clone();
         let state_observer = self.state_observer.clone();
 
@@ -162,7 +162,7 @@ impl App {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     pub fn pause(&self) -> Result<(), Error> {
-        self.room_list.stop_sync()?;
+        self.room_list_service.stop_sync()?;
         if let Some(ref encryption_sync) = self.encryption_sync {
             encryption_sync.stop()?;
         }
@@ -170,6 +170,7 @@ impl App {
     }
 }
 
+#[derive(Clone)]
 pub struct AppBuilder {
     /// SDK client.
     client: Client,
@@ -243,7 +244,7 @@ impl AppBuilder {
         };
 
         let app = App {
-            room_list: Arc::new(room_list),
+            room_list_service: Arc::new(room_list),
             encryption_sync,
             state_observer: SharedObservable::new(AppState::Running),
             task_handle: Default::default(),
