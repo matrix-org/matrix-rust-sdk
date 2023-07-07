@@ -233,10 +233,13 @@ impl AppBuilder {
     pub async fn build(self) -> Result<App, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
-            let with_lock =
-                if self.with_cross_process_lock { WithLocking::Yes } else { WithLocking::No };
-            let encryption_sync =
-                EncryptionSync::new(self.identifier, self.client, None, with_lock).await?;
+            let encryption_sync = EncryptionSync::new(
+                self.identifier,
+                self.client,
+                None,
+                WithLocking::from(self.with_cross_process_lock),
+            )
+            .await?;
             (room_list, Some(Arc::new(encryption_sync)))
         } else {
             let room_list = RoomListService::new_with_encryption(self.client.clone()).await?;
