@@ -123,7 +123,7 @@ pub(super) enum ReactionState {
 #[derive(Clone)]
 pub(super) struct TimelineInnerSettings {
     pub(super) track_read_receipts: bool,
-    pub(super) event_filter: Arc<Box<TimelineEventFilterFn>>,
+    pub(super) event_filter: Arc<TimelineEventFilterFn>,
     pub(super) add_failed_to_parse: bool,
 }
 
@@ -140,7 +140,7 @@ impl Default for TimelineInnerSettings {
     fn default() -> Self {
         Self {
             track_read_receipts: false,
-            event_filter: Arc::new(Box::new(|_| true)),
+            event_filter: Arc::new(|_| true),
             add_failed_to_parse: true,
         }
     }

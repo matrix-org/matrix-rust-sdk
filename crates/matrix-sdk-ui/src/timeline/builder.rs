@@ -107,7 +107,7 @@ impl TimelineBuilder {
     where
         F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
     {
-        self.settings.event_filter = Arc::new(Box::new(filter));
+        self.settings.event_filter = Arc::new(filter);
         self
     }
 
