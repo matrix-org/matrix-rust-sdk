@@ -20,15 +20,3 @@ interface MediaSource {
     string to_json();
     string url();
 };
-
-enum EventItemOrigin {
-    "Local",
-    "Sync",
-    "Pagination",
-};
-
-enum BackPaginationStatus {
-    "Idle",
-    "Paginating",
-    "TimelineStartReached",
-};
