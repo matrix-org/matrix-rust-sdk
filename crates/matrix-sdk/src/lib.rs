@@ -22,7 +22,7 @@ pub use bytes;
 pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     deserialized_responses,
-    store::{DynStateStore, StateStoreExt},
+    store::{DynStateStore, MemoryStore, StateStoreExt},
     DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomMemberships,
     RoomState, SessionMeta, StateChanges, StateStore, StoreError,
 };
@@ -50,7 +50,6 @@ pub mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
-
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
@@ -61,6 +60,8 @@ pub use error::{
     RumaApiError,
 };
 pub use http_client::TransmissionProgress;
+#[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
+pub use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use media::Media;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]

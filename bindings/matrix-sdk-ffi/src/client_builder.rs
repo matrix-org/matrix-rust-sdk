@@ -2,11 +2,12 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use matrix_sdk::{
+    config::StoreConfig,
     ruma::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
+    Client as MatrixClient, ClientBuilder as MatrixClientBuilder, MemoryStore, SqliteCryptoStore,
 };
 use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
@@ -28,6 +29,7 @@ pub struct ClientBuilder {
     proxy: Option<String>,
     disable_ssl_verification: bool,
     inner: MatrixClientBuilder,
+    with_memory_state_store: bool,
 }
 
 #[uniffi::export]
@@ -97,6 +99,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn with_memory_state_store(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.with_memory_state_store = true;
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
         Ok(self.build_inner()?)
     }
@@ -112,7 +120,19 @@ impl ClientBuilder {
             let data_path = PathBuf::from(base_path).join(sanitize(username));
             fs::create_dir_all(&data_path)?;
 
-            inner_builder = inner_builder.sqlite_store(&data_path, builder.passphrase.as_deref());
+            if builder.with_memory_state_store {
+                let sqlite_crypto_store = RUNTIME.block_on(async move {
+                    SqliteCryptoStore::open(&data_path, builder.passphrase.as_deref()).await
+                })?;
+                inner_builder = inner_builder.store_config(
+                    StoreConfig::new()
+                        .crypto_store(sqlite_crypto_store)
+                        .state_store(MemoryStore::new()),
+                );
+            } else {
+                inner_builder =
+                    inner_builder.sqlite_store(&data_path, builder.passphrase.as_deref());
+            }
         }
 
         // Determine server either from URL, server name or user ID.
@@ -190,6 +210,7 @@ impl Default for ClientBuilder {
             proxy: None,
             disable_ssl_verification: false,
             inner: MatrixClient::builder(),
+            with_memory_state_store: false,
         }
     }
 }
