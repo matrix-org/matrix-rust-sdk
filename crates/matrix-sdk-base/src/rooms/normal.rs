@@ -19,8 +19,10 @@ use std::{
 
 use bitflags::bitflags;
 use futures_util::stream::{self, StreamExt};
+#[cfg(all(feature = "experimental-sliding-sync"))]
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
+use matrix_sdk_common::ring_buffer::RingBuffer;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -79,7 +81,7 @@ pub struct Room {
     /// not sure whether holding too many of them might make the cache too
     /// slow to load on startup. Keeping them here means they are not cached
     /// to disk but held in memory.
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
 }
 
@@ -125,7 +127,7 @@ impl From<&MembershipState> for RoomState {
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     const MAX_ENCRYPTED_EVENTS: usize = 10;
 
     pub(crate) fn new(
@@ -148,7 +150,7 @@ impl Room {
             room_id: room_info.room_id.clone(),
             store,
             inner: Arc::new(SyncRwLock::new(room_info)),
-            #[cfg(feature = "experimental-sliding-sync")]
+            #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
