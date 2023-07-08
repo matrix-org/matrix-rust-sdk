@@ -299,7 +299,7 @@ impl BaseClient {
     fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
-        required_state: &[AnySyncStateEvent],
+        required_state: &[Option<AnySyncStateEvent>],
         store: &Store,
         room_id: &RoomId,
         changes: &mut StateChanges,
@@ -353,11 +353,11 @@ impl BaseClient {
     /// the state in room_info to reflect the "membership" property.
     pub(crate) fn handle_own_room_membership(
         &self,
-        required_state: &[AnySyncStateEvent],
+        required_state: &[Option<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
     ) {
         for event in required_state {
-            if let AnySyncStateEvent::RoomMember(member) = &event {
+            if let Some(AnySyncStateEvent::RoomMember(member)) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
                 if let Some(meta) = self.session_meta() {

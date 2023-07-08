@@ -453,7 +453,7 @@ impl BaseClient {
     pub(crate) async fn handle_state(
         &self,
         raw_events: &[Raw<AnySyncStateEvent>],
-        events: &[AnySyncStateEvent],
+        events: &[Option<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
@@ -462,7 +462,12 @@ impl BaseClient {
         let mut user_ids = BTreeSet::new();
         let mut profiles = BTreeMap::new();
 
+        assert_eq!(raw_events.len(), events.len());
         for (raw_event, event) in iter::zip(raw_events, events) {
+            let Some(event) = event else {
+                continue;
+            };
+
             room_info.handle_state_event(event);
 
             if let AnySyncStateEvent::RoomMember(member) = &event {
@@ -1268,10 +1273,10 @@ impl BaseClient {
 
     pub(crate) fn deserialize_events(
         raw_events: &[Raw<AnySyncStateEvent>],
-    ) -> Vec<AnySyncStateEvent> {
+    ) -> Vec<Option<AnySyncStateEvent>> {
         raw_events
             .iter()
-            .filter_map(|raw_event| match raw_event.deserialize() {
+            .map(|raw_event| match raw_event.deserialize() {
                 Ok(ev) => Some(ev),
                 Err(e) => {
                     warn!("Couldn't deserialize state event: {e}");
