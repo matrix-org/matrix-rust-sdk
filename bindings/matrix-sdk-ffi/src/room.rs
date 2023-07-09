@@ -274,6 +274,9 @@ impl Room {
         };
 
         Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            // Send the current state even if it hasn't changed right away.
+            listener.on_update(subscriber.next_now());
+
             while let Some(status) = subscriber.next().await {
                 listener.on_update(status);
             }
