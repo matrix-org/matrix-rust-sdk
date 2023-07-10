@@ -87,7 +87,7 @@ pub(super) struct SlidingSyncInner {
     client: Client,
 
     /// Long-polling timeout that appears the sliding sync proxy request.
-    polling_timeout: Duration,
+    poll_timeout: Duration,
 
     /// Extra duration for the sliding sync request to timeout. This is added to
     /// the [`Self::proxy_timeout`].
@@ -414,7 +414,7 @@ impl SlidingSync {
             conn_id: Some(self.inner.id.clone()),
             pos,
             delta_token,
-            timeout: Some(self.inner.polling_timeout),
+            timeout: Some(self.inner.poll_timeout),
             lists: requests_lists,
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
@@ -454,8 +454,7 @@ impl SlidingSync {
             request,
             // Configure long-polling. We need some time for the long-poll itself,
             // and extra time for the network delays.
-            RequestConfig::default()
-                .timeout(self.inner.polling_timeout + self.inner.network_timeout),
+            RequestConfig::default().timeout(self.inner.poll_timeout + self.inner.network_timeout),
             room_unsubscriptions,
         ))
     }

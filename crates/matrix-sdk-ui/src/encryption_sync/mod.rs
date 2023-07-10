@@ -71,7 +71,7 @@ impl EncryptionSync {
     pub async fn new(
         process_id: String,
         client: Client,
-        proxy_and_network_timeouts: Option<(Duration, Duration)>,
+        poll_and_network_timeouts: Option<(Duration, Duration)>,
         with_locking: WithLocking,
     ) -> Result<Self, Error> {
         // Make sure to use the same `conn_id` and caching store identifier, whichever
@@ -85,8 +85,8 @@ impl EncryptionSync {
             )
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}));
 
-        if let Some((proxy_timeout, network_timeout)) = proxy_and_network_timeouts {
-            builder = builder.with_timeouts(proxy_timeout, network_timeout);
+        if let Some((poll_timeout, network_timeout)) = poll_and_network_timeouts {
+            builder = builder.poll_timeout(poll_timeout).network_timeout(network_timeout);
         }
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
