@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use matrix_sdk::room::Room;
-use ruma::{
-    api::client::push::get_notifications::v3::Notification, events::AnySyncTimelineEvent,
-    push::Action, EventId,
+use matrix_sdk_ui::notification_client::{
+    NotificationClient as MatrixNotificationClient,
+    NotificationClientBuilder as MatrixNotificationClientBuilder,
 };
+use ruma::{EventId, RoomId};
 
-use crate::event::TimelineEvent;
+use crate::{error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME};
 
 #[derive(uniffi::Record)]
 pub struct NotificationSenderInfo {
@@ -16,7 +16,6 @@ pub struct NotificationSenderInfo {
 
 #[derive(uniffi::Record)]
 pub struct NotificationRoomInfo {
-    pub id: String,
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
@@ -35,70 +34,83 @@ pub struct NotificationItem {
     pub is_noisy: bool,
 }
 
-impl NotificationItem {
-    pub(crate) async fn new_from_notification(
-        notification: Notification,
-        room: Room,
-    ) -> anyhow::Result<Option<Self>> {
-        if !notification.actions.iter().any(|a| a.should_notify()) {
-            return Ok(None);
-        }
+#[derive(Clone, uniffi::Object)]
+pub struct NotificationClientBuilder {
+    builder: MatrixNotificationClientBuilder,
+}
 
-        let deserialized_event = notification.event.deserialize()?;
+impl NotificationClientBuilder {
+    pub(crate) fn new(client: matrix_sdk::Client) -> Arc<Self> {
+        Arc::new(Self { builder: MatrixNotificationClient::builder(client) })
+    }
+}
 
-        Self::new(deserialized_event, room, notification.actions).await.map(Some)
+#[uniffi::export]
+impl NotificationClientBuilder {
+    /// Filter out the notification event according to the push rules present in
+    /// the event.
+    pub fn filter_by_push_rules(self: Arc<Self>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.filter_by_push_rules();
+        Arc::new(Self { builder })
     }
 
-    pub(crate) async fn new_from_event_id(
-        event_id: &str,
-        room: Room,
-        filter_by_push_rules: bool,
-    ) -> anyhow::Result<Option<Self>> {
+    /// Automatically retry decryption once, if the notification was received
+    /// encrypted.
+    ///
+    /// The boolean indicates whether we're making use of a cross-process lock
+    /// for the crypto-store. This should be set to true, if and only if,
+    /// the notification is received in a process that's different from the
+    /// main app.
+    pub fn retry_decryption(self: Arc<Self>, with_cross_process_lock: bool) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.retry_decryption(with_cross_process_lock);
+        Arc::new(Self { builder })
+    }
+
+    pub fn finish(self: Arc<Self>) -> Arc<NotificationClient> {
+        let this = unwrap_or_clone_arc(self);
+        Arc::new(NotificationClient { inner: this.builder.build() })
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct NotificationClient {
+    inner: MatrixNotificationClient,
+}
+
+#[uniffi::export]
+impl NotificationClient {
+    pub fn get_notification(
+        &self,
+        room_id: String,
+        event_id: String,
+    ) -> Result<Option<NotificationItem>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
         let event_id = EventId::parse(event_id)?;
-        let ruma_event = room.event(&event_id).await?;
+        RUNTIME.block_on(async move {
+            let item = self
+                .inner
+                .get_notification(&room_id, &event_id)
+                .await
+                .map_err(ClientError::from)?;
 
-        if filter_by_push_rules && !ruma_event.push_actions.iter().any(|a| a.should_notify()) {
-            return Ok(None);
-        }
-
-        let event: AnySyncTimelineEvent = ruma_event.event.deserialize()?.into();
-        Self::new(event, room, ruma_event.push_actions).await.map(Some)
-    }
-
-    async fn new(
-        event: AnySyncTimelineEvent,
-        room: Room,
-        actions: Vec<Action>,
-    ) -> anyhow::Result<Self> {
-        let sender = match &room {
-            Room::Invited(invited) => invited.invite_details().await?.inviter,
-            _ => room.get_member(event.sender()).await?,
-        };
-        let mut sender_display_name = None;
-        let mut sender_avatar_url = None;
-        if let Some(sender) = sender {
-            sender_display_name = sender.display_name().map(|s| s.to_owned());
-            sender_avatar_url = sender.avatar_url().map(|s| s.to_string());
-        }
-
-        let is_noisy = actions.iter().any(|a| a.sound().is_some());
-
-        let room_info = NotificationRoomInfo {
-            id: room.room_id().to_string(),
-            display_name: room.display_name().await?.to_string(),
-            avatar_url: room.avatar_url().map(|s| s.to_string()),
-            canonical_alias: room.canonical_alias().map(|c| c.to_string()),
-            joined_members_count: room.joined_members_count(),
-            is_encrypted: room.is_encrypted().await.ok(),
-            is_direct: room.is_direct().await?,
-        };
-
-        let sender_info = NotificationSenderInfo {
-            display_name: sender_display_name,
-            avatar_url: sender_avatar_url,
-        };
-
-        let item = Self { event: Arc::new(TimelineEvent(event)), sender_info, room_info, is_noisy };
-        Ok(item)
+            Ok(item.map(|item| NotificationItem {
+                event: Arc::new(TimelineEvent(item.event)),
+                sender_info: NotificationSenderInfo {
+                    display_name: item.sender_display_name,
+                    avatar_url: item.sender_avatar_url,
+                },
+                room_info: NotificationRoomInfo {
+                    display_name: item.room_display_name,
+                    avatar_url: item.room_avatar_url,
+                    canonical_alias: item.room_canonical_alias,
+                    joined_members_count: item.joined_members_count,
+                    is_encrypted: item.is_room_encrypted,
+                    is_direct: item.is_direct_message_room,
+                },
+                is_noisy: item.is_noisy,
+            }))
+        })
     }
 }

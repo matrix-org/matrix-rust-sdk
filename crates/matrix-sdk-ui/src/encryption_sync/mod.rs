@@ -36,13 +36,20 @@ use matrix_sdk_crypto::store::locks::CryptoStoreLock;
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::{error, trace};
 
-#[derive(Clone, Copy)]
-pub enum EncryptionSyncMode {
-    /// Run the loop for a fixed amount of iterations.
-    RunFixedIterations(u8),
+/// Should the `EncryptionSync` make use of locking?
+pub enum WithLocking {
+    Yes,
+    No,
+}
 
-    /// Never stop running the loop, except if asked to stop.
-    NeverStop,
+impl From<bool> for WithLocking {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Yes
+        } else {
+            Self::No
+        }
+    }
 }
 
 /// High-level helper for synchronizing encryption events using sliding sync.
@@ -51,7 +58,7 @@ pub enum EncryptionSyncMode {
 pub struct EncryptionSync {
     client: Client,
     sliding_sync: SlidingSync,
-    mode: EncryptionSyncMode,
+    with_locking: bool,
 }
 
 impl EncryptionSync {
@@ -64,7 +71,8 @@ impl EncryptionSync {
     pub async fn new(
         process_id: String,
         client: Client,
-        mode: EncryptionSyncMode,
+        proxy_and_network_timeouts: Option<(Duration, Duration)>,
+        with_locking: WithLocking,
     ) -> Result<Self, Error> {
         // Make sure to use the same `conn_id` and caching store identifier, whichever
         // process is running this sliding sync. There must be at most one
@@ -77,26 +85,109 @@ impl EncryptionSync {
             )
             .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}));
 
-        if matches!(mode, EncryptionSyncMode::RunFixedIterations(..)) {
-            builder = builder.with_timeouts(Duration::from_secs(4), Duration::from_secs(4));
+        if let Some((proxy_timeout, network_timeout)) = proxy_and_network_timeouts {
+            builder = builder.with_timeouts(proxy_timeout, network_timeout);
         }
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
-        // Gently try to set the cross-process lock on behalf of the user.
-        match client.encryption().enable_cross_process_store_lock(process_id).await {
-            Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
-                // Ignore; we've already set the crypto store lock to
-                // something, and that's sufficient as
-                // long as it uniquely identifies the process.
+        let with_locking = matches!(with_locking, WithLocking::Yes);
+
+        if with_locking {
+            // Gently try to enable the cross-process lock on behalf of the user.
+            match client.encryption().enable_cross_process_store_lock(process_id).await {
+                Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
+                    // Ignore; we've already set the crypto store lock to
+                    // something, and that's sufficient as
+                    // long as it uniquely identifies the process.
+                }
+                Err(err) => {
+                    // Any other error is fatal
+                    return Err(Error::ClientError(err));
+                }
+            };
+        }
+
+        Ok(Self { client, sliding_sync, with_locking })
+    }
+
+    pub async fn run_fixed_iterations(self, num_iterations: u8) -> Result<(), Error> {
+        let sync = self.sliding_sync.sync();
+
+        pin_mut!(sync);
+
+        let _lock_guard = if self.with_locking {
+            let mut lock_guard =
+                self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
+
+            // Try to take the lock at the beginning; if it's busy, that means that another
+            // process already holds onto it, and as such we won't try to run the
+            // encryption sync loop at all (because we expect the other process to
+            // do so).
+
+            if lock_guard.is_none() {
+                // If we can't acquire the cross-process lock on the first attempt,
+                // that means the main process is running, or its lease hasn't expired
+                // yet. In case it's the latter, wait a bit and retry.
+                tracing::debug!(
+                    "Lock was already taken, and we're not the main loop; retrying in {}ms...",
+                    CryptoStoreLock::LEASE_DURATION_MS
+                );
+
+                tokio::time::sleep(Duration::from_millis(
+                    CryptoStoreLock::LEASE_DURATION_MS.into(),
+                ))
+                .await;
+
+                lock_guard = self
+                    .client
+                    .encryption()
+                    .try_lock_store_once()
+                    .await
+                    .map_err(Error::LockError)?;
+
+                if lock_guard.is_none() {
+                    tracing::debug!(
+                        "Second attempt at locking outside the main app failed, aborting."
+                    );
+                    return Ok(());
+                }
             }
-            Err(err) => {
-                // Any other error is fatal
-                return Err(Error::ClientError(err));
-            }
+
+            lock_guard
+        } else {
+            None
         };
 
-        Ok(Self { client, sliding_sync, mode })
+        for _ in 0..num_iterations {
+            match sync.next().await {
+                Some(Ok(update_summary)) => {
+                    // This API is only concerned with the e2ee and to-device extensions.
+                    // Warn if anything weird has been received from the proxy.
+                    if !update_summary.lists.is_empty() {
+                        error!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
+                    }
+                    if !update_summary.rooms.is_empty() {
+                        error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
+                    }
+
+                    // Cool cool, let's do it again.
+                    trace!("Encryption sync received an update!");
+                }
+
+                Some(Err(err)) => {
+                    trace!("Encryption sync stopped because of an error: {err:#}");
+                    return Err(Error::SlidingSync(err));
+                }
+
+                None => {
+                    trace!("Encryption sync properly terminated.");
+                    break;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Start synchronization.
@@ -108,61 +199,15 @@ impl EncryptionSync {
 
             pin_mut!(sync);
 
-            let mut mode = self.mode;
-
             loop {
-                let guard = match &mut mode {
-                    EncryptionSyncMode::RunFixedIterations(ref mut val) => {
-                        if *val == 0 {
-                            // The previous attempt was the last one, stop now.
-                            break;
-                        }
-                        // Soon.
-                        *val -= 1;
-
-                        let mut guard = self
-                            .client
-                            .encryption()
-                            .try_lock_store_once()
-                            .await
-                            .map_err(Error::LockError)?;
-
-                        if guard.is_none() {
-                            // If we can't acquire the cross-process lock on the first attempt,
-                            // that means the main process is running, or its lease hasn't expired
-                            // yet. In case it's the latter, wait a bit and retry.
-                            tracing::debug!(
-                                "Lock was already taken, and we're not the main loop; retrying in {}ms...",
-                                CryptoStoreLock::LEASE_DURATION_MS
-                            );
-
-                            tokio::time::sleep(Duration::from_millis(
-                                CryptoStoreLock::LEASE_DURATION_MS.into(),
-                            ))
-                            .await;
-
-                            guard = self
-                                .client
-                                .encryption()
-                                .try_lock_store_once()
-                                .await
-                                .map_err(Error::LockError)?;
-
-                            if guard.is_none() {
-                                tracing::debug!("Second attempt at locking outside the main app failed, so aborting.");
-                                return;
-                            }
-                        }
-
-                        guard
-                    }
-
-                    EncryptionSyncMode::NeverStop => self
-                        .client
+                let guard = if self.with_locking {
+                    self.client
                         .encryption()
                         .spin_lock_store(Some(60000))
                         .await
-                        .map_err(Error::LockError)?,
+                        .map_err(Error::LockError)?
+                } else {
+                    None
                 };
 
                 match sync.next().await {

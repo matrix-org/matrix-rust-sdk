@@ -28,6 +28,8 @@ use wiremock::{
 
 #[cfg(feature = "experimental-encryption-sync")]
 mod encryption_sync;
+#[cfg(feature = "experimental-notification-client")]
+mod notification_client;
 #[cfg(feature = "experimental-room-list")]
 mod room_list_service;
 mod sliding_sync;

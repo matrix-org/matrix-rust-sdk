@@ -24,10 +24,7 @@ use matrix_sdk::{
     },
     Client as MatrixClient,
 };
-use ruma::{
-    push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    RoomId,
-};
+use ruma::push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat};
 use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
@@ -35,7 +32,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    client, notification::NotificationItem, notification_settings::NotificationSettings,
+    client, notification::NotificationClientBuilder, notification_settings::NotificationSettings,
     ClientError,
 };
 
@@ -105,11 +102,6 @@ pub trait ClientDelegate: Sync + Send {
 }
 
 #[uniffi::export(callback_interface)]
-pub trait NotificationDelegate: Sync + Send {
-    fn did_receive_notification(&self, notification: NotificationItem);
-}
-
-#[uniffi::export(callback_interface)]
 pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
@@ -133,7 +125,6 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: MatrixClient,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
-    notification_delegate: Arc<RwLock<Option<Box<dyn NotificationDelegate>>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -159,7 +150,6 @@ impl Client {
         let client = Client {
             inner: sdk_client,
             delegate: Arc::new(RwLock::new(None)),
-            notification_delegate: Arc::new(RwLock::new(None)),
             session_verification_controller,
         };
 
@@ -594,51 +584,8 @@ impl Client {
         })
     }
 
-    /// Sets a notification delegate and a handler.
-    ///
-    /// The sliding sync requires to have registered m.room.member with value
-    /// $ME and m.room.power_levels to be able to intercept the events.
-    /// This function blocks execution and should be dispatched concurrently.
-    pub fn set_notification_delegate(
-        &self,
-        notification_delegate: Option<Box<dyn NotificationDelegate>>,
-    ) {
-        *self.notification_delegate.write().unwrap() = notification_delegate;
-        let notification_delegate = Arc::clone(&self.notification_delegate);
-        let handler = move |notification, room: SdkRoom, _| {
-            let notification_delegate = Arc::clone(&notification_delegate);
-            async move {
-                if let Ok(Some(notification_item)) =
-                    NotificationItem::new_from_notification(notification, room).await
-                {
-                    if let Some(notification_delegate) =
-                        notification_delegate.read().unwrap().as_ref()
-                    {
-                        notification_delegate.did_receive_notification(notification_item);
-                    }
-                }
-            }
-        };
-        RUNTIME.block_on(async move {
-            self.inner.register_notification_handler(handler).await;
-        })
-    }
-
-    pub fn get_notification_item(
-        &self,
-        room_id: String,
-        event_id: String,
-        filter_by_push_rules: bool,
-    ) -> Result<Option<NotificationItem>, ClientError> {
-        RUNTIME.block_on(async move {
-            // We may also need to do a sync here since this may fail if the keys are not
-            // valid anymore
-            let room_id = RoomId::parse(room_id)?;
-            let room = self.inner.get_room(&room_id).context("Room not found")?;
-            let notification =
-                NotificationItem::new_from_event_id(&event_id, room, filter_by_push_rules).await?;
-            Ok(notification)
-        })
+    pub fn notification_client(&self) -> Arc<NotificationClientBuilder> {
+        NotificationClientBuilder::new(self.inner.clone())
     }
 
     pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {

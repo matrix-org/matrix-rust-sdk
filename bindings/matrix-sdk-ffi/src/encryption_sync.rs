@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk_ui::encryption_sync::{EncryptionSync as MatrixEncryptionSync, EncryptionSyncMode};
+use matrix_sdk_ui::encryption_sync::EncryptionSync as MatrixEncryptionSync;
 use tracing::{error, warn};
 
 use crate::{client::Client, error::ClientError, task_handle::TaskHandle, RUNTIME};
@@ -75,23 +75,6 @@ impl EncryptionSync {
     }
 }
 
-impl Client {
-    fn encryption_sync(
-        &self,
-        id: String,
-        listener: Box<dyn EncryptionSyncListener>,
-        mode: EncryptionSyncMode,
-    ) -> Result<Arc<EncryptionSync>, ClientError> {
-        RUNTIME.block_on(async move {
-            let inner = Arc::new(MatrixEncryptionSync::new(id, self.inner.clone(), mode).await?);
-
-            let handle = EncryptionSync::start(inner.clone(), listener);
-
-            Ok(Arc::new(EncryptionSync { _handle: handle, sync: inner }))
-        })
-    }
-}
-
 #[uniffi::export]
 impl Client {
     /// Must be called to get the encryption loop running.
@@ -110,25 +93,20 @@ impl Client {
         id: String,
         listener: Box<dyn EncryptionSyncListener>,
     ) -> Result<Arc<EncryptionSync>, ClientError> {
-        self.encryption_sync(id, listener, EncryptionSyncMode::NeverStop)
-    }
+        RUNTIME.block_on(async move {
+            let inner = Arc::new(
+                MatrixEncryptionSync::new(
+                    id,
+                    self.inner.clone(),
+                    None,
+                    matrix_sdk_ui::encryption_sync::WithLocking::Yes,
+                )
+                .await?,
+            );
 
-    /// Encryption loop for a notification process.
-    ///
-    /// A fixed number of iterations can be given, to limit the time spent in
-    /// that loop.
-    ///
-    /// This should be avoided, whenever possible, and be used only in
-    /// situations where the encryption sync loop needs to run from multiple
-    /// processes at the same time (on iOS for instance, where notifications
-    /// are handled in a separate process). If you aren't in such a
-    /// situation, prefer using `Client::room_list(true)`.
-    pub fn notification_encryption_sync(
-        &self,
-        id: String,
-        listener: Box<dyn EncryptionSyncListener>,
-        num_iters: u8,
-    ) -> Result<Arc<EncryptionSync>, ClientError> {
-        self.encryption_sync(id, listener, EncryptionSyncMode::RunFixedIterations(num_iters))
+            let handle = EncryptionSync::start(inner.clone(), listener);
+
+            Ok(Arc::new(EncryptionSync { _handle: handle, sync: inner }))
+        })
     }
 }
