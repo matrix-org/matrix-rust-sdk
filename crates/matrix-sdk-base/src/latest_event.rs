@@ -185,7 +185,7 @@ mod test {
     fn state_events_are_unsuitable() {
         let event = AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTopic(
             SyncRoomTopicEvent::Original(OriginalSyncStateEvent {
-                content: RoomTopicEventContent::new("".to_string()),
+                content: RoomTopicEventContent::new("".to_owned()),
                 event_id: owned_event_id!("$1"),
                 sender: owned_user_id!("@a:b.c"),
                 origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),

@@ -815,7 +815,7 @@ mod test {
         let event2 = make_event("m.room.message", "$2");
         let event3 = make_encrypted_event("$3");
         let event4 = make_encrypted_event("$4");
-        let events = &[event1.clone(), event2.clone(), event3.clone(), event4.clone()];
+        let events = &[event1, event2.clone(), event3.clone(), event4.clone()];
 
         // When I ask to cache events
         let mut room = make_room();
@@ -836,7 +836,7 @@ mod test {
         let event1 = make_encrypted_event("$1");
         let event2 = make_event("m.room.message", "$2");
         let event3 = make_encrypted_event("$3");
-        let events = &[event1.clone(), event2.clone(), event3.clone()];
+        let events = &[event1, event2.clone(), event3.clone()];
 
         // When I ask to cache events
         let mut room = make_room();
@@ -859,7 +859,7 @@ mod test {
         let event3 = make_encrypted_event("$3");
         let event4 = make_event("m.read", "$4");
         let event5 = make_encrypted_event("$5");
-        let events = &[event1.clone(), event2.clone(), event3.clone(), event4, event5.clone()];
+        let events = &[event1, event2.clone(), event3.clone(), event4, event5.clone()];
 
         // When I ask to cache events
         let mut room = make_room();
@@ -893,19 +893,19 @@ mod test {
         let event1 = make_encrypted_event("$1");
         let event0 = make_encrypted_event("$0");
         let events = &[
-            evente.clone(),
+            evente,
             eventd.clone(),
-            eventc.clone(),
+            eventc,
             event9.clone(),
             event8.clone(),
             event7.clone(),
-            eventb.clone(),
+            eventb,
             event6.clone(),
             event5.clone(),
             event4.clone(),
             event3.clone(),
             event2.clone(),
-            eventa.clone(),
+            eventa,
             event1.clone(),
             event0.clone(),
         ];

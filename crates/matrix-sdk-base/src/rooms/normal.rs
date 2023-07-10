@@ -1508,7 +1508,7 @@ mod test {
         // When I provide a latest event and say it was the very latest
         let new_event = make_event("$3");
         let new_event_index = 3;
-        room.on_latest_event_decrypted(new_event.clone(), new_event_index);
+        room.on_latest_event_decrypted(new_event, new_event_index);
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
