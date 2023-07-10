@@ -242,6 +242,8 @@ impl Account {
         self.inner.mark_as_shared();
 
         debug!("Marking one-time keys as published");
+        // First mark the current keys as published, as updating the key counts might
+        // generate some new keys if we're still bellow the limit.
         self.inner.mark_keys_as_published().await;
         self.update_key_counts(&response.one_time_key_counts, None).await;
         self.store.save_account(self.inner.clone()).await?;
