@@ -2209,7 +2209,7 @@ pub(crate) mod tests {
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
             DeviceKeyAlgorithm::SignedCurve25519,
-            (request.one_time_keys.len() as u64).try_into().unwrap(),
+            (machine.account().max_one_time_keys().await).try_into().unwrap(),
         );
 
         machine.receive_keys_upload_response(&response).await.unwrap();
