@@ -242,11 +242,6 @@ impl NotificationClient {
                 // At this point it should have been added by the sync, if it's not, give up.
                 let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-                let push_actions = room.event_push_actions(&raw_event).await?;
-                if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
-                    return Ok(None);
-                }
-
                 if self.maybe_run_encryption_sync(&raw_event).await? {
                     match self.try_sliding_sync(room_id, event_id).await {
                         Ok(Some(new_raw_event)) => {
@@ -263,6 +258,11 @@ impl NotificationClient {
                             );
                         }
                     }
+                }
+
+                let push_actions = room.event_push_actions(&raw_event).await?;
+                if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
+                    return Ok(None);
                 }
 
                 return Ok(Some(
@@ -299,12 +299,6 @@ impl NotificationClient {
 
         let mut timeline_event = room.event(event_id).await?;
 
-        if self.filter_by_push_rules
-            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
-        {
-            return Ok(None);
-        }
-
         if self.maybe_run_encryption_sync(timeline_event.event.cast_ref()).await? {
             match room.decrypt_event(timeline_event.event.cast_ref()).await {
                 Ok(event) => {
@@ -314,6 +308,12 @@ impl NotificationClient {
                     tracing::warn!("error when retrying decryption in get_notification: {err:#}");
                 }
             }
+        }
+
+        if self.filter_by_push_rules
+            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
+        {
+            return Ok(None);
         }
 
         Ok(Some(
