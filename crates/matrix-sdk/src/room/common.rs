@@ -299,7 +299,7 @@ impl Common {
             }
         }
 
-        let push_actions = self.event_push_actions(&event).await?;
+        let push_actions = self.event_push_actions(&event).await?.unwrap_or_default();
 
         Ok(TimelineEvent { event, encryption_info: None, push_actions })
     }
@@ -885,7 +885,7 @@ impl Common {
             let mut event =
                 machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
 
-            event.push_actions = self.event_push_actions(&event.event).await?;
+            event.push_actions = self.event_push_actions(&event.event).await?.unwrap_or_default();
 
             Ok(event)
         } else {
@@ -1115,15 +1115,15 @@ impl Common {
     ///
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
-    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Vec<Action>> {
+    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
         let Some(push_context) = self.push_context().await? else {
             debug!("Could not aggregate push context");
-            return Ok(Vec::default());
+            return Ok(None);
         };
 
         let push_rules = self.client().account().push_rules().await?;
 
-        Ok(push_rules.get_actions(event, &push_context).to_owned())
+        Ok(Some(push_rules.get_actions(event, &push_context).to_owned()))
     }
 }
 

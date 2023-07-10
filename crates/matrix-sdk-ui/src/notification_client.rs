@@ -261,12 +261,16 @@ impl NotificationClient {
                 }
 
                 let push_actions = room.event_push_actions(&raw_event).await?;
-                if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
-                    return Ok(None);
+                if let Some(push_actions) = &push_actions {
+                    if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify())
+                    {
+                        return Ok(None);
+                    }
                 }
 
                 return Ok(Some(
-                    NotificationItem::new(false, &room, &raw_event, &push_actions).await?,
+                    NotificationItem::new(false, &room, &raw_event, push_actions.as_deref())
+                        .await?,
                 ));
             }
 
@@ -321,7 +325,7 @@ impl NotificationClient {
                 true,
                 &room,
                 timeline_event.event.cast_ref(),
-                &timeline_event.push_actions,
+                Some(&timeline_event.push_actions),
             )
             .await?,
         ))
@@ -428,7 +432,9 @@ pub struct NotificationItem {
 
     /// Is it a noisy notification? (i.e. does any push action contain a sound
     /// action)
-    pub is_noisy: bool,
+    ///
+    /// It is set if and only if the push actions could be determined.
+    pub is_noisy: Option<bool>,
 }
 
 impl NotificationItem {
@@ -436,7 +442,7 @@ impl NotificationItem {
         sync_members: bool,
         room: &Room,
         event: &Raw<AnySyncTimelineEvent>,
-        push_actions: &[Action],
+        push_actions: Option<&[Action]>,
     ) -> Result<Self, Error> {
         let raw_event = event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 
@@ -459,7 +465,7 @@ impl NotificationItem {
             None => (None, None),
         };
 
-        let is_noisy = push_actions.iter().any(|a| a.sound().is_some());
+        let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
 
         let item = NotificationItem {
             event: raw_event,

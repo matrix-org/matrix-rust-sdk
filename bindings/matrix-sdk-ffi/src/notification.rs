@@ -31,7 +31,10 @@ pub struct NotificationItem {
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
 
-    pub is_noisy: bool,
+    /// Is the notification supposed to be at the "noisy" level?
+    /// Can be `None` if we couldn't determine this, because we lacked
+    /// information to create a push context.
+    pub is_noisy: Option<bool>,
 }
 
 #[derive(Clone, uniffi::Object)]
