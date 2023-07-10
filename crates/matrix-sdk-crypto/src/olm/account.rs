@@ -661,6 +661,7 @@ impl ReadOnlyAccount {
             }
 
             self.update_uploaded_key_count(count);
+            self.generate_one_time_keys().await;
         }
 
         if let Some(unused) = unused_fallback_keys {
@@ -929,8 +930,6 @@ impl ReadOnlyAccount {
     pub async fn signed_one_time_keys(
         &self,
     ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
-        let _ = self.generate_one_time_keys().await;
-
         let one_time_keys = self.one_time_keys().await;
 
         if one_time_keys.is_empty() {
@@ -1316,6 +1315,7 @@ mod tests {
     #[async_test]
     async fn one_time_key_creation() -> Result<()> {
         let account = ReadOnlyAccount::new(user_id(), device_id());
+        account.generate_one_time_keys().await;
 
         let (_, one_time_keys, _) = account.keys_for_upload().await;
         assert!(!one_time_keys.is_empty());
@@ -1332,11 +1332,13 @@ mod tests {
 
         account.mark_keys_as_published().await;
         account.update_uploaded_key_count(50);
+        account.generate_one_time_keys().await;
 
         let (_, third_one_time_keys, _) = account.keys_for_upload().await;
         assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
+        account.generate_one_time_keys().await;
 
         let (_, fourth_one_time_keys, _) = account.keys_for_upload().await;
         assert!(!fourth_one_time_keys.is_empty());
