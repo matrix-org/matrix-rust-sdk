@@ -42,8 +42,9 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
+        AnyOtherFullStateEventContent, BundledReactions, EventItemIdentifier, EventSendState,
+        EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
+        RemoteEventTimelineItem,
     },
     find_read_marker,
     read_receipts::maybe_add_implicit_read_receipt,
@@ -51,7 +52,7 @@ use super::{
     Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::event_item::ReactionSenderData};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -208,11 +209,7 @@ pub(super) struct TimelineEventHandler<'a> {
     meta: TimelineEventMetadata,
     flow: Flow,
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
-    #[allow(clippy::type_complexity)]
-    reaction_map: &'a mut HashMap<
-        (Option<OwnedTransactionId>, Option<OwnedEventId>),
-        (OwnedUserId, Annotation),
-    >,
+    reaction_map: &'a mut HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
     pending_reactions: &'a mut HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     event_should_update_fully_read_marker: &'a mut bool,
@@ -433,9 +430,11 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
         let (reaction_id, old_txn_id) = match &self.flow {
-            Flow::Local { txn_id, .. } => ((Some(txn_id.clone()), None), None),
+            Flow::Local { txn_id, .. } => {
+                (EventItemIdentifier::TransactionId(txn_id.clone()), None)
+            }
             Flow::Remote { event_id, txn_id, .. } => {
-                ((None, Some(event_id.clone())), txn_id.as_ref())
+                (EventItemIdentifier::EventId(event_id.clone()), txn_id.as_ref())
             }
         };
 
@@ -455,15 +454,22 @@ impl<'a> TimelineEventHandler<'a> {
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
+                    let id = EventItemIdentifier::TransactionId(txn_id.clone());
                     // Remove the local echo from the related event.
-                    if reaction_group.0.remove(&(Some(txn_id.clone()), None)).is_none() {
+                    if reaction_group.0.remove(&id).is_none() {
                         warn!(
                             "Received reaction with transaction ID, but didn't \
                              find matching reaction in the related event's reactions"
                         );
                     }
                 }
-                reaction_group.0.insert(reaction_id.clone(), self.meta.sender.clone());
+                reaction_group.0.insert(
+                    reaction_id.clone(),
+                    ReactionSenderData {
+                        sender_id: self.meta.sender.clone(),
+                        timestamp: self.meta.timestamp,
+                    },
+                );
 
                 trace!("Adding reaction");
                 self.items.set(
@@ -476,26 +482,31 @@ impl<'a> TimelineEventHandler<'a> {
             }
         } else {
             trace!("Timeline item not found, adding reaction to the pending list");
-            let (None, Some(reaction_event_id)) = &reaction_id else {
+            let EventItemIdentifier::EventId(reaction_event_id) = reaction_id.clone() else {
                 error!("Adding local reaction echo to event absent from the timeline");
                 return;
             };
 
             let pending = self.pending_reactions.entry(event_id.to_owned()).or_default();
 
-            pending.insert(reaction_event_id.clone());
+            pending.insert(reaction_event_id);
         }
 
         if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.flow {
+            let id = EventItemIdentifier::TransactionId(txn_id.clone());
             // Remove the local echo from the reaction map.
-            if self.reaction_map.remove(&(Some(txn_id.clone()), None)).is_none() {
+            if self.reaction_map.remove(&id).is_none() {
                 warn!(
                     "Received reaction with transaction ID, but didn't \
                      find matching reaction in reaction_map"
                 );
             }
         }
-        self.reaction_map.insert(reaction_id, (self.meta.sender.clone(), c.relates_to));
+        let reaction_sender_data = ReactionSenderData {
+            sender_id: self.meta.sender.clone(),
+            timestamp: self.meta.timestamp,
+        };
+        self.reaction_map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
 
     #[instrument(skip_all)]
@@ -507,7 +518,8 @@ impl<'a> TimelineEventHandler<'a> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
-        if let Some((_, rel)) = self.reaction_map.remove(&(None, Some(redacts.clone()))) {
+        let id = EventItemIdentifier::EventId(redacts.clone());
+        if let Some((_, rel)) = self.reaction_map.remove(&id) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let Some(remote_event_item) = event_item.as_remote() else {
                     error!("inconsistent state: redaction received on a non-remote event item");
@@ -522,7 +534,7 @@ impl<'a> TimelineEventHandler<'a> {
                     };
                     let group = group_entry.get_mut();
 
-                    if group.0.remove(&(None, Some(redacts.clone()))).is_none() {
+                    if group.0.remove(&id).is_none() {
                         error!(
                             "inconsistent state: reaction from reaction_map not in reaction list \
                              of timeline item"
@@ -543,7 +555,7 @@ impl<'a> TimelineEventHandler<'a> {
 
             if self.result.items_updated == 0 {
                 if let Some(reactions) = self.pending_reactions.get_mut(&rel.event_id) {
-                    if !reactions.remove(&redacts) {
+                    if !reactions.remove(&redacts.clone()) {
                         error!(
                             "inconsistent state: reaction from reaction_map not in reaction list \
                              of pending_reactions"
@@ -589,7 +601,8 @@ impl<'a> TimelineEventHandler<'a> {
         redacts: OwnedTransactionId,
         _content: RoomRedactionEventContent,
     ) {
-        if let Some((_, rel)) = self.reaction_map.remove(&(Some(redacts.clone()), None)) {
+        let id = EventItemIdentifier::TransactionId(redacts);
+        if let Some((_, rel)) = self.reaction_map.remove(&id) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
                 let Some(remote_event_item) = event_item.as_remote() else {
                     error!("inconsistent state: redaction received on a non-remote event item");
@@ -602,7 +615,7 @@ impl<'a> TimelineEventHandler<'a> {
                 };
                 let group = group_entry.get_mut();
 
-                if group.0.remove(&(Some(redacts.clone()), None)).is_none() {
+                if group.0.remove(&id).is_none() {
                     error!(
                         "inconsistent state: reaction from reaction_map not in reaction list \
                          of timeline item"
@@ -941,8 +954,10 @@ impl<'a> TimelineEventHandler<'a> {
                 let mut bundled = IndexMap::new();
 
                 for reaction_event_id in reactions {
-                    let reaction_id = (None, Some(reaction_event_id));
-                    let Some((sender, annotation)) = self.reaction_map.get(&reaction_id) else {
+                    let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
+                    let Some((reaction_sender_data, annotation)) =
+                        self.reaction_map.get(&reaction_id)
+                    else {
                         error!(
                             "inconsistent state: reaction from pending_reactions not in reaction_map"
                         );
@@ -951,7 +966,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                     let group: &mut ReactionGroup =
                         bundled.entry(annotation.key.clone()).or_default();
-                    group.0.insert(reaction_id, sender.clone());
+                    group.0.insert(reaction_id, reaction_sender_data.clone());
                 }
 
                 Some(bundled)

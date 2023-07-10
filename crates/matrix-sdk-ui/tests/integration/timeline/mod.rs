@@ -223,7 +223,7 @@ async fn reaction() {
     assert_eq!(event_item.reactions().len(), 1);
     let group = &event_item.reactions()["👍"];
     assert_eq!(group.len(), 1);
-    let senders: Vec<_> = group.senders().collect();
+    let senders: Vec<_> = group.senders().map(|v| &v.sender_id).collect();
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
 
     // TODO: After adding raw timeline items, check for one here

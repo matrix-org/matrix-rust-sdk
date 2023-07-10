@@ -21,7 +21,8 @@ use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedUserId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
+    OwnedUserId, TransactionId, UserId,
 };
 use tracing::warn;
 
@@ -67,6 +68,24 @@ pub(super) enum EventTimelineItemKind {
     Local(LocalEventTimelineItem),
     /// An event received from the server.
     Remote(RemoteEventTimelineItem),
+}
+
+/// A wrapper that can contain either a transaction id, or an event id.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum EventItemIdentifier {
+    TransactionId(OwnedTransactionId),
+    EventId(OwnedEventId),
+}
+
+/// Data associated with a reaction sender. It can be used to display
+/// a details UI component for a reaction with both sender
+/// names and the date at which they sent a reaction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReactionSenderData {
+    /// Sender identifier.
+    pub sender_id: OwnedUserId,
+    /// Date at which the sender reacted.
+    pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
 impl EventTimelineItem {
