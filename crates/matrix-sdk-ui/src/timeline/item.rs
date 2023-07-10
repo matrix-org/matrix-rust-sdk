@@ -39,7 +39,7 @@ impl TimelineItem {
     }
 
     /// Get the inner `EventTimelineItem`, if this is a
-    /// `TimelineItemKind::Event`.
+    /// [`TimelineItemKind::Event`].
     pub fn as_event(&self) -> Option<&EventTimelineItem> {
         match &self.kind {
             TimelineItemKind::Event(v) => Some(v),
@@ -48,7 +48,7 @@ impl TimelineItem {
     }
 
     /// Get the inner `VirtualTimelineItem`, if this is a
-    /// `TimelineItemKind::Virtual`.
+    /// [`TimelineItemKind::Virtual`].
     pub fn as_virtual(&self) -> Option<&VirtualTimelineItem> {
         match &self.kind {
             TimelineItemKind::Virtual(v) => Some(v),
