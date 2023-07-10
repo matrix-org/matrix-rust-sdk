@@ -50,8 +50,11 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    event_item::EventItemIdentifier, inner::ReactionAction, reactions::ReactionToggleResult,
-    traits::RoomDataProvider, EventTimelineItem, Profile, TimelineInner, TimelineItem,
+    event_item::EventItemIdentifier,
+    inner::{ReactionAction, TimelineInnerSettings},
+    reactions::ReactionToggleResult,
+    traits::RoomDataProvider,
+    EventTimelineItem, Profile, TimelineInner, TimelineItem,
 };
 
 mod basic;
@@ -59,6 +62,7 @@ mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
+mod event_filter;
 mod invalid;
 mod reaction_group;
 mod reactions;
@@ -84,8 +88,8 @@ impl TestTimeline {
         Self { inner: TimelineInner::new(TestRoomDataProvider), next_ts: AtomicU64::new(0) }
     }
 
-    fn with_read_receipt_tracking(mut self) -> Self {
-        self.inner = self.inner.with_read_receipt_tracking(true);
+    fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
+        self.inner = self.inner.with_settings(settings);
         self
     }
 

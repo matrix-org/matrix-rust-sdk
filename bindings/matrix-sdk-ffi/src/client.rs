@@ -34,7 +34,10 @@ use tracing::{debug, error};
 use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
-use crate::{client, notification::NotificationItem, ClientError};
+use crate::{
+    client, notification::NotificationItem, notification_settings::NotificationSettings,
+    ClientError,
+};
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -635,6 +638,15 @@ impl Client {
             let notification =
                 NotificationItem::new_from_event_id(&event_id, room, filter_by_push_rules).await?;
             Ok(notification)
+        })
+    }
+
+    pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
+        RUNTIME.block_on(async move {
+            Arc::new(NotificationSettings::new(
+                self.inner.clone(),
+                self.inner.notification_settings().await,
+            ))
         })
     }
 }

@@ -297,6 +297,12 @@ impl CryptoStoreLock {
             sleep(Duration::from_millis(wait.into())).await;
         }
     }
+
+    /// Returns the value in the database that represents the holder's
+    /// identifier.
+    pub fn lock_holder(&self) -> &str {
+        &self.lock_holder
+    }
 }
 
 /// Error related to the locking API of the crypto store.

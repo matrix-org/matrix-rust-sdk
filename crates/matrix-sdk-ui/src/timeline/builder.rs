@@ -20,27 +20,31 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
 };
-use ruma::events::receipt::{ReceiptThread, ReceiptType};
+use ruma::events::{
+    receipt::{ReceiptThread, ReceiptType},
+    AnySyncTimelineEvent,
+};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{
-    inner::TimelineInner, queue::send_queued_messages, BackPaginationStatus, Timeline,
-    TimelineDropHandle,
+    inner::{TimelineInner, TimelineInnerSettings},
+    queue::send_queued_messages,
+    BackPaginationStatus, Timeline, TimelineDropHandle,
 };
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct TimelineBuilder {
+pub struct TimelineBuilder {
     room: room::Common,
     prev_token: Option<String>,
     events: Vector<SyncTimelineEvent>,
     read_only: bool,
-    track_read_marker_and_receipts: bool,
+    settings: TimelineInnerSettings,
 }
 
 impl TimelineBuilder {
@@ -50,7 +54,7 @@ impl TimelineBuilder {
             prev_token: None,
             events: Vector::new(),
             read_only: false,
-            track_read_marker_and_receipts: false,
+            settings: TimelineInnerSettings::default(),
         }
     }
 
@@ -79,7 +83,39 @@ impl TimelineBuilder {
     /// Enable tracking of the fully-read marker and the read receipts on the
     /// timeline.
     pub(crate) fn track_read_marker_and_receipts(mut self) -> Self {
-        self.track_read_marker_and_receipts = true;
+        self.settings.track_read_receipts = true;
+        self
+    }
+
+    /// Use the given filter to choose whether to add events to the timeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - A function that takes a deserialized event, and should
+    ///   return `true` if the event should be added to the `Timeline`.
+    ///
+    /// If this is not overridden, the timeline uses the default filter that
+    /// allows every event.
+    ///
+    /// Note that currently:
+    ///
+    /// - Not all event types have a representation as a `TimelineItem` so these
+    ///   are not added no matter what the filter returns.
+    /// - It is not possible to filter out `m.room.encrypted` events (otherwise
+    ///   they couldn't by decrypted when the appropriate room key arrives)
+    pub fn event_filter<F>(mut self, filter: F) -> Self
+    where
+        F: Fn(&AnySyncTimelineEvent) -> bool + Send + Sync + 'static,
+    {
+        self.settings.event_filter = Arc::new(filter);
+        self
+    }
+
+    /// Whether to add events that failed to deserialize to the timeline.
+    ///
+    /// Defaults to `true`.
+    pub fn add_failed_to_parse(mut self, add: bool) -> Self {
+        self.settings.add_failed_to_parse = add;
         self
     }
 
@@ -89,16 +125,16 @@ impl TimelineBuilder {
         fields(
             room_id = ?self.room.room_id(),
             events_length = self.events.len(),
-            track_read_marker_and_receipts = self.track_read_marker_and_receipts,
+            track_read_receipts = self.settings.track_read_receipts,
             prev_token = self.prev_token,
         )
     )]
-    pub(crate) async fn build(self) -> Timeline {
-        let Self { room, prev_token, events, read_only, track_read_marker_and_receipts } = self;
+    pub async fn build(self) -> Timeline {
+        let Self { room, prev_token, events, read_only, settings } = self;
         let has_events = !events.is_empty();
+        let track_read_marker_and_receipts = settings.track_read_receipts;
 
-        let mut inner =
-            TimelineInner::new(room).with_read_receipt_tracking(track_read_marker_and_receipts);
+        let mut inner = TimelineInner::new(room).with_settings(settings);
 
         if track_read_marker_and_receipts {
             match inner
