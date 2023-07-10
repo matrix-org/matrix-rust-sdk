@@ -5,6 +5,10 @@
 -   Add `Qr.state()` method to inspect the current state of QR code
     verifications.
 
+## Changes in the underlying Rust crate
+
+-   Fix handling of SAS verification start events once we have shown a QR code.
+
 # v0.1.1
 
 -   Add `verify` method to `Device`.
