@@ -73,7 +73,7 @@ impl fmt::Debug for Session {
 impl Session {
     /// Decrypt the given Olm message.
     ///
-    /// Returns the decrypted plaintext or an `DecrypitonError` if decryption
+    /// Returns the decrypted plaintext or an `DecryptionError` if decryption
     /// failed.
     ///
     /// # Arguments

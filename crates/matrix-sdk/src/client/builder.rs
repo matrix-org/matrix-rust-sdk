@@ -81,6 +81,7 @@ pub struct ClientBuilder {
     appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
+    base_client: Option<BaseClient>,
 }
 
 impl ClientBuilder {
@@ -94,6 +95,7 @@ impl ClientBuilder {
             appservice_mode: false,
             server_versions: None,
             handle_refresh_tokens: false,
+            base_client: None,
         }
     }
 
@@ -301,6 +303,13 @@ impl ClientBuilder {
         self
     }
 
+    /// Public for test only
+    #[doc(hidden)]
+    pub fn base_client(mut self, base_client: BaseClient) -> Self {
+        self.base_client = Some(base_client);
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -330,20 +339,24 @@ impl ClientBuilder {
             HttpConfig::Custom(c) => c,
         };
 
-        #[allow(clippy::infallible_destructuring_match)]
-        let store_config = match self.store_config {
-            #[cfg(feature = "sqlite")]
-            BuilderStoreConfig::Sqlite { path, passphrase } => {
-                matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
-            }
-            #[cfg(feature = "indexeddb")]
-            BuilderStoreConfig::IndexedDb { name, passphrase } => {
-                matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
-            }
-            BuilderStoreConfig::Custom(config) => config,
+        let base_client = if let Some(base_client) = self.base_client {
+            base_client
+        } else {
+            #[allow(clippy::infallible_destructuring_match)]
+            let store_config = match self.store_config {
+                #[cfg(feature = "sqlite")]
+                BuilderStoreConfig::Sqlite { path, passphrase } => {
+                    matrix_sdk_sqlite::make_store_config(&path, passphrase.as_deref()).await?
+                }
+                #[cfg(feature = "indexeddb")]
+                BuilderStoreConfig::IndexedDb { name, passphrase } => {
+                    matrix_sdk_indexeddb::make_store_config(&name, passphrase.as_deref()).await?
+                }
+                BuilderStoreConfig::Custom(config) => config,
+            };
+            BaseClient::with_store_config(store_config)
         };
 
-        let base_client = BaseClient::with_store_config(store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         let mut authentication_server_info = None;

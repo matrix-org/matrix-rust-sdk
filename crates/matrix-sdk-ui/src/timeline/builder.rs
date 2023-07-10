@@ -75,6 +75,7 @@ impl TimelineBuilder {
     ///
     /// This improves efficiency a little bit since no background task will be
     /// spawned for sending messages.
+    #[allow(dead_code)]
     pub(crate) fn read_only(mut self) -> Self {
         self.read_only = true;
         self
