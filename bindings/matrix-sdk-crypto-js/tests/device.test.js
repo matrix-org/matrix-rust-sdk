@@ -27,9 +27,11 @@ const {
     QrCodeScan,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { zip, addMachineToMachine } = require("./helper");
-const { Tracing, LoggerLevel, VerificationRequestPhase, QrState } = require("../pkg");
+const { VerificationRequestPhase, QrState } = require("../pkg");
 
-new Tracing(LoggerLevel.Trace).turnOn();
+// Uncomment to enable debug logging for tests
+//const { Tracing, LoggerLevel } = require("../pkg");
+//new Tracing(LoggerLevel.Trace).turnOn();
 
 describe("LocalTrust", () => {
     test("has the correct variant values", () => {
