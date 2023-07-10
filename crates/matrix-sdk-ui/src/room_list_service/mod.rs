@@ -66,7 +66,7 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{collections::BTreeMap, future::ready, sync::Arc};
+use std::{future::ready, sync::Arc};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -76,6 +76,7 @@ use matrix_sdk::{
     sliding_sync::Ranges, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
     SlidingSyncListBuilder, SlidingSyncMode,
 };
+use matrix_sdk_base::ring_buffer::RingBuffer;
 pub use room::*;
 pub use room_list::*;
 use ruma::{
@@ -102,7 +103,7 @@ pub struct RoomListService {
     state: SharedObservable<State>,
 
     /// Room cache, to avoid recreating `Room`s everytime users fetch them.
-    rooms: Arc<RwLock<BTreeMap<OwnedRoomId, Room>>>,
+    rooms: Arc<RwLock<RingBuffer<Room>>>,
 
     /// The current viewport ranges.
     ///
@@ -112,6 +113,13 @@ pub struct RoomListService {
 }
 
 impl RoomListService {
+    /// Size of the room's ring buffer.
+    ///
+    /// This number should be high enough so that navigating to a room
+    /// previously visited is almost instant, but also not too high so as to
+    /// avoid exhausting memory.
+    const ROOM_OBJECT_CACHE_SIZE: usize = 128;
+
     /// Create a new `RoomList`.
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
@@ -168,7 +176,7 @@ impl RoomListService {
         Ok(Self {
             sliding_sync,
             state: SharedObservable::new(State::Init),
-            rooms: Default::default(),
+            rooms: Arc::new(RwLock::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
             viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
         })
     }
@@ -305,7 +313,7 @@ impl RoomListService {
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         {
             let rooms = self.rooms.read().await;
-            if let Some(room) = rooms.get(room_id) {
+            if let Some(room) = rooms.iter().find(|room| room.id() == room_id) {
                 return Ok(room.clone());
             }
         }
@@ -315,7 +323,7 @@ impl RoomListService {
             None => return Err(Error::RoomNotFound(room_id.to_owned())),
         };
 
-        self.rooms.write().await.insert(room_id.to_owned(), room.clone());
+        self.rooms.write().await.push(room.clone());
 
         Ok(room)
     }
