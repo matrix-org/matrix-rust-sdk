@@ -536,7 +536,7 @@ describe("Key Verification", () => {
         // can send final done (`m.key.verification.done`)
         {
             const outgoingRequests = await m1.outgoingRequests();
-            expect(outgoingRequests).toHaveLength(4);
+            expect(outgoingRequests).toHaveLength(3);
 
             let toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
 
