@@ -27,6 +27,7 @@ mod client;
 pub mod debug;
 pub mod deserialized_responses;
 mod error;
+pub mod latest_event;
 pub mod media;
 mod rooms;
 #[cfg(feature = "experimental-sliding-sync")]

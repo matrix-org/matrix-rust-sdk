@@ -27,7 +27,9 @@ const {
     QrCodeScan,
 } = require("../pkg/matrix_sdk_crypto_js");
 const { zip, addMachineToMachine } = require("./helper");
-const { VerificationRequestPhase } = require("../pkg");
+const { Tracing, LoggerLevel, VerificationRequestPhase, QrState } = require("../pkg");
+
+new Tracing(LoggerLevel.Trace).turnOn();
 
 describe("LocalTrust", () => {
     test("has the correct variant values", () => {
@@ -153,17 +155,12 @@ describe("Key Verification", () => {
         return OlmMachine.initialize(new_user || userId1, new_device || deviceId1);
     }
 
-    describe("SAS", () => {
+    it("SAS", async () => {
         // First Olm machine.
-        let m1;
+        const m1 = await machine(userId1, deviceId1);
 
         // Second Olm machine.
-        let m2;
-
-        beforeAll(async () => {
-            m1 = await machine(userId1, deviceId1);
-            m2 = await machine(userId2, deviceId2);
-        });
+        const m2 = await machine(userId2, deviceId2);
 
         // Verification request for `m1`.
         let verificationRequest1;
@@ -174,7 +171,8 @@ describe("Key Verification", () => {
         // The flow ID.
         let flowId;
 
-        test("can request verification (`m.key.verification.request`)", async () => {
+        // can request verification (`m.key.verification.request`)
+        {
             // Make `m1` and `m2` be aware of each other.
             {
                 await addMachineToMachine(m2, m1);
@@ -223,12 +221,13 @@ describe("Key Verification", () => {
             await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             flowId = verificationRequest1.flowId;
-        });
+        }
 
         // Verification request for `m2`.
         let verificationRequest2;
 
-        test("can fetch received request verification", async () => {
+        // can fetch received request verification
+        {
             // Oh, a new verification request.
             verificationRequest2 = m2.getVerificationRequest(userId1, flowId);
 
@@ -256,9 +255,10 @@ describe("Key Verification", () => {
             const verificationRequests = m2.getVerificationRequests(userId1);
             expect(verificationRequests).toHaveLength(1);
             expect(verificationRequests[0].flowId).toStrictEqual(verificationRequest2.flowId); // there are the same
-        });
+        }
 
-        test("can accept a verification request (`m.key.verification.ready`)", async () => {
+        // can accept a verification request (`m.key.verification.ready`)
+        {
             // Accept the verification request.
             let outgoingVerificationRequest = verificationRequest2.accept();
 
@@ -271,9 +271,10 @@ describe("Key Verification", () => {
 
             // Let's send the verification ready to `m1`.
             await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
-        });
+        }
 
-        test("verification requests are synchronized and automatically updated", () => {
+        // verification requests are synchronized and automatically updated
+        {
             // receiving the update should have caused a call to the callback
             expect(verificationRequest1ChangesCallback).toHaveBeenCalledTimes(1);
             expect(verificationRequest1.isReady()).toStrictEqual(true);
@@ -294,12 +295,13 @@ describe("Key Verification", () => {
             expect(verificationRequest2.ourSupportedMethods).toEqual(
                 expect.arrayContaining([VerificationMethod.SasV1, VerificationMethod.ReciprocateV1]),
             );
-        });
+        }
 
         // SAS verification for the second machine.
         let sas2;
 
-        test("can start a SAS verification (`m.key.verification.start`)", async () => {
+        // can start a SAS verification (`m.key.verification.start`)
+        {
             // Let's start a SAS verification, from `m2` for example.
             [sas2, outgoingVerificationRequest] = await verificationRequest2.startSas();
             expect(sas2).toBeInstanceOf(Sas);
@@ -331,7 +333,7 @@ describe("Key Verification", () => {
 
             // Let's send the SAS start to `m1`.
             await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
-        });
+        }
 
         // SAS verification for the second machine.
         let sas1;
@@ -339,7 +341,8 @@ describe("Key Verification", () => {
         /** registerChangesCallback function for `sas1` */
         const sas1ChangesCallback = jest.fn().mockImplementation(() => Promise.resolve());
 
-        test("can fetch and accept an ongoing SAS verification (`m.key.verification.accept`)", async () => {
+        // can fetch and accept an ongoing SAS verification (`m.key.verification.accept`)
+        {
             expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Transitioned);
 
             // Let's fetch the ongoing SAS verification.
@@ -390,14 +393,16 @@ describe("Key Verification", () => {
             // ... which should trigger the changes callback
             expect(sas1ChangesCallback).toHaveBeenCalledTimes(1);
             sas1ChangesCallback.mockClear();
-        });
+        }
 
-        test("emojis are supported by both sides", () => {
+        // emojis are supported by both sides
+        {
             expect(sas1.supportsEmoji()).toStrictEqual(true);
             expect(sas2.supportsEmoji()).toStrictEqual(true);
-        });
+        }
 
-        test("one side sends verification key (`m.key.verification.key`)", async () => {
+        // one side sends verification key (`m.key.verification.key`)
+        {
             // Let's send the verification keys from `m2` to `m1`.
             const outgoingRequests = await m2.outgoingRequests();
             let toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
@@ -411,9 +416,10 @@ describe("Key Verification", () => {
 
             // ... which should trigger the changes callback
             expect(sas1ChangesCallback).toHaveBeenCalledTimes(1);
-        });
+        }
 
-        test("other side sends back verification key (`m.key.verification.key`)", async () => {
+        // other side sends back verification key (`m.key.verification.key`)
+        {
             // Let's send the verification keys from `m1` to `m2`.
             const outgoingRequests = await m1.outgoingRequests();
             let toDeviceRequest = outgoingRequests.find((request) => request.type == RequestType.ToDevice);
@@ -424,10 +430,11 @@ describe("Key Verification", () => {
             // Let's send te SAS key to `m2`.
             await forwardToDeviceMessage(userId1, m2, toDeviceRequest);
 
-            m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
-        });
+            await m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
+        }
 
-        test("emojis match from both sides", () => {
+        // emojis match from both sides
+        {
             const emojis1 = sas1.emoji();
             const emojiIndexes1 = sas1.emojiIndex();
             const emojis2 = sas2.emoji();
@@ -460,9 +467,10 @@ describe("Key Verification", () => {
 
                 expect(emojiIndex2).toStrictEqual(emojiIndex1);
             }
-        });
+        }
 
-        test("decimals match from both sides", () => {
+        // decimals match from both sides
+        {
             const decimals1 = sas1.decimals();
             const decimals2 = sas2.decimals();
 
@@ -476,9 +484,10 @@ describe("Key Verification", () => {
 
                 expect(decimal2).toStrictEqual(decimal1);
             }
-        });
+        }
 
-        test("can confirm keys match (`m.key.verification.mac`)", async () => {
+        // can confirm keys match (`m.key.verification.mac`)
+        {
             // `m1` confirms.
             const outgoingVerificationRequests = await sas1.confirm();
             // there should be a single ToDeviceRequest, and no SignatureUploadRequest.
@@ -491,9 +500,10 @@ describe("Key Verification", () => {
 
             // Let's send the SAS confirmation to `m2`.
             await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
-        });
+        }
 
-        test("can confirm back keys match (`m.key.verification.done`)", async () => {
+        // can confirm back keys match (`m.key.verification.done`)
+        {
             // `m2` confirms.
             const outgoingVerificationRequests = await sas2.confirm();
 
@@ -521,9 +531,10 @@ describe("Key Verification", () => {
                 // Let's send the SAS done to `m1`.
                 await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
             }
-        });
+        }
 
-        test("can send final done (`m.key.verification.done`)", async () => {
+        // can send final done (`m.key.verification.done`)
+        {
             const outgoingRequests = await m1.outgoingRequests();
             expect(outgoingRequests).toHaveLength(4);
 
@@ -536,9 +547,10 @@ describe("Key Verification", () => {
             await forwardToDeviceMessage(userId1, m2, toDeviceRequest);
 
             m1.markRequestAsSent(toDeviceRequest.id, toDeviceRequest.type, "{}");
-        });
+        }
 
-        test("can see if verification is done", () => {
+        // can see if verification is done
+        {
             expect(verificationRequest1.isDone()).toStrictEqual(true);
             expect(verificationRequest2.isDone()).toStrictEqual(true);
 
@@ -547,7 +559,7 @@ describe("Key Verification", () => {
 
             expect(verificationRequest1.phase()).toStrictEqual(VerificationRequestPhase.Done);
             expect(verificationRequest2.phase()).toStrictEqual(VerificationRequestPhase.Done);
-        });
+        }
     });
 
     it("can verify via SAS without an m.key.verification.request", async () => {
@@ -693,7 +705,7 @@ describe("Key Verification", () => {
         }
     });
 
-    describe("QR Code", () => {
+    it("QR Code", async () => {
         if (undefined === Qr) {
             // qrcode supports is not enabled
             console.info("qrcode support is disabled, skip the associated test suite");
@@ -702,15 +714,10 @@ describe("Key Verification", () => {
         }
 
         // First Olm machine.
-        let m1;
+        const m1 = await machine(userId1, deviceId1);
 
         // Second Olm machine.
-        let m2;
-
-        beforeAll(async () => {
-            m1 = await machine(userId1, deviceId1);
-            m2 = await machine(userId2, deviceId2);
-        });
+        let m2 = await machine(userId2, deviceId2);
 
         // Verification request for `m1`.
         let verificationRequest1;
@@ -718,7 +725,8 @@ describe("Key Verification", () => {
         // The flow ID.
         let flowId;
 
-        test("can request verification (`m.key.verification.request`)", async () => {
+        // can request verification (`m.key.verification.request`)
+        {
             // Make `m1` and `m2` be aware of each other.
             {
                 await addMachineToMachine(m2, m1);
@@ -764,12 +772,13 @@ describe("Key Verification", () => {
             await forwardToDeviceMessage(userId1, m2, outgoingVerificationRequest);
 
             flowId = verificationRequest1.flowId;
-        });
+        }
 
         // Verification request for `m2`.
         let verificationRequest2;
 
-        test("can fetch received request verification", async () => {
+        // can fetch received request verification
+        {
             // Oh, a new verification request.
             verificationRequest2 = m2.getVerificationRequest(userId1, flowId);
 
@@ -796,9 +805,10 @@ describe("Key Verification", () => {
             const verificationRequests = m2.getVerificationRequests(userId1);
             expect(verificationRequests).toHaveLength(1);
             expect(verificationRequests[0].flowId).toStrictEqual(verificationRequest2.flowId); // there are the same
-        });
+        }
 
-        test("can accept a verification request with methods (`m.key.verification.ready`)", async () => {
+        // can accept a verification request with methods (`m.key.verification.ready`)
+        {
             // Accept the verification request.
             let outgoingVerificationRequest = verificationRequest2.acceptWithMethods([
                 VerificationMethod.QrCodeScanV1, // by default
@@ -812,9 +822,10 @@ describe("Key Verification", () => {
 
             // Let's send the verification ready to `m1`.
             await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
-        });
+        }
 
-        test("verification requests are synchronized and automatically updated", () => {
+        // verification requests are synchronized and automatically updated
+        {
             expect(verificationRequest1.isReady()).toStrictEqual(true);
             expect(verificationRequest2.isReady()).toStrictEqual(true);
 
@@ -831,7 +842,7 @@ describe("Key Verification", () => {
             expect(verificationRequest2.ourSupportedMethods).toEqual(
                 expect.arrayContaining([VerificationMethod.QrCodeScanV1, VerificationMethod.QrCodeShowV1]),
             );
-        });
+        }
 
         // QR verification for the second machine.
         let qr2;
@@ -839,11 +850,13 @@ describe("Key Verification", () => {
         /** registerChangesCallback function for `qr1` */
         const qr2ChangesCallback = jest.fn().mockImplementation(() => Promise.resolve());
 
-        test("can generate a QR code", async () => {
+        // can generate a QR code
+        {
             qr2 = await verificationRequest2.generateQrCode();
 
             expect(qr2).toBeInstanceOf(Qr);
 
+            expect(qr2.state()).toEqual(QrState.Created);
             expect(qr2.hasBeenScanned()).toStrictEqual(false);
             expect(qr2.hasBeenConfirmed()).toStrictEqual(false);
             expect(qr2.userId.toString()).toStrictEqual(userId2.toString());
@@ -859,9 +872,10 @@ describe("Key Verification", () => {
             expect(qr2.roomId).toBeUndefined();
 
             qr2.registerChangesCallback(qr2ChangesCallback);
-        });
+        }
 
-        test("can read QR code's bytes", async () => {
+        // can read QR code's bytes
+        {
             const qrCodeHeader = "MATRIX";
             const qrCodeVersion = "\x02";
 
@@ -871,9 +885,10 @@ describe("Key Verification", () => {
             expect(Array.from(qrCodeBytes.slice(0, 7))).toEqual(
                 [...qrCodeHeader, ...qrCodeVersion].map((char) => char.charCodeAt(0)),
             );
-        });
+        }
 
-        test("can render QR code", async () => {
+        // can render QR code
+        {
             const qrCode = qr2.toQrCode();
 
             expect(qrCode).toBeInstanceOf(QrCode);
@@ -942,11 +957,12 @@ describe("Key Verification", () => {
                 expect(await fs.writeFile(qrCodeFile, canvasBuffer)).toBeUndefined();
             }
             */
-        });
+        }
 
         let qr1;
 
-        test("can scan a QR code from bytes", async () => {
+        // can scan a QR code from bytes
+        {
             const scan = QrCodeScan.fromBytes(qr2.toBytes());
 
             expect(scan).toBeInstanceOf(QrCodeScan);
@@ -955,6 +971,7 @@ describe("Key Verification", () => {
 
             expect(qr1).toBeInstanceOf(Qr);
 
+            expect(qr1.state()).toEqual(QrState.Reciprocated);
             expect(qr1.hasBeenScanned()).toStrictEqual(false);
             expect(qr1.hasBeenConfirmed()).toStrictEqual(false);
             expect(qr1.userId.toString()).toStrictEqual(userId1.toString());
@@ -968,9 +985,10 @@ describe("Key Verification", () => {
             expect(qr1.reciprocated()).toStrictEqual(true);
             expect(qr1.flowId).toMatch(/^[a-f0-9]+$/);
             expect(qr1.roomId).toBeUndefined();
-        });
+        }
 
-        test("can start a QR verification/reciprocate (`m.key.verification.start`)", async () => {
+        // can start a QR verification/reciprocate (`m.key.verification.start`)
+        {
             let outgoingVerificationRequest = qr1.reciprocate();
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
@@ -984,13 +1002,16 @@ describe("Key Verification", () => {
 
             // ... which should trigger its changes callback
             expect(qr2ChangesCallback).toHaveBeenCalledTimes(1);
-        });
+        }
 
-        test("can confirm QR code has been scanned", () => {
+        // can confirm QR code has been scanned
+        {
+            expect(qr2.state()).toEqual(QrState.Scanned);
             expect(qr2.hasBeenScanned()).toStrictEqual(true);
-        });
+        }
 
-        test("can confirm scanning (`m.key.verification.done`)", async () => {
+        // can confirm scanning (`m.key.verification.done`)
+        {
             let outgoingVerificationRequest = qr2.confirmScanning();
 
             expect(outgoingVerificationRequest).toBeInstanceOf(ToDeviceRequest);
@@ -998,11 +1019,13 @@ describe("Key Verification", () => {
 
             // Let's send the confirmation to `m1`.
             await forwardToDeviceMessage(userId2, m1, outgoingVerificationRequest);
-        });
+        }
 
-        test("can confirm QR code has been confirmed", () => {
+        // can confirm QR code has been confirmed
+        {
+            expect(qr2.state()).toEqual(QrState.Confirmed);
             expect(qr2.hasBeenConfirmed()).toStrictEqual(true);
-        });
+        }
     });
 });
 

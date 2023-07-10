@@ -36,3 +36,5 @@
 
 - For verification-via-emojis, return the word "Aeroplane" rather than
   "Airplane", for consistency with the Matrix spec.
+
+- Fix handling of SAS verification start events once we have shown a QR code.

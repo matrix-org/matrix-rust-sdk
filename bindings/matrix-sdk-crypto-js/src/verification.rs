@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "qrcode")]
 use js_sys::Uint8ClampedArray;
 use js_sys::{Array, Function, JsString, Promise};
-use matrix_sdk_crypto::VerificationRequestState;
+use matrix_sdk_crypto::{QrVerificationState, VerificationRequestState};
 use ruma::events::key::verification::{
     cancel::CancelCode as RumaCancelCode, VerificationMethod as RumaVerificationMethod,
 };
@@ -402,6 +402,13 @@ impl_from_to_inner!(matrix_sdk_crypto::QrVerification => Qr);
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
 impl Qr {
+    /// Get the current state of this request.
+    ///
+    /// Returns a `QrState`.
+    pub fn state(&self) -> QrState {
+        self.inner.state().into()
+    }
+
     /// Has the QR verification been scanned by the other side.
     ///
     /// When the verification object is in this state it’s required
@@ -815,6 +822,56 @@ impl QrCodeScan {
     }
 }
 
+/// List of `Qr` states
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum QrState {
+    /// We have received the other device's details (from the
+    /// `m.key.verification.request` or `m.key.verification.ready`) and
+    /// established the shared secret, so can
+    /// display the QR code.
+    Created = 0,
+
+    /// The other side has scanned our QR code and sent an
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1` with
+    /// matching shared secret.
+    Scanned = 1,
+
+    /// Our user has confirmed that the other device scanned successfully. We
+    /// have sent an `m.key.verification.done`.
+    Confirmed = 2,
+
+    /// We have scanned the other side's QR code and are able to send a
+    /// `m.key.verification.start` message with `method: m.reciprocate.v1`.
+    ///
+    /// Call `Qr::reciprocate` to build the start message.
+    ///
+    /// Note that, despite the name of this state, we have not necessarily
+    /// yet sent the `m.reciprocate.v1` message.
+    Reciprocated = 3,
+
+    /// Verification complete: we have received an `m.key.verification.done`
+    /// from the other side.
+    Done = 4,
+
+    /// Verification cancelled or failed.
+    Cancelled = 5,
+}
+
+impl From<QrVerificationState> for QrState {
+    fn from(value: QrVerificationState) -> Self {
+        use matrix_sdk_crypto::QrVerificationState::*;
+        match value {
+            Started => Self::Created,
+            Scanned => Self::Scanned,
+            Confirmed => Self::Confirmed,
+            Reciprocated => Self::Reciprocated,
+            Done { .. } => Self::Done,
+            Cancelled(..) => Self::Cancelled,
+        }
+    }
+}
+
 /// An object controlling key verification requests.
 ///
 /// Interactive verification flows usually start with a verification
@@ -1116,6 +1173,8 @@ impl VerificationRequest {
 
     /// Generate a QR code that can be used by another client to start
     /// a QR code based verification.
+    ///
+    /// Returns a `Qr`.
     #[cfg(feature = "qrcode")]
     #[wasm_bindgen(js_name = "generateQrCode")]
     pub fn generate_qr_code(&self) -> Promise {

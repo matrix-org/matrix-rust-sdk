@@ -68,7 +68,7 @@ use crate::{
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         locks::LockStoreError, Changes, DeviceChanges, DynCryptoStore, IdentityChanges,
-        IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError, Store,
+        IntoCryptoStore, MemoryStore, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
     },
     types::{
         events::{
@@ -1104,6 +1104,8 @@ impl OlmMachine {
     /// response returned.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
+    ///
+    /// Returns a tuple of (pending verification events, updated room keys)
     #[instrument(skip_all)]
     pub async fn receive_sync_changes(
         &self,
@@ -1111,7 +1113,7 @@ impl OlmMachine {
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
-    ) -> OlmResult<Vec<Raw<AnyToDeviceEvent>>> {
+    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
         // Remove verification objects that have expired or are done.
         let mut events = self.inner.verification_machine.garbage_collect();
 
@@ -1136,6 +1138,11 @@ impl OlmMachine {
             events.push(raw_event);
         }
 
+        // Technically save_changes also does the same work, so if it's slow we could
+        // refactor this to do it only once.
+        let room_key_updates: Vec<_> =
+            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+
         let changed_sessions =
             self.inner.key_request_machine.collect_incoming_key_requests().await?;
 
@@ -1143,7 +1150,7 @@ impl OlmMachine {
 
         self.store().save_changes(changes).await?;
 
-        Ok(events)
+        Ok((events, room_key_updates))
     }
 
     /// Request a room key from our devices.
@@ -2419,7 +2426,7 @@ pub(crate) mod tests {
         let alice_session =
             alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
-        let decrypted = bob
+        let (decrypted, room_key_updates) = bob
             .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
             .await
             .unwrap();
@@ -2437,6 +2444,10 @@ pub(crate) mod tests {
             bob.store().get_inbound_group_session(room_id, alice_session.session_id()).await;
 
         assert!(session.unwrap().is_some());
+
+        assert_eq!(room_key_updates.len(), 1);
+        assert_eq!(room_key_updates[0].room_id, room_id);
+        assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
     }
 
     #[async_test]

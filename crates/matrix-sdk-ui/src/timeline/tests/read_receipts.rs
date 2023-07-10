@@ -21,10 +21,12 @@ use ruma::events::{
 use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
+use crate::timeline::inner::TimelineInnerSettings;
 
 #[async_test]
 async fn read_receipts_updates() {
-    let timeline = TestTimeline::new().with_read_receipt_tracking();
+    let timeline = TestTimeline::new()
+        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let mut stream = timeline.subscribe().await;
 
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;

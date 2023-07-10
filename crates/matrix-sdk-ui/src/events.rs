@@ -18,7 +18,7 @@ use ruma::{
         MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
         PossiblyRedactedStateEventContent, RedactContent, RedactedMessageLikeEventContent,
         RedactedStateEventContent, RedactedSyncMessageLikeEvent, RedactedSyncStateEvent,
-        StateEventContent, StateEventType, StaticStateEventContent,
+        StateEventContent, StateEventType, StaticStateEventContent, TimelineEventType,
     },
     serde::from_raw_json_value,
     EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
@@ -72,6 +72,19 @@ impl SyncTimelineEventWithoutContent {
             }
             SyncTimelineEventWithoutContent::RedactedMessageLike(_)
             | SyncTimelineEventWithoutContent::RedactedState(_) => None,
+        }
+    }
+
+    pub(crate) fn event_type(&self) -> TimelineEventType {
+        match self {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                ev.content.event_type().into()
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                ev.content.event_type().into()
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => ev.content.event_type().into(),
+            SyncTimelineEventWithoutContent::RedactedState(ev) => ev.content.event_type().into(),
         }
     }
 }

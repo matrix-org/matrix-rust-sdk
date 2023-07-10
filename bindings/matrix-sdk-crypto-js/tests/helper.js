@@ -20,7 +20,7 @@ async function addMachineToMachine(machineToAdd, machine) {
         await machineToAdd.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys),
     );
 
-    expect(receiveSyncChanges).toEqual([]);
+    expect(receiveSyncChanges).toEqual([[], []]);
 
     const outgoingRequests = await machineToAdd.outgoingRequests();
 

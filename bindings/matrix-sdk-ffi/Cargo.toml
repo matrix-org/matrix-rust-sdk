@@ -63,11 +63,11 @@ path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-sliding-sync",
     "e2e-encryption",
+    "experimental-sliding-sync",
     "markdown",
+    "rustls-tls", # note: differ from block below
     "socks",
-    "rustls-tls",
     "sqlite",
 ]
 
@@ -76,10 +76,10 @@ path = "../../crates/matrix-sdk"
 default-features = false
 features = [
     "anyhow",
-    "experimental-sliding-sync",
     "e2e-encryption",
+    "experimental-sliding-sync",
     "markdown",
-    "native-tls",
+    "native-tls", # note: differ from block above
     "socks",
     "sqlite",
 ]

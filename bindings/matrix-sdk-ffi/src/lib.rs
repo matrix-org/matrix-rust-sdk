@@ -28,6 +28,7 @@ mod error;
 mod event;
 mod helpers;
 mod notification;
+mod notification_settings;
 mod platform;
 mod room;
 mod room_list;

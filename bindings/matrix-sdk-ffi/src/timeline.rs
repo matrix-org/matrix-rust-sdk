@@ -324,7 +324,13 @@ impl EventTimelineItem {
             .map(|(k, v)| Reaction {
                 key: k.to_owned(),
                 count: v.len().try_into().unwrap(),
-                senders: v.senders().map(ToString::to_string).collect(),
+                senders: v
+                    .senders()
+                    .map(|v| ReactionSenderData {
+                        sender_id: v.sender_id.to_string(),
+                        timestamp: v.timestamp.0.into(),
+                    })
+                    .collect(),
             })
             .collect()
     }
@@ -1082,13 +1088,13 @@ impl EncryptedMessage {
 pub struct Reaction {
     pub key: String,
     pub count: u64,
-    pub senders: Vec<String>,
+    pub senders: Vec<ReactionSenderData>,
 }
 
-#[derive(Clone)]
-pub struct ReactionDetails {
-    pub id: String,
-    pub sender: String,
+#[derive(Clone, uniffi::Record)]
+pub struct ReactionSenderData {
+    pub sender_id: String,
+    pub timestamp: u64,
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.

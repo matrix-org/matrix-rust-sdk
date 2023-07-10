@@ -18,6 +18,7 @@ use imbl::{vector, Vector};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     assign,
     events::{
@@ -52,14 +53,14 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
-        StateEventType,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent,
+        MessageLikeEventType, OriginalSyncMessageLikeEvent, StateEventType,
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
-use super::{EventTimelineItem, Profile, TimelineDetails};
+use super::{EventItemIdentifier, EventTimelineItem, Profile, ReactionSenderData, TimelineDetails};
 use crate::timeline::{
     traits::RoomDataProvider, Error as TimelineError, TimelineItem, DEFAULT_SANITIZER_MODE,
 };
@@ -111,6 +112,68 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
+    /// If the supplied event is suitable to be used as a latest_event in a
+    /// message preview, extract its contents and wrap it as a
+    /// TimelineItemContent.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn from_latest_event_content(
+        event: AnySyncTimelineEvent,
+    ) -> Option<TimelineItemContent> {
+        match is_suitable_for_latest_event(&event) {
+            PossibleLatestEvent::YesMessageLike(m) => Self::from_suitable_latest_event_content(m),
+            PossibleLatestEvent::NoUnsupportedEventType => {
+                // TODO: when we support state events in message previews, this will need change
+                warn!("Found a state event cached as latest_event! ID={}", event.event_id());
+                None
+            }
+            PossibleLatestEvent::NoUnsupportedMessageLikeType => {
+                // TODO: When we support reactions in message previews, this will need to change
+                warn!(
+                    "Found an event cached as latest_event, but I don't know how \
+                        to wrap it in a TimelineItemContent. type={}, ID={}",
+                    event.event_type().to_string(),
+                    event.event_id()
+                );
+                None
+            }
+            PossibleLatestEvent::NoEncrypted => {
+                warn!("Found an encrypted event cached as latest_event! ID={}", event.event_id());
+                None
+            }
+            PossibleLatestEvent::NoRedacted => {
+                warn!("Found a redacted event cached as latest_event! ID={}", event.event_id());
+                None
+            }
+        }
+    }
+
+    /// Given some message content that is from an event that we have already
+    /// determined is suitable for use as a latest event in a message preview,
+    /// extract its contents and wrap it as a TimelineItemContent.
+    fn from_suitable_latest_event_content(
+        message: &OriginalSyncMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Option<TimelineItemContent> {
+        // Grab the content of this event
+        let event_content = message.content.clone();
+
+        // We don't have access to any relations via the AnySyncTimelineEvent (I think -
+        // andyb) so we pretend there are none. This might be OK for the message preview
+        // use case.
+        let relations = BundledMessageLikeRelations::new();
+
+        // If this message is a reply, we would look up in this list the message it was
+        // replying to. Since we probably won't show this in the message preview,
+        // it's probably OK to supply an empty list here.
+        // Message::from_event marks the original event as Unavailable if it can't be
+        // found inside the timeline_items.
+        let timeline_items = Vector::new();
+        Some(TimelineItemContent::Message(Message::from_event(
+            event_content,
+            relations,
+            &timeline_items,
+        )))
+    }
+
     /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
@@ -475,22 +538,17 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
 /// Key: The reaction, usually an emoji.\
 /// Value: The group of reactions.
 pub type BundledReactions = IndexMap<String, ReactionGroup>;
-
-// The long type after a long visibility specified trips up rustfmt currently.
-// This works around. Report: https://github.com/rust-lang/rustfmt/issues/5703
-type ReactionGroupInner = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
-
 /// A group of reaction events on the same event with the same key.
 ///
 /// This is a map of the event ID or transaction ID of the reactions to the ID
 /// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
-pub struct ReactionGroup(pub(in crate::timeline) ReactionGroupInner);
+pub struct ReactionGroup(pub(in crate::timeline) IndexMap<EventItemIdentifier, ReactionSenderData>);
 
 impl ReactionGroup {
     /// The (deduplicated) senders of the reactions in this group.
-    pub fn senders(&self) -> impl Iterator<Item = &UserId> {
-        self.values().unique().map(AsRef::as_ref)
+    pub fn senders(&self) -> impl Iterator<Item = &ReactionSenderData> {
+        self.values().unique_by(|v| &v.sender_id)
     }
 
     /// All reactions within this reaction group that were sent by the given
@@ -502,13 +560,17 @@ impl ReactionGroup {
         &'a self,
         user_id: &'a UserId,
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
-        self.iter()
-            .filter_map(move |(k, v)| (*v == user_id).then_some((k.0.as_ref(), k.1.as_ref())))
+        self.iter().filter_map(move |(k, v)| {
+            (v.sender_id == user_id).then_some(match k {
+                EventItemIdentifier::TransactionId(txn_id) => (Some(txn_id), None),
+                EventItemIdentifier::EventId(event_id) => (None, Some(event_id)),
+            })
+        })
     }
 }
 
 impl Deref for ReactionGroup {
-    type Target = IndexMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), OwnedUserId>;
+    type Target = IndexMap<EventItemIdentifier, ReactionSenderData>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -25,7 +25,7 @@ use matrix_sdk::{
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{relation::Annotation, room::message::RoomMessageEventContent},
-        EventId, RoomId, UserId,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
     },
     Client, LoopCtrl,
 };
@@ -178,6 +178,12 @@ async fn assert_remote_added(
     let (reaction_tx_id, reaction_event_id) = reaction;
     assert_matches!(reaction_tx_id, None);
     assert_matches!(reaction_event_id, Some(value) => value);
+
+    // Remote event should have a timestamp <= than now.
+    // Note: this can actually be equal because if the timestamp from
+    // server is not available, it might be created with a local call to `now()`
+    let reaction = reactions.senders().next();
+    assert!(reaction.unwrap().timestamp <= MilliSecondsSinceUnixEpoch::now());
 }
 
 async fn sync_room(client: &Client, room_id: &RoomId) -> Result<()> {

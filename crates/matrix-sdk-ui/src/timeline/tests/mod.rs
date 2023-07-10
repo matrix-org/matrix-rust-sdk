@@ -50,7 +50,10 @@ use ruma::{
 use serde_json::{json, Value as JsonValue};
 
 use super::{
-    inner::ReactionAction, reactions::ReactionToggleResult, traits::RoomDataProvider,
+    event_item::EventItemIdentifier,
+    inner::{ReactionAction, TimelineInnerSettings},
+    reactions::ReactionToggleResult,
+    traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineInner, TimelineItem,
 };
 
@@ -59,6 +62,7 @@ mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
+mod event_filter;
 mod invalid;
 mod reaction_group;
 mod reactions;
@@ -84,8 +88,8 @@ impl TestTimeline {
         Self { inner: TimelineInner::new(TestRoomDataProvider), next_ts: AtomicU64::new(0) }
     }
 
-    fn with_read_receipt_tracking(mut self) -> Self {
-        self.inner = self.inner.with_read_receipt_tracking(true);
+    fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
+        self.inner = self.inner.with_settings(settings);
         self
     }
 
@@ -214,7 +218,7 @@ impl TestTimeline {
 
     async fn handle_local_redaction_event(
         &self,
-        redacts: (Option<OwnedTransactionId>, Option<OwnedEventId>),
+        redacts: EventItemIdentifier,
         content: RoomRedactionEventContent,
     ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
@@ -262,10 +266,19 @@ impl TestTimeline {
         sender: &UserId,
         content: C,
     ) -> JsonValue {
+        self.make_message_event_with_id(sender, content, EventId::new(server_name!("dummy.server")))
+    }
+
+    fn make_message_event_with_id<C: MessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        content: C,
+        event_id: OwnedEventId,
+    ) -> JsonValue {
         json!({
             "type": content.event_type(),
             "content": content,
-            "event_id": EventId::new(server_name!("dummy.server")),
+            "event_id": event_id,
             "sender": sender,
             "origin_server_ts": self.next_server_ts(),
         })
@@ -336,6 +349,27 @@ impl TestTimeline {
                 "origin_server_ts": self.next_server_ts(),
                 "type": "m.room.redaction",
             },
+        })
+    }
+
+    fn make_reaction(
+        &self,
+        sender: &UserId,
+        annotation: &Annotation,
+        timestamp: MilliSecondsSinceUnixEpoch,
+    ) -> JsonValue {
+        json!({
+            "event_id": EventId::new(server_name!("dummy.server")),
+            "content": {
+                "m.relates_to": {
+                    "event_id": annotation.event_id,
+                    "key": annotation.key,
+                    "rel_type": "m.annotation"
+                }
+            },
+            "sender": sender,
+            "type": "m.reaction",
+            "origin_server_ts": timestamp
         })
     }
 
