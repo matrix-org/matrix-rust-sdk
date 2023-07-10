@@ -43,11 +43,12 @@ async fn remote_echo_full_trip() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // Scenario 1: The local event has not been sent yet to the server.
-    {
+    let id = {
         let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
         let event = item.as_event().unwrap();
         assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
-    }
+        item.unique_id()
+    };
 
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
@@ -64,6 +65,7 @@ async fn remote_echo_full_trip() {
         let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event = item.as_event().unwrap();
         assert_matches!(event.send_state(), Some(EventSendState::SendingFailed { .. }));
+        assert_eq!(item.unique_id(), id);
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an
@@ -81,6 +83,7 @@ async fn remote_echo_full_trip() {
         let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event_item = item.as_event().unwrap();
         assert_matches!(event_item.send_state(), Some(EventSendState::Sent { .. }));
+        assert_eq!(item.unique_id(), id);
 
         event_item.timestamp()
     };
@@ -103,6 +106,7 @@ async fn remote_echo_full_trip() {
     // The local echo is replaced with the remote echo
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
+    assert_eq!(item.unique_id(), id);
 }
 
 #[async_test]
