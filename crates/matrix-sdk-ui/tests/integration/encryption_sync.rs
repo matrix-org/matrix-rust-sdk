@@ -157,9 +157,7 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
     let mut num_requests = 0;
 
-    for request in
-        server.received_requests().await.expect("Request recording has been disabled").iter()
-    {
+    for request in &server.received_requests().await.expect("Request recording has been disabled") {
         if !SlidingSyncMatcher.matches(request) {
             continue;
         }
@@ -182,7 +180,7 @@ async fn check_requests(server: MockServer, expected_requests: &[serde_json::Val
             assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
         ) {
             dbg!(json_value);
-            panic!("{}", error);
+            panic!("{error}");
         }
 
         num_requests += 1;

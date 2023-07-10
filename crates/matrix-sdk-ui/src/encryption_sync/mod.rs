@@ -148,7 +148,7 @@ impl EncryptionSync {
 
                 if lock_guard.is_none() {
                     tracing::debug!(
-                        "Second attempt at locking outside the main app failed, so aborting."
+                        "Second attempt at locking outside the main app failed, aborting."
                     );
                     return Ok(());
                 }
