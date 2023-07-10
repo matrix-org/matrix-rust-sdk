@@ -32,7 +32,7 @@ pub struct SlidingSyncBuilder {
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    polling_timeout: Duration,
+    poll_timeout: Duration,
     network_timeout: Duration,
 }
 
@@ -54,7 +54,7 @@ impl SlidingSyncBuilder {
                 extensions: None,
                 subscriptions: BTreeMap::new(),
                 rooms: BTreeMap::new(),
-                polling_timeout: Duration::from_secs(30),
+                poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
             })
         }
@@ -190,10 +190,27 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Sets custom timeouts for the sliding sync requests.
-    pub fn with_timeouts(mut self, polling_timeout: Duration, network_timeout: Duration) -> Self {
-        self.polling_timeout = polling_timeout;
-        self.network_timeout = network_timeout;
+    /// Sets a custom timeout duration for the sliding sync polling endpoint.
+    ///
+    /// This is the maximum time to wait before the sliding sync server returns
+    /// the long-polling request. If no events (or other data) become
+    /// available before this time elapses, the server will a return a
+    /// response with empty fields.
+    ///
+    /// There's an additional network timeout on top of that that can be
+    /// configured with [`Self::network_timeout`].
+    pub fn poll_timeout(mut self, timeout: Duration) -> Self {
+        self.poll_timeout = timeout;
+        self
+    }
+
+    /// Sets a custom network timeout for the sliding sync polling.
+    ///
+    /// This is not the polling timeout that can be configured with
+    /// [`Self::poll_timeout`], but an additional timeout that will be
+    /// added to the former.
+    pub fn network_timeout(mut self, timeout: Duration) -> Self {
+        self.network_timeout = timeout;
         self
     }
 
@@ -255,7 +272,7 @@ impl SlidingSyncBuilder {
 
             internal_channel: internal_channel_sender,
 
-            polling_timeout: self.polling_timeout,
+            poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,
         }))
     }
