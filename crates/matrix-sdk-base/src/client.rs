@@ -1306,7 +1306,7 @@ mod tests {
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{DisplayName, Room, RoomState, SessionMeta, StateChanges};
+    use crate::{store::StateStoreExt, DisplayName, Room, RoomState, SessionMeta, StateChanges};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1508,5 +1508,64 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
 
         client.get_room(room_id).expect("Just-created room not found!")
+    }
+
+    #[async_test]
+    async fn deserialization_failure_test() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new();
+        client
+            .set_session_meta(SessionMeta {
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        let response = api::sync::sync_events::v3::Response::try_from_http_response(
+            response_from_file(&json!({
+                "next_batch": "asdkl;fjasdkl;fj;asdkl;f",
+                "rooms": {
+                    "join": {
+                        "!ithpyNKDtmhneaTQja:example.org": {
+                            "state": {
+                                "events": [
+                                    {
+                                        "invalid": "invalid",
+                                    },
+                                    {
+                                        "content": {
+                                            "name": "The room name"
+                                        },
+                                        "event_id": "$143273582443PhrSn:example.org",
+                                        "origin_server_ts": 1432735824653u64,
+                                        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                                        "sender": "@example:example.org",
+                                        "state_key": "",
+                                        "type": "m.room.name",
+                                        "unsigned": {
+                                            "age": 1234
+                                        }
+                                    },
+                                ]
+                            }
+                        }
+                    }
+                }
+            })),
+        )
+        .expect("static json doesn't fail to parse");
+
+        client.receive_sync_response(response).await.unwrap();
+        client
+            .store()
+            .get_state_event_static::<ruma::events::room::name::RoomNameEventContent>(room_id)
+            .await
+            .expect("Failed to fetch state event")
+            .expect("State event not found")
+            .deserialize()
+            .expect("Failed to deserialize state event");
     }
 }
