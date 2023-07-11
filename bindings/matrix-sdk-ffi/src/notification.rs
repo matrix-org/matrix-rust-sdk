@@ -106,6 +106,8 @@ pub struct NotificationClient {
 
 #[uniffi::export]
 impl NotificationClient {
+    /// See also documentation of
+    /// `MatrixNotificationClient::get_notification_with_sliding_sync`.
     pub fn get_notification_with_sliding_sync(
         &self,
         room_id: String,
@@ -117,6 +119,25 @@ impl NotificationClient {
             let item = self
                 .inner
                 .get_notification_with_sliding_sync(&room_id, &event_id)
+                .await
+                .map_err(ClientError::from)?;
+            Ok(item.map(NotificationItem::from_inner))
+        })
+    }
+
+    /// See also documentation of
+    /// `MatrixNotificationClient::get_notification_with_context`.
+    pub fn get_notification_with_context(
+        &self,
+        room_id: String,
+        event_id: String,
+    ) -> Result<Option<NotificationItem>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let event_id = EventId::parse(event_id)?;
+        RUNTIME.block_on(async move {
+            let item = self
+                .inner
+                .get_notification_with_context(&room_id, &event_id)
                 .await
                 .map_err(ClientError::from)?;
             Ok(item.map(NotificationItem::from_inner))

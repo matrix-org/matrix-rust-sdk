@@ -19,7 +19,7 @@ use std::{
 
 use futures_util::{future::ready, pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client};
-use matrix_sdk_base::StoreError;
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, StoreError};
 use ruma::{
     api::client::sync::sync_events::v4::{AccountDataConfig, RoomSubscription},
     assign,
@@ -67,9 +67,11 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
-    /// Will return true if and only if the event was encrypted AND we
-    /// successfully ran an encryption sync.
-    async fn maybe_run_encryption_sync(
+    /// Will return true if and only:
+    /// - retry_decryption was enabled,
+    /// - the event was encrypted,
+    /// - we successfully ran an encryption sync.
+    async fn maybe_retry_decryption(
         &self,
         raw_event: &Raw<AnySyncTimelineEvent>,
     ) -> Result<bool, Error> {
@@ -226,14 +228,21 @@ impl NotificationClient {
     /// Get a full notification, given a room id and event id.
     ///
     /// This will run a small sliding sync to retrieve the content of the event,
-    /// along with extra data to form a rich notification context. This
-    /// assumes that the client is running with its own state store, or it
-    /// won't properly work.
+    /// along with extra data to form a rich notification context.
+    ///
+    /// For this to work, this sliding sync must not interfere with other
+    /// sliding syncs running for the same client. If this is running in a
+    /// separate process, then the state store must be independent from
+    /// those used in other processes, at the risk of corrupting in-memory
+    /// caches. Ideally, an in-memory store could and should be used in that
+    /// context.
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
+        tracing::info!("fetching notification event with a sliding sync");
+
         let mut raw_event = match self.try_sliding_sync(room_id, event_id).await {
             Ok(Some(raw_event)) => raw_event,
 
@@ -251,7 +260,7 @@ impl NotificationClient {
         // At this point it should have been added by the sync, if it's not, give up.
         let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-        if self.maybe_run_encryption_sync(&raw_event).await? {
+        if self.maybe_retry_decryption(&raw_event).await? {
             // TODO technically, we could just retry decryption of the previous event?
             match self.try_sliding_sync(room_id, event_id).await {
                 Ok(Some(new_raw_event)) => {
@@ -278,23 +287,13 @@ impl NotificationClient {
         Ok(Some(NotificationItem::new(false, &room, &raw_event, push_actions.as_deref()).await?))
     }
 
-    /// Legacy implementation to get notifications.
-    ///
-    /// This doesn't work for invites, and may miss extra context that the
-    /// notification wants. It will likely be removed in subsequent commits.
-    pub async fn legacy_get_notification(
+    async fn handle_timeline_event(
         &self,
-        room_id: &RoomId,
-        event_id: &EventId,
+        room: &Room,
+        mut timeline_event: TimelineEvent,
+        sync_members: bool,
     ) -> Result<Option<NotificationItem>, Error> {
-        tracing::info!("legacy attempt at fetching the notification");
-
-        // This won't work for invites.
-        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
-
-        let mut timeline_event = room.event(event_id).await?;
-
-        if self.maybe_run_encryption_sync(timeline_event.event.cast_ref()).await? {
+        if self.maybe_retry_decryption(timeline_event.event.cast_ref()).await? {
             match room.decrypt_event(timeline_event.event.cast_ref()).await {
                 Ok(event) => {
                     timeline_event = event;
@@ -313,13 +312,56 @@ impl NotificationClient {
 
         Ok(Some(
             NotificationItem::new(
-                true,
-                &room,
+                sync_members,
+                room,
                 timeline_event.event.cast_ref(),
                 Some(&timeline_event.push_actions),
             )
             .await?,
         ))
+    }
+
+    /// Retrieve a notification using a /context query.
+    ///
+    /// This is for clients that are already running other sliding syncs in the
+    /// same process, so that most of the contextual information for the
+    /// notification should already be there.
+    pub async fn get_notification_with_context(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<NotificationItem>, Error> {
+        tracing::info!("fetching notification event with a /context query");
+
+        // XXX Will this work for invites? A sliding sync may be running in the
+        // background, but it's unclear that it's fetched the invite event yet.
+        // bnjbvr thinks this is racy.
+        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
+
+        let timeline_event =
+            room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
+
+        // No need to sync members, the /context query should have fetched the member.
+        self.handle_timeline_event(&room, timeline_event, false).await
+    }
+
+    /// Legacy implementation to retrieve the content of a notification.
+    ///
+    /// This doesn't work for invites, and may miss extra context that the
+    /// notification wants. It will likely be removed in subsequent commits.
+    pub async fn legacy_get_notification(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<NotificationItem>, Error> {
+        tracing::info!("legacy attempt at fetching the notification");
+
+        // XXX This won't work for invites.
+        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
+
+        let timeline_event = room.event(event_id).await?;
+
+        self.handle_timeline_event(&room, timeline_event, true).await
     }
 }
 
@@ -464,9 +506,12 @@ pub enum Error {
     InvalidRumaEvent,
 
     /// When calling `get_notification_with_sliding_sync`, the room was missing
-    /// in the repsonse.
+    /// in the response.
     #[error("the sliding sync response doesn't include the target room")]
     SlidingSyncEmptyRoom,
+
+    #[error("the event was missing in the /context query")]
+    ContextMissingEvent,
 
     /// An error forwarded from the client.
     #[error(transparent)]
