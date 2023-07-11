@@ -560,8 +560,21 @@ impl ReadOnlyAccount {
     /// Create a fresh new account, this will generate the identity key-pair.
     #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let account = InnerAccount::new();
+        let mut account = InnerAccount::new();
         let identity_keys = account.identity_keys();
+
+        // Let's generate some initial one-time keys while we're here. Since we know
+        // that this is a completely new [`Account`] we're certain that the
+        // server does not have any one-time keys of ours as of yet.
+        //
+        // This ensures that we're going to upload one-time keys right away with our
+        // device keys, otherwise we might wait for the key counts to be echoed back to
+        // us from the server.
+        //
+        // It would be nice to do this for the fallback key as well, but we can't assume
+        // that the server supports fallback keys. Maybe one of those days we
+        // will be able to do so.
+        account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
         Self {
             user_id: user_id.into(),
@@ -1317,7 +1330,6 @@ mod tests {
     #[async_test]
     async fn one_time_key_creation() -> Result<()> {
         let account = ReadOnlyAccount::new(user_id(), device_id());
-        account.generate_one_time_keys().await;
 
         let (_, one_time_keys, _) = account.keys_for_upload().await;
         assert!(!one_time_keys.is_empty());
