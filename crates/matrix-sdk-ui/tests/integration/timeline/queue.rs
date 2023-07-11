@@ -175,12 +175,15 @@ async fn retry_order() {
     timeline.retry_send("2".into()).await.unwrap();
     timeline.retry_send("1".into()).await.unwrap();
 
-    // Both items are immediately updated to indicate they are being sent
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+    // Both items are immediately updated and moved to the bottom in the order
+    // of the function calls to indicate they are being sent
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_matches!(value.send_state().unwrap(), EventSendState::NotSentYet);
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_matches!(value.send_state().unwrap(), EventSendState::NotSentYet);
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
@@ -188,14 +191,15 @@ async fn retry_order() {
     // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead
     sleep(Duration::from_millis(600)).await;
 
-    // The second item should be updated first, since it was retried first
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+    // The second item (now at index 0) should be updated first, since it was
+    // retried first
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
         assert_matches!(value.send_state().unwrap(), EventSendState::Sent { .. });
         assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
     });
     // Then the first one
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
         assert_matches!(value.send_state().unwrap(), EventSendState::Sent { .. });
         assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
