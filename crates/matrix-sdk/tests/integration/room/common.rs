@@ -3,8 +3,8 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
-    async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent,
-    TimelineTestEvent,
+    async_test, bulk_room_members, test_json, JoinedRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, TimelineTestEvent,
 };
 use ruma::{
     event_id,
@@ -180,7 +180,7 @@ async fn test_state_event_getting() {
 #[async_test]
 async fn room_route() {
     let (client, server) = logged_in_client().await;
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
 
     // Without elligible server
@@ -352,7 +352,7 @@ async fn room_route() {
 #[async_test]
 async fn room_permalink() {
     let (client, server) = logged_in_client().await;
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
 
     // Without aliases
@@ -441,7 +441,7 @@ async fn room_permalink() {
 #[async_test]
 async fn room_event_permalink() {
     let (client, server) = logged_in_client().await;
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
     let event_id = event_id!("$15139375512JaHAW");
 
@@ -509,7 +509,7 @@ async fn event() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(

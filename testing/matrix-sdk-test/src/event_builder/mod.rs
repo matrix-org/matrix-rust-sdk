@@ -31,7 +31,7 @@ pub use test_event::{
     StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
 };
 
-/// The `EventBuilder` struct can be used to easily generate valid sync
+/// The `SyncResponseBuilder` struct can be used to easily generate valid sync
 /// responses for testing. These can be then fed into either `Client` or `Room`.
 ///
 /// It supports generated a number of canned events, such as a member entering a
@@ -46,9 +46,9 @@ pub use test_event::{
 /// # Example usage
 ///
 /// ```rust
-/// use matrix_sdk_test::{EventBuilder, JoinedRoomBuilder, TimelineTestEvent};
+/// use matrix_sdk_test::{SyncResponseBuilder, JoinedRoomBuilder, TimelineTestEvent};
 ///
-/// let mut builder = EventBuilder::new();
+/// let mut builder = SyncResponseBuilder::new();
 ///
 /// // response1 now contains events that add an example member to the room and change their power
 /// // level
@@ -73,7 +73,7 @@ pub use test_event::{
 ///     .build_sync_response();
 /// ```
 #[derive(Default)]
-pub struct EventBuilder {
+pub struct SyncResponseBuilder {
     /// Updates to joined `Room`s.
     joined_rooms: HashMap<OwnedRoomId, JoinedRoom>,
     /// Updates to invited `Room`s.
@@ -89,7 +89,7 @@ pub struct EventBuilder {
     batch_counter: i64,
 }
 
-impl EventBuilder {
+impl SyncResponseBuilder {
     pub fn new() -> Self {
         Self::default()
     }

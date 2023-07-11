@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder};
+use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
@@ -37,7 +37,7 @@ async fn message_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -109,7 +109,7 @@ async fn retry_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;

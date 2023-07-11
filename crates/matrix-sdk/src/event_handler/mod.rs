@@ -551,7 +551,8 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
+        EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+        TimelineTestEvent,
     };
     use ruma::{
         events::{
@@ -613,7 +614,7 @@ mod tests {
             }
         });
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
                     .add_timeline_event(TimelineTestEvent::Member)
@@ -709,7 +710,7 @@ mod tests {
             unreachable!("No room event in room B")
         });
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
                     .add_timeline_event(TimelineTestEvent::Member)
@@ -763,7 +764,7 @@ mod tests {
             }
         });
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
             )
@@ -822,7 +823,7 @@ mod tests {
             },
         );
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
             )
@@ -844,7 +845,7 @@ mod tests {
             },
         );
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
             )

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, TimelineTestEvent};
+use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
 use matrix_sdk_ui::notification_client::NotificationClient;
 use ruma::{event_id, events::TimelineEventType, room_id, user_id};
 use serde_json::json;
@@ -33,7 +33,7 @@ async fn test_notification_client_simple() {
         "type": "m.room.message",
     });
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id.clone())
             .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),
