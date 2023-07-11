@@ -38,3 +38,5 @@
   "Airplane", for consistency with the Matrix spec.
 
 - Fix handling of SAS verification start events once we have shown a QR code.
+
+- Fix a bug which could cause generated one-time-keys not to be persisted.

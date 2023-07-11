@@ -1105,7 +1105,9 @@ impl OlmMachine {
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     ///
-    /// Returns a tuple of (pending verification events, updated room keys)
+    /// # Returns
+    ///
+    /// A tuple of (decrypted to-device events, updated room keys).
     #[instrument(skip_all)]
     pub async fn receive_sync_changes(
         &self,

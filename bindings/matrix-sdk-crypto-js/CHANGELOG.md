@@ -1,4 +1,17 @@
+# v0.1.3
+
+## Changes in the Javascript bindings
+
+-   Fix bug introduced in v0.1.2 which caused an undocumented change to the results of `OlmMachine.receiveSyncChanges`.
+
+## Changes in the underlying Rust crate
+
+-   Fix a bug which could cause generated one-time-keys not to be persisted.
+
 # v0.1.2
+
+**WARNING**: this version had a breaking change in the result type of `OlmMachine.receiveSyncChanges`.
+This is corrected in v0.1.3.
 
 ## Changes in the Javascript bindings
 

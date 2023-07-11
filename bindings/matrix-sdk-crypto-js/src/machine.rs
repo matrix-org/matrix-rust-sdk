@@ -216,6 +216,9 @@ impl OlmMachine {
     ///
     /// To decrypt an event from the room timeline call
     /// `decrypt_room_event`.
+    ///
+    /// Returns a list of JSON strings, containing the decrypted to-device
+    /// events.
     #[wasm_bindgen(js_name = "receiveSyncChanges")]
     pub fn receive_sync_changes(
         &self,
@@ -255,15 +258,19 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(serde_json::to_string(
-                &me.receive_sync_changes(
+            // we discard the list of updated room keys in the result; JS applications are
+            // expected to use register_room_key_updated_callback to receive updated room
+            // keys.
+            let (decrypted_to_device_events, _) = me
+                .receive_sync_changes(
                     to_device_events,
                     &changed_devices,
                     &one_time_key_counts,
                     unused_fallback_keys.as_deref(),
                 )
-                .await?,
-            )?)
+                .await?;
+
+            Ok(serde_json::to_string(&decrypted_to_device_events)?)
         }))
     }
 
