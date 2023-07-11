@@ -242,8 +242,10 @@ impl Account {
         self.inner.mark_as_shared();
 
         debug!("Marking one-time keys as published");
-        self.update_key_counts(&response.one_time_key_counts, None).await;
+        // First mark the current keys as published, as updating the key counts might
+        // generate some new keys if we're still below the limit.
         self.inner.mark_keys_as_published().await;
+        self.update_key_counts(&response.one_time_key_counts, None).await;
         self.store.save_account(self.inner.clone()).await?;
 
         Ok(())
@@ -558,8 +560,21 @@ impl ReadOnlyAccount {
     /// Create a fresh new account, this will generate the identity key-pair.
     #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let account = InnerAccount::new();
+        let mut account = InnerAccount::new();
         let identity_keys = account.identity_keys();
+
+        // Let's generate some initial one-time keys while we're here. Since we know
+        // that this is a completely new [`Account`] we're certain that the
+        // server does not yet have any one-time keys of ours.
+        //
+        // This ensures we upload one-time keys along with our device keys right
+        // away, rather than waiting for the key counts to be echoed back to us
+        // from the server.
+        //
+        // It would be nice to do this for the fallback key as well but we can't assume
+        // that the server supports fallback keys. Maybe one of these days we
+        // will be able to do so.
+        account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
         Self {
             user_id: user_id.into(),
@@ -661,6 +676,7 @@ impl ReadOnlyAccount {
             }
 
             self.update_uploaded_key_count(count);
+            self.generate_one_time_keys().await;
         }
 
         if let Some(unused) = unused_fallback_keys {
@@ -929,8 +945,6 @@ impl ReadOnlyAccount {
     pub async fn signed_one_time_keys(
         &self,
     ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
-        let _ = self.generate_one_time_keys().await;
-
         let one_time_keys = self.one_time_keys().await;
 
         if one_time_keys.is_empty() {
@@ -1332,11 +1346,13 @@ mod tests {
 
         account.mark_keys_as_published().await;
         account.update_uploaded_key_count(50);
+        account.generate_one_time_keys().await;
 
         let (_, third_one_time_keys, _) = account.keys_for_upload().await;
         assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
+        account.generate_one_time_keys().await;
 
         let (_, fourth_one_time_keys, _) = account.keys_for_upload().await;
         assert!(!fourth_one_time_keys.is_empty());

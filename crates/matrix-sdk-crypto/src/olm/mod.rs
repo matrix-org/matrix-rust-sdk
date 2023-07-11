@@ -111,9 +111,6 @@ pub(crate) mod tests {
     #[async_test]
     async fn one_time_keys_creation() {
         let account = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let one_time_keys = account.one_time_keys().await;
-
-        assert!(one_time_keys.is_empty());
         assert_ne!(account.max_one_time_keys().await, 0);
 
         account.generate_one_time_keys_helper(10).await;

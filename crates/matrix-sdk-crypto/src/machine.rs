@@ -1987,6 +1987,7 @@ pub(crate) mod tests {
         let machine = OlmMachine::new(user_id(), bob_device_id()).await;
         machine.account().generate_fallback_key_helper().await;
         machine.account().update_uploaded_key_count(0);
+        machine.account().generate_one_time_keys().await;
         let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
@@ -2146,6 +2147,7 @@ pub(crate) mod tests {
     async fn one_time_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         machine.account().update_uploaded_key_count(49);
+        machine.account().generate_one_time_keys().await;
 
         let mut one_time_keys = machine.account().signed_one_time_keys().await;
         let ed25519_key = machine.account().identity_keys().ed25519;
@@ -2169,7 +2171,11 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_keys_for_upload() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        machine.account().update_uploaded_key_count(0);
+        let key_counts = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 49u8.into())]);
+        machine
+            .receive_sync_changes(Vec::new(), &Default::default(), &key_counts, None)
+            .await
+            .expect("We should be able to update our one-time key counts");
 
         let ed25519_key = machine.account().identity_keys().ed25519;
 
@@ -2203,7 +2209,7 @@ pub(crate) mod tests {
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
             DeviceKeyAlgorithm::SignedCurve25519,
-            (request.one_time_keys.len() as u64).try_into().unwrap(),
+            (machine.account().max_one_time_keys().await).try_into().unwrap(),
         );
 
         machine.receive_keys_upload_response(&response).await.unwrap();
