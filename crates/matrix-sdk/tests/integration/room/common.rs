@@ -551,6 +551,8 @@ async fn event() {
         AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) => event
     );
     assert_eq!(event.event_id(), event_id);
-    assert!(timeline_event.push_actions.iter().any(|a| a.is_highlight()));
-    assert!(timeline_event.push_actions.iter().any(|a| a.should_notify()));
+
+    let push_actions = timeline_event.push_actions.unwrap();
+    assert!(push_actions.iter().any(|a| a.is_highlight()));
+    assert!(push_actions.iter().any(|a| a.should_notify()));
 }

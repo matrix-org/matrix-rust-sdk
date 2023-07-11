@@ -64,7 +64,10 @@ impl NotificationClient {
         let mut timeline_event = room.event(event_id).await?;
 
         if self.filter_by_push_rules
-            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
+            && timeline_event
+                .push_actions
+                .as_ref()
+                .is_some_and(|push_actions| !push_actions.iter().any(|a| a.should_notify()))
         {
             return Ok(None);
         }
@@ -150,7 +153,10 @@ impl NotificationClient {
             None => (None, None),
         };
 
-        let is_noisy = timeline_event.push_actions.iter().any(|a| a.sound().is_some());
+        let is_noisy = timeline_event
+            .push_actions
+            .as_ref()
+            .is_some_and(|push_actions| push_actions.iter().any(|a| a.sound().is_some()));
 
         let item = NotificationItem {
             event: raw_event,
