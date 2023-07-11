@@ -16,7 +16,7 @@
 use std::collections::BTreeSet;
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use eyeball_im::{ObservableVector, VectorSubscriber};
+use eyeball_im::{ObservableVector, ObservableVectorEntry, VectorSubscriber};
 #[cfg(any(test, feature = "testing"))]
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
@@ -893,49 +893,45 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 
     async fn set_non_ready_sender_profiles(&self, profile_state: TimelineDetails<Profile>) {
-        let mut state = self.state.lock().await;
-        for idx in 0..state.items.len() {
-            let item = state.items[idx].clone();
-            let Some(event_item) = item.as_event() else { continue };
+        self.state.lock().await.items.for_each(|mut entry| {
+            let Some(event_item) = entry.as_event() else { return };
             if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
-                let item = item.with_kind(TimelineItemKind::Event(
+                let new_item = entry.with_kind(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
                 ));
-                state.items.set(idx, item);
+                ObservableVectorEntry::set(&mut entry, new_item);
             }
-        }
+        });
     }
 
     pub(super) async fn update_sender_profiles(&self) {
         trace!("Updating sender profiles");
 
         let mut state = self.state.lock().await;
-        let num_items = state.items.len();
-
-        for idx in 0..num_items {
-            let sender = match state.items[idx].as_event() {
+        let mut entries = state.items.entries();
+        while let Some(mut entry) = entries.next() {
+            let sender = match entry.as_event() {
                 Some(event_item) => event_item.sender().to_owned(),
                 None => continue,
             };
             let maybe_profile = self.room_data_provider.profile(&sender).await;
 
-            assert_eq!(state.items.len(), num_items);
-
-            let item = state.items[idx].clone();
-            let event_item = item.as_event().unwrap();
+            let event_item = entry.as_event().unwrap();
             match maybe_profile {
                 Some(profile) => {
                     if !event_item.sender_profile().contains(&profile) {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        state.items.set(idx, item.with_kind(updated_item));
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        state.items.set(idx, item.with_kind(updated_item));
+                        let new_item = entry.with_kind(updated_item);
+                        ObservableVectorEntry::set(&mut entry, new_item);
                     }
                 }
             }
