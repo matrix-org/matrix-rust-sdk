@@ -320,11 +320,17 @@ impl RoomListItem {
     fn unsubscribe(&self) {
         self.inner.unsubscribe();
     }
+}
 
+#[uniffi::export(async_runtime = "tokio")]
+impl RoomListItem {
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
     }
+}
 
+#[uniffi::export]
+impl RoomListItem {
     fn has_unread_notifications(&self) -> bool {
         self.inner.has_unread_notifications()
     }
