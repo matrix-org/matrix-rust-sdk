@@ -177,7 +177,8 @@ async fn retry_failed() {
 
     // After mocking the endpoint and retrying, it first transitions back out of
     // the error state
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 

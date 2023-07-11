@@ -697,7 +697,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let new_item = item.with_inner_kind(local_item.with_send_state(EventSendState::NotSentYet));
         let content = item.content.clone();
-        state.items.set(idx, new_item);
+        state.items.remove(idx);
+        state.items.push_back(new_item);
 
         Some(content)
     }
