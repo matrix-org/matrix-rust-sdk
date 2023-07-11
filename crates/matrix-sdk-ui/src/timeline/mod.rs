@@ -690,13 +690,13 @@ pin_project! {
     struct TimelineStream<S> {
         #[pin]
         inner: S,
-        event_handler_handles: Arc<TimelineDropHandle>,
+        drop_handle: Arc<TimelineDropHandle>,
     }
 }
 
 impl<S> TimelineStream<S> {
-    fn new(inner: S, event_handler_handles: Arc<TimelineDropHandle>) -> Self {
-        Self { inner, event_handler_handles }
+    fn new(inner: S, drop_handle: Arc<TimelineDropHandle>) -> Self {
+        Self { inner, drop_handle }
     }
 }
 
