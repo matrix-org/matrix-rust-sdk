@@ -251,7 +251,8 @@ impl Common {
             let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
-                event.push_actions = push_rules.get_actions(&event.event, &push_context).to_owned();
+                event.push_actions =
+                    Some(push_rules.get_actions(&event.event, &push_context).to_owned());
             }
         }
 
@@ -1115,15 +1116,15 @@ impl Common {
     ///
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
-    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Vec<Action>> {
+    pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
         let Some(push_context) = self.push_context().await? else {
             debug!("Could not aggregate push context");
-            return Ok(Vec::default());
+            return Ok(None);
         };
 
         let push_rules = self.client().account().push_rules().await?;
 
-        Ok(push_rules.get_actions(event, &push_context).to_owned())
+        Ok(Some(push_rules.get_actions(event, &push_context).to_owned()))
     }
 }
 
