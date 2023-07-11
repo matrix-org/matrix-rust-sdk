@@ -9,9 +9,9 @@ mod event_builder;
 pub mod test_json;
 
 pub use event_builder::{
-    bulk_room_members, EphemeralTestEvent, EventBuilder, GlobalAccountDataTestEvent,
-    InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent,
-    RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
+    bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
+    JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
+    StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
 };
 
 /// Embedded sync response files

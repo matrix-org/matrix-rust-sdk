@@ -1296,8 +1296,8 @@ impl Default for BaseClient {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, response_from_file, EventBuilder, InvitedRoomBuilder, JoinedRoomBuilder,
-        LeftRoomBuilder, StrippedStateTestEvent, TimelineTestEvent,
+        async_test, response_from_file, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
+        StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
     };
     use ruma::{
         api::{client as api, IncomingResponse},
@@ -1315,7 +1315,7 @@ mod tests {
 
         let client = logged_in_client(user_id).await;
 
-        let mut ev_builder = EventBuilder::new();
+        let mut ev_builder = SyncResponseBuilder::new();
 
         let response = ev_builder
             .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(
@@ -1489,7 +1489,7 @@ mod tests {
         event_id: &str,
         user_id: &UserId,
     ) -> Room {
-        let mut ev_builder = EventBuilder::new();
+        let mut ev_builder = SyncResponseBuilder::new();
         let response = ev_builder
             .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
                 TimelineTestEvent::Custom(json!({

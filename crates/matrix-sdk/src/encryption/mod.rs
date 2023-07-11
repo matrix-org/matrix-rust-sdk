@@ -954,8 +954,8 @@ mod tests {
 
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
-        async_test, test_json, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
-        StateTestEvent,
+        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder,
     };
     use ruma::{
         device_id, event_id,
@@ -1001,7 +1001,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
                     .add_state_event(StateTestEvent::Member)
@@ -1034,7 +1034,7 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
             )
@@ -1055,7 +1055,7 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
             )
@@ -1081,7 +1081,7 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
             )

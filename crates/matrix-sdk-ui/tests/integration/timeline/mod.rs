@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
+    async_test, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder,
     TimelineTestEvent,
 };
 use matrix_sdk_ui::timeline::{
@@ -47,7 +47,7 @@ async fn edit() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -161,7 +161,7 @@ async fn reaction() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -259,7 +259,7 @@ async fn redacted_message() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -322,7 +322,7 @@ async fn read_marker() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -397,7 +397,7 @@ async fn in_reply_to_details() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -552,7 +552,7 @@ async fn sync_highlighted() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
@@ -631,7 +631,7 @@ async fn event_filter() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;

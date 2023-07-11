@@ -16,7 +16,7 @@ pub fn value_with_room_id(value: &mut Value) {
 /// The `TransactionBuilder` struct can be used to easily generate valid
 /// incoming appservice transactions in json value format for testing.
 ///
-/// Usage is similar to [`super::EventBuilder`]
+/// Usage is similar to [`super::SyncResponseBuilder`]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
     events: Vec<Raw<AnyTimelineEvent>>,

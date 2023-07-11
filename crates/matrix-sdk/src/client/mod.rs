@@ -1941,7 +1941,9 @@ impl Client {
 pub(crate) mod tests {
     use std::time::Duration;
 
-    use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
+    use matrix_sdk_test::{
+        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+    };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -2035,7 +2037,7 @@ pub(crate) mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let response = EventBuilder::default()
+        let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
                     .add_state_event(StateTestEvent::Member)

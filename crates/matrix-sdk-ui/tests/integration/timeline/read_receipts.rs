@@ -19,8 +19,8 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts};
 use matrix_sdk_test::{
-    async_test, EphemeralTestEvent, EventBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    TimelineTestEvent,
+    async_test, EphemeralTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    SyncResponseBuilder, TimelineTestEvent,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -48,7 +48,7 @@ async fn read_receipts_updates() {
     let second_event_id = event_id!("$e32037280er453l:localhost");
     let third_event_id = event_id!("$Sg2037280074GZr34:localhost");
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -245,7 +245,7 @@ async fn send_single_receipt() {
 
     let own_user_id = client.user_id().unwrap();
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -592,7 +592,7 @@ async fn send_multiple_receipts() {
 
     let own_user_id = client.user_id().unwrap();
 
-    let mut ev_builder = EventBuilder::new();
+    let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
