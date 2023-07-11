@@ -3,6 +3,7 @@ use std::sync::Arc;
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
     NotificationClientBuilder as MatrixNotificationClientBuilder,
+    NotificationItem as MatrixNotificationItem,
 };
 use ruma::{EventId, RoomId};
 
@@ -35,6 +36,27 @@ pub struct NotificationItem {
     /// Can be `None` if we couldn't determine this, because we lacked
     /// information to create a push context.
     pub is_noisy: Option<bool>,
+}
+
+impl NotificationItem {
+    fn from_inner(item: MatrixNotificationItem) -> Self {
+        Self {
+            event: Arc::new(TimelineEvent(item.event)),
+            sender_info: NotificationSenderInfo {
+                display_name: item.sender_display_name,
+                avatar_url: item.sender_avatar_url,
+            },
+            room_info: NotificationRoomInfo {
+                display_name: item.room_display_name,
+                avatar_url: item.room_avatar_url,
+                canonical_alias: item.room_canonical_alias,
+                joined_members_count: item.joined_members_count,
+                is_encrypted: item.is_room_encrypted,
+                is_direct: item.is_direct_message_room,
+            },
+            is_noisy: item.is_noisy,
+        }
+    }
 }
 
 #[derive(Clone, uniffi::Object)]
@@ -84,7 +106,7 @@ pub struct NotificationClient {
 
 #[uniffi::export]
 impl NotificationClient {
-    pub fn get_notification(
+    pub fn get_notification_with_sliding_sync(
         &self,
         room_id: String,
         event_id: String,
@@ -94,26 +116,27 @@ impl NotificationClient {
         RUNTIME.block_on(async move {
             let item = self
                 .inner
-                .get_notification(&room_id, &event_id)
+                .get_notification_with_sliding_sync(&room_id, &event_id)
                 .await
                 .map_err(ClientError::from)?;
+            Ok(item.map(NotificationItem::from_inner))
+        })
+    }
 
-            Ok(item.map(|item| NotificationItem {
-                event: Arc::new(TimelineEvent(item.event)),
-                sender_info: NotificationSenderInfo {
-                    display_name: item.sender_display_name,
-                    avatar_url: item.sender_avatar_url,
-                },
-                room_info: NotificationRoomInfo {
-                    display_name: item.room_display_name,
-                    avatar_url: item.room_avatar_url,
-                    canonical_alias: item.room_canonical_alias,
-                    joined_members_count: item.joined_members_count,
-                    is_encrypted: item.is_room_encrypted,
-                    is_direct: item.is_direct_message_room,
-                },
-                is_noisy: item.is_noisy,
-            }))
+    pub fn legacy_get_notification(
+        &self,
+        room_id: String,
+        event_id: String,
+    ) -> Result<Option<NotificationItem>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let event_id = EventId::parse(event_id)?;
+        RUNTIME.block_on(async move {
+            let item = self
+                .inner
+                .legacy_get_notification(&room_id, &event_id)
+                .await
+                .map_err(ClientError::from)?;
+            Ok(item.map(NotificationItem::from_inner))
         })
     }
 }

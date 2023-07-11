@@ -54,10 +54,6 @@ pub struct NotificationClient {
     /// Should we try to filter out the notification event according to the push
     /// rules?
     filter_by_push_rules: bool,
-
-    /// If the sliding sync process failed, should we try to use the legacy way
-    /// to resolve notifications?
-    legacy_resolve: bool,
 }
 
 impl NotificationClient {
@@ -138,6 +134,12 @@ impl NotificationClient {
         }
     }
 
+    /// Try to run a sliding sync (without encryption) to retrieve the event
+    /// from the notification.
+    ///
+    /// This works by requesting explicit state that'll be useful for building
+    /// the `NotificationItem`, and subscribing to the room which the
+    /// notification relates to.
     async fn try_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -156,7 +158,8 @@ impl NotificationClient {
             match raw.deserialize() {
                 Ok(ev) => {
                     if ev.event_id() == event_id {
-                        // found it!
+                        // found it! There shouldn't be a previous event before, but if there is,
+                        // that should be ok to just replace it.
                         *cloned_notif.lock().unwrap() = Some(raw);
                     }
                 }
@@ -196,13 +199,7 @@ impl NotificationClient {
             let stream = sync.sync();
             pin_mut!(stream);
             if let Some(result) = stream.next().await {
-                match result {
-                    Ok(r) => r,
-                    Err(err) => {
-                        tracing::error!("Error in room sliding sync: {err:#}");
-                        return Ok(None);
-                    }
-                }
+                result?
             } else {
                 // Sliding sync aborted early.
                 return Ok(None);
@@ -218,80 +215,74 @@ impl NotificationClient {
             );
         }
 
-        if !update_summary.rooms.is_empty() {
-            if let Some(event) = notification.lock().unwrap().take() {
-                return Ok(Some(event));
-            }
-        } else {
-            tracing::warn!(
-                "unexpected empty list of rooms in the notification (non e2ee) sliding sync"
-            );
+        if update_summary.rooms.is_empty() {
+            return Err(Error::SlidingSyncEmptyRoom);
         }
 
-        Ok(None)
+        let maybe_event = notification.lock().unwrap().take();
+        Ok(maybe_event)
     }
 
     /// Get a full notification, given a room id and event id.
-    pub async fn get_notification(
+    ///
+    /// This will run a small sliding sync to retrieve the content of the event,
+    /// along with extra data to form a rich notification context. This
+    /// assumes that the client is running with its own state store, or it
+    /// won't properly work.
+    pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
-        match self.try_sliding_sync(room_id, event_id).await {
-            Ok(Some(mut raw_event)) => {
-                // At this point it should have been added by the sync, if it's not, give up.
-                let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
-
-                if self.maybe_run_encryption_sync(&raw_event).await? {
-                    match self.try_sliding_sync(room_id, event_id).await {
-                        Ok(Some(new_raw_event)) => {
-                            raw_event = new_raw_event;
-                        }
-                        Ok(None) => {
-                            tracing::warn!(
-                                "event missing after retrying decryption in get_notification?"
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                "error when retrying decryption in get_notification: {err:#}"
-                            );
-                        }
-                    }
-                }
-
-                let push_actions = room.event_push_actions(&raw_event).await?;
-                if let Some(push_actions) = &push_actions {
-                    if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify())
-                    {
-                        return Ok(None);
-                    }
-                }
-
-                return Ok(Some(
-                    NotificationItem::new(false, &room, &raw_event, push_actions.as_deref())
-                        .await?,
-                ));
-            }
+        let mut raw_event = match self.try_sliding_sync(room_id, event_id).await {
+            Ok(Some(raw_event)) => raw_event,
 
             Ok(None) => {
                 tracing::debug!("notification sync hasn't found the event");
+                return Ok(None);
             }
 
             Err(err) => {
                 tracing::warn!("notification sync has run into an error: {err:#}");
+                return Ok(None);
             }
         };
 
-        if self.legacy_resolve {
-            // If using a sync loop didn't work, try using the legacy path.
-            self.legacy_get_notification_impl(room_id, event_id).await
-        } else {
-            Ok(None)
+        // At this point it should have been added by the sync, if it's not, give up.
+        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
+
+        if self.maybe_run_encryption_sync(&raw_event).await? {
+            // TODO technically, we could just retry decryption of the previous event?
+            match self.try_sliding_sync(room_id, event_id).await {
+                Ok(Some(new_raw_event)) => {
+                    raw_event = new_raw_event;
+                }
+                Ok(None) => {
+                    // The event was there, but disappeared in the next sync; maybe there
+                    // were too many events happening in between?
+                    tracing::warn!("event missing after retrying decryption in get_notification?");
+                }
+                Err(err) => {
+                    tracing::warn!("error when retrying decryption in get_notification: {err:#}");
+                }
+            }
         }
+
+        let push_actions = room.event_push_actions(&raw_event).await?;
+        if let Some(push_actions) = &push_actions {
+            if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(NotificationItem::new(false, &room, &raw_event, push_actions.as_deref()).await?))
     }
 
-    async fn legacy_get_notification_impl(
+    /// Legacy implementation to get notifications.
+    ///
+    /// This doesn't work for invites, and may miss extra context that the
+    /// notification wants. It will likely be removed in subsequent commits.
+    pub async fn legacy_get_notification(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
@@ -332,17 +323,6 @@ impl NotificationClient {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
-impl NotificationClient {
-    pub async fn legacy_get_notification(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
-        self.legacy_get_notification_impl(room_id, event_id).await
-    }
-}
-
 /// Builder for a `NotificationClient`.
 ///
 /// Fields have the same meaning as in `NotificationClient`.
@@ -352,7 +332,6 @@ pub struct NotificationClientBuilder {
     retry_decryption: bool,
     with_cross_process_lock: bool,
     filter_by_push_rules: bool,
-    legacy_resolve: bool,
 }
 
 impl NotificationClientBuilder {
@@ -362,7 +341,6 @@ impl NotificationClientBuilder {
             retry_decryption: false,
             with_cross_process_lock: false,
             filter_by_push_rules: false,
-            legacy_resolve: true,
         }
     }
 
@@ -386,15 +364,6 @@ impl NotificationClientBuilder {
         self
     }
 
-    /// If the sliding sync to retrieve the notification's event failed, try the
-    /// legacy way to resolve the full notification's content.
-    ///
-    /// Set to `true` by default.
-    pub fn legacy_resolve(mut self, legacy_resolve: bool) -> Self {
-        self.legacy_resolve = legacy_resolve;
-        self
-    }
-
     /// Finishes configuring the `NotificationClient`.
     pub fn build(self) -> NotificationClient {
         NotificationClient {
@@ -402,7 +371,6 @@ impl NotificationClientBuilder {
             with_cross_process_lock: self.with_cross_process_lock,
             filter_by_push_rules: self.filter_by_push_rules,
             retry_decryption: self.retry_decryption,
-            legacy_resolve: self.legacy_resolve,
         }
     }
 }
@@ -494,6 +462,11 @@ pub enum Error {
     /// The Ruma event contained within this notification couldn't be parsed.
     #[error("invalid ruma event")]
     InvalidRumaEvent,
+
+    /// When calling `get_notification_with_sliding_sync`, the room was missing
+    /// in the repsonse.
+    #[error("the sliding sync response doesn't include the target room")]
+    SlidingSyncEmptyRoom,
 
     /// An error forwarded from the client.
     #[error(transparent)]

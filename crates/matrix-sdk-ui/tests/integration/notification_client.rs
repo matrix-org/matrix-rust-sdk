@@ -43,13 +43,16 @@ async fn test_notification_client_legacy() {
             .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),
     );
 
+    // First, mock a sync that contains a text message.
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    // Then, try to simulate receiving a notification for that message.
     let notification_client = NotificationClient::builder(client).build();
 
     {
+        // The notification client retrieves the event via `/rooms/*/event/`.
         Mock::given(method("GET"))
             .and(path(format!("/_matrix/client/r0/rooms/{room_id}/event/{event_id}")))
             .and(header("authorization", "Bearer 1234"))
@@ -57,6 +60,8 @@ async fn test_notification_client_legacy() {
             .mount(&server)
             .await;
 
+        // The sender's information is retrieved through the `/rooms/*/members`
+        // endpoint.
         Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
             .and(header("authorization", "Bearer 1234"))
@@ -84,6 +89,8 @@ async fn test_notification_client_legacy() {
             .mount(&server)
             .await;
 
+        // The encryption state is also fetched to figure whether the room is encrypted
+        // or not.
         mock_encryption_state(&server, false).await;
     }
 
@@ -227,8 +234,9 @@ async fn test_notification_client_sliding_sync() {
         .mount(&server)
         .await;
 
-    let notification_client = NotificationClient::builder(client).legacy_resolve(false).build();
-    let item = notification_client.get_notification(room_id, event_id).await.unwrap();
+    let notification_client = NotificationClient::builder(client).build();
+    let item =
+        notification_client.get_notification_with_sliding_sync(room_id, event_id).await.unwrap();
 
     check_requests(
         server,
