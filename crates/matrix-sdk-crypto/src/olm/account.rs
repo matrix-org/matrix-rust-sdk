@@ -243,7 +243,7 @@ impl Account {
 
         debug!("Marking one-time keys as published");
         // First mark the current keys as published, as updating the key counts might
-        // generate some new keys if we're still bellow the limit.
+        // generate some new keys if we're still below the limit.
         self.inner.mark_keys_as_published().await;
         self.update_key_counts(&response.one_time_key_counts, None).await;
         self.store.save_account(self.inner.clone()).await?;
@@ -565,14 +565,14 @@ impl ReadOnlyAccount {
 
         // Let's generate some initial one-time keys while we're here. Since we know
         // that this is a completely new [`Account`] we're certain that the
-        // server does not have any one-time keys of ours as of yet.
+        // server does not yet have any one-time keys of ours.
         //
-        // This ensures that we're going to upload one-time keys right away with our
-        // device keys, otherwise we might wait for the key counts to be echoed back to
-        // us from the server.
+        // This ensures we upload one-time keys along with our device keys right
+        // away, rather than waiting for the key counts to be echoed back to us
+        // from the server.
         //
-        // It would be nice to do this for the fallback key as well, but we can't assume
-        // that the server supports fallback keys. Maybe one of those days we
+        // It would be nice to do this for the fallback key as well but we can't assume
+        // that the server supports fallback keys. Maybe one of these days we
         // will be able to do so.
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
