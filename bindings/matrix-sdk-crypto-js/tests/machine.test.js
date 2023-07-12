@@ -274,9 +274,17 @@ describe(OlmMachine.name, () => {
         }
     });
 
+    test("Can build a key query request", async () => {
+        const m = await machine();
+        const request = m.queryKeysForUsers([new UserId("@alice:example.org")]);
+        expect(request).toBeInstanceOf(KeysQueryRequest);
+        const body = JSON.parse(request.body);
+        expect(Object.keys(body.device_keys)).toContain("@alice:example.org");
+    });
+
     describe("setup workflow to mark requests as sent", () => {
         let m;
-        let ougoingRequests;
+        let outgoingRequests;
 
         beforeAll(async () => {
             m = await machine(new UserId("@alice:example.org"), new DeviceId("DEVICEID"));

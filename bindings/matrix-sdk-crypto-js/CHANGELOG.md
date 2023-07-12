@@ -1,3 +1,8 @@
+# unreleased
+
+-   Add method `OlmMachine.queryKeysForUsers` to build an out-of-band key
+    request.
+
 # v0.1.3
 
 ## Changes in the Javascript bindings
