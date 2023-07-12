@@ -787,6 +787,8 @@ impl<'a> TimelineEventHandler<'a> {
                         || it.event_id() == Some(event_id)
                 });
 
+                let mut removed_event_item_id = None;
+                let mut removed_day_divider_id = None;
                 if let Some((idx, old_item)) = result {
                     if old_item.as_remote().is_some() {
                         // Item was previously received from the server. This
@@ -842,7 +844,7 @@ impl<'a> TimelineEventHandler<'a> {
                     // In more complex cases, remove the item and day
                     // divider (if necessary) before re-adding the item.
                     trace!("Removing local echo or duplicate timeline item");
-                    self.items.remove(idx);
+                    removed_event_item_id = Some(self.items.remove(idx).internal_id);
 
                     assert_ne!(
                         idx, 0,
@@ -861,7 +863,7 @@ impl<'a> TimelineEventHandler<'a> {
                             .map_or(true, |item| item.is_virtual())
                     {
                         trace!("Removing day divider");
-                        self.items.remove(idx - 1);
+                        removed_day_divider_id = Some(self.items.remove(idx - 1).internal_id);
                     }
 
                     // no return here, below code for adding a new event
@@ -907,12 +909,23 @@ impl<'a> TimelineEventHandler<'a> {
                     // Check if that event has the same date as the new one.
                     let old_ts = latest_event.timestamp();
 
-                    if let Some(day_divider_item) = maybe_create_day_divider_from_timestamps(
-                        old_ts,
-                        timestamp,
-                        self.next_internal_id,
-                    ) {
+                    if timestamp_to_date(old_ts) != timestamp_to_date(timestamp) {
                         trace!("Adding day divider (remote)");
+
+                        let id = match removed_day_divider_id {
+                            // If a day divider was removed for an item about to be moved and we
+                            // now need to add a new one, reuse the previous one's ID.
+                            Some(day_divider_id) => day_divider_id,
+                            None => {
+                                let internal_id = *self.next_internal_id;
+                                *self.next_internal_id += 1;
+                                internal_id
+                            }
+                        };
+
+                        let day_divider_item =
+                            timeline_item(VirtualTimelineItem::DayDivider(timestamp), id);
+
                         if should_push {
                             self.items.push_back(day_divider_item);
                         } else {
@@ -945,8 +958,20 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
+                let id = match removed_event_item_id {
+                    // If a previous version of the same item (usually a local
+                    // echo) was removed and we now need to add it again, reuse
+                    // the previous item's ID.
+                    Some(id) => id,
+                    None => {
+                        let internal_id = *self.next_internal_id;
+                        *self.next_internal_id += 1;
+                        internal_id
+                    }
+                };
+
                 trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = new_timeline_item(item, self.next_internal_id);
+                let new_item = timeline_item(item, id);
                 if should_push {
                     self.items.push_back(new_item);
                 } else {
