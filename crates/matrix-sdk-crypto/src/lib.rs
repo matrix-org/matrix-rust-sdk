@@ -95,17 +95,8 @@ pub use verification::{
 };
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, QrVerificationState, ScanError};
-
-/// Re-exported Error types from the [vodozemac](https://crates.io/crates/vodozemac) crate.
-pub mod vodozemac {
-    pub use vodozemac::{
-        megolm::{DecryptionError as MegolmDecryptionError, SessionKeyDecodeError},
-        olm::{
-            DecryptionError as OlmDecryptionError, SessionCreationError as OlmSessionCreationError,
-        },
-        DecodeError, KeyError, PickleError, SignatureError, VERSION,
-    };
-}
+#[doc(no_inline)]
+pub use vodozemac;
 
 /// The version of the matrix-sdk-cypto crate being used
 pub static VERSION: &str = env!("CARGO_PKG_VERSION");
