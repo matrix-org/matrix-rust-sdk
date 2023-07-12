@@ -1,4 +1,4 @@
-# unreleased
+# v0.1.4
 
 -   Add method `OlmMachine.queryKeysForUsers` to build an out-of-band key
     request.
