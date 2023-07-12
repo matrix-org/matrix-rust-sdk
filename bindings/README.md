@@ -9,17 +9,22 @@ maintained by the owners of the Matrix Rust SDK project.
   crate,
 * [`matrix-sdk-crypto-js`], JavaScript bindings of the
   [`matrix-sdk-crypto`] crate,
-* [`matrix-sdk-crypto-nodejs`], Node.js bindings of the
-  [`matrix-sdk-crypto`] crate,
 * [`matrix-sdk-ffi`], UniFFI bindings of the [`matrix-sdk`] crate.
+
+There are also external bindings in other repositories:
+
+* [`matrix-sdk-crypto-nodejs`], Node.js bindings of the
+  [`matrix-sdk-crypto`] crate
 
 [`apple`]: ./apple
 [`matrix-sdk-crypto-ffi`]: ./matrix-sdk-crypto-ffi
 [`matrix-sdk-crypto-js`]: ./matrix-sdk-crypto-js
-[`matrix-sdk-crypto-nodejs`]: ./matrix-sdk-crypto-nodejs
 [`matrix-sdk-crypto`]: ../crates/matrix-sdk-crypto
 [`matrix-sdk-ffi`]: ./matrix-sdk-ffi
 [`matrix-sdk`]: ../crates/matrix-sdk
 
-# Contributing
+[`matrix-sdk-crypto-nodejs`]: https://github.com/matrix-org/matrix-rust-sdk-crypto-nodejs
+
+## Contributing
+
 To contribute read this [guide](./CONTRIBUTING.md).

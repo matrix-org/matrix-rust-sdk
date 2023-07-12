@@ -18,7 +18,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
   MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
 
 jobs:
@@ -59,16 +58,7 @@ jobs:
         run: target/debug/xtask ci bindings
 
   lint-js-bindings:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - name: "[m]-crypto-nodejs"
-            path: "bindings/matrix-sdk-crypto-nodejs"
-          - name: "[m]-crypto-js"
-            path: "bindings/matrix-sdk-crypto-js"
-
-    name: lint ${{ matrix.name }}
+    name: lint [m]-crypto-js
     runs-on: ubuntu-latest
 
     steps:
@@ -79,84 +69,12 @@ jobs:
         uses: actions/setup-node@v3
 
       - name: Install NPM dependencies
-        working-directory: ${{ matrix.path }}
+        working-directory: bindings/matrix-sdk-crypto-js
         run: npm install
 
       - name: run lint
-        working-directory: ${{ matrix.path }}
+        working-directory: bindings/matrix-sdk-crypto-js
         run: npm run lint
-
-  test-matrix-sdk-crypto-nodejs:
-    name: ${{ matrix.os-name }} [m]-crypto-nodejs, v${{ matrix.node-version }}
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        # Use Ubuntu LTS-1 for broader glibc compatibility.
-        os: [ubuntu-20.04]
-        node-version: [16.0, 18.0, 19.0, 20.0]
-        include:
-          - os: ubuntu-20.04
-            os-name: 🐧
-
-          - os: macos-latest
-            os-name: 🍏
-            node-version: 20.0
-
-          - node-version: 20.0
-            build-doc: true
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install NPM dependencies
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm install
-
-      - name: Build the Node.js binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run release-build
-
-      - name: Test the Node.js binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run test
-
-      # Building in dev-mode and copy lib in failure case
-      - name: Build the Node.js binding in non-release
-        if: failure()
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: |
-          cp *.node release-mode-lib.node
-          npm run build
-
-      - uses: actions/upload-artifact@v3
-        if: failure()
-        with:
-          name: Failure Files
-          path: |
-            bindings/matrix-sdk-crypto-nodejs/*.node
-            /var/crash/*.crash
-
-      - if: ${{ matrix.build-doc }}
-        name: Build the documentation
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run doc
 
   test-matrix-sdk-crypto-js:
     name: 🕸 [m]-crypto-js
