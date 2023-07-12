@@ -416,9 +416,9 @@ impl OlmMachine {
     /// A request to be sent out to the server. Once sent, the response should
     /// be passed back to the state machine using [`mark_request_as_sent`].
     ///
-    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    /// [`get_identity`]: #method.get_identity
-    /// [`get_user_devices`]: #method.get_user_devices
+    /// [`mark_request_as_sent`]: OlmMachine::mark_request_as_sent
+    /// [`get_identity`]: OlmMachine::get_identity
+    /// [`get_user_devices`]: OlmMachine::get_user_devices
     pub fn query_keys_for_users<'a>(
         &self,
         users: impl IntoIterator<Item = &'a UserId>,
