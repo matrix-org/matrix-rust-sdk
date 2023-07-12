@@ -48,12 +48,6 @@ jobs:
         run:
           cargo doc --no-deps --workspace --features docsrs
 
-      - name: Build `matrix-sdk-crypto-nodejs` doc
-        run: |
-          cd bindings/matrix-sdk-crypto-nodejs
-          npm install
-          npm run build && npm run doc
-
       - name: Build `matrix-sdk-crypto-js` doc
         run: |
           cd bindings/matrix-sdk-crypto-js
@@ -63,10 +57,8 @@ jobs:
       - name: Prepare the doc hierarchy
         shell: bash
         run: |
-          mkdir -p doc/bindings/matrix-sdk-crypto-nodejs/
           mkdir -p doc/bindings/matrix-sdk-crypto-js/
           mv target/doc/* doc/
-          mv bindings/matrix-sdk-crypto-nodejs/docs/* doc/bindings/matrix-sdk-crypto-nodejs/
           mv bindings/matrix-sdk-crypto-js/docs/* doc/bindings/matrix-sdk-crypto-js/
 
       - name: Deploy documentation

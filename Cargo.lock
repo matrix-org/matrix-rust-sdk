@@ -957,15 +957,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
 
 [[package]]
-name = "convert_case"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2403,16 +2394,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4668fb0ea861c1df094127ac5f1da3409a82116a4ba74fca2e58ef927159bb3"
 
 [[package]]
-name = "libloading"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b67380fd3b2fbe7527a606e18729d21c6f3951633d0500574c4dc22d2d638b9f"
-dependencies = [
- "cfg-if",
- "winapi",
-]
-
-[[package]]
 name = "libm"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2757,24 +2738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-sdk-crypto-nodejs"
-version = "0.6.0"
-dependencies = [
- "http",
- "matrix-sdk-common",
- "matrix-sdk-crypto",
- "matrix-sdk-sqlite",
- "napi",
- "napi-build",
- "napi-derive",
- "ruma",
- "serde_json",
- "tracing-subscriber",
- "vodozemac",
- "zeroize",
-]
-
-[[package]]
 name = "matrix-sdk-ffi"
 version = "0.2.0"
 dependencies = [
@@ -3080,64 +3043,6 @@ dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "napi"
-version = "2.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ede2d12cd6fce44da537a4be1f5510c73be2506c2e32dfaaafd1f36968f3a0e"
-dependencies = [
- "bitflags 2.3.3",
- "ctor",
- "napi-derive",
- "napi-sys",
- "once_cell",
- "tokio",
-]
-
-[[package]]
-name = "napi-build"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882a73d9ef23e8dc2ebbffb6a6ae2ef467c0f18ac10711e4cc59c5485d41df0e"
-
-[[package]]
-name = "napi-derive"
-version = "2.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da1c6a8fa84d549aa8708fcd062372bf8ec6e849de39016ab921067d21bde367"
-dependencies = [
- "cfg-if",
- "convert_case",
- "napi-derive-backend",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "napi-derive-backend"
-version = "1.0.52"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20bbc7c69168d06a848f925ec5f0e0997f98e8c8d4f2cc30157f0da51c009e17"
-dependencies = [
- "convert_case",
- "once_cell",
- "proc-macro2",
- "quote",
- "regex",
- "semver",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "napi-sys"
-version = "2.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "166b5ef52a3ab5575047a9fe8d4a030cdd0f63c96f071cd6907674453b07bae3"
-dependencies = [
- "libloading",
 ]
 
 [[package]]
@@ -5268,7 +5173,6 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "time 0.3.22",
  "tracing",
  "tracing-core",
  "tracing-log",
@@ -5336,12 +5240,6 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
-
-[[package]]
-name = "unicode-segmentation"
-version = "1.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-xid"

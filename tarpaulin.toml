@@ -14,7 +14,6 @@ exclude = [
     # bindings
     "matrix-sdk-crypto-ffi",
     "matrix-sdk-crypto-js",
-    "matrix-sdk-crypto-nodejs",
     "matrix-sdk-ffi",
     # wasm only, can't get coverage
     "matrix-sdk-indexeddb",
