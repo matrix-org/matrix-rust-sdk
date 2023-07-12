@@ -433,7 +433,7 @@ impl Room {
 
             let replacement = Replacement::new(
                 event_id.to_owned(),
-                MessageType::text_markdown(new_msg.to_owned()),
+                MessageType::text_markdown(new_msg.to_owned()).into(),
             );
 
             let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);

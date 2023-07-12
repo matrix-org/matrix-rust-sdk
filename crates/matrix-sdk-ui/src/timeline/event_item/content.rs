@@ -325,8 +325,8 @@ impl Message {
         let msgtype = match edit {
             Some(mut e) => {
                 // Edit's content is never supposed to contain the reply fallback.
-                e.new_content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
-                e.new_content
+                e.new_content.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+                e.new_content.msgtype
             }
             None => {
                 let remove_reply_fallback = if in_reply_to.is_some() {

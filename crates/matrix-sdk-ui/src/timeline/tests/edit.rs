@@ -48,7 +48,7 @@ async fn live_redacted() {
     let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
             redacted_event_id.to_owned(),
-            MessageType::text_plain("test"),
+            MessageType::text_plain("test").into(),
         ))),
     });
     timeline.handle_live_message_event(&ALICE, edit).await;
@@ -92,7 +92,7 @@ async fn live_sanitized() {
         {
             relates_to: Some(message::Relation::Replacement(Replacement::new(
                 first_event_id.to_owned(),
-                MessageType::text_html(new_plain_content, new_html_content),
+                MessageType::text_html(new_plain_content, new_html_content).into(),
             ))),
         }
     );

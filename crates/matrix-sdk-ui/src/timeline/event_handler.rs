@@ -26,7 +26,10 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
-            message::{self, sanitize::RemoveReplyFallback, MessageType, RoomMessageEventContent},
+            message::{
+                self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
             redaction::{
                 OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
             },
@@ -371,7 +374,10 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
-    fn handle_room_message_edit(&mut self, replacement: Replacement<MessageType>) {
+    fn handle_room_message_edit(
+        &mut self,
+        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+    ) {
         update_timeline_item!(self, &replacement.event_id, "edit", |event_item| {
             if self.meta.sender != event_item.sender() {
                 info!(
@@ -408,7 +414,7 @@ impl<'a> TimelineEventHandler<'a> {
                 }
             };
 
-            let mut msgtype = replacement.new_content;
+            let mut msgtype = replacement.new_content.msgtype;
             // Edit's content is never supposed to contain the reply fallback.
             msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
 

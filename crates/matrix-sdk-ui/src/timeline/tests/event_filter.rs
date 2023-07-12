@@ -54,7 +54,7 @@ async fn default_filter() {
     let edit = assign!(RoomMessageEventContent::text_plain(" * The _edited_ first message"), {
         relates_to: Some(Relation::Replacement(Replacement::new(
             first_event_id.to_owned(),
-            MessageType::text_plain("The _edited_ first message"),
+            MessageType::text_plain("The _edited_ first message").into(),
         ))),
     });
     timeline.handle_live_message_event(&ALICE, edit).await;

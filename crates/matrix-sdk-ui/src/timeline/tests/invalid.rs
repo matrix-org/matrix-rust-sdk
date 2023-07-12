@@ -45,7 +45,7 @@ async fn invalid_edit() {
     let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
         relates_to: Some(message::Relation::Replacement(Replacement::new(
             msg_event_id.to_owned(),
-            MessageType::text_plain("fake"),
+            MessageType::text_plain("fake").into(),
         ))),
     });
     // Edit is from a different user than the previous event
