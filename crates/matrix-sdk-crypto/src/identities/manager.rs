@@ -105,7 +105,8 @@ impl IdentityManager {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The request_id returned by users_for_key_query
+    /// * `request_id` - The request_id returned by `users_for_key_query` or
+    ///   `build_key_query_for_users`
     /// * `response` - The keys query response of the request that the client
     /// performed.
     pub async fn receive_keys_query_response(
@@ -619,6 +620,38 @@ impl IdentityManager {
         Ok((changes, changed_identity))
     }
 
+    /// Generate an "out-of-band" key query request for the given set of users.
+    ///
+    /// Unlike the regular key query requests returned by `users_for_key_query`,
+    /// there can be several of these in flight at once. This can be useful
+    /// if we need results to be as up-to-date as possible.
+    ///
+    /// Once the request has been made, the response can be fed back into the
+    /// IdentityManager and store by calling `receive_keys_query_response`.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - list of users whose keys should be queried
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the request ID for the request, and the request
+    /// itself.
+    pub(crate) fn build_key_query_for_users<'a>(
+        &self,
+        users: impl IntoIterator<Item = &'a UserId>,
+    ) -> (OwnedTransactionId, KeysQueryRequest) {
+        // Since this is an "out-of-band" request, we just make up a transaction ID and
+        // do not store the details in `self.keys_query_request_details`.
+        //
+        // `receive_keys_query_response` will process the response as normal, except
+        // that it will not mark the users as "up-to-date".
+
+        // We assume that there aren't too many users here; if we find a usecase that
+        // requires lots of users to be up-to-date we may need to rethink this.
+        (TransactionId::new(), KeysQueryRequest::new(users.into_iter().map(|u| u.to_owned())))
+    }
+
     /// Get a list of key query requests needed.
     ///
     /// # Returns
@@ -969,6 +1002,7 @@ pub(crate) mod tests {
     use serde_json::json;
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
+    use crate::identities::manager::testing::own_key_query;
 
     fn key_query_with_failures() -> KeysQueryResponse {
         let response = json!({
@@ -1160,5 +1194,25 @@ pub(crate) mod tests {
             .unwrap()
             .iter()
             .any(|(_, r)| r.device_keys.contains_key(alice)));
+    }
+
+    #[async_test]
+    async fn test_out_of_band_key_query() {
+        // build the request
+        let manager = manager().await;
+        let (reqid, req) = manager.build_key_query_for_users(vec![user_id()]);
+        assert!(req.device_keys.contains_key(user_id()));
+
+        // make up a response and check it is processed
+        let (device_changes, identity_changes) =
+            manager.receive_keys_query_response(&reqid, &own_key_query()).await.unwrap();
+        assert_eq!(device_changes.new.len(), 1);
+        assert_eq!(device_changes.new[0].device_id(), "LVWOVGOXME");
+        assert_eq!(identity_changes.new.len(), 1);
+        assert_eq!(identity_changes.new[0].user_id(), user_id());
+
+        let devices = manager.store.get_user_devices(user_id()).await.unwrap();
+        assert_eq!(devices.devices().count(), 1);
+        assert_eq!(devices.devices().next().unwrap().device_id(), "LVWOVGOXME");
     }
 }

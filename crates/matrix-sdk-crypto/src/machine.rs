@@ -86,8 +86,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
-    SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
+    RoomKeyImportResult, SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -402,6 +402,30 @@ impl OlmMachine {
         Ok(requests)
     }
 
+    /// Generate an "out-of-band" key query request for the given set of users.
+    ///
+    /// This can be useful if we need the results from [`get_identity`] or
+    /// [`get_user_devices`] to be as up-to-date as possible.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - list of users whose keys should be queried
+    ///
+    /// # Returns
+    ///
+    /// A request to be sent out to the server. Once sent, the response should
+    /// be passed back to the state machine using [`mark_request_as_sent`].
+    ///
+    /// [`mark_request_as_sent`]: OlmMachine::mark_request_as_sent
+    /// [`get_identity`]: OlmMachine::get_identity
+    /// [`get_user_devices`]: OlmMachine::get_user_devices
+    pub fn query_keys_for_users<'a>(
+        &self,
+        users: impl IntoIterator<Item = &'a UserId>,
+    ) -> (OwnedTransactionId, KeysQueryRequest) {
+        self.inner.identity_manager.build_key_query_for_users(users)
+    }
+
     /// Mark the request with the given request id as sent.
     ///
     /// # Arguments
@@ -472,7 +496,7 @@ impl OlmMachine {
     ///
     /// These requests may require user interactive auth.
     ///
-    /// [`mark_request_as_sent`]: #method.mark_request_as_sent`mark_request_
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn bootstrap_cross_signing(
         &self,
         reset: bool,
@@ -2236,6 +2260,14 @@ pub(crate) mod tests {
         let device = machine.store().get_device(alice_id, alice_device_id).await.unwrap().unwrap();
         assert_eq!(device.user_id(), alice_id);
         assert_eq!(device.device_id(), alice_device_id);
+    }
+
+    #[async_test]
+    async fn test_query_keys_for_users() {
+        let (machine, _) = get_prepared_machine(false).await;
+        let alice_id = user_id!("@alice:example.org");
+        let (_, request) = machine.query_keys_for_users(vec![alice_id]);
+        assert!(request.device_keys.contains_key(alice_id));
     }
 
     #[async_test]
