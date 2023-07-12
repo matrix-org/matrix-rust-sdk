@@ -86,8 +86,8 @@ use crate::{
         Signatures,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, LocalTrust, ReadOnlyDevice, RoomKeyImportResult,
-    SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
+    RoomKeyImportResult, SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -419,12 +419,11 @@ impl OlmMachine {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     /// [`get_identity`]: #method.get_identity
     /// [`get_user_devices`]: #method.get_user_devices
-    pub async fn query_keys_for_users(
+    pub fn query_keys_for_users<'a>(
         &self,
-        users: impl IntoIterator<Item = &UserId>,
-    ) -> OutgoingRequest {
-        let (request_id, req) = self.inner.identity_manager.build_key_query_for_users(users);
-        OutgoingRequest { request_id, request: Arc::new(req.into()) }
+        users: impl IntoIterator<Item = &'a UserId>,
+    ) -> (OwnedTransactionId, KeysQueryRequest) {
+        self.inner.identity_manager.build_key_query_for_users(users)
     }
 
     /// Mark the request with the given request id as sent.

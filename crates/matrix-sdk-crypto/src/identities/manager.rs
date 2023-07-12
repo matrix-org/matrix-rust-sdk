@@ -637,9 +637,9 @@ impl IdentityManager {
     ///
     /// A tuple containing the request ID for the request, and the request
     /// itself.
-    pub(crate) fn build_key_query_for_users(
+    pub(crate) fn build_key_query_for_users<'a>(
         &self,
-        users: impl IntoIterator<Item = &UserId>,
+        users: impl IntoIterator<Item = &'a UserId>,
     ) -> (OwnedTransactionId, KeysQueryRequest) {
         // Since this is an "out-of-band" request, we just make up a transaction ID and
         // do not store the details in `self.keys_query_request_details`.
@@ -649,7 +649,7 @@ impl IdentityManager {
 
         // We assume that there aren't too many users here; if we find a usecase that
         // requires lots of users to be up-to-date we may need to rethink this.
-        (TransactionId::new(), KeysQueryRequest::new(users))
+        (TransactionId::new(), KeysQueryRequest::new(users.into_iter().map(|u| u.to_owned())))
     }
 
     /// Get a list of key query requests needed.
