@@ -80,6 +80,7 @@ pub use self::{
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
+    reactions::ReactionSenderData,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
