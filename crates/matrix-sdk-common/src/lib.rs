@@ -15,7 +15,10 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations)]
 
+#[doc(no_inline)]
 pub use instant;
+#[doc(no_inline)]
+pub use ruma;
 
 pub mod debug;
 pub mod deserialized_responses;

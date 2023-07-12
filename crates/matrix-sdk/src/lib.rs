@@ -28,8 +28,6 @@ pub use matrix_sdk_base::{
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
-#[doc(no_inline)]
-pub use ruma;
 
 mod account;
 pub mod attachment;
