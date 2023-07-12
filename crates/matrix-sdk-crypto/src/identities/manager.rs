@@ -105,7 +105,8 @@ impl IdentityManager {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The request_id returned by users_for_key_query
+    /// * `request_id` - The request_id returned by `users_for_key_query` or
+    ///   `build_key_query_for_users`
     /// * `response` - The keys query response of the request that the client
     /// performed.
     pub async fn receive_keys_query_response(
@@ -617,6 +618,38 @@ impl IdentityManager {
         }
 
         Ok((changes, changed_identity))
+    }
+
+    /// Generate an "out-of-band" key query request for the given set of users.
+    ///
+    /// Unlike the regular key query requests returned by `users_for_key_query`,
+    /// there can be several of these in flight at once. This can be useful
+    /// if we need results to be as up-to-date as possible.
+    ///
+    /// Once the request has been made, the response can be fed back into the
+    /// IdentityManager and store by calling `receive_keys_query_response`.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - list of users whose keys should be queried
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the request ID for the request, and the request
+    /// itself.
+    pub(crate) fn build_key_query_for_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> (OwnedTransactionId, KeysQueryRequest) {
+        // Since this is an "out-of-band" request, we just make up a transaction ID and
+        // do not store the details in `self.keys_query_request_details`.
+        //
+        // `receive_keys_query_response` will process the response as normal, except
+        // that it will not mark the users as "up-to-date".
+
+        // We assume that there aren't too many users here; if we find a usecase that
+        // requires lots of users to be up-to-date we may need to rethink this.
+        (TransactionId::new(), KeysQueryRequest::new(users))
     }
 
     /// Get a list of key query requests needed.

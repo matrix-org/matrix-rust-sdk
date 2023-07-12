@@ -402,6 +402,31 @@ impl OlmMachine {
         Ok(requests)
     }
 
+    /// Generate an "out-of-band" key query request for the given set of users.
+    ///
+    /// This can be useful if we need the results from [`get_identity`] or
+    /// [`get_user_devices`] to be as up-to-date as possible.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - list of users whose keys should be queried
+    ///
+    /// # Returns
+    ///
+    /// A request to be sent out to the server. Once sent, the response should
+    /// be passed back to the state machine using [`mark_request_as_sent`].
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
+    /// [`get_identity`]: #method.get_identity
+    /// [`get_user_devices`]: #method.get_user_devices
+    pub async fn query_keys_for_users(
+        &self,
+        users: impl IntoIterator<Item = &UserId>,
+    ) -> OutgoingRequest {
+        let (request_id, req) = self.inner.identity_manager.build_key_query_for_users(users);
+        OutgoingRequest { request_id, request: Arc::new(req.into()) }
+    }
+
     /// Mark the request with the given request id as sent.
     ///
     /// # Arguments
@@ -472,7 +497,7 @@ impl OlmMachine {
     ///
     /// These requests may require user interactive auth.
     ///
-    /// [`mark_request_as_sent`]: #method.mark_request_as_sent`mark_request_
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn bootstrap_cross_signing(
         &self,
         reset: bool,
