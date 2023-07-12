@@ -2263,6 +2263,14 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_query_keys_for_users() {
+        let (machine, _) = get_prepared_machine(false).await;
+        let alice_id = user_id!("@alice:example.org");
+        let (_, request) = machine.query_keys_for_users(vec![alice_id]);
+        assert!(request.device_keys.contains_key(alice_id));
+    }
+
+    #[async_test]
     async fn test_missing_sessions_calculation() {
         let (machine, _) = get_machine_after_query().await;
 

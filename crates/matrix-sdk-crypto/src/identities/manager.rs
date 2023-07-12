@@ -1002,6 +1002,7 @@ pub(crate) mod tests {
     use serde_json::json;
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
+    use crate::identities::manager::testing::own_key_query;
 
     fn key_query_with_failures() -> KeysQueryResponse {
         let response = json!({
@@ -1193,5 +1194,25 @@ pub(crate) mod tests {
             .unwrap()
             .iter()
             .any(|(_, r)| r.device_keys.contains_key(alice)));
+    }
+
+    #[async_test]
+    async fn test_out_of_band_key_query() {
+        // build the request
+        let manager = manager().await;
+        let (reqid, req) = manager.build_key_query_for_users(vec![user_id()]);
+        assert!(req.device_keys.contains_key(user_id()));
+
+        // make up a response and check it is processed
+        let (device_changes, identity_changes) =
+            manager.receive_keys_query_response(&reqid, &own_key_query()).await.unwrap();
+        assert_eq!(device_changes.new.len(), 1);
+        assert_eq!(device_changes.new[0].device_id(), "LVWOVGOXME");
+        assert_eq!(identity_changes.new.len(), 1);
+        assert_eq!(identity_changes.new[0].user_id(), user_id());
+
+        let devices = manager.store.get_user_devices(user_id()).await.unwrap();
+        assert_eq!(devices.devices().count(), 1);
+        assert_eq!(devices.devices().next().unwrap().device_id(), "LVWOVGOXME");
     }
 }
