@@ -70,7 +70,7 @@ pub struct RoomListService {
     pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl RoomListService {
     fn is_syncing(&self) -> bool {
         use matrix_sdk_ui::room_list_service::State;
@@ -97,10 +97,7 @@ impl RoomListService {
             inner: Arc::new(RUNTIME.block_on(async { self.inner.room(room_id).await })?),
         }))
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl RoomListService {
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
         Ok(Arc::new(RoomList {
             room_list_service: self.clone(),
@@ -280,7 +277,7 @@ pub struct RoomListItem {
     inner: Arc<matrix_sdk_ui::room_list_service::Room>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl RoomListItem {
     fn id(&self) -> String {
         self.inner.id().to_string()
@@ -320,10 +317,7 @@ impl RoomListItem {
     fn unsubscribe(&self) {
         self.inner.unsubscribe();
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl RoomListItem {
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
     }

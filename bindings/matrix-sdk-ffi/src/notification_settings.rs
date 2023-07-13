@@ -102,7 +102,7 @@ impl Drop for NotificationSettings {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl NotificationSettings {
     pub fn set_delegate(&self, delegate: Option<Box<dyn NotificationSettingsDelegate>>) {
         if let Some(delegate) = delegate {
@@ -130,12 +130,9 @@ impl NotificationSettings {
             });
         }
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl NotificationSettings {
     /// Gets the notification settings for a room.
-    ///     
+    ///
     /// # Arguments
     ///
     /// * `room_id` - the room ID
