@@ -902,6 +902,16 @@ impl Room {
             Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
         })
     }
+
+    pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_redact(&user_id).await?)
+    }
 }
 
 impl Room {
