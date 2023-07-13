@@ -336,7 +336,7 @@ impl BaseClient {
                                 SyncRoomRedactionEvent::Original(r),
                             ),
                         ) => {
-                            room_info.handle_redaction(r);
+                            room_info.handle_redaction(r, event.event.cast_ref());
                             let raw_event = event.event.clone().cast();
                             changes.add_redaction(room.room_id(), &r.redacts, raw_event);
                         }
