@@ -912,6 +912,10 @@ impl Room {
         let user_id = UserId::parse(&user_id)?;
         Ok(room.can_user_redact(&user_id).await?)
     }
+
+    pub fn current_user_id(&self) -> String {
+        self.inner.own_user_id().to_string()
+    }
 }
 
 impl Room {
