@@ -269,7 +269,7 @@ impl SlidingSync {
     ) -> Result<UpdateSummary, crate::Error> {
         {
             let known_rooms = self.inner.rooms.read().await;
-            compute_limited(&*known_rooms, &mut sliding_sync_response);
+            compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
         }
 
         // Transform a Sliding Sync Response to a `SyncResponse`.
@@ -830,9 +830,9 @@ impl StickyData for SlidingSyncStickyParameters {
 /// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
 fn compute_limited(
     known_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    sliding_sync_response: &mut v4::Response,
+    response_rooms: &mut BTreeMap<OwnedRoomId, v4::SlidingSyncRoom>,
 ) {
-    for (room_id, room) in &mut sliding_sync_response.rooms {
+    for (room_id, room) in response_rooms {
         // Only rooms marked as initially loaded are subject to the fixup.
         let initial = room.initial.unwrap_or(false);
         if !initial {
@@ -869,8 +869,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
-    use ruma::{api::client::sync::sync_events::v4::ToDeviceConfig, room_id, TransactionId};
+    use ruma::{
+        api::client::sync::sync_events::v4::ToDeviceConfig, room_id, serde::Raw, TransactionId,
+    };
     use serde_json::json;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -1416,5 +1419,122 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn test_limited_flag_computation() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let make_event = |event_id: &str| -> SyncTimelineEvent {
+            SyncTimelineEvent::new(
+                Raw::from_json_string(
+                    json!({
+                        "event_id": event_id,
+                        "sender": "@johnmastodon:example.org",
+                        "origin_server_ts": 1337424242,
+                        "type": "m.room.message",
+                        "room_id": "!meaningless:example.org",
+                        "content": {
+                            "body": "Hello, world!",
+                            "msgtype": "m.text"
+                        },
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+            )
+        };
+
+        let event_a = make_event("$a");
+        let event_b = make_event("$b");
+        let event_c = make_event("$c");
+        let event_d = make_event("$d");
+
+        let not_initial = room_id!("!croissant:example.org");
+        let no_overlap = room_id!("!omelette:example.org");
+        let partial_overlap = room_id!("!fromage:example.org");
+        let complete_overlap = room_id!("!baguette:example.org");
+
+        let response_timeline = vec![event_c.event.clone(), event_d.event.clone()];
+
+        let known_rooms = BTreeMap::from_iter([
+            (
+                // This has no events overlapping with the response timeline, hence limited, but
+                // it's not marked as initial in the response.
+                not_initial.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    no_overlap.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_a.clone(), event_b.clone()],
+                ),
+            ),
+            (
+                // This has no events overlapping with the response timeline, hence limited.
+                no_overlap.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    no_overlap.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_a.clone(), event_b.clone()],
+                ),
+            ),
+            (
+                // This has event_c in common with the response timeline.
+                partial_overlap.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    partial_overlap.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_a.clone(), event_b.clone(), event_c.clone()],
+                ),
+            ),
+            (
+                // This has all events in common with the response timeline.
+                complete_overlap.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    partial_overlap.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_c.clone(), event_d.clone()],
+                ),
+            ),
+        ]);
+
+        let mut response_rooms = BTreeMap::from_iter([
+            (
+                not_initial.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), { timeline: response_timeline }),
+            ),
+            (
+                no_overlap.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                }),
+            ),
+            (
+                partial_overlap.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                }),
+            ),
+            (
+                complete_overlap.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                }),
+            ),
+        ]);
+
+        compute_limited(&known_rooms, &mut response_rooms);
+
+        assert!(!response_rooms.get(not_initial).unwrap().limited);
+        assert!(response_rooms.get(no_overlap).unwrap().limited);
+        assert!(!response_rooms.get(partial_overlap).unwrap().limited);
+        assert!(!response_rooms.get(complete_overlap).unwrap().limited);
     }
 }
