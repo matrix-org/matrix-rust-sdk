@@ -25,7 +25,7 @@ mod sticky_parameters;
 mod utils;
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Debug,
     future::Future,
     sync::{Arc, RwLock as StdRwLock},
@@ -44,7 +44,7 @@ use ruma::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
     },
-    assign, OwnedRoomId, RoomId,
+    assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -265,8 +265,13 @@ impl SlidingSync {
     #[instrument(skip_all)]
     async fn handle_response(
         &self,
-        sliding_sync_response: v4::Response,
+        mut sliding_sync_response: v4::Response,
     ) -> Result<UpdateSummary, crate::Error> {
+        {
+            let known_rooms = self.inner.rooms.read().await;
+            compute_limited(&*known_rooms, &mut sliding_sync_response);
+        }
+
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
@@ -816,6 +821,45 @@ impl StickyData for SlidingSyncStickyParameters {
     fn apply(&self, request: &mut Self::Request) {
         request.room_subscriptions = self.room_subscriptions.clone();
         request.extensions = self.extensions.clone();
+    }
+}
+
+/// As of 2023-07-13, the sliding sync proxy doesn't provide us with `limited`
+/// correctly, so we cheat and "correct" it using heuristics here.
+/// TODO remove this workaround as soon as support of the `limited` flag is
+/// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
+fn compute_limited(
+    known_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    sliding_sync_response: &mut v4::Response,
+) {
+    for (room_id, room) in &mut sliding_sync_response.rooms {
+        // Only rooms marked as initially loaded are subject to the fixup.
+        let initial = room.initial.unwrap_or(false);
+        if !initial {
+            continue;
+        }
+
+        // If the known room had some timeline events, consider it's a `limited` if
+        // there's absolutely no overlap between the known events and
+        // the new events in the timeline.
+        if let Some(known_room) = known_rooms.get(room_id) {
+            // Gather all the known event IDs. Ignore events that don't have an event ID.
+            let known_events: HashSet<OwnedEventId> = HashSet::from_iter(
+                known_room.timeline_queue().into_iter().filter_map(|event| event.event_id()),
+            );
+
+            // There's overlap if, and only if, there's at least one event in the
+            // response's timeline that matches an event id we've seen before.
+            let overlap = room.timeline.iter().any(|seen_event| {
+                seen_event
+                    .get_field::<OwnedEventId>("event_id")
+                    .ok()
+                    .flatten()
+                    .map_or(false, |seen_event_id| known_events.contains(&seen_event_id))
+            });
+
+            room.limited = !overlap;
+        }
     }
 }
 
