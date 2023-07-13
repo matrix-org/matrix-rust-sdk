@@ -52,7 +52,7 @@ pub struct App {
     inner: MatrixApp,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl App {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
@@ -70,9 +70,9 @@ impl App {
         })))
     }
 
-    pub fn start(&self) -> Result<(), ClientError> {
+    pub async fn start(&self) -> Result<(), ClientError> {
         let start = self.inner.start();
-        RUNTIME.block_on(async { Ok(start.await?) })
+        Ok(start.await?)
     }
 
     pub fn pause(&self) -> Result<(), ClientError> {
@@ -91,7 +91,7 @@ impl AppBuilder {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl AppBuilder {
     pub fn with_encryption_sync(
         self: Arc<Self>,
@@ -103,8 +103,8 @@ impl AppBuilder {
         Arc::new(Self { builder })
     }
 
-    pub fn finish(self: Arc<Self>) -> Result<Arc<App>, ClientError> {
+    pub async fn finish(self: Arc<Self>) -> Result<Arc<App>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        RUNTIME.block_on(async move { Ok(Arc::new(App { inner: this.builder.build().await? })) })
+        Ok(Arc::new(App { inner: this.builder.build().await? }))
     }
 }
