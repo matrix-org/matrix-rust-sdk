@@ -971,10 +971,7 @@ impl SendAttachmentJoinHandle {
     pub async fn join(&self) -> Result<(), RoomError> {
         (&mut *self.join_hdl.lock().await).await.unwrap()
     }
-}
 
-#[uniffi::export]
-impl SendAttachmentJoinHandle {
     pub fn cancel(&self) {
         self.abort_hdl.abort();
     }

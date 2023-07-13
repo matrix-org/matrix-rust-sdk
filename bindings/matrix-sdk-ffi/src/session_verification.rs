@@ -51,7 +51,7 @@ pub struct SessionVerificationController {
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl SessionVerificationController {
     pub fn is_verified(&self) -> bool {
         self.user_identity.is_verified()
@@ -60,10 +60,7 @@ impl SessionVerificationController {
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
         *self.delegate.write().unwrap() = delegate;
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl SessionVerificationController {
     pub async fn request_verification(&self) -> Result<(), ClientError> {
         let methods = vec![VerificationMethod::SasV1];
         let verification_request = self
