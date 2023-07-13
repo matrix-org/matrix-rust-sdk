@@ -640,14 +640,19 @@ impl Client {
     }
 }
 
+#[derive(uniffi::Record)]
 pub struct CreateRoomParameters {
     pub name: Option<String>,
+    #[uniffi(default = None)]
     pub topic: Option<String>,
     pub is_encrypted: bool,
+    #[uniffi(default = false)]
     pub is_direct: bool,
     pub visibility: RoomVisibility,
     pub preset: RoomPreset,
+    #[uniffi(default = None)]
     pub invite: Option<Vec<String>>,
+    #[uniffi(default = None)]
     pub avatar: Option<String>,
 }
 
@@ -693,6 +698,7 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum RoomVisibility {
     /// Indicates that the room will be shown in the published room list.
     Public,
@@ -710,6 +716,7 @@ impl From<RoomVisibility> for Visibility {
     }
 }
 
+#[derive(uniffi::Enum)]
 #[allow(clippy::enum_variant_names)]
 pub enum RoomPreset {
     /// `join_rules` is set to `invite` and `history_visibility` is set to
