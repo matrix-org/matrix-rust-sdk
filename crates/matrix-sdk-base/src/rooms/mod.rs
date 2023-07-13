@@ -110,6 +110,11 @@ impl BaseRoomInfo {
         )
     }
 
+    /// Get the room version of this room.
+    pub fn room_version(&self) -> Option<&RoomVersionId> {
+        Some(&self.create.as_ref()?.as_original()?.content.room_version)
+    }
+
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
@@ -210,11 +215,7 @@ impl BaseRoomInfo {
     }
 
     pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
-        let room_version = self
-            .create
-            .as_ref()
-            .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
-            .unwrap_or(RoomVersionId::V1);
+        let room_version = self.room_version().unwrap_or(&RoomVersionId::V1).to_owned();
 
         // FIXME: Use let chains once available to get rid of unwrap()s
         if self.avatar.has_event_id(&event.redacts) {
