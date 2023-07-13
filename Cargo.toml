@@ -77,3 +77,4 @@ opt-level = 3
 
 [patch.crates-io]
 async-compat = { git = "https://github.com/jplatte/async-compat", rev = "b83b197622d8b5756d3594ce73b720896b07faae" }
+const_panic = { git = "https://github.com/rodrimati1992/const_panic", rev = "7e864fccbc675f6e349ddd3875108f3eef1e8737" }
