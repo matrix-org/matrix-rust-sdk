@@ -522,6 +522,7 @@ pub fn migrate_room_settings(
 }
 
 /// Callback that will be passed over the FFI to report progress
+#[uniffi::export(callback_interface)]
 pub trait ProgressListener {
     /// The callback that should be called on the Rust side
     ///

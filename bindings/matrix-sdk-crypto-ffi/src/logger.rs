@@ -7,6 +7,7 @@ use tracing_subscriber::{fmt::MakeWriter, EnvFilter};
 
 /// Trait that can be used to forward Rust logs over FFI to a language specific
 /// logger.
+#[uniffi::export(callback_interface)]
 pub trait Logger: Send {
     /// Called every time the Rust side wants to post a log line.
     fn log(&self, log_line: String);
