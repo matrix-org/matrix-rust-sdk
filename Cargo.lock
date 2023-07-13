@@ -2715,29 +2715,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-sdk-crypto-js"
-version = "0.1.0-alpha.0"
-dependencies = [
- "anyhow",
- "console_error_panic_hook",
- "futures-util",
- "http",
- "js-sys",
- "matrix-sdk-common",
- "matrix-sdk-crypto",
- "matrix-sdk-indexeddb",
- "matrix-sdk-qrcode",
- "ruma",
- "serde_json",
- "tracing",
- "tracing-subscriber",
- "vodozemac",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "zeroize",
-]
-
-[[package]]
 name = "matrix-sdk-ffi"
 version = "0.2.0"
 dependencies = [

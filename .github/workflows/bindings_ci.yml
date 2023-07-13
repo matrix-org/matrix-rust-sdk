@@ -18,7 +18,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
 
 jobs:
   xtask:
@@ -56,66 +55,6 @@ jobs:
 
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings
-
-  lint-js-bindings:
-    name: lint [m]-crypto-js
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v3
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-
-      - name: Install NPM dependencies
-        working-directory: bindings/matrix-sdk-crypto-js
-        run: npm install
-
-      - name: run lint
-        working-directory: bindings/matrix-sdk-crypto-js
-        run: npm run lint
-
-  test-matrix-sdk-crypto-js:
-    name: 🕸 [m]-crypto-js
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20.0
-
-      - name: Install NPM dependencies
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm install
-
-      - name: Build the WebAssembly + JavaScript binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run build
-
-      - name: Test the JavaScript binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run test
-
-      - name: Build the documentation
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run doc
 
   test-apple:
     name: matrix-rust-components-swift

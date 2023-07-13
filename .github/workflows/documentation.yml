@@ -45,7 +45,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/head/main' }}
 
       # Keep in sync with xtask docs
-      - name: Build rust documentation
+      - name: Build documentation
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
           CARGO_TARGET_APPLIES_TO_HOST: "true"
@@ -53,24 +53,11 @@ jobs:
         run:
           cargo doc --no-deps --workspace --features docsrs
 
-      - name: Build `matrix-sdk-crypto-js` doc
-        run: |
-          cd bindings/matrix-sdk-crypto-js
-          npm install
-          npm run build && npm run doc
-
-      - name: Prepare the doc hierarchy
-        shell: bash
-        run: |
-          mkdir -p doc/bindings/matrix-sdk-crypto-js/
-          mv target/doc/* doc/
-          mv bindings/matrix-sdk-crypto-js/docs/* doc/bindings/matrix-sdk-crypto-js/
-
       - name: Upload artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v1
         with:
-          path: './doc/'
+          path: './target/doc/'
 
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
