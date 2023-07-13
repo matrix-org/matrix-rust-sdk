@@ -31,10 +31,11 @@ use ruma::{
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             topic::RoomTopicEventContent,
         },
-        EmptyStateKey, MessageLikeEventContent, StateEventContent,
+        EmptyStateKey, MessageLikeEventContent, MessageLikeEventType, StateEventContent,
+        StateEventType,
     },
     serde::Raw,
-    EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    user_id, EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 #[cfg(feature = "e2e-encryption")]
@@ -1106,6 +1107,56 @@ impl Joined {
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact(&self, user_id: &UserId) -> Result<bool> {
         Ok(self.get_room_power_levels().await?.user_can_redact(user_id))
+    }
+
+    /// Returns true if the user with the given  user_id is able to ban in the
+    /// room.
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_ban(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_ban(user_id))
+    }
+
+    /// Returns true if the user with the given  user_id is able to kick in the
+    /// room.
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_invite(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_invite(user_id))
+    }
+
+    /// Returns true if the user with the given  user_id is able to kick in the
+    /// room.
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_kick(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_kick(user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to send a
+    /// specific state event type in the room.
+    /// he call may fail if there is an error in getting the power levels.
+    pub async fn can_user_send_state(
+        &self,
+        user_id: &UserId,
+        state_event: StateEventType,
+    ) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_send_state(user_id, state_event.into()))
+    }
+
+    /// Returns true if the user with the given  user_id is able to send a
+    /// specific message type in the room.
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_send_message(
+        &self,
+        user_id: &UserId,
+        message: MessageLikeEventType,
+    ) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_send_message(user_id, message))
+    }
+
+    /// Returns true if the user with the given  user_id is able to trigger a
+    /// notification in the room.
+    /// /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self.get_room_power_levels().await?.user_can_trigger_room_notification(user_id))
     }
 }
 
