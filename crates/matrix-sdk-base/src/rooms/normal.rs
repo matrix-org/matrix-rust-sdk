@@ -23,6 +23,8 @@ use futures_util::stream::{self, StreamExt};
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -44,11 +46,10 @@ use ruma::{
         RoomAccountDataEventType,
     },
     room::RoomType,
+    serde::Raw,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomAliasId,
     RoomId, RoomVersionId, UserId,
 };
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 
@@ -851,7 +852,22 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
-    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+    pub fn handle_redaction(
+        &mut self,
+        event: &OriginalSyncRoomRedactionEvent,
+        _raw: &Raw<OriginalSyncRoomRedactionEvent>,
+    ) {
+        #[cfg(feature = "experimental-sliding-sync")]
+        if let Some(latest_event) = &mut self.latest_event {
+            if latest_event.event_id().as_deref() == Some(&*event.redacts) {
+                let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+                match apply_redaction(&latest_event.event, _raw, room_version) {
+                    Some(redacted) => latest_event.event = redacted,
+                    None => self.latest_event = None,
+                }
+            }
+        }
+
         self.base_info.handle_redaction(event);
     }
 
@@ -980,6 +996,41 @@ impl RoomInfo {
     fn topic(&self) -> Option<&str> {
         Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
+}
+
+#[cfg(feature = "experimental-sliding-sync")]
+fn apply_redaction(
+    event: &Raw<AnySyncTimelineEvent>,
+    raw_redaction: &Raw<OriginalSyncRoomRedactionEvent>,
+    room_version: &RoomVersionId,
+) -> Option<Raw<AnySyncTimelineEvent>> {
+    use ruma::canonical_json::redact_in_place;
+
+    let mut event_json = match event.deserialize_as() {
+        Ok(json) => json,
+        Err(e) => {
+            warn!("Failed to deserialize latest event: {e}");
+            return None;
+        }
+    };
+
+    let redacted_because = match raw_redaction.try_into() {
+        Ok(rb) => rb,
+        Err(e) => {
+            warn!("Redaction event is not valid canonical JSON: {e}");
+            return None;
+        }
+    };
+
+    let redact_result = redact_in_place(&mut event_json, room_version, Some(redacted_because));
+
+    if let Err(e) = redact_result {
+        warn!("Failed to redact latest event: {e}");
+        return None;
+    }
+
+    let raw = Raw::new(&event_json).expect("CanonicalJsonObject must be serializable");
+    Some(raw.cast())
 }
 
 bitflags! {

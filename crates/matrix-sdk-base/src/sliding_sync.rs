@@ -452,6 +452,7 @@ mod test {
         sync::{Arc, RwLock as SyncRwLock},
     };
 
+    use assert_matches::assert_matches;
     use matrix_sdk_common::ring_buffer::RingBuffer;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -462,9 +463,10 @@ mod test {
                 avatar::RoomAvatarEventContent,
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent},
+                message::SyncRoomMessageEvent,
             },
-            AnySyncStateEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
-            StateEventContent,
+            AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+            GlobalAccountDataEventContent, StateEventContent,
         },
         mxc_uri, room_alias_id, room_id,
         serde::Raw,
@@ -763,6 +765,56 @@ mod test {
         // Then the room holds the latest event
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(ev_id(client_room.latest_event()), "$idb");
+    }
+
+    #[async_test]
+    async fn cached_latest_event_can_be_redacted() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let event_a = json!({
+            "sender": "@alice:example.com",
+            "type": "m.room.message",
+            "event_id": "$ida",
+            "origin_server_ts": 12344446,
+            "content": { "body":"A", "msgtype": "m.text" },
+        });
+
+        // When the sliding sync response contains a timeline
+        let room = room_with_timeline(&[event_a]);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room holds the latest event
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(ev_id(client_room.latest_event()), "$ida");
+
+        let redaction = json!({
+            "sender": "@alice:example.com",
+            "type": "m.room.redaction",
+            "event_id": "$idb",
+            "redacts": "$ida",
+            "origin_server_ts": 12344448,
+            "content": {},
+        });
+
+        // When a redaction for that event is received
+        let room = room_with_timeline(&[redaction]);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // Then the room still holds the latest event
+        let client_room = client.get_room(room_id).expect("No room found");
+        let latest_event = client_room.latest_event().unwrap();
+        assert_eq!(latest_event.event_id().unwrap(), "$ida");
+
+        // But it's now redacted
+        assert_matches!(
+            latest_event.event.deserialize().unwrap(),
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+                SyncRoomMessageEvent::Redacted(_)
+            ))
+        );
     }
 
     #[test]
