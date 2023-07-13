@@ -935,7 +935,7 @@ impl RoomInfo {
 
     /// Get the room version of this room.
     pub fn room_version(&self) -> Option<&RoomVersionId> {
-        Some(&self.base_info.create.as_ref()?.as_original()?.content.room_version)
+        self.base_info.room_version()
     }
 
     /// Get the room type of this room.
