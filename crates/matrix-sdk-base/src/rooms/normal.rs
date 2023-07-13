@@ -695,7 +695,7 @@ pub struct RoomInfo {
     encryption_state_synced: bool,
     /// The last event send by sliding sync
     #[cfg(feature = "experimental-sliding-sync")]
-    pub latest_event: Option<SyncTimelineEvent>,
+    pub(crate) latest_event: Option<SyncTimelineEvent>,
     /// Base room info which holds some basic event contents important for the
     /// room state.
     pub(crate) base_info: BaseRoomInfo,
