@@ -22,6 +22,7 @@ const STANDARD_NO_PAD: GeneralPurpose =
 
 /// Listener that will be passed over the FFI to report changes to a SAS
 /// verification.
+#[uniffi::export(callback_interface)]
 pub trait SasListener: Send {
     /// The callback that should be called on the Rust side
     ///
@@ -32,6 +33,7 @@ pub trait SasListener: Send {
 }
 
 /// An Enum describing the state the SAS verification is in.
+#[derive(uniffi::Enum)]
 pub enum SasState {
     /// The verification has been started, the protocols that should be used
     /// have been proposed and can be accepted.
@@ -277,6 +279,7 @@ impl Sas {
 
 /// Listener that will be passed over the FFI to report changes to a QrCode
 /// verification.
+#[uniffi::export(callback_interface)]
 pub trait QrCodeListener: Send {
     /// The callback that should be called on the Rust side
     ///
@@ -287,6 +290,7 @@ pub trait QrCodeListener: Send {
 }
 
 /// An Enum describing the state the QrCode verification is in.
+#[derive(uniffi::Enum)]
 pub enum QrCodeState {
     /// The QR verification has been started.
     Started,
@@ -458,6 +462,7 @@ impl QrCode {
 }
 
 /// Information on why a verification flow has been cancelled and by whom.
+#[derive(uniffi::Record)]
 pub struct CancelInfo {
     /// The textual representation of the cancel reason
     pub reason: String,
@@ -520,6 +525,7 @@ pub struct ConfirmVerificationResult {
 
 /// Listener that will be passed over the FFI to report changes to a
 /// verification request.
+#[uniffi::export(callback_interface)]
 pub trait VerificationRequestListener: Send {
     /// The callback that should be called on the Rust side
     ///
@@ -530,6 +536,7 @@ pub trait VerificationRequestListener: Send {
 }
 
 /// An Enum describing the state the QrCode verification is in.
+#[derive(uniffi::Enum)]
 pub enum VerificationRequestState {
     /// The verification request was sent
     Requested,

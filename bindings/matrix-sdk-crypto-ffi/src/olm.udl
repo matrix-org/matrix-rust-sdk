@@ -1,59 +1,5 @@
 namespace matrix_sdk_crypto_ffi {};
 
-callback interface Logger {
-    void log(string log_line);
-};
-
-callback interface ProgressListener {
-    void on_progress(i32 progress, i32 total);
-};
-
-dictionary CancelInfo {
-    string cancel_code;
-    string reason;
-    boolean cancelled_by_us;
-};
-
-[Enum]
-interface SasState {
-    Started();
-    Accepted();
-    KeysExchanged(sequence<i32>? emojis, sequence<i32> decimals);
-    Confirmed();
-    Done();
-    Cancelled(CancelInfo cancel_info);
-};
-
-callback interface SasListener {
-    void on_change(SasState state);
-};
-
-[Enum]
-interface QrCodeState {
-    Started();
-    Scanned();
-    Confirmed();
-    Reciprocated();
-    Done();
-    Cancelled(CancelInfo cancel_info);
-};
-
-callback interface QrCodeListener {
-    void on_change(QrCodeState state);
-};
-
-[Enum]
-interface VerificationRequestState {
-    Requested();
-    Ready(sequence<string> their_methods, sequence<string> our_methods);
-    Done();
-    Cancelled(CancelInfo cancel_info);
-};
-
-callback interface VerificationRequestListener {
-    void on_change(VerificationRequestState state);
-};
-
 enum LocalTrust {
     "Verified",
     "BlackListed",
