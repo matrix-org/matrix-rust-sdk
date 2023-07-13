@@ -68,7 +68,7 @@ impl Room {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Room {
     pub fn id(&self) -> String {
         self.inner.room_id().to_string()
@@ -903,13 +903,6 @@ impl Room {
         })
     }
 
-    pub fn current_user_id(&self) -> String {
-        self.inner.own_user_id().to_string()
-    }
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl Room {
     pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
         let room = match &self.inner {
             SdkRoom::Joined(j) => j.clone(),
@@ -918,6 +911,10 @@ impl Room {
 
         let user_id = UserId::parse(&user_id)?;
         Ok(room.can_user_redact(&user_id).await?)
+    }
+
+    pub fn current_user_id(&self) -> String {
+        self.inner.own_user_id().to_string()
     }
 }
 
