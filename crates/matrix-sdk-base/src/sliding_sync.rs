@@ -27,7 +27,7 @@ use ruma::{
 use tracing::{debug, info, instrument, warn};
 
 use super::BaseClient;
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#[cfg(feature = "e2e-encryption")]
 use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -251,7 +251,7 @@ impl BaseClient {
 
         // Cache the latest decrypted event in room_info, and also keep any later
         // encrypted events, so we can slot them in when we get the keys.
-        #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+        #[cfg(feature = "e2e-encryption")]
         cache_latest_events(&mut room, &mut room_info, &timeline.events);
 
         #[cfg(feature = "e2e-encryption")]
@@ -375,7 +375,7 @@ impl BaseClient {
 /// Find the most recent decrypted event and cache it in the supplied RoomInfo.
 /// If any encrypted events are found after that one, store them in the RoomInfo
 /// too so we can use them when we get the relevant keys.
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#[cfg(feature = "e2e-encryption")]
 fn cache_latest_events(room: &mut Room, room_info: &mut RoomInfo, events: &[SyncTimelineEvent]) {
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
