@@ -58,7 +58,7 @@ jobs:
 
           # ... but only save the cache on the main branch
           # cf https://github.com/Swatinem/rust-cache/issues/95
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -90,7 +90,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -122,7 +122,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -176,7 +176,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -252,7 +252,7 @@ jobs:
 
           # ... but only save the cache on the main branch
           # cf https://github.com/Swatinem/rust-cache/issues/95
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -300,7 +300,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -371,7 +371,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
         uses: actions/cache/restore@v3
@@ -400,7 +400,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -479,7 +479,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/head/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
