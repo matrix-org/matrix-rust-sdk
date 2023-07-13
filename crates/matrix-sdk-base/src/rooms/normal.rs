@@ -851,8 +851,6 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
-    ///
-    /// Returns true if the event modified the info, false otherwise.
     pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
         self.base_info.handle_redaction(event);
     }
