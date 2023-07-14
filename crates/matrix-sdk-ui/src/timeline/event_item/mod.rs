@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::EncryptionInfo, Error, SlidingSyncRoom};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk::SlidingSyncRoom;
+use matrix_sdk::{deserialized_responses::EncryptionInfo, Error};
+#[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
@@ -24,6 +27,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
     OwnedUserId, TransactionId, UserId,
 };
+#[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
 
 mod content;
@@ -574,12 +578,14 @@ mod test {
         .unwrap()
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     async fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
         let mut response = v4::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
     }
 
+    #[cfg(feature = "experimental-sliding-sync")]
     fn message_event(
         room_id: &RoomId,
         user_id: &UserId,
