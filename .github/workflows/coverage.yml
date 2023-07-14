@@ -54,7 +54,6 @@ jobs:
         uploadLogs: true
         httpPort: 8228
         disableRateLimiting: true
-        serverName: "matrix-sdk.rs"
 
     - name: Run tarpaulin
       run: |
