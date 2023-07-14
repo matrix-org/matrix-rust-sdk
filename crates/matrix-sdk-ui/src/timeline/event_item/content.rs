@@ -18,7 +18,10 @@ use imbl::{vector, Vector};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+#[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
 use ruma::{
     assign,
     events::{
@@ -53,12 +56,14 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent,
-        MessageLikeEventType, OriginalSyncMessageLikeEvent, StateEventType,
+        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+        StateEventType,
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
-use tracing::{debug, error, warn};
+#[cfg(feature = "experimental-sliding-sync")]
+use tracing::warn;
+use tracing::{debug, error};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, ReactionSenderData, TimelineDetails};
 use crate::timeline::{
@@ -150,6 +155,7 @@ impl TimelineItemContent {
     /// Given some message content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
     /// extract its contents and wrap it as a TimelineItemContent.
+    #[cfg(feature = "experimental-sliding-sync")]
     fn from_suitable_latest_event_content(
         message: &OriginalSyncMessageLikeEvent<RoomMessageEventContent>,
     ) -> Option<TimelineItemContent> {
