@@ -18,7 +18,7 @@
 //!
 //! * There is a `batch_size`,
 //! * Each request asks to load a new range, always starting from 0, but where
-//!   the end is incremented by `batch_size` everytime.
+//!   the end is incremented by `batch_size` every time.
 //!
 //! The number of rooms to load is capped by the
 //! [`SlidingSyncList::maximum_number_of_rooms`], i.e. the real number of

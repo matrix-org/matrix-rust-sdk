@@ -229,7 +229,7 @@ mod tests {
 
         let base64 = key.to_base64();
         let decoded_key = RecoveryKey::from_base64(&base64)?;
-        assert_eq!(key.inner, decoded_key.inner, "The decode key does't match the original");
+        assert_eq!(key.inner, decoded_key.inner, "The decode key doesn't match the original");
 
         RecoveryKey::from_base64("i").expect_err("The recovery key is too short");
 
@@ -242,7 +242,7 @@ mod tests {
 
         let base64 = key.to_base58();
         let decoded_key = RecoveryKey::from_base58(&base64)?;
-        assert_eq!(key.inner, decoded_key.inner, "The decode key does't match the original");
+        assert_eq!(key.inner, decoded_key.inner, "The decode key doesn't match the original");
 
         let test_key =
             RecoveryKey::from_base58("EsTcLW2KPGiFwKEA3As5g5c4BXwkqeeJZJV8Q9fugUMNUE4d")?;

@@ -96,7 +96,7 @@ impl Room {
 
     /// Subscribe to this room.
     ///
-    /// It means that all events from this room will be received everytime, no
+    /// It means that all events from this room will be received every time, no
     /// matter how the `RoomList` is configured.
     pub fn subscribe(&self, settings: Option<RoomSubscription>) {
         self.inner.sliding_sync.subscribe_to_room(self.inner.room.room_id().to_owned(), settings)

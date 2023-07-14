@@ -61,7 +61,7 @@ You can stay informed about updates on the access token by listening to `client.
 
 ## Quick Troubleshooting
 
-You find yourself focussed with any of these, here are the steps to follow to upgrade your code accordingly:
+You find yourself focused with any of these, here are the steps to follow to upgrade your code accordingly:
 
 ### warning: use of deprecated associated function `matrix_sdk::Client::register_event_handler`: Use [`Client::add_event_handler`](#method.add_event_handler) instead
 

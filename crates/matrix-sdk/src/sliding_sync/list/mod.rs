@@ -1080,7 +1080,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=24, // the range starts at 0 now!
                 is_fully_loaded = true,
@@ -1122,7 +1122,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=21, // the range starts at 0 now!
                 is_fully_loaded = true,
@@ -1164,7 +1164,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=24,
                 is_fully_loaded = true,
@@ -1206,7 +1206,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=21,
                 is_fully_loaded = true,
@@ -1238,7 +1238,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
@@ -1270,7 +1270,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
@@ -1341,7 +1341,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=10, 42..=153,
                 is_fully_loaded = true,
@@ -1377,7 +1377,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=24,
                 is_fully_loaded = true,
@@ -1413,7 +1413,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=24, // the range starts at 0 now!
                 is_fully_loaded = true,
@@ -1446,7 +1446,7 @@ mod tests {
                 is_fully_loaded = true,
                 list_state = FullyLoaded,
             },
-            // Now it's fully loaded, so the same request must be produced everytime.
+            // Now it's fully loaded, so the same request must be produced every time.
             next => {
                 ranges = 0..=100,
                 is_fully_loaded = true,
