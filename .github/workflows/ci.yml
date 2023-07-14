@@ -225,9 +225,6 @@ jobs:
           - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
-          - name: '[m], wasm-example'
-            cmd: matrix-sdk-command-bot
-
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v3

@@ -84,7 +84,6 @@ enum WasmFeatureSet {
     IndexeddbNoCrypto,
     IndexeddbWithCrypto,
     Indexeddb,
-    MatrixSdkCommandBot,
 }
 
 impl CiArgs {
@@ -312,30 +311,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .run()
     };
 
-    let test_command_bot = || {
-        let _p = pushd("examples/wasm_command_bot");
-
-        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
-            .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()
-    };
-
     match cmd {
-        Some(cmd) => match cmd {
-            WasmFeatureSet::MatrixSdkCommandBot => {
-                test_command_bot()?;
-            }
-            _ => {
-                run(args[&cmd])?;
-            }
-        },
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
         None => {
             for &arg_set in args.values() {
                 run(arg_set)?;
             }
-
-            test_command_bot()?;
         }
     }
 
@@ -390,29 +373,14 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .run()
     };
 
-    let test_command_bot = || {
-        let _p = pushd("examples/wasm_command_bot");
-        cmd!("wasm-pack test --node").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?;
-        cmd!("wasm-pack test --firefox --headless")
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()
-    };
-
     match cmd {
-        Some(cmd) => match cmd {
-            WasmFeatureSet::MatrixSdkCommandBot => {
-                test_command_bot()?;
-            }
-            _ => {
-                run(args[&cmd])?;
-            }
-        },
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
         None => {
             for &arg_set in args.values() {
                 run(arg_set)?;
             }
-
-            test_command_bot()?;
         }
     }
 

@@ -5616,19 +5616,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-command-bot"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "matrix-sdk",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
 name = "wasm-streams"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
