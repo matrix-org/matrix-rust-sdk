@@ -947,7 +947,7 @@ dependencies = [
 [[package]]
 name = "const_panic"
 version = "0.2.8"
-source = "git+https://github.com/rodrimati1992/const_panic?rev=7e864fccbc675f6e349ddd3875108f3eef1e8737#7e864fccbc675f6e349ddd3875108f3eef1e8737"
+source = "git+https://github.com/jplatte/const_panic?rev=9024a4cb3eac45c1d2d980f17aaee287b17be498#9024a4cb3eac45c1d2d980f17aaee287b17be498"
 
 [[package]]
 name = "constant_time_eq"
