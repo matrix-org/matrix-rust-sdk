@@ -689,7 +689,7 @@ mod tests {
             assert!(on_room_member_called);
         }
 
-        // Reset this to check that next time it doesnt get called
+        // Reset this to check that next time it doesn't get called.
         {
             let mut on_room_member_called = on_state_member.lock().unwrap();
             *on_room_member_called = false;

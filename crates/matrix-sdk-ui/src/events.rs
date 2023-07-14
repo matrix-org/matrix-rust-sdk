@@ -168,7 +168,7 @@ impl StateEventContent for NoStateEventContent {
     type StateKey = String;
 }
 impl StaticStateEventContent for NoStateEventContent {
-    // We don't care about the `prev_content` since it wont deserialize with useful
+    // We don't care about the `prev_content` since it won't deserialize with useful
     // data. Use this type which is `StateUnsigned` minus the `prev_content`
     // field.
     type Unsigned = MessageLikeUnsigned<NoMessageLikeEventContent>;

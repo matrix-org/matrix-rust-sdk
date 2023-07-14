@@ -102,7 +102,7 @@ pub struct RoomListService {
     /// `RoomListService` is a simple state-machine.
     state: SharedObservable<State>,
 
-    /// Room cache, to avoid recreating `Room`s everytime users fetch them.
+    /// Room cache, to avoid recreating `Room`s every time users fetch them.
     rooms: Arc<RwLock<RingBuffer<Room>>>,
 
     /// The current viewport ranges.
