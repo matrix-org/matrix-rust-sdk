@@ -38,6 +38,11 @@ impl TimelineItem {
         Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
     }
 
+    /// Get the [`TimelineItemKind`] of this item.
+    pub fn kind(&self) -> &TimelineItemKind {
+        &self.kind
+    }
+
     /// Get the inner `EventTimelineItem`, if this is a
     /// [`TimelineItemKind::Event`].
     pub fn as_event(&self) -> Option<&EventTimelineItem> {
