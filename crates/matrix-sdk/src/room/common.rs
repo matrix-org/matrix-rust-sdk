@@ -48,6 +48,7 @@ use ruma::{
     UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use thiserror::Error;
 use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, instrument, warn};
 
@@ -1143,6 +1144,23 @@ impl Common {
 
         Ok(Some(push_rules.get_actions(event, &push_context).to_owned()))
     }
+
+    /// The membership details of the (latest) invite for the logged-in user in
+    /// this room.
+    pub async fn invite_details(&self) -> Result<Invite> {
+        let user_id = self
+            .client
+            .user_id()
+            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
+        let invitee = self
+            .get_member_no_sync(user_id)
+            .await?
+            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
+        let event = invitee.event();
+        let inviter_id = event.sender();
+        let inviter = self.get_member_no_sync(inviter_id).await?;
+        Ok(Invite { invitee, inviter })
+    }
 }
 
 /// Options for [`messages`][Common::messages].
@@ -1237,4 +1255,22 @@ impl fmt::Debug for MessagesOptions {
         }
         s.finish()
     }
+}
+
+/// Details of the (latest) invite.
+#[derive(Debug, Clone)]
+pub struct Invite {
+    /// Who has been invited.
+    pub invitee: RoomMember,
+    /// Who sent the invite.
+    pub inviter: Option<RoomMember>,
+}
+
+#[derive(Error, Debug)]
+pub enum InvitationError {
+    /// The client isn't logged in.
+    #[error("The client isn't authenticated")]
+    NotAuthenticated,
+    #[error("No membership event found")]
+    EventMissing,
 }
