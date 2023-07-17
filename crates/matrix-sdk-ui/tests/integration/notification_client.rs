@@ -242,12 +242,36 @@ async fn test_notification_client_sliding_sync() {
         server,
         &[json!({
             "conn_id": "notifications",
+            "lists": {
+                "invites": {
+                    "ranges": [
+                        [0, 16]
+                    ],
+                    "required_state": [
+                        ["m.room.avatar", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.name", ""],
+                        ["m.room.power_levels", ""],
+                    ],
+                    "filters": {
+                        "is_invite": true,
+                        "is_tombstoned": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "sort": ["by_recency", "by_name"],
+                    "timeline_limit": 8,
+                }
+            },
             "room_subscriptions": {
                 "!a98sd12bjh:example.org": {
                     "required_state": [
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
