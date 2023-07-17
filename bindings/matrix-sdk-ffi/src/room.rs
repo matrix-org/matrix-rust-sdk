@@ -558,22 +558,12 @@ impl Room {
         })
     }
 
-    /// Accepts the invitation for the invited room.
+    /// Join this room.
     ///
-    /// Will throw an error if used on an room that isn't in an invited state
-    pub fn accept_invitation(&self) -> Result<(), ClientError> {
-        let room = match &self.inner {
-            SdkRoom::Invited(i) => i.clone(),
-            _ => {
-                return Err(anyhow!(
-                    "Can't accept an invite for a room that isn't in invited state"
-                )
-                .into())
-            }
-        };
-
-        RUNTIME.block_on(async move {
-            room.accept_invitation().await?;
+    /// Only invited and left rooms can be joined via this method.
+    pub fn join(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async {
+            self.inner.join().await?;
             Ok(())
         })
     }

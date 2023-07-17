@@ -1,9 +1,7 @@
 use std::ops::Deref;
 
 use thiserror::Error;
-use tracing::{instrument, warn};
 
-use super::Joined;
 use crate::{
     room::{Common, RoomMember},
     BaseRoom, Client, Error, Result, RoomState,
@@ -51,22 +49,6 @@ impl Invited {
         } else {
             None
         }
-    }
-
-    /// Accept the invitation.
-    #[instrument(skip_all)]
-    pub async fn accept_invitation(&self) -> Result<Joined> {
-        let joined = self.inner.join().await?;
-        let is_direct_room = self.inner.is_direct().await.unwrap_or_else(|e| {
-            warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
-            false
-        });
-
-        if is_direct_room {
-            _ = self.inner.set_is_direct(true).await;
-        }
-
-        Ok(joined)
     }
 
     /// The membership details of the (latest) invite for this room.
