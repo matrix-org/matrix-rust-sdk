@@ -40,7 +40,7 @@ use crate::{
 /// It is the responsibility of the caller to restart the application using the
 /// [`SyncService::start`] method, in case it terminated, gracefully or not.
 ///
-/// This can be observed with [`SyncService::observe_state`].
+/// This can be observed with [`SyncService::state`].
 #[derive(Clone)]
 pub enum SyncServiceState {
     /// The service hasn't ever been started yet.
@@ -75,7 +75,7 @@ impl SyncService {
     /// Observe the current state of the application.
     ///
     /// See also [`SyncServiceState`].
-    pub fn observe_state(&self) -> Subscriber<SyncServiceState> {
+    pub fn state(&self) -> Subscriber<SyncServiceState> {
         self.state_observer.subscribe()
     }
 
