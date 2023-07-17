@@ -91,12 +91,6 @@ impl Joined {
         }
     }
 
-    /// Leave this room.
-    #[instrument(skip_all)]
-    pub async fn leave(&self) -> Result<Left> {
-        self.inner.leave().await
-    }
-
     /// Ban the user with `UserId` from this room.
     ///
     /// # Arguments
