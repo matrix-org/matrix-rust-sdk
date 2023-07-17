@@ -185,7 +185,8 @@ impl NotificationClient {
             (StateEventType::RoomMember, "$ME".to_owned()),
             (StateEventType::RoomCanonicalAlias, "".to_owned()),
             (StateEventType::RoomName, "".to_owned()),
-            (StateEventType::RoomPowerLevels, "".to_owned()), // necessary to build the push context
+            (StateEventType::RoomPowerLevels, "".to_owned()), /* necessary to build the push
+                                                               * context */
         ];
 
         let invites = SlidingSyncList::builder("invites")
@@ -288,8 +289,8 @@ impl NotificationClient {
         let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
         if let Some(timeline_event) = self.maybe_retry_decryption(&room, &mut raw_event).await? {
-            // Don't use the `push_actions`; they're defaulted if not computed properly, which we
-            // don't want here.
+            // Don't use the `push_actions`; they're defaulted if not computed properly,
+            // which we don't want here.
             raw_event = timeline_event.event.cast();
         }
 
@@ -519,8 +520,8 @@ pub enum Error {
     #[error("invalid ruma event")]
     InvalidRumaEvent,
 
-    /// When calling `get_notification_with_sliding_sync`, the client was configured with a state
-    /// store that's not in memory.
+    /// When calling `get_notification_with_sliding_sync`, the client was
+    /// configured with a state store that's not in memory.
     #[error("client must be configured with an in-memory state store")]
     SlidingSyncMisconfiguredClient,
 
