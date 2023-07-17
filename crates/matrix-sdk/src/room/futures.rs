@@ -10,7 +10,7 @@ use mime::Mime;
 use ruma::api::client::message::send_message_event;
 use tracing::{Instrument, Span};
 
-use super::Common;
+use super::Room;
 use crate::{attachment::AttachmentConfig, Result, TransmissionProgress};
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -18,10 +18,10 @@ use crate::{
     error::ImageError,
 };
 
-/// Future returned by [`Common::send_attachment`].
+/// Future returned by [`Room::send_attachment`].
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
-    room: &'a Common,
+    room: &'a Room,
     body: &'a str,
     content_type: &'a Mime,
     data: Vec<u8>,
@@ -32,7 +32,7 @@ pub struct SendAttachment<'a> {
 
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
-        room: &'a Common,
+        room: &'a Room,
         body: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,

@@ -26,9 +26,8 @@ use itertools::Itertools;
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
-    room,
     sync::{JoinedRoom, Timeline},
-    Error, Result,
+    Error, Result, Room,
 };
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -74,7 +73,7 @@ use super::{
 use crate::events::SyncTimelineEventWithoutContent;
 
 #[derive(Clone, Debug)]
-pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
+pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     state: Arc<Mutex<TimelineInnerState>>,
     room_data_provider: P,
     settings: TimelineInnerSettings,
@@ -743,7 +742,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
     pub(super) async fn retry_event_decryption(
         &self,
-        room: &room::Common,
+        room: &Room,
         session_ids: Option<BTreeSet<String>>,
     ) {
         self.retry_event_decryption_inner(room.to_owned(), session_ids).await
@@ -945,7 +944,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 }
 
 impl TimelineInner {
-    pub(super) fn room(&self) -> &room::Common {
+    pub(super) fn room(&self) -> &Room {
         &self.room_data_provider
     }
 
@@ -1254,7 +1253,7 @@ async fn fetch_replied_to_event(
     item: &EventTimelineItem,
     message: &Message,
     in_reply_to: &EventId,
-    room: &room::Common,
+    room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
     if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
         let details = match item.content() {

@@ -14,7 +14,7 @@
 
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use matrix_sdk::room;
+use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use ruma::{
@@ -52,7 +52,7 @@ pub trait RoomExt {
 }
 
 #[async_trait]
-impl RoomExt for room::Common {
+impl RoomExt for Room {
     async fn timeline(&self) -> Timeline {
         self.timeline_builder().build().await
     }
@@ -71,7 +71,7 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
 }
 
 #[async_trait]
-impl RoomDataProvider for room::Common {
+impl RoomDataProvider for Room {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }
@@ -137,7 +137,7 @@ pub(super) trait Decryptor: Clone + Send + Sync + 'static {
 
 #[cfg(feature = "e2e-encryption")]
 #[async_trait]
-impl Decryptor for room::Common {
+impl Decryptor for Room {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         self.decrypt_event(raw.cast_ref()).await
     }

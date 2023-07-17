@@ -8,12 +8,11 @@ use anyhow::anyhow;
 use matrix_sdk::{
     self,
     config::SyncSettings,
-    room,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, RoomState,
+    Client, Room, RoomState,
 };
 use url::Url;
 
@@ -208,7 +207,7 @@ async fn login_with_sso(client: &Client, idp: Option<&IdentityProvider>) -> anyh
 }
 
 /// Handle room messages by logging them.
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to listen to joined rooms.
     if room.state() != RoomState::Joined {
         return;

@@ -14,12 +14,11 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room,
     ruma::events::room::{
         member::StrippedRoomMemberEvent,
         message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
     },
-    Client, RoomState,
+    Client, Room, RoomState,
 };
 use tokio::time::{sleep, Duration};
 
@@ -108,7 +107,7 @@ async fn login_and_sync(
 async fn on_stripped_state_member(
     room_member: StrippedRoomMemberEvent,
     client: Client,
-    room: room::Common,
+    room: Room,
 ) {
     if room_member.state_key != client.user_id().unwrap() {
         // the invite we've seen isn't for us, but for someone else. ignore
@@ -146,7 +145,7 @@ async fn on_stripped_state_member(
 // handler lies only in their input parameters. However, that is enough for the
 // rust-sdk to figure out which one to call one and only do so, when
 // the parameters are available.
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // First, we need to unpack the message: We only want messages from rooms we are
     // still in and that are regular text messages - ignoring everything else.
     if room.state() != RoomState::Joined {

@@ -4,12 +4,11 @@ use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     event_handler::Ctx,
-    room,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, RoomMemberships, RoomState, StateStoreExt,
+    Client, Room, RoomMemberships, RoomState, StateStoreExt,
 };
 use tokio::sync::Notify;
 
@@ -120,7 +119,7 @@ async fn test_repeated_join_leave() -> Result<()> {
 
 async fn signal_on_invite(
     event: StrippedRoomMemberEvent,
-    room: room::Common,
+    room: Room,
     client: Client,
     sender: Ctx<Arc<Notify>>,
 ) {
