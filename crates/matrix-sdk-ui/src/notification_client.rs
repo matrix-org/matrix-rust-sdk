@@ -288,13 +288,14 @@ impl NotificationClient {
         // At this point it should have been added by the sync, if it's not, give up.
         let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-        if let Some(timeline_event) = self.maybe_retry_decryption(&room, &mut raw_event).await? {
-            // Don't use the `push_actions`; they're defaulted if not computed properly,
-            // which we don't want here.
-            raw_event = timeline_event.event.cast();
-        }
+        let push_actions =
+            if let Some(timeline_event) = self.maybe_retry_decryption(&room, &raw_event).await? {
+                raw_event = timeline_event.event.cast();
+                timeline_event.push_actions
+            } else {
+                room.event_push_actions(&raw_event).await?
+            };
 
-        let push_actions = room.event_push_actions(&raw_event).await?;
         if let Some(push_actions) = &push_actions {
             if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
                 return Ok(None);
