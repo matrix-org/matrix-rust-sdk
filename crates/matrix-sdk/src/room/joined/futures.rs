@@ -50,10 +50,6 @@ impl<'a> SendAttachment<'a> {
 
     /// Replace the default `SharedObservable` used for tracking upload
     /// progress.
-    ///
-    /// Note that any subscribers obtained from
-    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
-    /// will be invalidated by this.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_send_progress_observable(
         mut self,
