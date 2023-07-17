@@ -28,6 +28,7 @@ use crate::{
 
 #[derive(uniffi::Enum)]
 pub enum SyncServiceState {
+    Idle,
     Running,
     Terminated,
     Error,
@@ -36,6 +37,7 @@ pub enum SyncServiceState {
 impl From<MatrixSyncServiceState> for SyncServiceState {
     fn from(value: MatrixSyncServiceState) -> Self {
         match value {
+            MatrixSyncServiceState::Idle => Self::Idle,
             MatrixSyncServiceState::Running => Self::Running,
             MatrixSyncServiceState::Terminated => Self::Terminated,
             MatrixSyncServiceState::Error => Self::Error,
@@ -71,7 +73,7 @@ impl SyncService {
         })))
     }
 
-    pub fn current_state(&self) -> AppState {
+    pub fn current_state(&self) -> SyncServiceState {
         self.inner.observe_state().get().into()
     }
 
