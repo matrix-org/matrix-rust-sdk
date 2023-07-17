@@ -195,7 +195,7 @@ impl Client {
             };
 
             self.send_room_update(room_id, || RoomUpdate::Joined {
-                room: (*room).clone(),
+                room: room.clone(),
                 updates: room_info.clone(),
             });
 
@@ -222,7 +222,7 @@ impl Client {
             };
 
             self.send_room_update(room_id, || RoomUpdate::Left {
-                room: (*room).clone(),
+                room: room.clone(),
                 updates: room_info.clone(),
             });
 
@@ -241,7 +241,7 @@ impl Client {
             };
 
             self.send_room_update(room_id, || RoomUpdate::Invited {
-                room: (*room).clone(),
+                room: room.clone(),
                 updates: room_info.clone(),
             });
 

@@ -46,7 +46,7 @@ struct RoomInner {
     sliding_sync_room: SlidingSyncRoom,
 
     /// The underlying client room.
-    room: matrix_sdk::room::Room,
+    room: matrix_sdk::room::Common,
 
     /// The timeline of the room.
     timeline: AsyncOnceCell<Arc<Timeline>>,
@@ -89,8 +89,8 @@ impl Room {
         })
     }
 
-    /// Get the underlying [`matrix_sdk::room::Room`].
-    pub fn inner_room(&self) -> &matrix_sdk::room::Room {
+    /// Get the underlying [`matrix_sdk::room::Common`].
+    pub fn inner_room(&self) -> &matrix_sdk::room::Common {
         &self.inner.room
     }
 

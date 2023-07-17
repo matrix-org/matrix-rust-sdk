@@ -104,10 +104,10 @@ type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
+    Box<dyn Fn(Notification, room::Common, Client) -> NotificationHandlerFut + Send + Sync>;
 #[cfg(target_arch = "wasm32")]
 type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut>;
+    Box<dyn Fn(Notification, room::Common, Client) -> NotificationHandlerFut>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
@@ -477,8 +477,8 @@ impl Client {
     /// the event handler being skipped and an error being logged. The following
     /// context argument types are only available for a subset of event types:
     ///
-    /// * [`Room`][room::Room] is only available for room-specific events, i.e.
-    ///   not for events like global account data events or presence events.
+    /// * [`room::Common`] is only available for room-specific events, i.e. not
+    ///   for events like global account data events or presence events.
     ///
     /// You can provide custom context via
     /// [`add_event_handler_context`](Client::add_event_handler_context) and
@@ -495,7 +495,7 @@ impl Client {
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
     ///     event_handler::Ctx,
-    ///     room::Room,
+    ///     room::Common,
     ///     ruma::{
     ///         events::{
     ///             macros::EventContent,
@@ -518,12 +518,12 @@ impl Client {
     /// #     .unwrap();
     /// #
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
+    ///     |ev: SyncRoomMessageEvent, room: Common, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
     ///     },
     /// );
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///     |ev: SyncRoomMessageEvent, room: Common, encryption_info: Option<EncryptionInfo>| {
     ///         async move {
     ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///             // unencrypted events and events that were decrypted by the SDK.
@@ -531,7 +531,7 @@ impl Client {
     ///     },
     /// );
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Room, push_actions: Vec<Action>| {
+    ///     |ev: SyncRoomMessageEvent, room: Common, push_actions: Vec<Action>| {
     ///         async move {
     ///             // A `Vec<Action>` parameter allows you to know which push actions
     ///             // are applicable for an event. For example, an event with
@@ -570,7 +570,7 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    /// client.add_event_handler(|ev: SyncTokenEvent, room: Common| async move {
     ///     todo!("Display the token");
     /// });
     ///
@@ -699,7 +699,7 @@ impl Client {
     ///
     /// ```
     /// use matrix_sdk::{
-    ///     event_handler::Ctx, room::Room,
+    ///     event_handler::Ctx, room::Common,
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
@@ -719,7 +719,7 @@ impl Client {
     ///
     /// client.add_event_handler_context(my_gui_handle.clone());
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| {
+    ///     |ev: SyncRoomMessageEvent, room: Common, gui_handle: Ctx<SomeType>| {
     ///         async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         }
@@ -738,10 +738,10 @@ impl Client {
     ///
     /// Similar to [`Client::add_event_handler`], but only allows functions
     /// or closures with exactly the three arguments [`Notification`],
-    /// [`room::Room`], [`Client`] for now.
+    /// [`room::Common`], [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
-        H: Fn(Notification, room::Room, Client) -> Fut
+        H: Fn(Notification, room::Common, Client) -> Fut
             + SendOutsideWasm
             + SyncOutsideWasm
             + 'static,
@@ -778,20 +778,20 @@ impl Client {
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
-    pub fn rooms(&self) -> Vec<room::Room> {
+    pub fn rooms(&self) -> Vec<room::Common> {
         self.base_client()
             .get_rooms()
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room).into())
+            .map(|room| room::Common::new(self.clone(), room))
             .collect()
     }
 
     /// Get all the rooms the client knows about, filtered by room state.
-    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<room::Room> {
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<room::Common> {
         self.base_client()
             .get_rooms_filtered(filter)
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room).into())
+            .map(|room| room::Common::new(self.clone(), room))
             .collect()
     }
 
@@ -827,10 +827,8 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Room> {
-        self.base_client()
-            .get_room(room_id)
-            .map(|room| room::Common::new(self.clone(), room).into())
+    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Common> {
+        self.base_client().get_room(room_id).map(|room| room::Common::new(self.clone(), room))
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

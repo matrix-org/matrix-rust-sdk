@@ -24,8 +24,9 @@ use std::{
 use futures_util::future::Either;
 use matrix_sdk::{
     executor::{spawn, JoinError, JoinHandle},
-    room::{self, Room},
+    room,
 };
+use matrix_sdk_base::RoomState;
 use ruma::{events::AnyMessageLikeEventContent, OwnedTransactionId};
 use tokio::{select, sync::mpsc::Receiver};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -103,22 +104,19 @@ async fn handle_message(
     timeline_inner: &TimelineInner,
 ) {
     if queue.is_empty() && send_task.is_idle() {
-        match Room::from(room) {
-            Room::Joined(room) => {
-                send_task.start(room, timeline_inner.clone(), msg);
-            }
-            _ => {
-                info!("Refusing to send message, room is not joined");
-                timeline_inner
-                    .update_event_send_state(
-                        &msg.txn_id,
-                        EventSendState::SendingFailed {
-                            // FIXME: Probably not exactly right
-                            error: Arc::new(matrix_sdk::Error::InconsistentState),
-                        },
-                    )
-                    .await;
-            }
+        if room.state() == RoomState::Joined {
+            send_task.start(room, timeline_inner.clone(), msg);
+        } else {
+            info!("Refusing to send message, room is not joined");
+            timeline_inner
+                .update_event_send_state(
+                    &msg.txn_id,
+                    EventSendState::SendingFailed {
+                        // FIXME: Probably not exactly right
+                        error: Arc::new(matrix_sdk::Error::InconsistentState),
+                    },
+                )
+                .await;
         }
     } else {
         queue.push_back(msg);
