@@ -75,10 +75,11 @@ impl NotificationClient {
     /// - we successfully ran an encryption sync.
     async fn maybe_retry_decryption(
         &self,
+        room: &Room,
         raw_event: &Raw<AnySyncTimelineEvent>,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<TimelineEvent>, Error> {
         if !self.retry_decryption {
-            return Ok(false);
+            return Ok(None);
         }
 
         let event: AnySyncTimelineEvent =
@@ -94,7 +95,7 @@ impl NotificationClient {
             is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
 
         if !is_still_encrypted {
-            return Ok(false);
+            return Ok(None);
         }
 
         // The message is still encrypted, and the client is configured to retry
@@ -123,17 +124,20 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2).await {
-                Ok(()) => Ok(true),
+                Ok(()) => {
+                    let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+                    Ok(Some(new_event))
+                }
                 Err(err) => {
                     tracing::warn!(
                         "error when running encryption_sync in get_notification: {err:#}"
                     );
-                    Ok(false)
+                    Ok(None)
                 }
             },
             Err(err) => {
                 tracing::warn!("error when building encryption_sync in get_notification: {err:#}",);
-                Ok(false)
+                Ok(None)
             }
         }
     }
@@ -278,21 +282,10 @@ impl NotificationClient {
         // At this point it should have been added by the sync, if it's not, give up.
         let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-        if self.maybe_retry_decryption(&raw_event).await? {
-            // TODO technically, we could just retry decryption of the previous event?
-            match self.try_sliding_sync(room_id, event_id).await {
-                Ok(Some(new_raw_event)) => {
-                    raw_event = new_raw_event;
-                }
-                Ok(None) => {
-                    // The event was there, but disappeared in the next sync; maybe there
-                    // were too many events happening in between?
-                    tracing::warn!("event missing after retrying decryption in get_notification?");
-                }
-                Err(err) => {
-                    tracing::warn!("error when retrying decryption in get_notification: {err:#}");
-                }
-            }
+        if let Some(timeline_event) = self.maybe_retry_decryption(&room, &mut raw_event).await? {
+            // Don't use the `push_actions`; they're defaulted if not computed properly, which we
+            // don't want here.
+            raw_event = timeline_event.event.cast();
         }
 
         let push_actions = room.event_push_actions(&raw_event).await?;
@@ -311,15 +304,10 @@ impl NotificationClient {
         mut timeline_event: TimelineEvent,
         sync_members: bool,
     ) -> Result<Option<NotificationItem>, Error> {
-        if self.maybe_retry_decryption(timeline_event.event.cast_ref()).await? {
-            match room.decrypt_event(timeline_event.event.cast_ref()).await {
-                Ok(event) => {
-                    timeline_event = event;
-                }
-                Err(err) => {
-                    tracing::warn!("error when retrying decryption in get_notification: {err:#}");
-                }
-            }
+        if let Some(decrypted_event) =
+            self.maybe_retry_decryption(room, timeline_event.event.cast_ref()).await?
+        {
+            timeline_event = decrypted_event;
         }
 
         if self.filter_by_push_rules
