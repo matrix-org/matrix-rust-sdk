@@ -109,7 +109,8 @@ impl Common {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left.
-    pub(crate) async fn leave(&self) -> Result<Left> {
+    #[doc(alias = "reject_invitation")]
+    pub async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request, None).await?;
 

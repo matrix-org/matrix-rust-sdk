@@ -548,37 +548,12 @@ impl Room {
         })
     }
 
-    /// Leaves the joined room.
+    /// Leave this room.
     ///
-    /// Will throw an error if used on an room that isn't in a joined state
+    /// Only invited and joined rooms can be left.
     pub fn leave(&self) -> Result<(), ClientError> {
-        let room = match &self.inner {
-            SdkRoom::Joined(j) => j.clone(),
-            _ => return Err(anyhow!("Can't leave a room that isn't in joined state").into()),
-        };
-
-        RUNTIME.block_on(async move {
-            room.leave().await?;
-            Ok(())
-        })
-    }
-
-    /// Rejects the invitation for the invited room.
-    ///
-    /// Will throw an error if used on an room that isn't in an invited state
-    pub fn reject_invitation(&self) -> Result<(), ClientError> {
-        let room = match &self.inner {
-            SdkRoom::Invited(i) => i.clone(),
-            _ => {
-                return Err(anyhow!(
-                    "Can't reject an invite for a room that isn't in invited state"
-                )
-                .into())
-            }
-        };
-
-        RUNTIME.block_on(async move {
-            room.reject_invitation().await?;
+        RUNTIME.block_on(async {
+            self.inner.leave().await?;
             Ok(())
         })
     }

@@ -3,7 +3,7 @@ use std::ops::Deref;
 use thiserror::Error;
 use tracing::{instrument, warn};
 
-use super::{Joined, Left};
+use super::Joined;
 use crate::{
     room::{Common, RoomMember},
     BaseRoom, Client, Error, Result, RoomState,
@@ -51,11 +51,6 @@ impl Invited {
         } else {
             None
         }
-    }
-
-    /// Reject the invitation.
-    pub async fn reject_invitation(&self) -> Result<Left> {
-        self.inner.leave().await
     }
 
     /// Accept the invitation.
