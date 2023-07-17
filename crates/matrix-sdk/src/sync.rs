@@ -130,7 +130,7 @@ pub enum RoomUpdate {
     /// Updates to a room the user is invited to.
     Invited {
         /// Room object with general information on the room.
-        room: room::Invited,
+        room: room::Common,
         /// Updates to the room.
         updates: InvitedRoom,
     },
@@ -237,21 +237,18 @@ impl Client {
         }
 
         for (room_id, room_info) in &rooms.invite {
-            let Some(room) = self.get_invited_room(room_id) else {
+            let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
             };
 
             self.send_room_update(room_id, || RoomUpdate::Invited {
-                room: room.clone(),
+                room: (*room).clone(),
                 updates: room_info.clone(),
             });
 
-            // FIXME: Destructure room_info
-            let invited = room::Room::Invited(room);
-            let room = Some(&invited);
             let invite_state = &room_info.invite_state.events;
-            self.handle_sync_events(HandlerKind::StrippedState, room, invite_state).await?;
+            self.handle_sync_events(HandlerKind::StrippedState, Some(&room), invite_state).await?;
         }
 
         debug!("Ran event handlers in {:?}", now.elapsed());

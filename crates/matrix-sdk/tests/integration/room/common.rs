@@ -79,7 +79,7 @@ async fn room_names() {
     let _response = client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(client.rooms().len(), 2);
-    let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
+    let invited_room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
 
     assert_eq!(
         DisplayName::Named("My Room Name".to_owned()),

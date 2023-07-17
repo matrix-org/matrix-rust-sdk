@@ -7,6 +7,7 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
 };
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::client::{
@@ -258,7 +259,8 @@ async fn invited_rooms() {
     assert!(client.left_rooms().is_empty());
     assert!(!client.invited_rooms().is_empty());
 
-    assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
+    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
+    assert_eq!(room.state(), RoomState::Invited);
 }
 
 #[async_test]

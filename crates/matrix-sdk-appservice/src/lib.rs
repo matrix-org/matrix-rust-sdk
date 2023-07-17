@@ -549,7 +549,7 @@ mod tests {
     use matrix_sdk::{
         config::RequestConfig,
         ruma::{api::appservice::Registration, events::room::member::OriginalSyncRoomMemberEvent},
-        Client, RoomMemberships,
+        Client, RoomMemberships, RoomState,
     };
     use matrix_sdk_test::{appservice::TransactionBuilder, async_test, TimelineTestEvent};
     use ruma::{
@@ -985,8 +985,9 @@ mod tests {
             alice.get_joined_room(coolplace).is_some(),
             "Alice's membership in coolplace should be join"
         );
-        assert!(
-            bob.get_invited_room(boringplace).is_some(),
+        assert_eq!(
+            bob.get_room(boringplace).unwrap().state(),
+            RoomState::Invited,
             "Bob's membership in boringplace should be invite"
         );
         assert!(alice.get_room(boringplace).is_none(), "Alice should not know about boringplace");

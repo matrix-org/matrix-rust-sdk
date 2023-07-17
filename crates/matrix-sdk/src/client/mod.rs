@@ -805,11 +805,11 @@ impl Client {
     }
 
     /// Returns the invited rooms this client knows about.
-    pub fn invited_rooms(&self) -> Vec<room::Invited> {
+    pub fn invited_rooms(&self) -> Vec<room::Common> {
         self.base_client()
             .get_rooms_filtered(RoomStateFilter::INVITED)
             .into_iter()
-            .filter_map(|room| room::Invited::new(self, room))
+            .map(|room| room::Common::new(self.clone(), room))
             .collect()
     }
 
@@ -840,15 +840,6 @@ impl Client {
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<room::Joined> {
         self.base_client().get_room(room_id).and_then(|room| room::Joined::new(self, room))
-    }
-
-    /// Get an invited room with the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<room::Invited> {
-        self.base_client().get_room(room_id).and_then(|room| room::Invited::new(self, room))
     }
 
     /// Get a left room with the given room id.
