@@ -18,10 +18,12 @@ use std::{
 };
 
 use futures_util::{future::ready, pin_mut, StreamExt as _};
-use matrix_sdk::{room::Room, Client};
+use matrix_sdk::{room::Room, Client, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, StoreError};
 use ruma::{
-    api::client::sync::sync_events::v4::{AccountDataConfig, RoomSubscription},
+    api::client::sync::sync_events::v4::{
+        AccountDataConfig, RoomSubscription, SyncRequestListFilters,
+    },
     assign,
     events::{AnySyncTimelineEvent, StateEventType},
     push::Action,
@@ -172,28 +174,42 @@ impl NotificationClient {
             ready(())
         });
 
+        let required_state = vec![
+            (StateEventType::RoomAvatar, "".to_owned()),
+            (StateEventType::RoomEncryption, "".to_owned()),
+            (StateEventType::RoomMember, "$LAZY".to_owned()),
+            (StateEventType::RoomMember, "$ME".to_owned()),
+            (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            (StateEventType::RoomName, "".to_owned()),
+            (StateEventType::RoomPowerLevels, "".to_owned()), // necessary to build the push context
+        ];
+
+        let invites = SlidingSyncList::builder("invites")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=16))
+            .timeline_limit(8)
+            .required_state(required_state.clone())
+            .filters(Some(assign!(SyncRequestListFilters::default(), {
+                is_invite: Some(true),
+                is_tombstoned: Some(false),
+                not_room_types: vec!["m.space".to_owned()],
+            })));
+
         let sync = self
             .client
             .sliding_sync(Self::CONNECTION_ID)?
-            .with_timeouts(Duration::from_secs(3), Duration::from_secs(1))
+            .poll_timeout(Duration::from_secs(1))
+            .network_timeout(Duration::from_secs(1))
             .with_account_data_extension(
                 assign!(AccountDataConfig::default(), { enabled: Some(true) }),
             )
+            .add_list(invites)
             .build()
             .await?;
 
         sync.subscribe_to_room(
             room_id.to_owned(),
             Some(assign!(RoomSubscription::default(), {
-                required_state: vec![
-                    (StateEventType::RoomAvatar, "".to_owned()),
-                    (StateEventType::RoomEncryption, "".to_owned()),
-                    (StateEventType::RoomMember, "$LAZY".to_owned()),
-                    (StateEventType::RoomMember, "$ME".to_owned()),
-                    (StateEventType::RoomCanonicalAlias, "".to_owned()),
-                    (StateEventType::RoomName, "".to_owned()),
-                    (StateEventType::RoomPowerLevels, "".to_owned()), // necessary to build the push context
-                ],
+                required_state,
                 timeline_limit: Some(uint!(16))
             })),
         );
@@ -201,6 +217,7 @@ impl NotificationClient {
         let update_summary = {
             let stream = sync.sync();
             pin_mut!(stream);
+            // TODO should we repeat the query if the room isn't in the response initially?
             if let Some(result) = stream.next().await {
                 result?
             } else {
