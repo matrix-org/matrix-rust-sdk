@@ -16,6 +16,10 @@ Breaking changes:
   - Move the session methods on `Client` to the `MatrixAuth` API.
   - Split `Session`'s content into several types. Its (de)serialization is still backwards
     compatible.
+- The room API has been simplified
+  - Removed the previous `Room`, `Joined`, `Invited` and `Left` types
+  - Merged all of the functionality from `Joined`, `Invited` and `Left` into `room::Common`
+  - Renamed `room::Common` to just `Room` and made it accessible as `matrix_sdk::Room`
 
 Bug fixes:
 
