@@ -1132,7 +1132,7 @@ impl Joined {
 
     /// Returns true if the user with the given user_id is able to send a
     /// specific state event type in the room.
-    /// he call may fail if there is an error in getting the power levels.
+    /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_send_state(
         &self,
         user_id: &UserId,
@@ -1154,7 +1154,7 @@ impl Joined {
 
     /// Returns true if the user with the given  user_id is able to trigger a
     /// notification in the room.
-    /// /// The call may fail if there is an error in getting the power levels.
+    /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
         Ok(self.get_room_power_levels().await?.user_can_trigger_room_notification(user_id))
     }
