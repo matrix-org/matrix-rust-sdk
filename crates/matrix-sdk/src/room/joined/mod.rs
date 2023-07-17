@@ -1143,7 +1143,7 @@ impl Joined {
         user_id: &UserId,
         state_event: StateEventType,
     ) -> Result<bool> {
-        Ok(self.get_room_power_levels().await?.user_can_send_state(user_id, state_event.into()))
+        Ok(self.get_room_power_levels().await?.user_can_send_state(user_id, state_event))
     }
 
     /// Returns true if the user with the given  user_id is able to send a
