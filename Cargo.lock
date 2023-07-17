@@ -5072,8 +5072,7 @@ dependencies = [
 [[package]]
 name = "tracing-android"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12612be8f868a09c0ceae7113ff26afe79d81a24473a393cb9120ece162e86c0"
+source = "git+https://github.com/jmartinesp/tracing-android?rev=b9c0e89448dc93c5264721bbd41be64f1a84cded#b9c0e89448dc93c5264721bbd41be64f1a84cded"
 dependencies = [
  "android_log-sys",
  "tracing",
