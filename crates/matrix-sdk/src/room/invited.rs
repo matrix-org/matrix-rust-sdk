@@ -1,11 +1,6 @@
 use std::ops::Deref;
 
-use thiserror::Error;
-
-use crate::{
-    room::{Common, RoomMember},
-    BaseRoom, Client, Error, Result, RoomState,
-};
+use crate::{room::Common, BaseRoom, Client, RoomState};
 
 /// A room in the invited state.
 ///
@@ -15,24 +10,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Invited {
     pub(crate) inner: Common,
-}
-
-/// Details of the (latest) invite.
-#[derive(Debug, Clone)]
-pub struct Invite {
-    /// Who has been invited.
-    pub invitee: RoomMember,
-    /// Who sent the invite.
-    pub inviter: Option<RoomMember>,
-}
-
-#[derive(Error, Debug)]
-pub enum InvitationError {
-    /// The client isn't logged in.
-    #[error("The client isn't authenticated")]
-    NotAuthenticated,
-    #[error("No membership event found")]
-    EventMissing,
 }
 
 impl Invited {
@@ -49,24 +26,6 @@ impl Invited {
         } else {
             None
         }
-    }
-
-    /// The membership details of the (latest) invite for this room.
-    pub async fn invite_details(&self) -> Result<Invite> {
-        let user_id = self
-            .inner
-            .client
-            .user_id()
-            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
-        let invitee = self
-            .inner
-            .get_member_no_sync(user_id)
-            .await?
-            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
-        let event = invitee.event();
-        let inviter_id = event.sender();
-        let inviter = self.inner.get_member_no_sync(inviter_id).await?;
-        Ok(Invite { invitee, inviter })
     }
 }
 

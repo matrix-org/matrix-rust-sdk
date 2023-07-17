@@ -11,8 +11,8 @@ mod left;
 mod member;
 
 pub use self::{
-    common::{Common, Messages, MessagesOptions},
-    invited::{Invite, Invited},
+    common::{Common, Invite, Messages, MessagesOptions},
+    invited::Invited,
     joined::{Joined, Receipts},
     left::Left,
     member::RoomMember,
