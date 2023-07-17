@@ -3,7 +3,7 @@ use std::env;
 use matrix_sdk_appservice::{
     matrix_sdk::{
         event_handler::Ctx,
-        room::Room,
+        room,
         ruma::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
@@ -16,7 +16,7 @@ use tracing::trace;
 
 pub async fn handle_room_member(
     appservice: AppService,
-    room: Room,
+    room: room::Common,
     event: OriginalSyncRoomMemberEvent,
 ) -> Result<()> {
     if !appservice.user_id_is_in_namespace(&event.state_key) {
@@ -68,7 +68,9 @@ pub async fn main() -> anyhow::Result<()> {
 
     user.add_event_handler_context(appservice.clone());
     user.add_event_handler(
-        move |event: OriginalSyncRoomMemberEvent, room: Room, Ctx(appservice): Ctx<AppService>| {
+        move |event: OriginalSyncRoomMemberEvent,
+              room: room::Common,
+              Ctx(appservice): Ctx<AppService>| {
             handle_room_member(appservice, room, event)
         },
     );

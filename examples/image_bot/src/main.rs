@@ -4,14 +4,16 @@ use matrix_sdk::{
     self,
     attachment::AttachmentConfig,
     config::SyncSettings,
-    room::Room,
+    room,
     ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
-    Client,
+    Client, RoomState,
 };
 use url::Url;
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Vec<u8>) {
-    let Room::Joined(room) = room else { return };
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common, image: Vec<u8>) {
+    if room.state() != RoomState::Joined {
+        return;
+    }
     let MessageType::Text(text_content) = event.content.msgtype else { return };
 
     if text_content.body.contains("!image") {

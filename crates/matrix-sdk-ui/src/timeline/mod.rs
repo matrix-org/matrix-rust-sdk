@@ -27,9 +27,10 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, MessagesOptions, Receipts, Room},
+    room::{self, MessagesOptions, Receipts},
     Client, Result,
 };
+use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
@@ -133,13 +134,6 @@ impl Timeline {
 
     fn room(&self) -> &room::Common {
         self.inner.room()
-    }
-
-    fn joined_room(&self) -> Result<room::Common, Error> {
-        match Room::from(self.room().clone()) {
-            Room::Joined(room) => Ok(room),
-            _ => Err(Error::RoomNotJoined),
-        }
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -408,13 +402,13 @@ impl Timeline {
 
     /// Redact a reaction event from the homeserver
     async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
+        let room = self.room();
+        if room.state() != RoomState::Joined {
+            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
+        }
+
         let txn_id = TransactionId::new();
         let no_reason = RoomRedactionEventContent::default();
-        let room = self.joined_room();
-
-        let Ok(room) = room else {
-            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
-        };
 
         let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
 
@@ -430,8 +424,10 @@ impl Timeline {
         annotation: &Annotation,
         txn_id: OwnedTransactionId,
     ) -> ReactionToggleResult {
-        let room = self.joined_room();
-        let Ok(room) = room else { return ReactionToggleResult::AddFailure { txn_id } };
+        let room = self.room();
+        if room.state() != RoomState::Joined {
+            return ReactionToggleResult::AddFailure { txn_id };
+        }
 
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
@@ -605,12 +601,7 @@ impl Timeline {
             return Ok(());
         }
 
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            // FIXME: Probably not exactly right
-            return Err(matrix_sdk::Error::InconsistentState);
-        };
-
-        room.send_single_receipt(receipt_type, thread, event_id).await
+        self.room().send_single_receipt(receipt_type, thread, event_id).await
     }
 
     /// Send the given receipts.
@@ -659,12 +650,7 @@ impl Timeline {
             }
         }
 
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            // FIXME: Probably not exactly right
-            return Err(matrix_sdk::Error::InconsistentState);
-        };
-
-        room.send_multiple_receipts(receipts).await
+        self.room().send_multiple_receipts(receipts).await
     }
 }
 

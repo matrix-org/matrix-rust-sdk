@@ -14,8 +14,8 @@
 
 use std::time::Duration;
 
-use matrix_sdk::{room::Room, Client};
-use matrix_sdk_base::StoreError;
+use matrix_sdk::Client;
+use matrix_sdk_base::{RoomState, StoreError};
 use ruma::{events::AnySyncTimelineEvent, EventId, RoomId};
 use thiserror::Error;
 
@@ -140,8 +140,8 @@ impl NotificationClient {
             }
         }
 
-        let sender = match &room {
-            Room::Invited(invited) => invited.invite_details().await?.inviter,
+        let sender = match room.state() {
+            RoomState::Invited => room.invite_details().await?.inviter,
             _ => room.get_member(raw_event.sender()).await?,
         };
 

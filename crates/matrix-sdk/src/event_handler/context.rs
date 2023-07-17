@@ -49,7 +49,7 @@ impl EventHandlerContext for EventHandlerHandle {
 /// Trying to use it in the event handler for another event, for example a
 /// global account data or presence event, will result in the event handler
 /// being skipped and an error getting logged.
-impl EventHandlerContext for room::Room {
+impl EventHandlerContext for room::Common {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
         data.room.clone()
     }

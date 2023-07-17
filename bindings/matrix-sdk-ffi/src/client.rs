@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use anyhow::{anyhow, Context};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
-    room::Room as SdkRoom,
     ruma::{
         api::client::{
             account::whoami,
@@ -537,7 +536,7 @@ impl Client {
 
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
-        let sdk_room = self.inner.get_dm_room(&user_id).map(SdkRoom::Joined);
+        let sdk_room = self.inner.get_dm_room(&user_id);
         let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
         Ok(dm)
     }
