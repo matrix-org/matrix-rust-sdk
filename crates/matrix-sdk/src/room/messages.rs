@@ -26,7 +26,7 @@ use ruma::{
     uint, RoomId, UInt,
 };
 
-/// Options for [`messages`][Common::messages].
+/// Options for [`messages`][super::Common::messages].
 ///
 /// See that method and
 /// <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages>
