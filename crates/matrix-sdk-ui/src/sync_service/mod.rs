@@ -226,9 +226,9 @@ impl SyncServiceBuilder {
 
     /// Finish setting up the `SyncService`.
     ///
-    /// This creates the underlying sliding syncs, and will start them in the
-    /// background. The resulting `SyncService` must be kept alive as long as
-    /// the sliding syncs are supposed to run.
+    /// This creates the underlying sliding syncs, and will *not* start them in
+    /// the background. The resulting `SyncService` must be kept alive as
+    /// long as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
@@ -245,16 +245,12 @@ impl SyncServiceBuilder {
             (room_list, None)
         };
 
-        let app = SyncService {
+        Ok(SyncService {
             room_list_service: Arc::new(room_list),
             encryption_sync,
             state_observer: SharedObservable::new(SyncServiceState::Running),
             task_handle: Default::default(),
-        };
-
-        app.start().await?;
-
-        Ok(app)
+        })
     }
 }
 
