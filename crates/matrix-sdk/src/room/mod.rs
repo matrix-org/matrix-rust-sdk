@@ -6,13 +6,11 @@ use crate::RoomState;
 
 mod common;
 mod joined;
-mod left;
 mod member;
 
 pub use self::{
     common::{Common, Invite, Messages, MessagesOptions},
     joined::{Joined, Receipts},
-    left::Left,
     member::RoomMember,
 };
 
@@ -22,7 +20,7 @@ pub enum Room {
     /// The room in the `join` state.
     Joined(Joined),
     /// The room in the `left` state.
-    Left(Left),
+    Left(Common),
     /// The room in the `invited` state.
     Invited(Common),
 }
@@ -43,7 +41,7 @@ impl From<Common> for Room {
     fn from(room: Common) -> Self {
         match room.state() {
             RoomState::Joined => Self::Joined(Joined { inner: room }),
-            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Left => Self::Left(room),
             RoomState::Invited => Self::Invited(room),
         }
     }
@@ -54,18 +52,7 @@ impl From<Joined> for Room {
         let room = (*room).clone();
         match room.state() {
             RoomState::Joined => Self::Joined(Joined { inner: room }),
-            RoomState::Left => Self::Left(Left { inner: room }),
-            RoomState::Invited => Self::Invited(room),
-        }
-    }
-}
-
-impl From<Left> for Room {
-    fn from(room: Left) -> Self {
-        let room = (*room).clone();
-        match room.state() {
-            RoomState::Joined => Self::Joined(Joined { inner: room }),
-            RoomState::Left => Self::Left(Left { inner: room }),
+            RoomState::Left => Self::Left(room),
             RoomState::Invited => Self::Invited(room),
         }
     }

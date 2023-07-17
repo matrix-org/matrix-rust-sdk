@@ -672,8 +672,8 @@ impl BaseClient {
 
     /// User has left a room.
     ///
-    /// Update the internal and cached state accordingly. Return the final Room.
-    pub async fn room_left(&self, room_id: &RoomId) -> Result<Room> {
+    /// Update the internal and cached state accordingly.
+    pub async fn room_left(&self, room_id: &RoomId) -> Result<()> {
         let room = self.store.get_or_create_room(room_id, RoomState::Left);
         if room.state() != RoomState::Left {
             let _sync_lock = self.sync_lock().read().await;
@@ -688,7 +688,7 @@ impl BaseClient {
             room.update_summary(room_info); // Update the cached room handle
         }
 
-        Ok(room)
+        Ok(())
     }
 
     /// Get access to the store's sync lock.

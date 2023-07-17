@@ -56,7 +56,7 @@ use super::Joined;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::{Left, RoomMember, RoomState},
+    room::{RoomMember, RoomState},
     sync::RoomUpdate,
     BaseRoom, Client, Error, HttpError, HttpResult, Result,
 };
@@ -111,12 +111,11 @@ impl Common {
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
-    pub async fn leave(&self) -> Result<Left> {
+    pub async fn leave(&self) -> Result<()> {
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request, None).await?;
-
-        let base_room = self.client.base_client().room_left(self.room_id()).await?;
-        Left::new(&self.client, base_room).ok_or(Error::InconsistentState)
+        self.client.base_client().room_left(self.room_id()).await?;
+        Ok(())
     }
 
     /// Join this room.

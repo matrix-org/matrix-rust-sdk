@@ -78,7 +78,7 @@ async fn test_repeated_join_leave() -> Result<()> {
 
         // Leave the room
         println!("Leaving..");
-        let room = room.leave().await?;
+        room.leave().await?;
         println!("Done");
         let membership = room.get_member(&karl_id).await?.expect("karl left");
         assert_eq!(*membership.membership(), MembershipState::Leave);

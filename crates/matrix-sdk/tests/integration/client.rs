@@ -149,9 +149,6 @@ async fn join_leave_room() {
 
     let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
-    let room = client.get_left_room(room_id);
-    assert!(room.is_none());
-
     let room = client.get_joined_room(room_id);
     assert!(room.is_some());
 
@@ -162,8 +159,8 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
 
-    let room = client.get_left_room(room_id);
-    assert!(room.is_some());
+    let room = client.get_room(room_id).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
@@ -275,7 +272,8 @@ async fn left_rooms() {
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
 
-    assert!(client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).is_some())
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
