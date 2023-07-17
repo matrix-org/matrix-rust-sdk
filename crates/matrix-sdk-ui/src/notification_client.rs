@@ -323,7 +323,10 @@ impl NotificationClient {
         }
 
         if self.filter_by_push_rules
-            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
+            && !timeline_event
+                .push_actions
+                .as_ref()
+                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()))
         {
             return Ok(None);
         }
@@ -333,7 +336,7 @@ impl NotificationClient {
                 sync_members,
                 room,
                 timeline_event.event.cast_ref(),
-                Some(&timeline_event.push_actions),
+                timeline_event.push_actions.as_deref(),
             )
             .await?,
         ))

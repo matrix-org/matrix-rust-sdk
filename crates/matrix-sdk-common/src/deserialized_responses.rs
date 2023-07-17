@@ -282,7 +282,7 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         Self {
             event: o.event.cast(),
             encryption_info: o.encryption_info,
-            push_actions: o.push_actions,
+            push_actions: o.push_actions.unwrap_or_default(),
         }
     }
 }
@@ -294,8 +294,9 @@ pub struct TimelineEvent {
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
-    /// The push actions associated with this event.
-    pub push_actions: Vec<Action>,
+    /// The push actions associated with this event, if we had sufficient
+    /// context to compute them.
+    pub push_actions: Option<Vec<Action>>,
 }
 
 impl TimelineEvent {
@@ -304,7 +305,7 @@ impl TimelineEvent {
     /// This is a convenience constructor for when you don't need to set
     /// `encryption_info` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: vec![] }
+        Self { event, encryption_info: None, push_actions: None }
     }
 }
 
@@ -315,8 +316,10 @@ impl fmt::Debug for TimelineEvent {
         let mut s = f.debug_struct("TimelineEvent");
         s.field("event", &DebugRawEvent(event));
         s.maybe_field("encryption_info", encryption_info);
-        if !push_actions.is_empty() {
-            s.field("push_actions", push_actions);
+        if let Some(push_actions) = &push_actions {
+            if !push_actions.is_empty() {
+                s.field("push_actions", push_actions);
+            }
         }
         s.finish()
     }

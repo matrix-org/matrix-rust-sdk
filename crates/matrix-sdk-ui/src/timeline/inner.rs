@@ -860,12 +860,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     continue;
                 };
 
-                event.push_actions = push_rules_context
-                    .as_ref()
-                    .map(|(push_rules, push_context)| {
+                event.push_actions =
+                    push_rules_context.as_ref().map(|(push_rules, push_context)| {
                         push_rules.get_actions(&event.event, push_context).to_owned()
-                    })
-                    .unwrap_or_default();
+                    });
 
                 let result = state
                     .handle_remote_event(

@@ -252,7 +252,8 @@ impl Common {
             let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
-                event.push_actions = push_rules.get_actions(&event.event, &push_context).to_owned();
+                event.push_actions =
+                    Some(push_rules.get_actions(&event.event, &push_context).to_owned());
             }
         }
 
@@ -313,7 +314,7 @@ impl Common {
             }
         }
 
-        let push_actions = self.event_push_actions(&event).await?.unwrap_or_default();
+        let push_actions = self.event_push_actions(&event).await?;
 
         Ok(Some(TimelineEvent { event, encryption_info: None, push_actions }))
     }
@@ -334,7 +335,7 @@ impl Common {
             }
         }
 
-        let push_actions = self.event_push_actions(&event).await?.unwrap_or_default();
+        let push_actions = self.event_push_actions(&event).await?;
 
         Ok(TimelineEvent { event, encryption_info: None, push_actions })
     }
@@ -920,7 +921,7 @@ impl Common {
             let mut event =
                 machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?;
 
-            event.push_actions = self.event_push_actions(&event.event).await?.unwrap_or_default();
+            event.push_actions = self.event_push_actions(&event.event).await?;
 
             Ok(event)
         } else {
