@@ -49,7 +49,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex};
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 use super::Joined;
 use crate::{
@@ -121,11 +121,27 @@ impl Common {
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method.
-    pub(crate) async fn join(&self) -> Result<Joined> {
+    #[doc(alias = "accept_invitation")]
+    pub async fn join(&self) -> Result<Joined> {
+        let prev_room_state = self.inner.state();
+
         let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request, None).await?;
         let base_room = self.client.base_client().room_joined(&response.room_id).await?;
-        Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)
+        let joined = Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)?;
+
+        if prev_room_state == RoomState::Invited {
+            let is_direct_room = self.inner.is_direct().await.unwrap_or_else(|e| {
+                warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
+                false
+            });
+
+            if is_direct_room {
+                _ = self.set_is_direct(true).await;
+            }
+        }
+
+        Ok(joined)
     }
 
     /// Get the inner client saved in this room instance.

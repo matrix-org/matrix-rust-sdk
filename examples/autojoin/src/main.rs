@@ -19,7 +19,7 @@ async fn on_stripped_state_member(
             println!("Autojoining room {}", room.room_id());
             let mut delay = 2;
 
-            while let Err(err) = room.accept_invitation().await {
+            while let Err(err) = room.join().await {
                 // retry autojoin due to synapse sending invites, before the
                 // invited user can join for more information see
                 // https://github.com/matrix-org/synapse/issues/4345
