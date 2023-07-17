@@ -214,30 +214,30 @@ impl NotificationClient {
             })),
         );
 
-        let update_summary = {
-            let stream = sync.sync();
-            pin_mut!(stream);
-            // TODO should we repeat the query if the room isn't in the response initially?
-            if let Some(result) = stream.next().await {
-                result?
-            } else {
+        let mut remaining_attempts = 3;
+
+        let stream = sync.sync();
+        pin_mut!(stream);
+
+        loop {
+            if stream.next().await.is_none() {
                 // Sliding sync aborted early.
-                return Ok(None);
+                break;
             }
-        };
+
+            if notification.lock().unwrap().is_some() {
+                // We got the event.
+                break;
+            }
+
+            remaining_attempts -= 1;
+            if remaining_attempts == 0 {
+                // We're out of luck.
+                break;
+            }
+        }
 
         self.client.remove_event_handler(event_handler);
-
-        if !update_summary.lists.is_empty() {
-            tracing::warn!(
-                "unexpected, non-empty list of lists in the notification (non e2ee) sliding sync: {:?}",
-                update_summary.lists
-            );
-        }
-
-        if update_summary.rooms.is_empty() {
-            return Err(Error::SlidingSyncEmptyRoom);
-        }
 
         let maybe_event = notification.lock().unwrap().take();
         Ok(maybe_event)
