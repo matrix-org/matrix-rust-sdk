@@ -32,8 +32,8 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    app::AppBuilder, client, notification::NotificationClientBuilder,
-    notification_settings::NotificationSettings, ClientError,
+    client, notification::NotificationClientBuilder, notification_settings::NotificationSettings,
+    sync_service::SyncServiceBuilder, ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -588,8 +588,8 @@ impl Client {
         NotificationClientBuilder::new(self.inner.clone())
     }
 
-    pub fn app(&self) -> Arc<AppBuilder> {
-        AppBuilder::new(self.inner.clone())
+    pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
+        SyncServiceBuilder::new(self.inner.clone())
     }
 
     pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {

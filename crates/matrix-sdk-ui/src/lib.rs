@@ -14,14 +14,14 @@
 
 mod events;
 
-#[cfg(feature = "experimental-app")]
-pub mod app;
 #[cfg(feature = "experimental-encryption-sync")]
 pub mod encryption_sync;
 #[cfg(feature = "experimental-notification-client")]
 pub mod notification_client;
 #[cfg(feature = "experimental-room-list")]
 pub mod room_list_service;
+#[cfg(feature = "experimental-sync-service")]
+pub mod sync_service;
 pub mod timeline;
 
 #[cfg(feature = "experimental-room-list")]
