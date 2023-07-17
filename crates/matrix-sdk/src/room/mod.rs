@@ -5,13 +5,15 @@ use std::ops::Deref;
 use crate::RoomState;
 
 mod common;
+mod futures;
 mod joined;
 mod member;
 mod messages;
 
 pub use self::{
-    common::{Common, Invite},
-    joined::{Joined, Receipts},
+    common::{Common, Invite, Receipts},
+    futures::SendAttachment,
+    joined::Joined,
     member::RoomMember,
     messages::{Messages, MessagesOptions},
 };
