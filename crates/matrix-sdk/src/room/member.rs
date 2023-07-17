@@ -51,7 +51,7 @@ impl RoomMember {
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.matrix_auth().login_username(user, "password").send().await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let room = client.get_joined_room(&room_id).unwrap();
+    /// let room = client.get_room(&room_id).unwrap();
     /// let members = room.members(RoomMemberships::empty()).await.unwrap();
     /// let member = members.first().unwrap();
     /// if let Some(avatar) = member.avatar(MediaFormat::File).await.unwrap() {

@@ -796,11 +796,11 @@ impl Client {
     }
 
     /// Returns the joined rooms this client knows about.
-    pub fn joined_rooms(&self) -> Vec<room::Joined> {
+    pub fn joined_rooms(&self) -> Vec<room::Common> {
         self.base_client()
             .get_rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
-            .filter_map(|room| room::Joined::new(self, room))
+            .map(|room| room::Common::new(self.clone(), room))
             .collect()
     }
 
@@ -831,15 +831,6 @@ impl Client {
         self.base_client()
             .get_room(room_id)
             .map(|room| room::Common::new(self.clone(), room).into())
-    }
-
-    /// Get a joined room with the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<room::Joined> {
-        self.base_client().get_room(room_id).and_then(|room| room::Joined::new(self, room))
     }
 
     /// Resolve a room alias to a room id and a list of servers which know
@@ -985,11 +976,11 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Common> {
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
+        Ok(room::Common::new(self.clone(), base_room))
     }
 
     /// Join a room by `RoomId`.
@@ -1005,13 +996,13 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> Result<room::Joined> {
+    ) -> Result<room::Common> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             server_name: server_names.to_owned(),
         });
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        room::Joined::new(self, base_room).ok_or(Error::InconsistentState)
+        Ok(room::Common::new(self.clone(), base_room))
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1061,8 +1052,8 @@ impl Client {
 
     /// Create a room with the given parameters.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns the created
-    /// room as a [`room::Joined`] object.
+    /// Sends a request to `/_matrix/client/r0/createRoom` and returns the
+    /// created room.
     ///
     /// If you want to create a direct message with one specific user, you can
     /// use [`create_dm`][Self::create_dm], which is more convenient than
@@ -1090,14 +1081,14 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # };
     /// ```
-    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Joined> {
+    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Common> {
         let invite = request.invite.clone();
         let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
         let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
-        let joined_room = room::Joined::new(self, base_room).unwrap();
+        let joined_room = room::Common::new(self.clone(), base_room);
 
         if is_direct_room && !invite.is_empty() {
             if let Err(error) =
@@ -1116,7 +1107,7 @@ impl Client {
     /// Convenience shorthand for [`create_room`][Self::create_room] with the
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
-    pub async fn create_dm(&self, user_id: &UserId) -> Result<room::Joined> {
+    pub async fn create_dm(&self, user_id: &UserId) -> Result<room::Common> {
         self.create_room(assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,
@@ -1923,6 +1914,7 @@ impl Client {
 pub(crate) mod tests {
     use std::time::Duration;
 
+    use matrix_sdk_base::RoomState;
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
     };
@@ -2032,8 +2024,8 @@ pub(crate) mod tests {
 
         assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 
-        let room = client.get_joined_room(room_id);
-        assert!(room.is_some());
+        let room = client.get_room(room_id).unwrap();
+        assert_eq!(room.state(), RoomState::Joined);
     }
 
     #[async_test]

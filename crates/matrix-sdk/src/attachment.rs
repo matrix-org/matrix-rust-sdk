@@ -318,7 +318,7 @@ impl Default for AttachmentConfig {
 ///     info: Some(thumbnail_info),
 /// });
 ///
-/// if let Some(room) = client.get_joined_room(&room_id) {
+/// if let Some(room) = client.get_room(&room_id) {
 ///     room.send_attachment(
 ///         "My favorite cat",
 ///         &mime::IMAGE_JPEG,

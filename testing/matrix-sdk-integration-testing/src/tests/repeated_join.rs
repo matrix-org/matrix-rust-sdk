@@ -65,7 +65,7 @@ async fn test_repeated_join_leave() -> Result<()> {
 
         // Join the room
         println!("Joining..");
-        let room = room.join().await?;
+        room.join().await?;
         println!("Done");
         let membership = room.get_member(&karl_id).await?.expect("karl joined");
         assert_eq!(*membership.membership(), MembershipState::Join);
@@ -87,7 +87,7 @@ async fn test_repeated_join_leave() -> Result<()> {
 
         // Invite karl again and wait for karl to receive the invite.
         println!("Inviting..");
-        let room = peter.get_joined_room(room_id).expect("peter created the room!");
+        let room = peter.get_room(room_id).expect("peter created the room!");
         room.invite_user_by_id(&karl_id).await?;
         println!("Waiting to receive invite..");
         invite_signal.notified().await;

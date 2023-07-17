@@ -54,6 +54,6 @@ async fn rejoin_room() {
     let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
-    let joined_room = room.join().await.unwrap();
-    assert!(!joined_room.is_state_fully_synced())
+    room.join().await.unwrap();
+    assert!(!room.is_state_fully_synced())
 }

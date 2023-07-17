@@ -34,12 +34,12 @@ async fn test_redacting_name() -> Result<()> {
     let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
         sync_token = Some(sync_once(&tamatoa, sync_token).await?);
-        if tamatoa.get_joined_room(&room_id).is_some() {
+        if tamatoa.get_room(&room_id).is_some() {
             break;
         }
     }
 
-    let room = tamatoa.get_joined_room(&room_id).unwrap();
+    let room = tamatoa.get_room(&room_id).unwrap();
     // let's send a specific state event
 
     let content = RoomNameEventContent::new(Some("Inappropriate text".to_owned()));
@@ -113,12 +113,12 @@ async fn test_redacting_name_static() -> Result<()> {
     let room_id = room.room_id().to_owned();
     for _ in 0..=10 {
         sync_token = Some(sync_once(&tamatoa, sync_token).await?);
-        if tamatoa.get_joined_room(&room_id).is_some() {
+        if tamatoa.get_room(&room_id).is_some() {
             break;
         }
     }
 
-    let room = tamatoa.get_joined_room(&room_id).unwrap();
+    let room = tamatoa.get_room(&room_id).unwrap();
 
     // let's send a specific state event
     let content = RoomNameEventContent::new(Some("Inappropriate text".to_owned()));

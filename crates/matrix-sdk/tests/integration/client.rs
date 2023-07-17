@@ -144,21 +144,19 @@ async fn join_leave_room() {
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let room = client.get_joined_room(room_id);
+    let room = client.get_room(room_id);
     assert!(room.is_none());
 
     let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
-    let room = client.get_joined_room(room_id);
-    assert!(room.is_some());
+    let room = client.get_room(room_id).unwrap();
+    assert_eq!(room.state(), RoomState::Joined);
 
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
 
-    let room = client.get_joined_room(room_id);
-    assert!(room.is_none());
-
+    assert_eq!(room.state(), RoomState::Left);
     let room = client.get_room(room_id).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 }
