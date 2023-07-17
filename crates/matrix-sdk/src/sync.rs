@@ -39,7 +39,7 @@ use ruma::{
 };
 use tracing::{debug, error, warn};
 
-use crate::{event_handler::HandlerKind, room, Client, Result};
+use crate::{event_handler::HandlerKind, Client, Result, Room};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]
@@ -116,21 +116,21 @@ pub enum RoomUpdate {
     /// Updates to a room the user is no longer in.
     Left {
         /// Room object with general information on the room.
-        room: room::Common,
+        room: Room,
         /// Updates to the room.
         updates: LeftRoom,
     },
     /// Updates to a room the user is currently in.
     Joined {
         /// Room object with general information on the room.
-        room: room::Common,
+        room: Room,
         /// Updates to the room.
         updates: JoinedRoom,
     },
     /// Updates to a room the user is invited to.
     Invited {
         /// Room object with general information on the room.
-        room: room::Common,
+        room: Room,
         /// Updates to the room.
         updates: InvitedRoom,
     },

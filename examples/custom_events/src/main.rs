@@ -13,7 +13,6 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room,
     ruma::{
         events::{
             macros::EventContent,
@@ -24,7 +23,7 @@ use matrix_sdk::{
         },
         OwnedEventId,
     },
-    Client, RoomState,
+    Client, Room, RoomState,
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
@@ -50,7 +49,7 @@ pub struct AckEventContent {
 // use that for `on_ping_event`.
 
 // we want to start the ping-ack-flow on "!ping" messages.
-async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common) {
+async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if room.state() != RoomState::Joined {
         return;
     }
@@ -66,7 +65,7 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: room
 }
 
 // call this on any PingEvent we receive
-async fn on_ping_event(event: SyncPingEvent, room: room::Common) {
+async fn on_ping_event(event: SyncPingEvent, room: Room) {
     if room.state() != RoomState::Joined {
         return;
     }
@@ -124,7 +123,7 @@ async fn login_and_sync(
 async fn on_stripped_state_member(
     room_member: StrippedRoomMemberEvent,
     client: Client,
-    room: room::Common,
+    room: Room,
 ) {
     if room_member.state_key != client.user_id().unwrap() {
         // the invite we've seen isn't for us, but for someone else. ignore

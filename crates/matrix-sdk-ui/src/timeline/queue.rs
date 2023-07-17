@@ -24,7 +24,7 @@ use std::{
 use futures_util::future::Either;
 use matrix_sdk::{
     executor::{spawn, JoinError, JoinHandle},
-    room,
+    Room,
 };
 use matrix_sdk_base::RoomState;
 use ruma::{events::AnyMessageLikeEventContent, OwnedTransactionId};
@@ -46,7 +46,7 @@ pub(super) struct LocalMessage {
 #[instrument(skip_all, fields(room_id = ?room.room_id()))]
 pub(super) async fn send_queued_messages(
     timeline_inner: TimelineInner,
-    room: room::Common,
+    room: Room,
     mut msg_receiver: Receiver<LocalMessage>,
 ) {
     let mut queue = VecDeque::new();
@@ -98,7 +98,7 @@ pub(super) async fn send_queued_messages(
 
 async fn handle_message(
     msg: LocalMessage,
-    room: room::Common,
+    room: Room,
     send_task: &mut SendMessageTask,
     queue: &mut VecDeque<LocalMessage>,
     timeline_inner: &TimelineInner,
@@ -160,7 +160,7 @@ enum SendMessageResult {
     Success {
         /// The joined room object, used to start sending of the next message
         /// in the queue, if it isn't empty.
-        room: room::Common,
+        room: Room,
     },
     /// Sending failed, and the local echo was updated to indicate this.
     SendingFailed,
@@ -186,7 +186,7 @@ enum SendMessageTask {
         /// The transaction ID of the message that is being sent.
         txn_id: OwnedTransactionId,
         /// Handle to the task itself.
-        join_handle: JoinHandle<Option<room::Common>>,
+        join_handle: JoinHandle<Option<Room>>,
     },
 }
 
@@ -196,7 +196,7 @@ impl SendMessageTask {
         matches!(self, Self::Idle)
     }
 
-    fn start(&mut self, room: room::Common, timeline_inner: TimelineInner, msg: LocalMessage) {
+    fn start(&mut self, room: Room, timeline_inner: TimelineInner, msg: LocalMessage) {
         debug!("Spawning message-sending task");
         let txn_id = msg.txn_id.clone();
         let join_handle = spawn(async move {

@@ -84,9 +84,9 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    room,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, TransmissionProgress,
+    Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
+    TransmissionProgress,
 };
 
 mod builder;
@@ -104,10 +104,9 @@ type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Common, Client) -> NotificationHandlerFut + Send + Sync>;
+    Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut + Send + Sync>;
 #[cfg(target_arch = "wasm32")]
-type NotificationHandlerFn =
-    Box<dyn Fn(Notification, room::Common, Client) -> NotificationHandlerFut>;
+type NotificationHandlerFn = Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
@@ -477,8 +476,8 @@ impl Client {
     /// the event handler being skipped and an error being logged. The following
     /// context argument types are only available for a subset of event types:
     ///
-    /// * [`room::Common`] is only available for room-specific events, i.e. not
-    ///   for events like global account data events or presence events.
+    /// * [`Room`] is only available for room-specific events, i.e. not for
+    ///   events like global account data events or presence events.
     ///
     /// You can provide custom context via
     /// [`add_event_handler_context`](Client::add_event_handler_context) and
@@ -495,7 +494,6 @@ impl Client {
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
     ///     event_handler::Ctx,
-    ///     room::Common,
     ///     ruma::{
     ///         events::{
     ///             macros::EventContent,
@@ -505,7 +503,7 @@ impl Client {
     ///         push::Action,
     ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
-    ///     Client,
+    ///     Client, Room,
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
@@ -518,12 +516,12 @@ impl Client {
     /// #     .unwrap();
     /// #
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Common, client: Client| async move {
+    ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
     ///     },
     /// );
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Common, encryption_info: Option<EncryptionInfo>| {
+    ///     |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///         async move {
     ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///             // unencrypted events and events that were decrypted by the SDK.
@@ -531,7 +529,7 @@ impl Client {
     ///     },
     /// );
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Common, push_actions: Vec<Action>| {
+    ///     |ev: SyncRoomMessageEvent, room: Room, push_actions: Vec<Action>| {
     ///         async move {
     ///             // A `Vec<Action>` parameter allows you to know which push actions
     ///             // are applicable for an event. For example, an event with
@@ -570,7 +568,7 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.add_event_handler(|ev: SyncTokenEvent, room: Common| async move {
+    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
     ///     todo!("Display the token");
     /// });
     ///
@@ -699,8 +697,8 @@ impl Client {
     ///
     /// ```
     /// use matrix_sdk::{
-    ///     event_handler::Ctx, room::Common,
-    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    ///     event_handler::Ctx, ruma::events::room::message::SyncRoomMessageEvent,
+    ///     Room,
     /// };
     /// # #[derive(Clone)]
     /// # struct SomeType;
@@ -719,7 +717,7 @@ impl Client {
     ///
     /// client.add_event_handler_context(my_gui_handle.clone());
     /// client.add_event_handler(
-    ///     |ev: SyncRoomMessageEvent, room: Common, gui_handle: Ctx<SomeType>| {
+    ///     |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| {
     ///         async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         }
@@ -737,14 +735,11 @@ impl Client {
     /// Register a handler for a notification.
     ///
     /// Similar to [`Client::add_event_handler`], but only allows functions
-    /// or closures with exactly the three arguments [`Notification`],
-    /// [`room::Common`], [`Client`] for now.
+    /// or closures with exactly the three arguments [`Notification`], [`Room`],
+    /// [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
-        H: Fn(Notification, room::Common, Client) -> Fut
-            + SendOutsideWasm
-            + SyncOutsideWasm
-            + 'static,
+        H: Fn(Notification, Room, Client) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
         Fut: Future<Output = ()> + SendOutsideWasm + 'static,
     {
         self.inner.notification_handlers.write().await.push(Box::new(
@@ -778,47 +773,47 @@ impl Client {
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
-    pub fn rooms(&self) -> Vec<room::Common> {
+    pub fn rooms(&self) -> Vec<Room> {
         self.base_client()
             .get_rooms()
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
     /// Get all the rooms the client knows about, filtered by room state.
-    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<room::Common> {
+    pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.base_client()
             .get_rooms_filtered(filter)
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
     /// Returns the joined rooms this client knows about.
-    pub fn joined_rooms(&self) -> Vec<room::Common> {
+    pub fn joined_rooms(&self) -> Vec<Room> {
         self.base_client()
             .get_rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
     /// Returns the invited rooms this client knows about.
-    pub fn invited_rooms(&self) -> Vec<room::Common> {
+    pub fn invited_rooms(&self) -> Vec<Room> {
         self.base_client()
             .get_rooms_filtered(RoomStateFilter::INVITED)
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
     /// Returns the left rooms this client knows about.
-    pub fn left_rooms(&self) -> Vec<room::Common> {
+    pub fn left_rooms(&self) -> Vec<Room> {
         self.base_client()
             .get_rooms_filtered(RoomStateFilter::LEFT)
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| Room::new(self.clone(), room))
             .collect()
     }
 
@@ -827,8 +822,8 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Common> {
-        self.base_client().get_room(room_id).map(|room| room::Common::new(self.clone(), room))
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.base_client().get_room(room_id).map(|room| Room::new(self.clone(), room))
     }
 
     /// Resolve a room alias to a room id and a list of servers which know
@@ -974,11 +969,11 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Common> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(room::Common::new(self.clone(), base_room))
+        Ok(Room::new(self.clone(), base_room))
     }
 
     /// Join a room by `RoomId`.
@@ -994,13 +989,13 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> Result<room::Common> {
+    ) -> Result<Room> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             server_name: server_names.to_owned(),
         });
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(room::Common::new(self.clone(), base_room))
+        Ok(Room::new(self.clone(), base_room))
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1079,14 +1074,14 @@ impl Client {
     /// assert!(client.create_room(request).await.is_ok());
     /// # };
     /// ```
-    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<room::Common> {
+    pub async fn create_room(&self, request: create_room::v3::Request) -> Result<Room> {
         let invite = request.invite.clone();
         let is_direct_room = request.is_direct;
         let response = self.send(request, None).await?;
 
         let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
-        let joined_room = room::Common::new(self.clone(), base_room);
+        let joined_room = Room::new(self.clone(), base_room);
 
         if is_direct_room && !invite.is_empty() {
             if let Err(error) =
@@ -1105,7 +1100,7 @@ impl Client {
     /// Convenience shorthand for [`create_room`][Self::create_room] with the
     /// given user being invited, the room marked `is_direct` and both the
     /// creator and invitee getting the default maximum power level.
-    pub async fn create_dm(&self, user_id: &UserId) -> Result<room::Common> {
+    pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
         self.create_room(assign!(create_room::v3::Request::new(), {
             invite: vec![user_id.to_owned()],
             is_direct: true,

@@ -31,7 +31,7 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, room::Common, Client};
+use crate::{encryption::verification::VerificationRequest, Client, Room};
 
 /// A struct representing a E2EE capable identity of a user.
 ///
@@ -78,7 +78,7 @@ impl UserIdentity {
         Self { inner: identity.into() }
     }
 
-    pub(crate) fn new(client: Client, identity: InnerUserIdentity, room: Option<Common>) -> Self {
+    pub(crate) fn new(client: Client, identity: InnerUserIdentity, room: Option<Room>) -> Self {
         let identity = OtherUserIdentity {
             inner: identity,
             client,
@@ -425,7 +425,7 @@ struct OwnUserIdentity {
 struct OtherUserIdentity {
     pub(crate) inner: InnerUserIdentity,
     pub(crate) client: Client,
-    pub(crate) direct_message_room: Arc<RwLock<Option<Common>>>,
+    pub(crate) direct_message_room: Arc<RwLock<Option<Room>>>,
 }
 
 impl OwnUserIdentity {

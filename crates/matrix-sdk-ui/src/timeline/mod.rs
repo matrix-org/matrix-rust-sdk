@@ -27,7 +27,7 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, MessagesOptions, Receipts},
+    room::{MessagesOptions, Receipts, Room},
     Client, Result,
 };
 use matrix_sdk_base::RoomState;
@@ -102,7 +102,7 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner<room::Common>,
+    inner: TimelineInner<Room>,
 
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
@@ -128,11 +128,11 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &room::Common) -> TimelineBuilder {
+    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
-    fn room(&self) -> &room::Common {
+    fn room(&self) -> &Room {
         self.inner.room()
     }
 
@@ -573,10 +573,9 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Common::user_receipt()`](room::Common::user_receipt) that
-    /// only keeps track of read receipts received from the homeserver, this
-    /// keeps also track of implicit read receipts in this timeline, i.e.
-    /// when a room member sends an event.
+    /// Contrary to [`Room::user_receipt()`] that only keeps track of read
+    /// receipts received from the homeserver, this keeps also track of implicit
+    /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]
     pub async fn latest_user_read_receipt(
         &self,
@@ -587,7 +586,7 @@ impl Timeline {
 
     /// Send the given receipt.
     ///
-    /// This uses [`room::Common::send_single_receipt`] internally, but checks
+    /// This uses [`Room::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
     #[instrument(skip(self))]
@@ -606,7 +605,7 @@ impl Timeline {
 
     /// Send the given receipts.
     ///
-    /// This uses [`room::Common::send_multiple_receipts`] internally, but
+    /// This uses [`Room::send_multiple_receipts`] internally, but
     /// checks first if the receipts point to events in this timeline that
     /// are more recent than the current ones, to avoid unnecessary
     /// requests.

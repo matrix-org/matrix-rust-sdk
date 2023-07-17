@@ -64,7 +64,7 @@ use crate::{
         verification::{SasVerification, Verification, VerificationRequest},
     },
     error::HttpResult,
-    room, Client, Error, Result, TransmissionProgress,
+    Client, Error, Result, Room, TransmissionProgress,
 };
 
 mod futures;
@@ -358,7 +358,7 @@ impl Client {
     }
 
     /// Get the existing DM room with the given user, if any.
-    pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Common> {
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<Room> {
         let rooms = self.joined_rooms();
 
         // Find the room we share with the `user_id` and only with `user_id`

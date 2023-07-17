@@ -5,12 +5,11 @@ use std::{
 
 use matrix_sdk::{
     config::SyncSettings,
-    room,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    AuthSession, Client, Error, LoopCtrl, RoomState,
+    AuthSession, Client, Error, LoopCtrl, Room, RoomState,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -290,7 +289,7 @@ async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::
 }
 
 /// Handle room messages.
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to log text messages in joined rooms.
     if room.state() != RoomState::Joined {
         return;

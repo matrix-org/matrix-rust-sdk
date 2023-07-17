@@ -56,7 +56,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
-use crate::{room, Client};
+use crate::{Client, Room};
 
 mod context;
 mod maps;
@@ -231,7 +231,7 @@ where
 #[derive(Debug)]
 pub struct EventHandlerData<'a> {
     client: Client,
-    room: Option<room::Common>,
+    room: Option<Room>,
     raw: &'a RawJsonValue,
     encryption_info: Option<&'a EncryptionInfo>,
     push_actions: &'a [Action],
@@ -328,7 +328,7 @@ impl Client {
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: HandlerKind,
-        room: Option<&room::Common>,
+        room: Option<&Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -347,7 +347,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_state_events(
         &self,
-        room: Option<&room::Common>,
+        room: Option<&Room>,
         state_events: &[Raw<AnySyncStateEvent>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -375,7 +375,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_timeline_events(
         &self,
-        room: Option<&room::Common>,
+        room: Option<&Room>,
         timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -441,7 +441,7 @@ impl Client {
     #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
-        room: Option<&room::Common>,
+        room: Option<&Room>,
         raw: &RawJsonValue,
         event_kind: HandlerKind,
         event_type: &str,
@@ -571,9 +571,8 @@ mod tests {
 
     use crate::{
         event_handler::Ctx,
-        room,
         test_utils::{logged_in_client, no_retry_test_client},
-        Client,
+        Client, Room,
     };
 
     #[async_test]
@@ -587,7 +586,7 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Common| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -601,7 +600,7 @@ mod tests {
         });
         client.add_event_handler({
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Common| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
                 power_levels_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -683,14 +682,14 @@ mod tests {
         // Room event handlers for member events in both rooms
         client.add_room_event_handler(room_id_a, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Common| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
         });
         client.add_room_event_handler(room_id_b, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Common| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -699,7 +698,7 @@ mod tests {
         // Power levels event handlers for member events in room A
         client.add_room_event_handler(room_id_a, {
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Common| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
                 power_levels_count.fetch_add(1, SeqCst);
                 future::ready(())
             }

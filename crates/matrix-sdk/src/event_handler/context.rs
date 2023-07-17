@@ -20,7 +20,7 @@ use ruma::push::Action;
 use serde_json::value::RawValue as RawJsonValue;
 
 use super::{EventHandlerData, EventHandlerHandle};
-use crate::{room, Client};
+use crate::{Client, Room};
 
 /// Context for an event handler.
 ///
@@ -49,7 +49,7 @@ impl EventHandlerContext for EventHandlerHandle {
 /// Trying to use it in the event handler for another event, for example a
 /// global account data or presence event, will result in the event handler
 /// being skipped and an error getting logged.
-impl EventHandlerContext for room::Common {
+impl EventHandlerContext for Room {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
         data.room.clone()
     }

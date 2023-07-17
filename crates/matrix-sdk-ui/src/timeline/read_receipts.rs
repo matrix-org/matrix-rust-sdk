@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use eyeball_im::ObservableVector;
 use indexmap::IndexMap;
-use matrix_sdk::room;
+use matrix_sdk::Room;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, OwnedEventId, OwnedUserId, UserId,
@@ -129,7 +129,7 @@ impl TimelineInnerState {
         &self,
         user_id: &UserId,
         receipt_type: ReceiptType,
-        room: &room::Common,
+        room: &Room,
     ) -> Option<(OwnedEventId, Receipt)> {
         if let Some(receipt) = self
             .users_read_receipts
@@ -154,7 +154,7 @@ impl TimelineInnerState {
     pub(super) async fn latest_user_read_receipt(
         &self,
         user_id: &UserId,
-        room: &room::Common,
+        room: &Room,
     ) -> Option<(OwnedEventId, Receipt)> {
         let public_read_receipt = self.user_receipt(user_id, ReceiptType::Read, room).await;
         let private_read_receipt = self.user_receipt(user_id, ReceiptType::ReadPrivate, room).await;

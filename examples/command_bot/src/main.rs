@@ -2,14 +2,13 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room,
     ruma::events::room::message::{
         MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
-    Client, RoomState,
+    Client, Room, RoomState,
 };
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: room::Common) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if room.state() != RoomState::Joined {
         return;
     }

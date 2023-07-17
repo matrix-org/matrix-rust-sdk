@@ -88,12 +88,12 @@ pub use self::{
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
 #[derive(Debug, Clone)]
-pub struct Common {
+pub struct Room {
     inner: BaseRoom,
     pub(crate) client: Client,
 }
 
-impl Deref for Common {
+impl Deref for Room {
     type Target = BaseRoom;
 
     fn deref(&self) -> &Self::Target {
@@ -104,8 +104,8 @@ impl Deref for Common {
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
-impl Common {
-    /// Create a new `room::Common`
+impl Room {
+    /// Create a new `Room`
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
@@ -590,7 +590,7 @@ impl Common {
     ///
     /// ```no_run
     /// # async {
-    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::room::member::RoomMemberEventContent, serde::Raw,
     /// };
@@ -629,7 +629,7 @@ impl Common {
     ///
     /// ```no_run
     /// # async {
-    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let room: matrix_sdk::Room = todo!();
     /// # let user_ids: &[matrix_sdk::ruma::OwnedUserId] = &[];
     /// use matrix_sdk::ruma::events::room::member::RoomMemberEventContent;
     ///
@@ -676,7 +676,7 @@ impl Common {
     ///
     /// ```no_run
     /// # async {
-    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsEventContent;
     ///
     /// let power_levels = room
@@ -701,7 +701,7 @@ impl Common {
     ///
     /// ```no_run
     /// # async {
-    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::room::member::RoomMemberEventContent, serde::Raw, user_id,
     /// };
@@ -745,7 +745,7 @@ impl Common {
     ///
     /// ```no_run
     /// # async {
-    /// # let room: matrix_sdk::room::Common = todo!();
+    /// # let room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
     ///
     /// match room.account_data_static::<FullyReadEventContent>().await? {
@@ -1721,7 +1721,7 @@ impl Common {
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
     /// # async {
-    /// # let joined_room: matrix_sdk::room::Common = todo!();
+    /// # let joined_room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent, room::encryption::RoomEncryptionEventContent,
@@ -1772,7 +1772,7 @@ impl Common {
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
     /// # async {
-    /// # let joined_room: matrix_sdk::room::Common = todo!();
+    /// # let joined_room: matrix_sdk::Room = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent,

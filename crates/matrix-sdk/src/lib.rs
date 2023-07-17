@@ -61,6 +61,7 @@ pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use media::Media;
+pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 #[cfg(feature = "experimental-sliding-sync")]
 pub use sliding_sync::{
