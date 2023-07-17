@@ -7,11 +7,13 @@ use crate::RoomState;
 mod common;
 mod joined;
 mod member;
+mod messages;
 
 pub use self::{
-    common::{Common, Invite, Messages, MessagesOptions},
+    common::{Common, Invite},
     joined::{Joined, Receipts},
     member::RoomMember,
+    messages::{Messages, MessagesOptions},
 };
 
 /// An enum that abstracts over the different states a room can be in.
