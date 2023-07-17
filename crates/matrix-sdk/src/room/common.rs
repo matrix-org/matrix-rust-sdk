@@ -1148,12 +1148,8 @@ impl Common {
     /// The membership details of the (latest) invite for the logged-in user in
     /// this room.
     pub async fn invite_details(&self) -> Result<Invite> {
-        let user_id = self
-            .client
-            .user_id()
-            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
         let invitee = self
-            .get_member_no_sync(user_id)
+            .get_member_no_sync(self.own_user_id())
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
@@ -1268,9 +1264,6 @@ pub struct Invite {
 
 #[derive(Error, Debug)]
 pub enum InvitationError {
-    /// The client isn't logged in.
-    #[error("The client isn't authenticated")]
-    NotAuthenticated,
     #[error("No membership event found")]
     EventMissing,
 }
