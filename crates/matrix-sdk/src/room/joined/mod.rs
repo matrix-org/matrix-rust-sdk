@@ -42,7 +42,6 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{debug, instrument};
 
-use super::Left;
 use crate::{
     attachment::AttachmentConfig,
     error::{Error, HttpResult},

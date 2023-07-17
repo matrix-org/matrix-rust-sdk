@@ -116,7 +116,7 @@ pub enum RoomUpdate {
     /// Updates to a room the user is no longer in.
     Left {
         /// Room object with general information on the room.
-        room: room::Left,
+        room: room::Common,
         /// Updates to the room.
         updates: LeftRoom,
     },
@@ -217,20 +217,19 @@ impl Client {
                 self.notify_sync_gap(room_id);
             }
 
-            let Some(room) = self.get_left_room(room_id) else {
+            let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
             };
 
             self.send_room_update(room_id, || RoomUpdate::Left {
-                room: room.clone(),
+                room: (*room).clone(),
                 updates: room_info.clone(),
             });
 
             let LeftRoom { timeline, state, account_data } = room_info;
 
-            let left = room::Room::Left(room);
-            let room = Some(&left);
+            let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
             self.handle_sync_state_events(room, state).await?;
             self.handle_sync_timeline_events(room, &timeline.events).await?;
