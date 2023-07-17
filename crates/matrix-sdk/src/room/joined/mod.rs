@@ -1104,6 +1104,7 @@ impl Joined {
 
     /// Returns true if the user with the given  user_id is able to redact
     /// messages in the room.
+    ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact(&self, user_id: &UserId) -> Result<bool> {
         Ok(self.get_room_power_levels().await?.user_can_redact(user_id))
