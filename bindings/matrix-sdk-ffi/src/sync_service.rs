@@ -16,8 +16,9 @@ use std::{fmt::Debug, sync::Arc};
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
-use matrix_sdk_ui::app::{
-    App as MatrixApp, AppBuilder as MatrixAppBuilder, AppState as MatrixAppState,
+use matrix_sdk_ui::sync_service::{
+    SyncService as MatrixSyncService, SyncServiceBuilder as MatrixSyncServiceBuilder,
+    SyncServiceState as MatrixSyncServiceState,
 };
 
 use crate::{
@@ -26,39 +27,39 @@ use crate::{
 };
 
 #[derive(uniffi::Enum)]
-pub enum AppState {
+pub enum SyncServiceState {
     Running,
     Terminated,
     Error,
 }
 
-impl From<MatrixAppState> for AppState {
-    fn from(value: MatrixAppState) -> Self {
+impl From<MatrixSyncServiceState> for SyncServiceState {
+    fn from(value: MatrixSyncServiceState) -> Self {
         match value {
-            MatrixAppState::Running => Self::Running,
-            MatrixAppState::Terminated => Self::Terminated,
-            MatrixAppState::Error => Self::Error,
+            MatrixSyncServiceState::Running => Self::Running,
+            MatrixSyncServiceState::Terminated => Self::Terminated,
+            MatrixSyncServiceState::Error => Self::Error,
         }
     }
 }
 
 #[uniffi::export(callback_interface)]
-pub trait AppStateObserver: Send + Sync + Debug {
-    fn on_update(&self, state: AppState);
+pub trait SyncServiceStateObserver: Send + Sync + Debug {
+    fn on_update(&self, state: SyncServiceState);
 }
 
 #[derive(uniffi::Object)]
-pub struct App {
-    inner: MatrixApp,
+pub struct SyncService {
+    inner: MatrixSyncService,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl App {
+impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
-    fn state(&self, listener: Box<dyn AppStateObserver>) -> Arc<TaskHandle> {
+    fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
         let state_stream = self.inner.observe_state();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
@@ -81,18 +82,18 @@ impl App {
 }
 
 #[derive(Clone, uniffi::Object)]
-pub struct AppBuilder {
-    builder: MatrixAppBuilder,
+pub struct SyncServiceBuilder {
+    builder: MatrixSyncServiceBuilder,
 }
 
-impl AppBuilder {
+impl SyncServiceBuilder {
     pub(crate) fn new(client: Client) -> Arc<Self> {
-        Arc::new(Self { builder: MatrixApp::builder(client) })
+        Arc::new(Self { builder: MatrixSyncService::builder(client) })
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl AppBuilder {
+impl SyncServiceBuilder {
     pub fn with_encryption_sync(
         self: Arc<Self>,
         with_cross_process_lock: bool,
@@ -103,8 +104,8 @@ impl AppBuilder {
         Arc::new(Self { builder })
     }
 
-    pub async fn finish(self: Arc<Self>) -> Result<Arc<App>, ClientError> {
+    pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        Ok(Arc::new(App { inner: this.builder.build().await? }))
+        Ok(Arc::new(SyncService { inner: this.builder.build().await? }))
     }
 }

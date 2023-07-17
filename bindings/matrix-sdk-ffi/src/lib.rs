@@ -20,7 +20,6 @@ macro_rules! unwrap_or_clone_arc_into_variant {
     };
 }
 
-mod app;
 mod authentication_service;
 mod client;
 mod client_builder;
@@ -34,6 +33,7 @@ mod room;
 mod room_list;
 mod room_member;
 mod session_verification;
+mod sync_service;
 mod task_handle;
 mod timeline;
 mod tracing;

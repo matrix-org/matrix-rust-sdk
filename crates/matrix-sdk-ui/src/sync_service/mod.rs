@@ -39,11 +39,11 @@ use crate::{
 /// underlying syncs ran into an error).
 ///
 /// It is the responsibility of the caller to restart the application using the
-/// [`App::start`] method, in case it terminated, gracefully or not.
+/// [`SyncService::start`] method, in case it terminated, gracefully or not.
 ///
-/// This can be observed with [`App::observe_state`].
+/// This can be observed with [`SyncService::observe_state`].
 #[derive(Clone)]
-pub enum AppState {
+pub enum SyncServiceState {
     /// The underlying syncs are properly running in the background.
     Running,
     /// Any of the underlying syncs has terminated gracefully (i.e. be stopped).
@@ -52,17 +52,17 @@ pub enum AppState {
     Error,
 }
 
-pub struct App {
+pub struct SyncService {
     room_list_service: Arc<RoomListService>,
     encryption_sync: Option<Arc<EncryptionSync>>,
     task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    state_observer: SharedObservable<AppState>,
+    state_observer: SharedObservable<SyncServiceState>,
 }
 
-impl App {
-    /// Create a new builder for configuring an `App`.
-    pub fn builder(client: Client) -> AppBuilder {
-        AppBuilder::new(client)
+impl SyncService {
+    /// Create a new builder for configuring an `SyncService`.
+    pub fn builder(client: Client) -> SyncServiceBuilder {
+        SyncServiceBuilder::new(client)
     }
 
     /// Get the underlying `RoomListService` instance for easier access to its
@@ -73,8 +73,8 @@ impl App {
 
     /// Observe the current state of the application.
     ///
-    /// See also [`AppState`].
-    pub fn observe_state(&self) -> impl Stream<Item = AppState> {
+    /// See also [`SyncServiceState`].
+    pub fn observe_state(&self) -> impl Stream<Item = SyncServiceState> {
         self.state_observer.subscribe()
     }
 
@@ -117,11 +117,11 @@ impl App {
                             if let Some(encryption_sync_result) = encryption_sync_result {
                                 if let Err(err) = encryption_sync_result {
                                     tracing::error!("Encryption sync returned an error: {err:#}");
-                                    state_observer.set(AppState::Error);
+                                    state_observer.set(SyncServiceState::Error);
                                     break;
                                 }
                             } else {
-                                state_observer.set(AppState::Terminated);
+                                state_observer.set(SyncServiceState::Terminated);
                                 break;
                             }
                         }
@@ -130,11 +130,11 @@ impl App {
                             if let Some(room_list_result) = room_list_result {
                                 if let Err(err) = room_list_result {
                                     tracing::error!("Room list sync returned an error: {err:#}");
-                                    state_observer.set(AppState::Error);
+                                    state_observer.set(SyncServiceState::Error);
                                     break;
                                 }
                             } else {
-                                state_observer.set(AppState::Terminated);
+                                state_observer.set(SyncServiceState::Terminated);
                                 break;
                             }
                         }
@@ -144,12 +144,12 @@ impl App {
                 while let Some(res) = room_list_stream.next().await {
                     if let Err(err) = res {
                         tracing::error!("Error while processing app (room list) state: {err:#}");
-                        state_observer.set(AppState::Error);
+                        state_observer.set(SyncServiceState::Error);
                         break;
                     }
                 }
 
-                state_observer.set(AppState::Terminated);
+                state_observer.set(SyncServiceState::Terminated);
             }
         }));
 
@@ -171,7 +171,7 @@ impl App {
 }
 
 #[derive(Clone)]
-pub struct AppBuilder {
+pub struct SyncServiceBuilder {
     /// SDK client.
     client: Client,
 
@@ -182,12 +182,12 @@ pub struct AppBuilder {
     /// Is the cross-process lock for the crypto store enabled?
     with_cross_process_lock: bool,
 
-    /// Application identifier, used the cross-process lock value, if
+    /// Application identifier, used as the cross-process lock value, if
     /// applicable.
     identifier: String,
 }
 
-impl AppBuilder {
+impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
         Self {
             client,
@@ -225,12 +225,12 @@ impl AppBuilder {
         self
     }
 
-    /// Finish setting up the `App`.
+    /// Finish setting up the `SyncService`.
     ///
     /// This creates the underlying sliding syncs, and will start them in the
-    /// background. The resulting `App` must be kept alive as long as the
-    /// sliding syncs are supposed to run.
-    pub async fn build(self) -> Result<App, Error> {
+    /// background. The resulting `SyncService` must be kept alive as long as
+    /// the sliding syncs are supposed to run.
+    pub async fn build(self) -> Result<SyncService, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
             let encryption_sync = EncryptionSync::new(
@@ -246,10 +246,10 @@ impl AppBuilder {
             (room_list, None)
         };
 
-        let app = App {
+        let app = SyncService {
             room_list_service: Arc::new(room_list),
             encryption_sync,
-            state_observer: SharedObservable::new(AppState::Running),
+            state_observer: SharedObservable::new(SyncServiceState::Running),
             task_handle: Default::default(),
         };
 
@@ -259,7 +259,7 @@ impl AppBuilder {
     }
 }
 
-/// Errors for the `App` API.
+/// Errors for the `SyncService` API.
 #[derive(Debug, Error)]
 pub enum Error {
     /// An error received from the `RoomList` API.
