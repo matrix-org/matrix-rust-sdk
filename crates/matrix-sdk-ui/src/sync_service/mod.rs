@@ -19,8 +19,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eyeball::SharedObservable;
-use futures_core::Stream;
+use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
 use thiserror::Error;
@@ -74,7 +73,7 @@ impl SyncService {
     /// Observe the current state of the application.
     ///
     /// See also [`SyncServiceState`].
-    pub fn observe_state(&self) -> impl Stream<Item = SyncServiceState> {
+    pub fn observe_state(&self) -> Subscriber<SyncServiceState> {
         self.state_observer.subscribe()
     }
 
