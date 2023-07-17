@@ -984,7 +984,7 @@ impl Room {
         Ok(room.can_user_trigger_room_notification(&user_id).await?)
     }
 
-    pub fn current_user_id(&self) -> String {
+    pub fn own_user_id(&self) -> String {
         self.inner.own_user_id().to_string()
     }
 }
