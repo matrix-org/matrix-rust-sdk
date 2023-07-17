@@ -365,6 +365,11 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error>;
+
+    /// Is this store a memory store implementation?
+    fn is_memory_store(&self) -> bool {
+        false
+    }
 }
 
 #[repr(transparent)]

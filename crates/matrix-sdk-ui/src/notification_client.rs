@@ -265,6 +265,10 @@ impl NotificationClient {
     ) -> Result<Option<NotificationItem>, Error> {
         tracing::info!("fetching notification event with a sliding sync");
 
+        if !self.client.store().is_memory_store() {
+            return Err(Error::SlidingSyncMisconfiguredClient);
+        }
+
         let mut raw_event = match self.try_sliding_sync(room_id, event_id).await {
             Ok(Some(raw_event)) => raw_event,
 
@@ -513,6 +517,11 @@ pub enum Error {
     /// The Ruma event contained within this notification couldn't be parsed.
     #[error("invalid ruma event")]
     InvalidRumaEvent,
+
+    /// When calling `get_notification_with_sliding_sync`, the client was configured with a state
+    /// store that's not in memory.
+    #[error("client must be configured with an in-memory state store")]
+    SlidingSyncMisconfiguredClient,
 
     /// When calling `get_notification_with_sliding_sync`, the room was missing
     /// in the response.
