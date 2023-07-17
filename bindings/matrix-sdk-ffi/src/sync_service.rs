@@ -59,7 +59,7 @@ impl SyncService {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
-    fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
+    pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
         let state_stream = self.inner.observe_state();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
@@ -69,6 +69,10 @@ impl SyncService {
                 listener.on_update(state.into());
             }
         })))
+    }
+
+    pub fn current_state(&self) -> AppState {
+        self.inner.observe_state().get().into()
     }
 
     pub async fn start(&self) -> Result<(), ClientError> {
