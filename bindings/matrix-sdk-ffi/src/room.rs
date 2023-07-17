@@ -35,7 +35,7 @@ use super::RUNTIME;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
-    room_member::RoomMember,
+    room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
         AudioInfo, FileInfo, ImageInfo, ThumbnailInfo, TimelineDiff, TimelineItem,
         TimelineListener, VideoInfo,
@@ -68,7 +68,7 @@ impl Room {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Room {
     pub fn id(&self) -> String {
         self.inner.room_id().to_string()
@@ -901,6 +901,91 @@ impl Room {
 
             Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
         })
+    }
+
+    pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_redact(&user_id).await?)
+    }
+
+    pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_ban(&user_id).await?)
+    }
+
+    pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_invite(&user_id).await?)
+    }
+
+    pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_kick(&user_id).await?)
+    }
+
+    pub async fn can_user_send_state(
+        &self,
+        user_id: String,
+        state_event: StateEventType,
+    ) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_send_state(&user_id, state_event.into()).await?)
+    }
+
+    pub async fn can_user_send_message(
+        &self,
+        user_id: String,
+        message: MessageLikeEventType,
+    ) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_send_message(&user_id, message.into()).await?)
+    }
+
+    pub async fn can_user_trigger_room_notification(
+        &self,
+        user_id: String,
+    ) -> Result<bool, ClientError> {
+        let room = match &self.inner {
+            SdkRoom::Joined(j) => j.clone(),
+            _ => return Err(anyhow!("Can't check permissions for non joined rooms").into()),
+        };
+
+        let user_id = UserId::parse(&user_id)?;
+        Ok(room.can_user_trigger_room_notification(&user_id).await?)
+    }
+
+    pub fn own_user_id(&self) -> String {
+        self.inner.own_user_id().to_string()
     }
 }
 
