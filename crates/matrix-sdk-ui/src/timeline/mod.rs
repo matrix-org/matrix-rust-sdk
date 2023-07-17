@@ -591,11 +591,9 @@ impl Timeline {
 
     /// Send the given receipt.
     ///
-    /// This uses [`Joined::send_single_receipt`] internally, but checks
+    /// This uses [`room::Common::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
-    ///
-    /// [`Joined::send_single_receipt`]: room::Joined::send_single_receipt
     #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
