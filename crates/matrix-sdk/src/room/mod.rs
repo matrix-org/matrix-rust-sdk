@@ -5,14 +5,12 @@ use std::ops::Deref;
 use crate::RoomState;
 
 mod common;
-mod invited;
 mod joined;
 mod left;
 mod member;
 
 pub use self::{
     common::{Common, Invite, Messages, MessagesOptions},
-    invited::Invited,
     joined::{Joined, Receipts},
     left::Left,
     member::RoomMember,
@@ -26,7 +24,7 @@ pub enum Room {
     /// The room in the `left` state.
     Left(Left),
     /// The room in the `invited` state.
-    Invited(Invited),
+    Invited(Common),
 }
 
 impl Deref for Room {
@@ -46,7 +44,7 @@ impl From<Common> for Room {
         match room.state() {
             RoomState::Joined => Self::Joined(Joined { inner: room }),
             RoomState::Left => Self::Left(Left { inner: room }),
-            RoomState::Invited => Self::Invited(Invited { inner: room }),
+            RoomState::Invited => Self::Invited(room),
         }
     }
 }
@@ -57,7 +55,7 @@ impl From<Joined> for Room {
         match room.state() {
             RoomState::Joined => Self::Joined(Joined { inner: room }),
             RoomState::Left => Self::Left(Left { inner: room }),
-            RoomState::Invited => Self::Invited(Invited { inner: room }),
+            RoomState::Invited => Self::Invited(room),
         }
     }
 }
@@ -68,18 +66,7 @@ impl From<Left> for Room {
         match room.state() {
             RoomState::Joined => Self::Joined(Joined { inner: room }),
             RoomState::Left => Self::Left(Left { inner: room }),
-            RoomState::Invited => Self::Invited(Invited { inner: room }),
-        }
-    }
-}
-
-impl From<Invited> for Room {
-    fn from(room: Invited) -> Self {
-        let room = (*room).clone();
-        match room.state() {
-            RoomState::Joined => Self::Joined(Joined { inner: room }),
-            RoomState::Left => Self::Left(Left { inner: room }),
-            RoomState::Invited => Self::Invited(Invited { inner: room }),
+            RoomState::Invited => Self::Invited(room),
         }
     }
 }
