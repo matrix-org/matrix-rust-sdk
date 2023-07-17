@@ -65,7 +65,7 @@ use thiserror::Error;
 use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, instrument, warn};
 
-use super::{Joined, Messages, MessagesOptions, SendAttachment};
+use super::{Messages, MessagesOptions, SendAttachment};
 use crate::{
     attachment::AttachmentConfig,
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
@@ -120,13 +120,12 @@ impl Common {
     ///
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
-    pub async fn join(&self) -> Result<Joined> {
+    pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
 
         let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request, None).await?;
-        let base_room = self.client.base_client().room_joined(&response.room_id).await?;
-        let joined = Joined::new(&self.client, base_room).ok_or(Error::InconsistentState)?;
+        self.client.base_client().room_joined(&response.room_id).await?;
 
         if prev_room_state == RoomState::Invited {
             let is_direct_room = self.inner.is_direct().await.unwrap_or_else(|e| {
@@ -139,7 +138,7 @@ impl Common {
             }
         }
 
-        Ok(joined)
+        Ok(())
     }
 
     /// Get the inner client saved in this room instance.
@@ -178,7 +177,7 @@ impl Common {
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.matrix_auth().login_username(user, "password").send().await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let room = client.get_joined_room(&room_id).unwrap();
+    /// let room = client.get_room(&room_id).unwrap();
     /// if let Some(avatar) = room.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
@@ -214,7 +213,7 @@ impl Common {
     ///     MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
-    /// let room = client.get_joined_room(room_id!("!roomid:example.com")).unwrap();
+    /// let room = client.get_room(room_id!("!roomid:example.com")).unwrap();
     /// assert!(room.messages(options).await.is_ok());
     /// # };
     /// ```
@@ -797,7 +796,7 @@ impl Common {
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// use matrix_sdk::ruma::events::tag::TagInfo;
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     let mut tag_info = TagInfo::new();
     ///     tag_info.order = Some(0.9);
     ///     let user_tag = UserTagName::from_str("u.work")?;
@@ -1002,7 +1001,7 @@ impl Common {
     /// # let client = Client::new(homeserver).await?;
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.typing_notice(true).await?
     /// }
     /// # anyhow::Ok(()) };
@@ -1134,7 +1133,7 @@ impl Common {
     /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.enable_encryption().await?
     /// }
     /// # anyhow::Ok(()) };
@@ -1306,7 +1305,7 @@ impl Common {
     /// let content = RoomMessageEventContent::text_plain("Hello world");
     /// let txn_id = TransactionId::new();
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send(content, Some(&txn_id)).await?;
     /// }
     ///
@@ -1329,7 +1328,7 @@ impl Common {
     /// };
     /// let txn_id = TransactionId::new();
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send(content, Some(&txn_id)).await?;
     /// }
     /// # anyhow::Ok(()) };
@@ -1396,7 +1395,7 @@ impl Common {
     ///     "body": "Hello world",
     /// });
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_raw(content, "m.room.message", None).await?;
     /// }
     /// # anyhow::Ok(()) };
@@ -1508,7 +1507,7 @@ impl Common {
     /// # let room_id = room_id!("!test:localhost");
     /// let mut image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_attachment(
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
@@ -1712,7 +1711,7 @@ impl Common {
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
     /// # async {
-    /// # let joined_room: matrix_sdk::room::Joined = todo!();
+    /// # let joined_room: matrix_sdk::room::Common = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent, room::encryption::RoomEncryptionEventContent,
@@ -1763,7 +1762,7 @@ impl Common {
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
     /// # async {
-    /// # let joined_room: matrix_sdk::room::Joined = todo!();
+    /// # let joined_room: matrix_sdk::room::Common = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent,
@@ -1831,7 +1830,7 @@ impl Common {
     ///     "membership": "join"
     /// });
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     room.send_state_event_raw(content, "m.room.member", "").await?;
     /// }
     /// # anyhow::Ok(()) };
@@ -1881,7 +1880,7 @@ impl Common {
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// #
-    /// if let Some(room) = client.get_joined_room(&room_id) {
+    /// if let Some(room) = client.get_room(&room_id) {
     ///     let event_id = event_id!("$xxxxxx:example.org");
     ///     let reason = Some("Indecent material");
     ///     room.redact(&event_id, reason, None).await?;

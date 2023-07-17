@@ -123,7 +123,7 @@ pub enum RoomUpdate {
     /// Updates to a room the user is currently in.
     Joined {
         /// Room object with general information on the room.
-        room: room::Joined,
+        room: room::Common,
         /// Updates to the room.
         updates: JoinedRoom,
     },
@@ -189,20 +189,19 @@ impl Client {
                 self.notify_sync_gap(room_id);
             }
 
-            let Some(room) = self.get_joined_room(room_id) else {
+            let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
             };
 
             self.send_room_update(room_id, || RoomUpdate::Joined {
-                room: room.clone(),
+                room: (*room).clone(),
                 updates: room_info.clone(),
             });
 
             let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
                 room_info;
 
-            let room = room::Room::Joined(room);
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
             self.handle_sync_state_events(room, state).await?;

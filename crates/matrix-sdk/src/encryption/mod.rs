@@ -150,7 +150,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// # let room = client.get_joined_room(&room_id!("!test:example.com")).unwrap();
+    /// # let room = client.get_room(&room_id!("!test:example.com")).unwrap();
     /// let mut reader = std::io::Cursor::new(b"Hello, world!");
     /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
     ///
@@ -322,7 +322,7 @@ impl Client {
         let txn_id = &request.txn_id;
         let room_id = &request.room_id;
 
-        self.get_joined_room(room_id)
+        self.get_room(room_id)
             .expect("Can't send a message to a room that isn't known to the store")
             .send(content, Some(txn_id))
             .await
@@ -358,7 +358,7 @@ impl Client {
     }
 
     /// Get the existing DM room with the given user, if any.
-    pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<room::Common> {
         let rooms = self.joined_rooms();
 
         // Find the room we share with the `user_id` and only with `user_id`
@@ -1012,7 +1012,7 @@ mod tests {
 
         client.base_client().receive_sync_response(response).await.unwrap();
 
-        let room = client.get_joined_room(room_id).expect("Room should exist");
+        let room = client.get_room(room_id).expect("Room should exist");
         assert!(room.is_encrypted().await.expect("Getting encryption state"));
 
         let event_id = event_id!("$1:example.org");

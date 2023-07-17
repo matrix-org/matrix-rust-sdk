@@ -27,7 +27,7 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, Joined, MessagesOptions, Receipts, Room},
+    room::{self, MessagesOptions, Receipts, Room},
     Client, Result,
 };
 use mime::Mime;
@@ -135,7 +135,7 @@ impl Timeline {
         self.inner.room()
     }
 
-    fn joined_room(&self) -> Result<Joined, Error> {
+    fn joined_room(&self) -> Result<room::Common, Error> {
         match Room::from(self.room().clone()) {
             Room::Joined(room) => Ok(room),
             _ => Err(Error::RoomNotJoined),
@@ -615,11 +615,10 @@ impl Timeline {
 
     /// Send the given receipts.
     ///
-    /// This uses [`Joined::send_multiple_receipts`] internally, but checks
-    /// first if the receipts point to events in this timeline that are more
-    /// recent than the current ones, to avoid unnecessary requests.
-    ///
-    /// [`Joined::send_multiple_receipts`]: room::Joined::send_multiple_receipts
+    /// This uses [`room::Common::send_multiple_receipts`] internally, but
+    /// checks first if the receipts point to events in this timeline that
+    /// are more recent than the current ones, to avoid unnecessary
+    /// requests.
     #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {

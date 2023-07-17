@@ -6,14 +6,12 @@ use crate::RoomState;
 
 mod common;
 mod futures;
-mod joined;
 mod member;
 mod messages;
 
 pub use self::{
     common::{Common, Invite, Receipts},
     futures::SendAttachment,
-    joined::Joined,
     member::RoomMember,
     messages::{Messages, MessagesOptions},
 };
@@ -22,7 +20,7 @@ pub use self::{
 #[derive(Debug, Clone)]
 pub enum Room {
     /// The room in the `join` state.
-    Joined(Joined),
+    Joined(Common),
     /// The room in the `left` state.
     Left(Common),
     /// The room in the `invited` state.
@@ -44,18 +42,7 @@ impl Deref for Room {
 impl From<Common> for Room {
     fn from(room: Common) -> Self {
         match room.state() {
-            RoomState::Joined => Self::Joined(Joined { inner: room }),
-            RoomState::Left => Self::Left(room),
-            RoomState::Invited => Self::Invited(room),
-        }
-    }
-}
-
-impl From<Joined> for Room {
-    fn from(room: Joined) -> Self {
-        let room = (*room).clone();
-        match room.state() {
-            RoomState::Joined => Self::Joined(Joined { inner: room }),
+            RoomState::Joined => Self::Joined(room),
             RoomState::Left => Self::Left(room),
             RoomState::Invited => Self::Invited(room),
         }

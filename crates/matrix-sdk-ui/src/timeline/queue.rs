@@ -162,7 +162,7 @@ enum SendMessageResult {
     Success {
         /// The joined room object, used to start sending of the next message
         /// in the queue, if it isn't empty.
-        room: room::Joined,
+        room: room::Common,
     },
     /// Sending failed, and the local echo was updated to indicate this.
     SendingFailed,
@@ -188,7 +188,7 @@ enum SendMessageTask {
         /// The transaction ID of the message that is being sent.
         txn_id: OwnedTransactionId,
         /// Handle to the task itself.
-        join_handle: JoinHandle<Option<room::Joined>>,
+        join_handle: JoinHandle<Option<room::Common>>,
     },
 }
 
@@ -198,7 +198,7 @@ impl SendMessageTask {
         matches!(self, Self::Idle)
     }
 
-    fn start(&mut self, room: room::Joined, timeline_inner: TimelineInner, msg: LocalMessage) {
+    fn start(&mut self, room: room::Common, timeline_inner: TimelineInner, msg: LocalMessage) {
         debug!("Spawning message-sending task");
         let txn_id = msg.txn_id.clone();
         let join_handle = spawn(async move {

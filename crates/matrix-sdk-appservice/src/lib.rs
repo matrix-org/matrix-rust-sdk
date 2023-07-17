@@ -981,8 +981,9 @@ mod tests {
             .await?;
         let coolplace = room_id!("!coolplace:localhost");
         let boringplace = room_id!("!boringplace:localhost");
-        assert!(
-            alice.get_joined_room(coolplace).is_some(),
+        assert_eq!(
+            alice.get_room(coolplace).unwrap().state(),
+            RoomState::Joined,
             "Alice's membership in coolplace should be join"
         );
         assert_eq!(
