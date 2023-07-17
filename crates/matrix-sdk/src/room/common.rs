@@ -20,7 +20,7 @@ use ruma::{
             config::set_global_account_data,
             error::ErrorKind,
             filter::RoomEventFilter,
-            membership::{get_member_events, join_room_by_id, leave_room},
+            membership::{forget_room, get_member_events, join_room_by_id, leave_room},
             message::get_message_events,
             room::get_room_event,
             state::get_state_events_for_key,
@@ -1156,6 +1156,19 @@ impl Common {
         let inviter_id = event.sender();
         let inviter = self.get_member_no_sync(inviter_id).await?;
         Ok(Invite { invitee, inviter })
+    }
+
+    /// Forget this room.
+    ///
+    /// This communicates to the homeserver that it should forget the room.
+    ///
+    /// Only left rooms can be forgotten.
+    pub async fn forget(&self) -> Result<()> {
+        let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
+        let _response = self.client.send(request, None).await?;
+        self.client.store().remove_room(self.inner.room_id()).await?;
+
+        Ok(())
     }
 }
 
