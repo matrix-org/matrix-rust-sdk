@@ -42,6 +42,7 @@ pub mod media;
 pub mod notification_settings;
 pub mod room;
 pub mod sync;
+pub mod widget_api;
 
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
