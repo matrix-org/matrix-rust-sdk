@@ -35,7 +35,7 @@ use ruma::{
         StateEventType,
     },
     serde::Raw,
-    user_id, EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, Int, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 #[cfg(feature = "e2e-encryption")]
