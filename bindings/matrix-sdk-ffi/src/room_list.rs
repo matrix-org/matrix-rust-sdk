@@ -72,12 +72,6 @@ pub struct RoomListService {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl RoomListService {
-    fn is_syncing(&self) -> bool {
-        use matrix_sdk_ui::room_list_service::State;
-
-        matches!(self.inner.state().get(), State::SettingUp | State::Running)
-    }
-
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
