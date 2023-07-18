@@ -76,7 +76,7 @@ impl SessionStore {
 #[derive(Debug, Default)]
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
-    entries: Arc<DashMap<OwnedRoomId, HashMap<String, InboundGroupSession>>>,
+    entries: DashMap<OwnedRoomId, HashMap<String, InboundGroupSession>>,
 }
 
 impl GroupSessionStore {
@@ -124,7 +124,7 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Debug, Default)]
 pub struct DeviceStore {
-    entries: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>>,
+    entries: DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>,
 }
 
 impl DeviceStore {
