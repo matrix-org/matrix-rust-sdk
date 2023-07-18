@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use criterion::*;
 use matrix_sdk::{
     config::StoreConfig,
@@ -60,7 +62,7 @@ pub fn restore_session(c: &mut Criterion) {
     const NAME: &str = "restore a session";
 
     // Memory
-    let mem_store = MemoryStore::new();
+    let mem_store = Arc::new(MemoryStore::new());
     runtime.block_on(mem_store.save_changes(&changes)).expect("initial filling of mem failed");
 
     group.bench_with_input(BenchmarkId::new("memory store", NAME), &mem_store, |b, store| {
