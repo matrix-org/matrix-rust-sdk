@@ -58,6 +58,16 @@ impl HttpClient {
         HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
     }
 
+    /// Creates a new `HttpClient` with the same configuration, but with a blank
+    /// transient state.
+    pub(crate) fn partial_clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            request_config: self.request_config.clone(),
+            next_request_id: Default::default(),
+        }
+    }
+
     fn get_request_id(&self) -> String {
         let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
         format!("REQ-{request_id}")

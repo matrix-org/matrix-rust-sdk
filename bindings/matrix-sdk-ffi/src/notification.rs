@@ -84,10 +84,9 @@ pub struct NotificationClientBuilder {
 }
 
 impl NotificationClientBuilder {
-    pub(crate) fn new(client: matrix_sdk::Client) -> Result<Arc<Self>, ClientError> {
-        let builder =
-            RUNTIME.block_on(async { MatrixNotificationClient::builder(client).await })?;
-        Ok(Arc::new(Self { builder }))
+    pub(crate) fn new(client: matrix_sdk::Client) -> Arc<Self> {
+        let builder = RUNTIME.block_on(async { MatrixNotificationClient::builder(client).await });
+        Arc::new(Self { builder })
     }
 }
 

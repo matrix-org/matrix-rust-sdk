@@ -63,8 +63,8 @@ use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomState},
     store::{
-        ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
+        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
@@ -125,6 +125,17 @@ impl BaseClient {
             olm_machine: Default::default(),
             ignore_user_list_changes_tx: Default::default(),
         }
+    }
+
+    /// Clones the current base client to use the same crypto store but a
+    /// different, in-memory store config, and resets transient state.
+    pub fn clone_with_in_memory_state_store(&self) -> Self {
+        let mut config = StoreConfig::new().state_store(MemoryStore::new());
+        #[cfg(feature = "e2e-encryption")]
+        {
+            config = config.crypto_store(self.crypto_store.clone());
+        }
+        Self::with_store_config(config)
     }
 
     /// Get the session meta information.

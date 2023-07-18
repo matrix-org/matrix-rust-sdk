@@ -196,6 +196,52 @@ pub(crate) struct ClientInner {
     pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
 }
 
+impl ClientInner {
+    fn new(
+        homeserver: Url,
+        authentication_server_info: Option<AuthenticationServerInfo>,
+        sliding_sync_proxy: Option<Url>,
+        http_client: HttpClient,
+        base_client: BaseClient,
+        server_versions: Option<Box<[MatrixVersion]>>,
+        appservice_mode: bool,
+        respect_login_well_known: bool,
+        handle_refresh_tokens: bool,
+    ) -> Self {
+        let (unknown_token_error_sender, _) = broadcast::channel(1);
+
+        Self {
+            homeserver: RwLock::new(homeserver),
+            authentication_server_info,
+            #[cfg(feature = "experimental-sliding-sync")]
+            sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
+            http_client,
+            base_client,
+            server_versions: OnceCell::new_with(server_versions),
+            #[cfg(feature = "e2e-encryption")]
+            group_session_locks: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            key_claim_lock: Default::default(),
+            members_request_locks: Default::default(),
+            encryption_state_request_locks: Default::default(),
+            typing_notice_times: Default::default(),
+            event_handlers: Default::default(),
+            notification_handlers: Default::default(),
+            room_update_channels: Default::default(),
+            sync_gap_broadcast_txs: Default::default(),
+            appservice_mode,
+            respect_login_well_known,
+            sync_beat: event_listener::Event::new(),
+            handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
+            unknown_token_error_sender,
+            auth_data: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            cross_process_crypto_store_lock: OnceCell::new(),
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl Debug for Client {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1899,6 +1945,63 @@ impl Client {
     pub async fn notification_settings(&self) -> NotificationSettings {
         let ruleset = self.account().push_rules().await.unwrap_or_else(|_| Ruleset::new());
         NotificationSettings::new(self.clone(), ruleset)
+    }
+
+    /// Create a new specialized `Client` clone as a builder, to retrieve most
+    /// of the configuration of the current client without transient state.
+    pub async fn clone_builder(&self) -> ClientCloneBuilder {
+        ClientCloneBuilder {
+            homeserver: self.inner.homeserver.read().await.clone(),
+            authentication_server_info: self.inner.authentication_server_info.clone(),
+            sliding_sync_proxy: self.inner.sliding_sync_proxy.read().unwrap().clone(),
+            http_client: self.inner.http_client.partial_clone(),
+            base_client: self.inner.base_client.clone(),
+            server_versions: self.inner.server_versions.get().cloned(),
+            appservice_mode: self.inner.appservice_mode.clone(),
+            respect_login_well_known: self.inner.respect_login_well_known.clone(),
+            handle_refresh_tokens: self.inner.handle_refresh_tokens.clone(),
+        }
+    }
+}
+
+/// Specialized `Client` clone that can be used to tweak an existing `Client`'s
+/// configuration.
+#[derive(Debug)]
+pub struct ClientCloneBuilder {
+    homeserver: Url,
+    authentication_server_info: Option<AuthenticationServerInfo>,
+    sliding_sync_proxy: Option<Url>,
+    http_client: HttpClient,
+    base_client: BaseClient,
+    server_versions: Option<Box<[MatrixVersion]>>,
+    appservice_mode: bool,
+    respect_login_well_known: bool,
+    handle_refresh_tokens: bool,
+}
+
+impl ClientCloneBuilder {
+    /// Sets the current client to use an in-memory state store, instead of that
+    /// was previously configured.
+    pub fn with_in_memory_state_store(mut self) -> Self {
+        self.base_client = self.base_client.clone_with_in_memory_state_store();
+        self
+    }
+
+    /// Finish building the client.
+    pub fn build(self) -> Client {
+        Client {
+            inner: Arc::new(ClientInner::new(
+                self.homeserver,
+                self.authentication_server_info,
+                self.sliding_sync_proxy,
+                self.http_client,
+                self.base_client,
+                self.server_versions,
+                self.appservice_mode,
+                self.respect_login_well_known,
+                self.handle_refresh_tokens,
+            )),
+        }
     }
 }
 

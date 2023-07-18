@@ -583,7 +583,7 @@ impl Client {
         })
     }
 
-    pub fn notification_client(&self) -> Result<Arc<NotificationClientBuilder>, ClientError> {
+    pub fn notification_client(&self) -> Arc<NotificationClientBuilder> {
         NotificationClientBuilder::new(self.inner.clone())
     }
 
