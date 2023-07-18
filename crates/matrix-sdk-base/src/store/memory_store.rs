@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
-    sync::{Arc, RwLock},
+    sync::RwLock,
 };
 
 use async_trait::async_trait;
@@ -48,36 +48,31 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct MemoryStore {
-    user_avatar_url: Arc<DashMap<String, String>>,
-    sync_token: Arc<RwLock<Option<String>>>,
-    filters: Arc<DashMap<String, String>>,
-    account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
-    display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
-    room_info: Arc<DashMap<OwnedRoomId, RoomInfo>>,
+    user_avatar_url: DashMap<String, String>,
+    sync_token: RwLock<Option<String>>,
+    filters: DashMap<String, String>,
+    account_data: DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
+    profiles: DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>,
+    display_names: DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>,
+    members: DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>,
+    room_info: DashMap<OwnedRoomId, RoomInfo>,
     room_state:
-        Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+        DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>,
     room_account_data:
-        Arc<DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_state: Arc<
+        DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
+    stripped_room_state:
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
+    stripped_members: DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>,
+    presence: DashMap<OwnedUserId, Raw<PresenceEvent>>,
+    room_user_receipts: DashMap<
+        OwnedRoomId,
+        DashMap<(String, Option<String>), DashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
     >,
-    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MembershipState>>>,
-    presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
-    room_user_receipts: Arc<
-        DashMap<
-            OwnedRoomId,
-            DashMap<(String, Option<String>), DashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
-        >,
+    room_event_receipts: DashMap<
+        OwnedRoomId,
+        DashMap<(String, Option<String>), DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>,
     >,
-    room_event_receipts: Arc<
-        DashMap<
-            OwnedRoomId,
-            DashMap<(String, Option<String>), DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>,
-        >,
-    >,
-    custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
+    custom: DashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Default for MemoryStore {
@@ -106,7 +101,7 @@ impl MemoryStore {
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
-            custom: DashMap::new().into(),
+            custom: Default::default(),
         }
     }
 
