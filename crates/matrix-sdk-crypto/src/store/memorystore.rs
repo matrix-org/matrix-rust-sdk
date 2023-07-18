@@ -51,7 +51,7 @@ fn encode_key_info(info: &SecretInfo) -> String {
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,

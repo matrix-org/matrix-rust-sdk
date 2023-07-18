@@ -46,7 +46,7 @@ use crate::{
 ///
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MemoryStore {
     user_avatar_url: Arc<DashMap<String, String>>,
     sync_token: Arc<RwLock<Option<String>>>,
