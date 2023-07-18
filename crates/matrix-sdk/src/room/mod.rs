@@ -69,6 +69,7 @@ use tracing::{debug, instrument, warn};
 
 use crate::{
     attachment::AttachmentConfig,
+    error::WrongRoomState,
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
     sync::RoomUpdate,
@@ -120,6 +121,11 @@ impl Room {
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
     pub async fn leave(&self) -> Result<()> {
+        let state = self.state();
+        if state == RoomState::Left {
+            return Err(Error::WrongRoomState(WrongRoomState::new("Joined or Invited", state)));
+        }
+
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request, None).await?;
         self.client.base_client().room_left(self.room_id()).await?;
@@ -131,6 +137,11 @@ impl Room {
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
+        let state = self.state();
+        if state == RoomState::Joined {
+            return Err(Error::WrongRoomState(WrongRoomState::new("Invited or Left", state)));
+        }
+
         let prev_room_state = self.inner.state();
 
         let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
@@ -961,7 +972,6 @@ impl Room {
     #[instrument(skip_all)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
-
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
@@ -1017,6 +1027,8 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
+        self.ensure_room_joined()?;
+
         // Only send a request to the homeserver if the old timeout has elapsed
         // or the typing notice changed state within the
         // TYPING_NOTICE_TIMEOUT
@@ -1180,6 +1192,8 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
+        self.ensure_room_joined()?;
+
         let inner = || async {
             let mut map = self.client.inner.group_session_locks.lock().await;
 
@@ -1240,11 +1254,12 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all)]
     async fn share_room_key(&self) -> Result<()> {
+        self.ensure_room_joined()?;
+
         let requests = self.client.base_client().share_room_key(self.room_id()).await?;
 
         for request in requests {
             let response = self.client.send_to_device(&request).await?;
-
             self.client.mark_request_as_sent(&request.txn_id, &response).await?;
         }
 
@@ -1420,6 +1435,8 @@ impl Room {
         event_type: &str,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
+        self.ensure_room_joined()?;
+
         let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "e2e-encryption"))]
@@ -1571,6 +1588,8 @@ impl Room {
         config: AttachmentConfig,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<send_message_event::v3::Response> {
+        self.ensure_room_joined()?;
+
         #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted().await? {
             self.client
@@ -1655,9 +1674,7 @@ impl Room {
 
     /// Sets a new topic for this room.
     pub async fn set_room_topic(&self, topic: &str) -> Result<send_state_event::v3::Response> {
-        let topic_event = RoomTopicEventContent::new(topic.into());
-
-        self.send_state_event(topic_event).await
+        self.send_state_event(RoomTopicEventContent::new(topic.into())).await
     }
 
     /// Sets the new avatar url for this room.
@@ -1670,6 +1687,8 @@ impl Room {
         url: &MxcUri,
         info: Option<avatar::ImageInfo>,
     ) -> Result<send_state_event::v3::Response> {
+        self.ensure_room_joined()?;
+
         let mut room_avatar_event = RoomAvatarEventContent::new();
         room_avatar_event.url = Some(url.to_owned());
         room_avatar_event.info = info.map(Box::new);
@@ -1679,9 +1698,7 @@ impl Room {
 
     /// Removes the avatar from the room
     pub async fn remove_avatar(&self) -> Result<send_state_event::v3::Response> {
-        let room_avatar_event = RoomAvatarEventContent::new();
-
-        self.send_state_event(room_avatar_event).await
+        self.send_state_event(RoomAvatarEventContent::new()).await
     }
 
     /// Uploads a new avatar for this room.
@@ -1697,6 +1714,8 @@ impl Room {
         data: Vec<u8>,
         info: Option<avatar::ImageInfo>,
     ) -> Result<send_state_event::v3::Response> {
+        self.ensure_room_joined()?;
+
         let upload_response = self.client.media().upload(mime, data).await?;
         let mut info = info.unwrap_or_else(avatar::ImageInfo::new);
         info.blurhash = upload_response.blurhash;
@@ -1806,6 +1825,7 @@ impl Room {
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
+        self.ensure_room_joined()?;
         let request =
             send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
         let response = self.client.send(request, None).await?;
@@ -1852,6 +1872,8 @@ impl Room {
         event_type: &str,
         state_key: &str,
     ) -> Result<send_state_event::v3::Response> {
+        self.ensure_room_joined()?;
+
         let content = Raw::new(&content)?.cast();
         let request = send_state_event::v3::Request::new_raw(
             self.room_id().to_owned(),
@@ -2213,6 +2235,11 @@ impl Room {
     /// The membership details of the (latest) invite for the logged-in user in
     /// this room.
     pub async fn invite_details(&self) -> Result<Invite> {
+        let state = self.state();
+        if state != RoomState::Invited {
+            return Err(Error::WrongRoomState(WrongRoomState::new("Invited", state)));
+        }
+
         let invitee = self
             .get_member_no_sync(self.own_user_id())
             .await?
@@ -2229,11 +2256,25 @@ impl Room {
     ///
     /// Only left rooms can be forgotten.
     pub async fn forget(&self) -> Result<()> {
+        let state = self.state();
+        if state != RoomState::Left {
+            return Err(Error::WrongRoomState(WrongRoomState::new("Left", state)));
+        }
+
         let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
         let _response = self.client.send(request, None).await?;
         self.client.store().remove_room(self.inner.room_id()).await?;
 
         Ok(())
+    }
+
+    fn ensure_room_joined(&self) -> Result<()> {
+        let state = self.state();
+        if state == RoomState::Joined {
+            Ok(())
+        } else {
+            Err(Error::WrongRoomState(WrongRoomState::new("Joined", state)))
+        }
     }
 }
 
