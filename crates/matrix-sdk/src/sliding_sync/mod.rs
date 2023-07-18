@@ -1467,6 +1467,8 @@ mod tests {
         let no_overlap = room_id!("!omelette:example.org");
         let partial_overlap = room_id!("!fromage:example.org");
         let complete_overlap = room_id!("!baguette:example.org");
+        let no_new_events = room_id!("!pain:example.org");
+        let already_limited = room_id!("!paris:example.org");
 
         let response_timeline = vec![event_c.event.clone(), event_d.event.clone()];
 
@@ -1512,6 +1514,28 @@ mod tests {
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
+            (
+                // We locally have events for this room, and receive none in the response: not
+                // limited.
+                no_new_events.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    no_new_events.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_c.clone(), event_d.clone()],
+                ),
+            ),
+            (
+                // Already limited, but would be marked limited if the flag wasn't ignored (same as
+                // partial overlap).
+                already_limited.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    already_limited.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_a.clone(), event_b.clone(), event_c.clone()],
+                ),
+            ),
         ]);
 
         let mut response_rooms = BTreeMap::from_iter([
@@ -1540,6 +1564,21 @@ mod tests {
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
+            (
+                no_new_events.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    timeline: vec![],
+                }),
+            ),
+            (
+                already_limited.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    limited: true,
+                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                }),
+            ),
         ]);
 
         compute_limited(&known_rooms, &mut response_rooms);
@@ -1548,5 +1587,7 @@ mod tests {
         assert!(response_rooms.get(no_overlap).unwrap().limited);
         assert!(!response_rooms.get(partial_overlap).unwrap().limited);
         assert!(!response_rooms.get(complete_overlap).unwrap().limited);
+        assert!(!response_rooms.get(no_new_events).unwrap().limited);
+        assert!(response_rooms.get(already_limited).unwrap().limited);
     }
 }
