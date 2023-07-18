@@ -5,6 +5,5 @@ use crate::Result;
 
 #[async_trait]
 pub trait WidgetDriver {
-    async fn request_capabilities(&self, capabilities: CapabilitiesRequest)
-        -> Result<Capabilities>;
+    async fn request_capabilities(&self, capabilities: CapabilitiesRequest) -> Result<Capabilities>;
 }

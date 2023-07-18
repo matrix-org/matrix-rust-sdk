@@ -1,5 +1,7 @@
 pub mod capabilities;
 pub mod driver;
+pub mod messages;
+pub mod openid;
 pub mod widget;
 
 #[allow(missing_debug_implementations)]
