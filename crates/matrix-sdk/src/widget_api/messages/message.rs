@@ -1,18 +1,18 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Header {
-    pub request_id: String,
-    pub widget_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Message<Req, Resp> {
     #[serde(flatten)]
     pub header: Header,
     #[serde(rename = "data")]
     pub request: Req,
     pub response: Option<Response<Resp>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Header {
+    pub request_id: String,
+    pub widget_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize )]
@@ -31,3 +31,13 @@ pub struct WidgetError {
 pub struct WidgetErrorMessage {
     pub message: String
 }
+
+impl<Resp> Into<Result<Resp, WidgetError>> for Response<Resp> {
+    fn into(self) -> Result<Resp, WidgetError> {
+        match self {
+            Response::Error(err) => Err(err),
+            Response::Response(resp) => Ok(resp),
+        }
+    }
+}
+
