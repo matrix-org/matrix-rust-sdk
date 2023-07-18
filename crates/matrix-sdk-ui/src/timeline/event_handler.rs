@@ -923,19 +923,14 @@ impl<'a> TimelineEventHandler<'a> {
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider (remote)");
+                    let new_day_divider = new_timeline_item(
+                        VirtualTimelineItem::DayDivider(timestamp),
+                        self.next_internal_id,
+                    );
                     if should_push {
-                        self.items.push_back(new_timeline_item(
-                            VirtualTimelineItem::DayDivider(timestamp),
-                            self.next_internal_id,
-                        ));
+                        self.items.push_back(new_day_divider);
                     } else {
-                        self.items.insert(
-                            insert_idx,
-                            new_timeline_item(
-                                VirtualTimelineItem::DayDivider(timestamp),
-                                self.next_internal_id,
-                            ),
-                        );
+                        self.items.insert(insert_idx, new_day_divider);
                         insert_idx += 1;
                     }
                 }
@@ -951,10 +946,11 @@ impl<'a> TimelineEventHandler<'a> {
                 }
 
                 trace!("Adding new remote timeline item after all non-pending events");
+                let new_item = new_timeline_item(item, self.next_internal_id);
                 if should_push {
-                    self.items.push_back(new_timeline_item(item, self.next_internal_id));
+                    self.items.push_back(new_item);
                 } else {
-                    self.items.insert(insert_idx, new_timeline_item(item, self.next_internal_id));
+                    self.items.insert(insert_idx, new_item);
                 }
             }
 
