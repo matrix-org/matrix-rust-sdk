@@ -802,7 +802,7 @@ impl<'a> TimelineEventHandler<'a> {
                                 .reactions
                                 .clear();
                         }
-                    };
+                    }
 
                     if txn_id.is_none() {
                         // The event was created by this client, but the server
