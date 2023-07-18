@@ -240,7 +240,7 @@ impl SlidingSyncRoom {
 
 #[derive(Debug)]
 struct SlidingSyncRoomInner {
-    /// The client, used to fetch [`Room`][crate::room::Room].
+    /// The client, used to fetch [`Room`][crate::Room].
     client: Client,
 
     /// The room ID.

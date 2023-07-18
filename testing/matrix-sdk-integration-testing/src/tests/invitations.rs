@@ -1,7 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::{ensure, Result};
 use assign::assign;
 use matrix_sdk::{
-    room::Room, ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
+    ruma::api::client::room::create_room::v3::Request as CreateRoomRequest, RoomState,
 };
 
 use crate::helpers::get_client_for_user;
@@ -25,12 +25,14 @@ async fn test_invitation_details() -> Result<()> {
     sebastian.sync_once(Default::default()).await?;
     let room = sebastian.get_room(&room_id).expect("Sebstian doesn't know about the room");
 
-    if let Room::Invited(iv) = room {
-        let details = iv.invite_details().await?;
-        let sender = details.inviter.expect("invite details doesn't have inviter");
-        assert_eq!(sender.user_id(), tamatoa.user_id().expect("tamatoa has a user_id"));
-    } else {
-        bail!("The room tamatoa invited sebastian in isn't an invite: {:?}", room);
-    }
+    ensure!(
+        room.state() == RoomState::Invited,
+        "The room tamatoa invited sebastian in isn't an invite: {room:?}"
+    );
+
+    let details = room.invite_details().await?;
+    let sender = details.inviter.expect("invite details doesn't have inviter");
+    assert_eq!(sender.user_id(), tamatoa.user_id().expect("tamatoa has a user_id"));
+
     Ok(())
 }

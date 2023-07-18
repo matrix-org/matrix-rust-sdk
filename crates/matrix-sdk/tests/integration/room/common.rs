@@ -39,7 +39,7 @@ async fn user_presence() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
     let members: Vec<RoomMember> = room.members(RoomMemberships::ACTIVE).await.unwrap();
 
     assert_eq!(2, members.len());
@@ -54,7 +54,7 @@ async fn calculate_room_names_from_summary() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
 }
@@ -70,7 +70,7 @@ async fn room_names() {
     let sync_token = client.sync_once(sync_settings).await.unwrap().next_batch;
 
     assert_eq!(client.rooms().len(), 1);
-    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
@@ -79,7 +79,7 @@ async fn room_names() {
     let _response = client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(client.rooms().len(), 2);
-    let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
+    let invited_room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
 
     assert_eq!(
         DisplayName::Named("My Room Name".to_owned()),
@@ -150,12 +150,12 @@ async fn test_state_event_getting() {
 
     mock_sync(&server, sync, None).await;
 
-    let room = client.get_joined_room(room_id);
+    let room = client.get_room(room_id);
     assert!(room.is_none());
 
     client.sync_once(SyncSettings::default()).await.unwrap();
 
-    let room = client.get_joined_room(room_id).unwrap();
+    let room = client.get_room(room_id).unwrap();
 
     let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
     assert_eq!(state_events.len(), 1);

@@ -839,14 +839,26 @@ fn compute_limited(
             continue;
         }
 
+        if room.limited {
+            // If the room was already marked as limited, the server knew more than we did.
+            continue;
+        }
+
         // If the known room had some timeline events, consider it's a `limited` if
         // there's absolutely no overlap between the known events and
         // the new events in the timeline.
         if let Some(known_room) = known_rooms.get(room_id) {
+            let known_events = known_room.timeline_queue();
+
+            if room.timeline.is_empty() && !known_events.is_empty() {
+                // If the cached timeline had events, but the one in the response didn't have
+                // any, don't mark the room as limited.
+                continue;
+            }
+
             // Gather all the known event IDs. Ignore events that don't have an event ID.
-            let known_events: HashSet<OwnedEventId> = HashSet::from_iter(
-                known_room.timeline_queue().into_iter().filter_map(|event| event.event_id()),
-            );
+            let known_events: HashSet<OwnedEventId> =
+                HashSet::from_iter(known_events.into_iter().filter_map(|event| event.event_id()));
 
             // There's overlap if, and only if, there's at least one event in the
             // response's timeline that matches an event id we've seen before.
@@ -1455,6 +1467,8 @@ mod tests {
         let no_overlap = room_id!("!omelette:example.org");
         let partial_overlap = room_id!("!fromage:example.org");
         let complete_overlap = room_id!("!baguette:example.org");
+        let no_new_events = room_id!("!pain:example.org");
+        let already_limited = room_id!("!paris:example.org");
 
         let response_timeline = vec![event_c.event.clone(), event_d.event.clone()];
 
@@ -1500,6 +1514,28 @@ mod tests {
                     vec![event_c.clone(), event_d.clone()],
                 ),
             ),
+            (
+                // We locally have events for this room, and receive none in the response: not
+                // limited.
+                no_new_events.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    no_new_events.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_c.clone(), event_d.clone()],
+                ),
+            ),
+            (
+                // Already limited, but would be marked limited if the flag wasn't ignored (same as
+                // partial overlap).
+                already_limited.to_owned(),
+                SlidingSyncRoom::new(
+                    client.clone(),
+                    already_limited.to_owned(),
+                    v4::SlidingSyncRoom::default(),
+                    vec![event_a.clone(), event_b.clone(), event_c.clone()],
+                ),
+            ),
         ]);
 
         let mut response_rooms = BTreeMap::from_iter([
@@ -1528,6 +1564,21 @@ mod tests {
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
+            (
+                no_new_events.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    timeline: vec![],
+                }),
+            ),
+            (
+                already_limited.to_owned(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    initial: Some(true),
+                    limited: true,
+                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                }),
+            ),
         ]);
 
         compute_limited(&known_rooms, &mut response_rooms);
@@ -1536,5 +1587,7 @@ mod tests {
         assert!(response_rooms.get(no_overlap).unwrap().limited);
         assert!(!response_rooms.get(partial_overlap).unwrap().limited);
         assert!(!response_rooms.get(complete_overlap).unwrap().limited);
+        assert!(!response_rooms.get(no_new_events).unwrap().limited);
+        assert!(response_rooms.get(already_limited).unwrap().limited);
     }
 }

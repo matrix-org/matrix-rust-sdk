@@ -4,12 +4,11 @@ use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     event_handler::Ctx,
-    room::Room,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, RoomMemberships, RoomState, StateStoreExt,
+    Client, Room, RoomMemberships, RoomState, StateStoreExt,
 };
 use tokio::sync::Notify;
 
@@ -55,26 +54,21 @@ async fn test_repeated_join_leave() -> Result<()> {
     for i in 0..3 {
         println!("Iteration {i}");
 
-        // Test that karl has the expected state in its client.
-        assert!(karl.get_invited_room(room_id).is_some());
-        assert!(karl.get_joined_room(room_id).is_none());
-        assert!(karl.get_left_room(room_id).is_none());
-
         let room = karl.get_room(room_id).expect("karl has the room");
+
+        // Test that karl has the expected state in its client.
+        assert_eq!(room.state(), RoomState::Invited);
+
         let membership = room.get_member_no_sync(&karl_id).await?.expect("karl was invited");
         assert_eq!(*membership.membership(), MembershipState::Invite);
 
         // Join the room
         println!("Joining..");
-        let room =
-            karl.get_invited_room(room_id).expect("karl has the room").accept_invitation().await?;
+        room.join().await?;
         println!("Done");
         let membership = room.get_member(&karl_id).await?.expect("karl joined");
         assert_eq!(*membership.membership(), MembershipState::Join);
-
-        assert!(karl.get_invited_room(room_id).is_none());
-        assert!(karl.get_joined_room(room_id).is_some());
-        assert!(karl.get_left_room(room_id).is_none());
+        assert_eq!(room.state(), RoomState::Joined);
 
         // Syncs can overwrite the internal state. If the sync lags behind because we
         // change so often so fast, we can get errors in the asserts here. So we have to
@@ -83,18 +77,16 @@ async fn test_repeated_join_leave() -> Result<()> {
 
         // Leave the room
         println!("Leaving..");
-        let room = room.leave().await?;
+        room.leave().await?;
         println!("Done");
         let membership = room.get_member(&karl_id).await?.expect("karl left");
         assert_eq!(*membership.membership(), MembershipState::Leave);
 
-        assert!(karl.get_invited_room(room_id).is_none());
-        assert!(karl.get_joined_room(room_id).is_none());
-        assert!(karl.get_left_room(room_id).is_some());
+        assert_eq!(room.state(), RoomState::Left);
 
         // Invite karl again and wait for karl to receive the invite.
         println!("Inviting..");
-        let room = peter.get_joined_room(room_id).expect("peter created the room!");
+        let room = peter.get_room(room_id).expect("peter created the room!");
         room.invite_user_by_id(&karl_id).await?;
         println!("Waiting to receive invite..");
         invite_signal.notified().await;

@@ -56,7 +56,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
-use crate::{room, Client};
+use crate::{Client, Room};
 
 mod context;
 mod maps;
@@ -231,7 +231,7 @@ where
 #[derive(Debug)]
 pub struct EventHandlerData<'a> {
     client: Client,
-    room: Option<room::Room>,
+    room: Option<Room>,
     raw: &'a RawJsonValue,
     encryption_info: Option<&'a EncryptionInfo>,
     push_actions: &'a [Action],
@@ -328,7 +328,7 @@ impl Client {
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: HandlerKind,
-        room: Option<&room::Room>,
+        room: Option<&Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -347,7 +347,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_state_events(
         &self,
-        room: Option<&room::Room>,
+        room: Option<&Room>,
         state_events: &[Raw<AnySyncStateEvent>],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -375,7 +375,7 @@ impl Client {
 
     pub(crate) async fn handle_sync_timeline_events(
         &self,
-        room: Option<&room::Room>,
+        room: Option<&Room>,
         timeline_events: &[SyncTimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
@@ -441,7 +441,7 @@ impl Client {
     #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
     async fn call_event_handlers(
         &self,
-        room: Option<&room::Room>,
+        room: Option<&Room>,
         raw: &RawJsonValue,
         event_kind: HandlerKind,
         event_type: &str,
@@ -571,9 +571,8 @@ mod tests {
 
     use crate::{
         event_handler::Ctx,
-        room::Room,
         test_utils::{logged_in_client, no_retry_test_client},
-        Client,
+        Client, Room,
     };
 
     #[async_test]

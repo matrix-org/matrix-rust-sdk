@@ -14,12 +14,11 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room::Room,
     ruma::events::room::{
         member::StrippedRoomMemberEvent,
         message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
     },
-    Client,
+    Client, Room, RoomState,
 };
 use tokio::time::{sleep, Duration};
 
@@ -115,33 +114,30 @@ async fn on_stripped_state_member(
         return;
     }
 
-    // looks like the room is an invited room, let's attempt to join then
-    if let Room::Invited(room) = room {
-        // The event handlers are called before the next sync begins, but
-        // methods that change the state of a room (joining, leaving a room)
-        // wait for the sync to return the new room state so we need to spawn
-        // a new task for them.
-        tokio::spawn(async move {
-            println!("Autojoining room {}", room.room_id());
-            let mut delay = 2;
+    // The event handlers are called before the next sync begins, but
+    // methods that change the state of a room (joining, leaving a room)
+    // wait for the sync to return the new room state so we need to spawn
+    // a new task for them.
+    tokio::spawn(async move {
+        println!("Autojoining room {}", room.room_id());
+        let mut delay = 2;
 
-            while let Err(err) = room.accept_invitation().await {
-                // retry autojoin due to synapse sending invites, before the
-                // invited user can join for more information see
-                // https://github.com/matrix-org/synapse/issues/4345
-                eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
+        while let Err(err) = room.join().await {
+            // retry autojoin due to synapse sending invites, before the
+            // invited user can join for more information see
+            // https://github.com/matrix-org/synapse/issues/4345
+            eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
-                sleep(Duration::from_secs(delay)).await;
-                delay *= 2;
+            sleep(Duration::from_secs(delay)).await;
+            delay *= 2;
 
-                if delay > 3600 {
-                    eprintln!("Can't join room {} ({err:?})", room.room_id());
-                    break;
-                }
+            if delay > 3600 {
+                eprintln!("Can't join room {} ({err:?})", room.room_id());
+                break;
             }
-            println!("Successfully joined room {}", room.room_id());
-        });
-    }
+        }
+        println!("Successfully joined room {}", room.room_id());
+    });
 }
 
 // This fn is called whenever we see a new room message event. You notice that
@@ -152,7 +148,9 @@ async fn on_stripped_state_member(
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // First, we need to unpack the message: We only want messages from rooms we are
     // still in and that are regular text messages - ignoring everything else.
-    let Room::Joined(room) = room else { return };
+    if room.state() != RoomState::Joined {
+        return;
+    }
     let MessageType::Text(text_content) = event.content.msgtype else { return };
 
     // here comes the actual "logic": when the bot see's a `!party` in the message,

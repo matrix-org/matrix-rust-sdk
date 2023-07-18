@@ -13,7 +13,6 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings,
-    room::Room,
     ruma::{
         events::{
             macros::EventContent,
@@ -24,7 +23,7 @@ use matrix_sdk::{
         },
         OwnedEventId,
     },
-    Client,
+    Client, Room, RoomState,
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
@@ -51,7 +50,9 @@ pub struct AckEventContent {
 
 // we want to start the ping-ack-flow on "!ping" messages.
 async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    let Room::Joined(room) = room else { return };
+    if room.state() != RoomState::Joined {
+        return;
+    }
     let MessageType::Text(text_content) = event.content.msgtype else { return };
 
     if text_content.body.contains("!ping") {
@@ -65,16 +66,18 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room
 
 // call this on any PingEvent we receive
 async fn on_ping_event(event: SyncPingEvent, room: Room) {
-    if let Room::Joined(room) = room {
-        let event_id = event.event_id().to_owned();
-
-        // Send an ack with the event_id of the ping, as our 'protocol' demands
-        let content = AckEventContent { ping_id: event_id };
-        println!("sending ack");
-        room.send(content, None).await.unwrap();
-
-        println!("ack sent");
+    if room.state() != RoomState::Joined {
+        return;
     }
+
+    let event_id = event.event_id().to_owned();
+
+    // Send an ack with the event_id of the ping, as our 'protocol' demands
+    let content = AckEventContent { ping_id: event_id };
+    println!("sending ack");
+    room.send(content, None).await.unwrap();
+
+    println!("ack sent");
 }
 
 // once logged in, this is called where we configure the handlers
@@ -127,29 +130,27 @@ async fn on_stripped_state_member(
         return;
     }
 
-    // looks like the room is an invited room, let's attempt to join then
-    if let Room::Invited(room) = room {
-        tokio::spawn(async move {
-            println!("Autojoining room {}", room.room_id());
-            let mut delay = 2;
+    tokio::spawn(async move {
+        println!("Autojoining room {}", room.room_id());
+        let mut delay = 2;
 
-            while let Err(err) = room.accept_invitation().await {
-                // retry autojoin due to synapse sending invites, before the
-                // invited user can join for more information see
-                // https://github.com/matrix-org/synapse/issues/4345
-                eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
+        while let Err(err) = room.join().await {
+            // retry autojoin due to synapse sending invites, before the
+            // invited user can join for more information see
+            // https://github.com/matrix-org/synapse/issues/4345
+            eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
-                sleep(Duration::from_secs(delay)).await;
-                delay *= 2;
+            sleep(Duration::from_secs(delay)).await;
+            delay *= 2;
 
-                if delay > 3600 {
-                    eprintln!("Can't join room {} ({err:?})", room.room_id());
-                    break;
-                }
+            if delay > 3600 {
+                eprintln!("Can't join room {} ({err:?})", room.room_id());
+                break;
             }
-            println!("Successfully joined room {}", room.room_id());
-        });
-    }
+        }
+
+        println!("Successfully joined room {}", room.room_id());
+    });
 }
 
 #[tokio::main]

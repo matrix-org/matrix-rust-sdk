@@ -27,9 +27,10 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{self, Joined, MessagesOptions, Receipts, Room},
+    room::{MessagesOptions, Receipts, Room},
     Client, Result,
 };
+use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
@@ -80,6 +81,7 @@ pub use self::{
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
+    reactions::ReactionSenderData,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
@@ -100,7 +102,7 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner<room::Common>,
+    inner: TimelineInner<Room>,
 
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
@@ -126,19 +128,12 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 impl Timeline {
-    pub(crate) fn builder(room: &room::Common) -> TimelineBuilder {
+    pub(crate) fn builder(room: &Room) -> TimelineBuilder {
         TimelineBuilder::new(room)
     }
 
-    fn room(&self) -> &room::Common {
+    fn room(&self) -> &Room {
         self.inner.room()
-    }
-
-    fn joined_room(&self) -> Result<Joined, Error> {
-        match Room::from(self.room().clone()) {
-            Room::Joined(room) => Ok(room),
-            _ => Err(Error::RoomNotJoined),
-        }
     }
 
     /// Clear all timeline items, and reset pagination parameters.
@@ -407,13 +402,13 @@ impl Timeline {
 
     /// Redact a reaction event from the homeserver
     async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
+        let room = self.room();
+        if room.state() != RoomState::Joined {
+            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
+        }
+
         let txn_id = TransactionId::new();
         let no_reason = RoomRedactionEventContent::default();
-        let room = self.joined_room();
-
-        let Ok(room) = room else {
-            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
-        };
 
         let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
 
@@ -429,8 +424,10 @@ impl Timeline {
         annotation: &Annotation,
         txn_id: OwnedTransactionId,
     ) -> ReactionToggleResult {
-        let room = self.joined_room();
-        let Ok(room) = room else { return ReactionToggleResult::AddFailure { txn_id } };
+        let room = self.room();
+        if room.state() != RoomState::Joined {
+            return ReactionToggleResult::AddFailure { txn_id };
+        }
 
         let event_content =
             AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
@@ -576,10 +573,9 @@ impl Timeline {
 
     /// Get the latest read receipt for the given user.
     ///
-    /// Contrary to [`Common::user_receipt()`](room::Common::user_receipt) that
-    /// only keeps track of read receipts received from the homeserver, this
-    /// keeps also track of implicit read receipts in this timeline, i.e.
-    /// when a room member sends an event.
+    /// Contrary to [`Room::user_receipt()`] that only keeps track of read
+    /// receipts received from the homeserver, this keeps also track of implicit
+    /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]
     pub async fn latest_user_read_receipt(
         &self,
@@ -590,11 +586,9 @@ impl Timeline {
 
     /// Send the given receipt.
     ///
-    /// This uses [`Joined::send_single_receipt`] internally, but checks
+    /// This uses [`Room::send_single_receipt`] internally, but checks
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
-    ///
-    /// [`Joined::send_single_receipt`]: room::Joined::send_single_receipt
     #[instrument(skip(self))]
     pub async fn send_single_receipt(
         &self,
@@ -606,21 +600,15 @@ impl Timeline {
             return Ok(());
         }
 
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            // FIXME: Probably not exactly right
-            return Err(matrix_sdk::Error::InconsistentState);
-        };
-
-        room.send_single_receipt(receipt_type, thread, event_id).await
+        self.room().send_single_receipt(receipt_type, thread, event_id).await
     }
 
     /// Send the given receipts.
     ///
-    /// This uses [`Joined::send_multiple_receipts`] internally, but checks
-    /// first if the receipts point to events in this timeline that are more
-    /// recent than the current ones, to avoid unnecessary requests.
-    ///
-    /// [`Joined::send_multiple_receipts`]: room::Joined::send_multiple_receipts
+    /// This uses [`Room::send_multiple_receipts`] internally, but
+    /// checks first if the receipts point to events in this timeline that
+    /// are more recent than the current ones, to avoid unnecessary
+    /// requests.
     #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {
@@ -661,12 +649,7 @@ impl Timeline {
             }
         }
 
-        let Room::Joined(room) = Room::from(self.room().clone()) else {
-            // FIXME: Probably not exactly right
-            return Err(matrix_sdk::Error::InconsistentState);
-        };
-
-        room.send_multiple_receipts(receipts).await
+        self.room().send_multiple_receipts(receipts).await
     }
 }
 

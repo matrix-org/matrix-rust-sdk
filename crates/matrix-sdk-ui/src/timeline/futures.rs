@@ -6,7 +6,7 @@ use std::{
 };
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk::{attachment::AttachmentConfig, room::Room, TransmissionProgress};
+use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use mime::Mime;
 
 use super::{Error, Timeline};
@@ -47,10 +47,6 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     fn into_future(self) -> Self::IntoFuture {
         let Self { timeline, url, mime_type, config, send_progress } = self;
         Box::pin(async move {
-            let Room::Joined(room) = Room::from(timeline.room().clone()) else {
-                return Err(Error::RoomNotJoined);
-            };
-
             let body = Path::new(&url)
                 .file_name()
                 .ok_or(Error::InvalidAttachmentFileName)?
@@ -58,7 +54,9 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 .expect("path was created from UTF-8 string, hence filename part is UTF-8 too");
             let data = fs::read(&url).map_err(|_| Error::InvalidAttachmentData)?;
 
-            room.send_attachment(body, &mime_type, data, config)
+            timeline
+                .room()
+                .send_attachment(body, &mime_type, data, config)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(|_| Error::FailedSendingAttachment)?;

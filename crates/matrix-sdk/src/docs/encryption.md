@@ -224,7 +224,7 @@ is **not** supported using the default store.
 [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md
 [`UserIdentity`]: #struct.verification.UserIdentity
 [filtered]: crate::config::SyncSettings::filter
-[enabled]: crate::room::Joined::enable_encryption
+[enabled]: crate::Room::enable_encryption
 [Restoring a Client]: #restoring-a-client
 [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys

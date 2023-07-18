@@ -19,8 +19,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eyeball::SharedObservable;
-use futures_core::Stream;
+use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
 use thiserror::Error;
@@ -41,9 +40,11 @@ use crate::{
 /// It is the responsibility of the caller to restart the application using the
 /// [`SyncService::start`] method, in case it terminated, gracefully or not.
 ///
-/// This can be observed with [`SyncService::observe_state`].
+/// This can be observed with [`SyncService::state`].
 #[derive(Clone)]
 pub enum SyncServiceState {
+    /// The service hasn't ever been started yet.
+    Idle,
     /// The underlying syncs are properly running in the background.
     Running,
     /// Any of the underlying syncs has terminated gracefully (i.e. be stopped).
@@ -74,21 +75,34 @@ impl SyncService {
     /// Observe the current state of the application.
     ///
     /// See also [`SyncServiceState`].
-    pub fn observe_state(&self) -> impl Stream<Item = SyncServiceState> {
+    pub fn state(&self) -> Subscriber<SyncServiceState> {
         self.state_observer.subscribe()
     }
 
     /// Start (or restart) the underlying sliding syncs.
     ///
-    /// This can be called multiple times safely: if a previous task had been
-    /// spawned to run the syncs, then it will be properly aborted and
-    /// restarted.
+    /// This can be called multiple times safely:
+    /// - if the stream is still properly running, it won't be restarted.
+    /// - if the stream has been aborted before, it will be properly cleaned up
+    ///   and restarted.
     pub async fn start(&self) -> Result<(), Error> {
         let room_list = self.room_list_service.clone();
         let encryption_sync = self.encryption_sync.clone();
         let state_observer = self.state_observer.clone();
 
         let mut task_handle_lock = self.task_handle.lock().unwrap();
+
+        // It's important that the state be modified only after taking the lock, since
+        // the compare-and-swap sequence below isn't atomic.
+
+        // Only start the stream if it was stopped.
+        match self.state_observer.get() {
+            SyncServiceState::Running => return Ok(()),
+            SyncServiceState::Idle | SyncServiceState::Terminated | SyncServiceState::Error => {}
+        }
+
+        // No fallible calls after this line are authorized.
+        self.state_observer.set(SyncServiceState::Running);
 
         // If there was a task running already with the streams, stop it gently. In the
         // case it was already terminated, that's fine as it won't cause any
@@ -227,9 +241,9 @@ impl SyncServiceBuilder {
 
     /// Finish setting up the `SyncService`.
     ///
-    /// This creates the underlying sliding syncs, and will start them in the
-    /// background. The resulting `SyncService` must be kept alive as long as
-    /// the sliding syncs are supposed to run.
+    /// This creates the underlying sliding syncs, and will *not* start them in
+    /// the background. The resulting `SyncService` must be kept alive as
+    /// long as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
@@ -246,16 +260,12 @@ impl SyncServiceBuilder {
             (room_list, None)
         };
 
-        let app = SyncService {
+        Ok(SyncService {
             room_list_service: Arc::new(room_list),
             encryption_sync,
-            state_observer: SharedObservable::new(SyncServiceState::Running),
+            state_observer: SharedObservable::new(SyncServiceState::Idle),
             task_handle: Default::default(),
-        };
-
-        app.start().await?;
-
-        Ok(app)
+        })
     }
 }
 

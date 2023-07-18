@@ -19,7 +19,7 @@ use std::{
 
 use futures_util::{future::ready, pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, SlidingSyncList, SlidingSyncMode};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, StoreError};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
 use ruma::{
     api::client::sync::sync_events::v4::{
         AccountDataConfig, RoomSubscription, SyncRequestListFilters,
@@ -531,8 +531,8 @@ impl NotificationItem {
             ),
         };
 
-        let sender = match &room {
-            Room::Invited(invited) => invited.invite_details().await?.inviter,
+        let sender = match room.state() {
+            RoomState::Invited => room.invite_details().await?.inviter,
             _ => {
                 if sync_members {
                     room.get_member(event.sender()).await?

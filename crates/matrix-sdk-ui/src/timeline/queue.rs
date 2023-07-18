@@ -24,8 +24,9 @@ use std::{
 use futures_util::future::Either;
 use matrix_sdk::{
     executor::{spawn, JoinError, JoinHandle},
-    room::{self, Room},
+    Room,
 };
+use matrix_sdk_base::RoomState;
 use ruma::{events::AnyMessageLikeEventContent, OwnedTransactionId};
 use tokio::{select, sync::mpsc::Receiver};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -45,7 +46,7 @@ pub(super) struct LocalMessage {
 #[instrument(skip_all, fields(room_id = ?room.room_id()))]
 pub(super) async fn send_queued_messages(
     timeline_inner: TimelineInner,
-    room: room::Common,
+    room: Room,
     mut msg_receiver: Receiver<LocalMessage>,
 ) {
     let mut queue = VecDeque::new();
@@ -97,28 +98,25 @@ pub(super) async fn send_queued_messages(
 
 async fn handle_message(
     msg: LocalMessage,
-    room: room::Common,
+    room: Room,
     send_task: &mut SendMessageTask,
     queue: &mut VecDeque<LocalMessage>,
     timeline_inner: &TimelineInner,
 ) {
     if queue.is_empty() && send_task.is_idle() {
-        match Room::from(room) {
-            Room::Joined(room) => {
-                send_task.start(room, timeline_inner.clone(), msg);
-            }
-            _ => {
-                info!("Refusing to send message, room is not joined");
-                timeline_inner
-                    .update_event_send_state(
-                        &msg.txn_id,
-                        EventSendState::SendingFailed {
-                            // FIXME: Probably not exactly right
-                            error: Arc::new(matrix_sdk::Error::InconsistentState),
-                        },
-                    )
-                    .await;
-            }
+        if room.state() == RoomState::Joined {
+            send_task.start(room, timeline_inner.clone(), msg);
+        } else {
+            info!("Refusing to send message, room is not joined");
+            timeline_inner
+                .update_event_send_state(
+                    &msg.txn_id,
+                    EventSendState::SendingFailed {
+                        // FIXME: Probably not exactly right
+                        error: Arc::new(matrix_sdk::Error::InconsistentState),
+                    },
+                )
+                .await;
         }
     } else {
         queue.push_back(msg);
@@ -162,7 +160,7 @@ enum SendMessageResult {
     Success {
         /// The joined room object, used to start sending of the next message
         /// in the queue, if it isn't empty.
-        room: room::Joined,
+        room: Room,
     },
     /// Sending failed, and the local echo was updated to indicate this.
     SendingFailed,
@@ -188,7 +186,7 @@ enum SendMessageTask {
         /// The transaction ID of the message that is being sent.
         txn_id: OwnedTransactionId,
         /// Handle to the task itself.
-        join_handle: JoinHandle<Option<room::Joined>>,
+        join_handle: JoinHandle<Option<Room>>,
     },
 }
 
@@ -198,7 +196,7 @@ impl SendMessageTask {
         matches!(self, Self::Idle)
     }
 
-    fn start(&mut self, room: room::Joined, timeline_inner: TimelineInner, msg: LocalMessage) {
+    fn start(&mut self, room: Room, timeline_inner: TimelineInner, msg: LocalMessage) {
         debug!("Spawning message-sending task");
         let txn_id = msg.txn_id.clone();
         let join_handle = spawn(async move {

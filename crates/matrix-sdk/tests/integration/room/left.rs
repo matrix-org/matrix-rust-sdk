@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json};
 use serde_json::json;
 use wiremock::{
@@ -24,10 +25,10 @@ async fn forget_room() {
     mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 
     room.forget().await.unwrap();
 }
@@ -48,11 +49,11 @@ async fn rejoin_room() {
     mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 
-    let joined_room = room.join().await.unwrap();
-    assert!(!joined_room.is_state_fully_synced())
+    room.join().await.unwrap();
+    assert!(!room.is_state_fully_synced())
 }

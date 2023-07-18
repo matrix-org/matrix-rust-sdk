@@ -72,6 +72,7 @@ mod virt;
 
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
+static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
 
 fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
     let event = serde_json::from_value(event).unwrap();

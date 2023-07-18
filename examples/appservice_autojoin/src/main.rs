@@ -3,11 +3,11 @@ use std::env;
 use matrix_sdk_appservice::{
     matrix_sdk::{
         event_handler::Ctx,
-        room::Room,
         ruma::{
             events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
+        Room,
     },
     ruma::api::client::error::ErrorKind,
     AppService, AppServiceBuilder, AppServiceRegistration, Result,

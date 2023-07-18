@@ -8,12 +8,11 @@ use anyhow::anyhow;
 use matrix_sdk::{
     self,
     config::SyncSettings,
-    room::Room,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client,
+    Client, Room, RoomState,
 };
 use url::Url;
 
@@ -60,7 +59,7 @@ async fn login_and_sync(homeserver_url: String) -> anyhow::Result<()> {
                     choices.extend(sso.identity_providers.into_iter().map(LoginChoice::SsoIdp))
                 }
             }
-            // This is used for SSO, so it's not a separate choice. 
+            // This is used for SSO, so it's not a separate choice.
             LoginType::Token(_) |
             // This is only for application services, ignore it here.
             LoginType::ApplicationService(_) => {},
@@ -210,9 +209,9 @@ async fn login_with_sso(client: &Client, idp: Option<&IdentityProvider>) -> anyh
 /// Handle room messages by logging them.
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to listen to joined rooms.
-    let Room::Joined(room) = room else {
+    if room.state() != RoomState::Joined {
         return;
-    };
+    }
 
     // We only want to log text messages.
     let MessageType::Text(msgtype) = &event.content.msgtype else {

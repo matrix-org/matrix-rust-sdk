@@ -1,5 +1,5 @@
 //! Utilities for working with events to decide whether they are suitable for
-//! use as a [crate::RoomInfo::latest_event].
+//! use as a [crate::Room::latest_event].
 
 #![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 

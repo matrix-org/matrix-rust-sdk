@@ -18,7 +18,7 @@ use async_std::sync::Mutex;
 use eyeball::SharedObservable;
 use imbl::Vector;
 use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent, executor::spawn, room, sync::RoomUpdate,
+    deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
 use ruma::events::{
     receipt::{ReceiptThread, ReceiptType},
@@ -40,14 +40,14 @@ use super::{
 #[must_use]
 #[derive(Debug)]
 pub struct TimelineBuilder {
-    room: room::Common,
+    room: Room,
     prev_token: Option<String>,
     events: Vector<SyncTimelineEvent>,
     settings: TimelineInnerSettings,
 }
 
 impl TimelineBuilder {
-    pub(super) fn new(room: &room::Common) -> Self {
+    pub(super) fn new(room: &Room) -> Self {
         Self {
             room: room.clone(),
             prev_token: None,

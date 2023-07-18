@@ -17,9 +17,9 @@ use itertools::Itertools;
 use ruma::{server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
 
 use crate::timeline::{
-    event_item::{EventItemIdentifier, ReactionSenderData},
+    event_item::EventItemIdentifier,
     tests::{ALICE, BOB},
-    ReactionGroup,
+    ReactionGroup, ReactionSenderData,
 };
 
 #[test]

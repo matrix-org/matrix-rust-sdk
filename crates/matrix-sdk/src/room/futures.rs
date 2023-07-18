@@ -10,7 +10,7 @@ use mime::Mime;
 use ruma::api::client::message::send_message_event;
 use tracing::{Instrument, Span};
 
-use super::Joined;
+use super::Room;
 use crate::{attachment::AttachmentConfig, Result, TransmissionProgress};
 #[cfg(feature = "image-proc")]
 use crate::{
@@ -18,9 +18,10 @@ use crate::{
     error::ImageError,
 };
 
+/// Future returned by [`Room::send_attachment`].
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
-    room: &'a Joined,
+    room: &'a Room,
     body: &'a str,
     content_type: &'a Mime,
     data: Vec<u8>,
@@ -31,7 +32,7 @@ pub struct SendAttachment<'a> {
 
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
-        room: &'a Joined,
+        room: &'a Room,
         body: &'a str,
         content_type: &'a Mime,
         data: Vec<u8>,
@@ -50,10 +51,6 @@ impl<'a> SendAttachment<'a> {
 
     /// Replace the default `SharedObservable` used for tracking upload
     /// progress.
-    ///
-    /// Note that any subscribers obtained from
-    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
-    /// will be invalidated by this.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_send_progress_observable(
         mut self,

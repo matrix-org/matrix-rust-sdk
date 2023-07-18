@@ -7,6 +7,7 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
     sync::RoomUpdate,
 };
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::client::{
@@ -143,26 +144,21 @@ async fn join_leave_room() {
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let room = client.get_joined_room(room_id);
+    let room = client.get_room(room_id);
     assert!(room.is_none());
 
     let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
-    let room = client.get_left_room(room_id);
-    assert!(room.is_none());
-
-    let room = client.get_joined_room(room_id);
-    assert!(room.is_some());
+    let room = client.get_room(room_id).unwrap();
+    assert_eq!(room.state(), RoomState::Joined);
 
     mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
     client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
 
-    let room = client.get_joined_room(room_id);
-    assert!(room.is_none());
-
-    let room = client.get_left_room(room_id);
-    assert!(room.is_some());
+    assert_eq!(room.state(), RoomState::Left);
+    let room = client.get_room(room_id).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
@@ -258,7 +254,8 @@ async fn invited_rooms() {
     assert!(client.left_rooms().is_empty());
     assert!(!client.invited_rooms().is_empty());
 
-    assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
+    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
+    assert_eq!(room.state(), RoomState::Invited);
 }
 
 #[async_test]
@@ -273,7 +270,8 @@ async fn left_rooms() {
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
 
-    assert!(client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).is_some())
+    let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]

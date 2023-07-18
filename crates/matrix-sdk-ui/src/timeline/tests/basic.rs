@@ -34,7 +34,7 @@ use stream_assert::assert_next_matches;
 
 use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
 use crate::timeline::{
-    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails,
+    event_item::AnyOtherFullStateEventContent, tests::CAROL, MembershipChange, TimelineDetails,
     TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
@@ -220,13 +220,41 @@ async fn dedup_initial() {
     let event_b = sync_timeline_event(
         timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
+    let event_c = sync_timeline_event(
+        timeline.make_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
+    );
 
-    timeline.inner.add_initial_events(vector![event_a.clone(), event_b, event_a]).await;
+    timeline
+        .inner
+        .add_initial_events(vector![
+            // two events
+            event_a.clone(),
+            event_b.clone(),
+            // same events got duplicated in next sync response
+            event_a,
+            event_b,
+            // … and a new event also came in
+            event_c
+        ])
+        .await;
 
     let timeline_items = timeline.inner.items().await;
-    assert_eq!(timeline_items.len(), 3);
-    assert_eq!(timeline_items[1].as_event().unwrap().sender(), *BOB);
-    assert_eq!(timeline_items[2].as_event().unwrap().sender(), *ALICE);
+    assert_eq!(timeline_items.len(), 4);
+    assert!(timeline_items[0].is_day_divider());
+
+    let event1 = &timeline_items[1];
+    let event2 = &timeline_items[2];
+    let event3 = &timeline_items[3];
+
+    // Make sure the order is right
+    assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
+    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+
+    // Make sure we reused IDs when deduplicating events
+    assert_eq!(event1.unique_id(), 1);
+    assert_eq!(event2.unique_id(), 2);
+    assert_eq!(event3.unique_id(), 3);
 }
 
 #[async_test]

@@ -28,6 +28,7 @@ use crate::{
 
 #[derive(uniffi::Enum)]
 pub enum SyncServiceState {
+    Idle,
     Running,
     Terminated,
     Error,
@@ -36,6 +37,7 @@ pub enum SyncServiceState {
 impl From<MatrixSyncServiceState> for SyncServiceState {
     fn from(value: MatrixSyncServiceState) -> Self {
         match value {
+            MatrixSyncServiceState::Idle => Self::Idle,
             MatrixSyncServiceState::Running => Self::Running,
             MatrixSyncServiceState::Terminated => Self::Terminated,
             MatrixSyncServiceState::Error => Self::Error,
@@ -59,8 +61,8 @@ impl SyncService {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
-    fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.observe_state();
+    pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
+        let state_stream = self.inner.state();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(state_stream);
@@ -69,6 +71,10 @@ impl SyncService {
                 listener.on_update(state.into());
             }
         })))
+    }
+
+    pub fn current_state(&self) -> SyncServiceState {
+        self.inner.state().get().into()
     }
 
     pub async fn start(&self) -> Result<(), ClientError> {
