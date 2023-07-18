@@ -106,10 +106,6 @@ impl MemoryStore {
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
-            #[cfg(feature = "memory-media-cache")]
-            media: Arc::new(tokio::sync::Mutex::new(LruCache::new(
-                100.try_into().expect("100 is a non-zero usize"),
-            ))),
             custom: DashMap::new().into(),
         }
     }
