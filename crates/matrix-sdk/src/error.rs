@@ -22,7 +22,7 @@ use matrix_sdk_base::crypto::ScanError;
 use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
-use matrix_sdk_base::{Error as SdkBaseError, StoreError};
+use matrix_sdk_base::{Error as SdkBaseError, RoomState, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -246,6 +246,12 @@ pub enum Error {
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 
+    /// Attempted to call a method on a room that requires the user to have a
+    /// specific membership state in the room, but the membership state is
+    /// different.
+    #[error("wrong room state: {0}")]
+    WrongRoomState(WrongRoomState),
+
     /// The client is in inconsistent state. This happens when we set a room to
     /// a specific type, but then cannot get it in this type.
     #[error("The internal client state is inconsistent.")]
@@ -462,5 +468,18 @@ impl From<RemovePushRuleError> for NotificationSettingsError {
 impl From<RuleNotFoundError> for NotificationSettingsError {
     fn from(_: RuleNotFoundError) -> Self {
         Self::RuleNotFound
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("expected: {expected}, got: {got:?}")]
+pub struct WrongRoomState {
+    expected: &'static str,
+    got: RoomState,
+}
+
+impl WrongRoomState {
+    pub(crate) fn new(expected: &'static str, got: RoomState) -> Self {
+        Self { expected, got }
     }
 }
