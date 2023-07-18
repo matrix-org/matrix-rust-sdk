@@ -1913,7 +1913,7 @@ impl Room {
         self.client.send(request, None).await
     }
 
-    /// Returns true if the user with the given  user_id is able to redact
+    /// Returns true if the user with the given user_id is able to redact
     /// messages in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
@@ -1921,7 +1921,7 @@ impl Room {
         Ok(self.get_room_power_levels().await?.user_can_redact(user_id))
     }
 
-    /// Returns true if the user with the given  user_id is able to ban in the
+    /// Returns true if the user with the given user_id is able to ban in the
     /// room.
     ///
     /// The call may fail if there is an error in getting the power levels.
@@ -1929,7 +1929,7 @@ impl Room {
         Ok(self.get_room_power_levels().await?.user_can_ban(user_id))
     }
 
-    /// Returns true if the user with the given  user_id is able to kick in the
+    /// Returns true if the user with the given user_id is able to kick in the
     /// room.
     ///
     /// The call may fail if there is an error in getting the power levels.
@@ -1937,7 +1937,7 @@ impl Room {
         Ok(self.get_room_power_levels().await?.user_can_invite(user_id))
     }
 
-    /// Returns true if the user with the given  user_id is able to kick in the
+    /// Returns true if the user with the given user_id is able to kick in the
     /// room.
     ///
     /// The call may fail if there is an error in getting the power levels.
@@ -1957,7 +1957,7 @@ impl Room {
         Ok(self.get_room_power_levels().await?.user_can_send_state(user_id, state_event))
     }
 
-    /// Returns true if the user with the given  user_id is able to send a
+    /// Returns true if the user with the given user_id is able to send a
     /// specific message type in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
@@ -1969,7 +1969,7 @@ impl Room {
         Ok(self.get_room_power_levels().await?.user_can_send_message(user_id, message))
     }
 
-    /// Returns true if the user with the given  user_id is able to trigger a
+    /// Returns true if the user with the given user_id is able to trigger a
     /// notification in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
