@@ -26,7 +26,7 @@ byteorder = "1.4.3"
 ctor = "0.2.0"
 dashmap = "5.2.0"
 eyeball = "0.8.3"
-eyeball-im = "0.2.4"
+eyeball-im = { version = "0.2.5", features = ["tracing"] }
 eyeball-im-util = "0.2.1"
 futures-core = "0.3.28"
 futures-executor = "0.3.21"

@@ -1491,14 +1491,15 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c21fb87d8fd4bdb2e140007b79d350ad93c574989abd2be322a0534054e68a67"
+checksum = "f35f976c6b485baca970899897e4c5b67701da6e11a57ef4f4951c1aa64f7d6e"
 dependencies = [
  "futures-core",
  "imbl",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
