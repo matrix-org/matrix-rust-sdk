@@ -592,6 +592,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         self.0.remove_room(room_id).await.map_err(Into::into)
     }
+
+    fn is_memory_store(&self) -> bool {
+        self.0.is_memory_store()
+    }
 }
 
 /// Convenience functionality for state stores.
