@@ -2,7 +2,7 @@ use std::{sync::Mutex, time::Duration};
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
-use matrix_sdk_ui::notification_client::NotificationClient;
+use matrix_sdk_ui::notification_client::{NotificationClient, NotificationEvent};
 use ruma::{event_id, events::TimelineEventType, room_id, user_id};
 use serde_json::json;
 use wiremock::{
@@ -100,7 +100,9 @@ async fn test_notification_client_legacy() {
 
     let item = item.expect("the notification should be found");
 
-    assert_eq!(item.event.event_type(), TimelineEventType::RoomMessage);
+    assert_matches::assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
     assert_eq!(item.sender_display_name.as_deref(), Some("John Mastodon"));
     assert_eq!(item.sender_avatar_url.as_deref(), Some("https://example.org/avatar.jpeg"));
 }
@@ -290,7 +292,9 @@ async fn test_notification_client_sliding_sync() {
 
     let item = item.expect("the notification should be found");
 
-    assert_eq!(item.event.event_type(), TimelineEventType::RoomMessage);
+    assert_matches::assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
     assert_eq!(item.room_display_name, room_name);

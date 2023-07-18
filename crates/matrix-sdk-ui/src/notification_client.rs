@@ -25,10 +25,10 @@ use ruma::{
         AccountDataConfig, RoomSubscription, SyncRequestListFilters,
     },
     assign,
-    events::{AnySyncTimelineEvent, StateEventType},
+    events::{room::member::StrippedRoomMemberEvent, AnySyncTimelineEvent, StateEventType},
     push::Action,
     serde::Raw,
-    uint, EventId, RoomId,
+    uint, EventId, OwnedEventId, RoomId, UserId,
 };
 use thiserror::Error;
 
@@ -152,7 +152,7 @@ impl NotificationClient {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<Raw<AnySyncTimelineEvent>>, Error> {
+    ) -> Result<Option<RawNotificationEvent>, Error> {
         // Set up a sliding sync that only subscribes to the room that had the
         // notification, so we can figure out the full event and associated
         // information.
@@ -160,23 +160,43 @@ impl NotificationClient {
         let notification = Arc::new(Mutex::new(None));
 
         let cloned_notif = notification.clone();
-        let event_id = event_id.to_owned();
-
-        let event_handler = self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            match raw.deserialize() {
-                Ok(ev) => {
-                    if ev.event_id() == event_id {
-                        // found it! There shouldn't be a previous event before, but if there is,
-                        // that should be ok to just replace it.
-                        *cloned_notif.lock().unwrap() = Some(raw);
+        let target_event_id = event_id.to_owned();
+        let timeline_event_handler =
+            self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
+                match raw.get_field::<OwnedEventId>("event_id") {
+                    Ok(Some(event_id)) => {
+                        if event_id == target_event_id {
+                            // found it! There shouldn't be a previous event before, but if there
+                            // is, that should be ok to just replace it.
+                            *cloned_notif.lock().unwrap() =
+                                Some(RawNotificationEvent::Timeline(raw));
+                        }
+                    }
+                    Ok(None) | Err(_) => {
+                        tracing::warn!("could not get event id");
                     }
                 }
-                Err(err) => {
-                    tracing::warn!("could not deserialize AnySyncTimelineEvent: {err:#}");
+                ready(())
+            });
+
+        let cloned_notif = notification.clone();
+        let target_event_id = event_id.to_owned();
+        let stripped_member_handler =
+            self.client.add_event_handler(move |raw: Raw<StrippedRoomMemberEvent>| {
+                match raw.get_field::<OwnedEventId>("event_id") {
+                    Ok(Some(event_id)) => {
+                        if event_id == target_event_id {
+                            // found it! There shouldn't be a previous event before, but if there
+                            // is, that should be ok to just replace it.
+                            *cloned_notif.lock().unwrap() = Some(RawNotificationEvent::Invite(raw));
+                        }
+                    }
+                    Ok(None) | Err(_) => {
+                        tracing::warn!("could not get event id");
+                    }
                 }
-            }
-            ready(())
-        });
+                ready(())
+            });
 
         let required_state = vec![
             (StateEventType::RoomAvatar, "".to_owned()),
@@ -243,7 +263,8 @@ impl NotificationClient {
             }
         }
 
-        self.client.remove_event_handler(event_handler);
+        self.client.remove_event_handler(stripped_member_handler);
+        self.client.remove_event_handler(timeline_event_handler);
 
         let maybe_event = notification.lock().unwrap().take();
         Ok(maybe_event)
@@ -288,13 +309,23 @@ impl NotificationClient {
         // At this point it should have been added by the sync, if it's not, give up.
         let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
 
-        let push_actions =
-            if let Some(timeline_event) = self.maybe_retry_decryption(&room, &raw_event).await? {
-                raw_event = timeline_event.event.cast();
-                timeline_event.push_actions
-            } else {
-                room.event_push_actions(&raw_event).await?
-            };
+        let push_actions = match &raw_event {
+            RawNotificationEvent::Timeline(timeline_event) => {
+                // Timeline events may be encrypted, so make sure they get decrypted first.
+                if let Some(timeline_event) =
+                    self.maybe_retry_decryption(&room, &timeline_event).await?
+                {
+                    raw_event = RawNotificationEvent::Timeline(timeline_event.event.cast());
+                    timeline_event.push_actions
+                } else {
+                    room.event_push_actions(&timeline_event).await?
+                }
+            }
+            RawNotificationEvent::Invite(invite_event) => {
+                // Invite events can't be encrypted, so they should be in clear text.
+                room.event_push_actions(&invite_event).await?
+            }
+        };
 
         if let Some(push_actions) = &push_actions {
             if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
@@ -330,7 +361,7 @@ impl NotificationClient {
             NotificationItem::new(
                 sync_members,
                 room,
-                timeline_event.event.cast_ref(),
+                &RawNotificationEvent::Timeline(timeline_event.event.cast()),
                 timeline_event.push_actions.as_deref(),
             )
             .await?,
@@ -433,10 +464,31 @@ impl NotificationClientBuilder {
     }
 }
 
+enum RawNotificationEvent {
+    Timeline(Raw<AnySyncTimelineEvent>),
+    Invite(Raw<StrippedRoomMemberEvent>),
+}
+
+#[derive(Debug)]
+pub enum NotificationEvent {
+    Timeline(AnySyncTimelineEvent),
+    Invite(StrippedRoomMemberEvent),
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl NotificationEvent {
+    fn sender(&self) -> &UserId {
+        match self {
+            NotificationEvent::Timeline(ev) => ev.sender(),
+            NotificationEvent::Invite(ev) => &ev.sender,
+        }
+    }
+}
+
 /// A notification with its full content.
 pub struct NotificationItem {
     /// Underlying Ruma event.
-    pub event: AnySyncTimelineEvent,
+    pub event: NotificationEvent,
 
     /// Display name of the sender.
     pub sender_display_name: Option<String>,
@@ -467,18 +519,25 @@ impl NotificationItem {
     async fn new(
         sync_members: bool,
         room: &Room,
-        event: &Raw<AnySyncTimelineEvent>,
+        raw_event: &RawNotificationEvent,
         push_actions: Option<&[Action]>,
     ) -> Result<Self, Error> {
-        let raw_event = event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
+        let event = match raw_event {
+            RawNotificationEvent::Timeline(raw_event) => NotificationEvent::Timeline(
+                raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
+            ),
+            RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(
+                raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
+            ),
+        };
 
         let sender = match &room {
             Room::Invited(invited) => invited.invite_details().await?.inviter,
             _ => {
                 if sync_members {
-                    room.get_member(raw_event.sender()).await?
+                    room.get_member(event.sender()).await?
                 } else {
-                    room.get_member_no_sync(raw_event.sender()).await?
+                    room.get_member_no_sync(event.sender()).await?
                 }
             }
         };
@@ -494,7 +553,7 @@ impl NotificationItem {
         let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
 
         let item = NotificationItem {
-            event: raw_event,
+            event,
             sender_display_name,
             sender_avatar_url,
             room_display_name: room.display_name().await?.to_string(),

@@ -9,6 +9,16 @@ use ruma::{EventId, RoomId};
 
 use crate::{error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME};
 
+#[derive(uniffi::Enum)]
+pub enum NotificationEvent {
+    Timeline {
+        event: Arc<TimelineEvent>,
+    },
+    /// The notification is for an invitation; the interesting context bits live
+    /// in `NotificationItem`.
+    Invite,
+}
+
 #[derive(uniffi::Record)]
 pub struct NotificationSenderInfo {
     pub display_name: Option<String>,
@@ -27,7 +37,7 @@ pub struct NotificationRoomInfo {
 
 #[derive(uniffi::Record)]
 pub struct NotificationItem {
-    pub event: Arc<TimelineEvent>,
+    pub event: NotificationEvent,
 
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
@@ -40,8 +50,17 @@ pub struct NotificationItem {
 
 impl NotificationItem {
     fn from_inner(item: MatrixNotificationItem) -> Self {
+        let event = match item.event {
+            matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
+                NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
+            }
+            matrix_sdk_ui::notification_client::NotificationEvent::Invite(_) => {
+                NotificationEvent::Invite
+            }
+        };
+
         Self {
-            event: Arc::new(TimelineEvent(item.event)),
+            event,
             sender_info: NotificationSenderInfo {
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,
