@@ -55,14 +55,14 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    olm_hashes: Arc<DashMap<String, DashSet<String>>>,
+    olm_hashes: DashMap<String, DashSet<String>>,
     devices: DeviceStore,
-    identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
-    key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
-    direct_withheld_info: Arc<DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>>,
-    custom_values: Arc<DashMap<String, Vec<u8>>>,
-    leases: Arc<DashMap<String, (String, Instant)>>,
+    identities: DashMap<OwnedUserId, ReadOnlyUserIdentities>,
+    outgoing_key_requests: DashMap<OwnedTransactionId, GossipRequest>,
+    key_requests_by_info: DashMap<String, OwnedTransactionId>,
+    direct_withheld_info: DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>,
+    custom_values: DashMap<String, Vec<u8>>,
+    leases: DashMap<String, (String, Instant)>,
 }
 
 impl Default for MemoryStore {
