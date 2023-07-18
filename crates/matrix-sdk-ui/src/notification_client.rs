@@ -18,7 +18,7 @@ use std::{
 };
 
 use futures_util::{future::ready, pin_mut, StreamExt as _};
-use matrix_sdk::{room::Room, Client, SlidingSyncList, SlidingSyncMode};
+use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
 use ruma::{
     api::client::sync::sync_events::v4::{
@@ -63,8 +63,8 @@ impl NotificationClient {
     const LOCK_ID: &str = "notifications";
 
     /// Create a new builder for a notification client.
-    pub fn builder(client: Client) -> NotificationClientBuilder {
-        NotificationClientBuilder::new(client)
+    pub async fn builder(client: Client) -> Result<NotificationClientBuilder, Error> {
+        NotificationClientBuilder::new(client).await
     }
 
     /// Run an encryption sync loop, in case an event is still encrypted.
@@ -288,10 +288,6 @@ impl NotificationClient {
     ) -> Result<Option<NotificationItem>, Error> {
         tracing::info!("fetching notification event with a sliding sync");
 
-        if !self.client.store().is_memory_store() {
-            return Err(Error::SlidingSyncMisconfiguredClient);
-        }
-
         let mut raw_event = match self.try_sliding_sync(room_id, event_id).await {
             Ok(Some(raw_event)) => raw_event,
 
@@ -424,13 +420,15 @@ pub struct NotificationClientBuilder {
 }
 
 impl NotificationClientBuilder {
-    fn new(client: Client) -> Self {
-        Self {
+    async fn new(client: Client) -> Result<Self, Error> {
+        let client = Client::builder().build().await.map_err(Error::BuildingLocalClient)?;
+
+        Ok(Self {
             client,
             retry_decryption: false,
             with_cross_process_lock: false,
             filter_by_push_rules: false,
-        }
+        })
     }
 
     /// Filter out the notification event according to the push rules present in
@@ -572,6 +570,9 @@ impl NotificationItem {
 /// An error for the [`NotificationClient`].
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    BuildingLocalClient(ClientBuildError),
+
     /// The room associated to this event wasn't found.
     #[error("unknown room for a notification")]
     UnknownRoom,
@@ -579,11 +580,6 @@ pub enum Error {
     /// The Ruma event contained within this notification couldn't be parsed.
     #[error("invalid ruma event")]
     InvalidRumaEvent,
-
-    /// When calling `get_notification_with_sliding_sync`, the client was
-    /// configured with a state store that's not in memory.
-    #[error("client must be configured with an in-memory state store")]
-    SlidingSyncMisconfiguredClient,
 
     /// When calling `get_notification_with_sliding_sync`, the room was missing
     /// in the response.

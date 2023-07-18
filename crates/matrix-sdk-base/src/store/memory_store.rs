@@ -791,10 +791,6 @@ impl StateStore for MemoryStore {
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         self.remove_room(room_id).await
     }
-
-    fn is_memory_store(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]
