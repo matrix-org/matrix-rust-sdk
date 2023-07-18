@@ -839,14 +839,26 @@ fn compute_limited(
             continue;
         }
 
+        if room.limited {
+            // If the room was already marked as limited, the server knew more than we did.
+            continue;
+        }
+
         // If the known room had some timeline events, consider it's a `limited` if
         // there's absolutely no overlap between the known events and
         // the new events in the timeline.
         if let Some(known_room) = known_rooms.get(room_id) {
+            let known_events = known_room.timeline_queue();
+
+            if room.timeline.is_empty() && !known_events.is_empty() {
+                // If the cached timeline had events, but the one in the response didn't have
+                // any, don't mark the room as limited.
+                continue;
+            }
+
             // Gather all the known event IDs. Ignore events that don't have an event ID.
-            let known_events: HashSet<OwnedEventId> = HashSet::from_iter(
-                known_room.timeline_queue().into_iter().filter_map(|event| event.event_id()),
-            );
+            let known_events: HashSet<OwnedEventId> =
+                HashSet::from_iter(known_events.into_iter().filter_map(|event| event.event_id()));
 
             // There's overlap if, and only if, there's at least one event in the
             // response's timeline that matches an event id we've seen before.
