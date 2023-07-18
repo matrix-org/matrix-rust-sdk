@@ -473,7 +473,6 @@ pub enum NotificationEvent {
     Invite(StrippedRoomMemberEvent),
 }
 
-#[cfg(any(test, feature = "testing"))]
 impl NotificationEvent {
     fn sender(&self) -> &UserId {
         match self {
