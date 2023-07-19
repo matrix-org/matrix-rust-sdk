@@ -845,7 +845,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let recovery_key = Some(BackupDecryptionKey::new().unwrap());
 
-                let changes = Changes { recovery_key, ..Default::default() };
+                let changes = Changes { backup_decryption_key: recovery_key, ..Default::default() };
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.load_backup_keys().await.unwrap();

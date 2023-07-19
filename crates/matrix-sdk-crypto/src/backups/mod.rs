@@ -408,7 +408,11 @@ impl BackupMachine {
         recovery_key: Option<BackupDecryptionKey>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let changes = Changes { recovery_key, backup_version: version, ..Default::default() };
+        let changes = Changes {
+            backup_decryption_key: recovery_key,
+            backup_version: version,
+            ..Default::default()
+        };
         self.store.save_changes(changes).await
     }
 

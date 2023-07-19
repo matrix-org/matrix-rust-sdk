@@ -163,7 +163,7 @@ impl CryptoStore for MemoryStore {
             self.key_requests_by_info.insert(info_string, id);
         }
 
-        if let Some(key) = changes.recovery_key {
+        if let Some(key) = changes.backup_decryption_key {
             self.backup_keys.write().await.recovery_key = Some(key);
         }
 

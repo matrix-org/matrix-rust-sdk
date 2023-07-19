@@ -386,7 +386,7 @@ impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), keys::CORE),
-            (changes.recovery_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
+            (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
             (!changes.sessions.is_empty(), keys::SESSION),
             (
                 !changes.devices.new.is_empty()
@@ -442,7 +442,7 @@ impl_crypto_store! {
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
-        let recovery_key_pickle = changes.recovery_key;
+        let recovery_key_pickle = changes.backup_decryption_key;
         let backup_version = changes.backup_version;
 
         if let Some(a) = &account_pickle {

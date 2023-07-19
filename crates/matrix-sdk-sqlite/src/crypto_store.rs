@@ -763,7 +763,7 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("identity", &serialized_private_identity)?;
                 }
 
-                if let Some(recovery_key) = &changes.recovery_key {
+                if let Some(recovery_key) = &changes.backup_decryption_key {
                     let serialized_recovery_key = this.serialize_value(recovery_key)?;
                     txn.set_kv("recovery_key_v1", &serialized_recovery_key)?;
                 }

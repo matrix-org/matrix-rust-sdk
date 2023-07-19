@@ -308,7 +308,7 @@ async fn migrate_data(
         private_identity: Some(cross_signing),
         sessions,
         inbound_group_sessions,
-        recovery_key,
+        backup_decryption_key: recovery_key,
         backup_version: data.backup_version,
         room_settings,
         ..Default::default()

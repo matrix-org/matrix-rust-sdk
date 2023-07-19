@@ -145,7 +145,7 @@ pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
-    pub recovery_key: Option<BackupDecryptionKey>,
+    pub backup_decryption_key: Option<BackupDecryptionKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
