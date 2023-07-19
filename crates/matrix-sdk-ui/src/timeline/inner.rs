@@ -1267,16 +1267,11 @@ async fn fetch_replied_to_event(
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
     if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
-        let details = match item.content() {
-            TimelineItemContent::Message(message) => {
-                TimelineDetails::Ready(Box::new(RepliedToEvent {
-                    message: message.clone(),
-                    sender: item.sender().to_owned(),
-                    sender_profile: item.sender_profile().clone(),
-                }))
-            }
-            _ => return Err(super::Error::UnsupportedEvent),
-        };
+        let details = TimelineDetails::Ready(Box::new(RepliedToEvent {
+            content: item.content.clone(),
+            sender: item.sender().to_owned(),
+            sender_profile: item.sender_profile().clone(),
+        }));
 
         debug!("Found replied-to event locally");
         return Ok(details);

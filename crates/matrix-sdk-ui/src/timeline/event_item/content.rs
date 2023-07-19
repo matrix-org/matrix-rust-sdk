@@ -61,9 +61,9 @@ use ruma::{
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
+use tracing::error;
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
-use tracing::{debug, error};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
 use crate::timeline::{
@@ -424,8 +424,7 @@ impl InReplyToDetails {
             .iter()
             .filter_map(|it| it.as_event())
             .find(|it| it.event_id() == Some(&*event_id))
-            .and_then(RepliedToEvent::from_timeline_item)
-            .map(Box::new);
+            .map(|item| Box::new(RepliedToEvent::from_timeline_item(item)));
 
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
     }
@@ -434,15 +433,15 @@ impl InReplyToDetails {
 /// An event that is replied to.
 #[derive(Clone, Debug)]
 pub struct RepliedToEvent {
-    pub(in crate::timeline) message: Message,
+    pub(in crate::timeline) content: TimelineItemContent,
     pub(in crate::timeline) sender: OwnedUserId,
     pub(in crate::timeline) sender_profile: TimelineDetails<Profile>,
 }
 
 impl RepliedToEvent {
     /// Get the message of this event.
-    pub fn message(&self) -> &Message {
-        &self.message
+    pub fn content(&self) -> &TimelineItemContent {
+        &self.content
     }
 
     /// Get the sender of this event.
@@ -455,21 +454,12 @@ impl RepliedToEvent {
         &self.sender_profile
     }
 
-    fn from_timeline_item(timeline_item: &EventTimelineItem) -> Option<Self> {
-        let message = match &timeline_item.content {
-            TimelineItemContent::Message(msg) => msg.to_owned(),
-            // FIXME: Handle redacted messages
-            _ => {
-                debug!("Replied-to event is not a message, discarding");
-                return None;
-            }
-        };
-
-        Some(Self {
-            message,
+    fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
+        Self {
+            content: timeline_item.content.clone(),
             sender: timeline_item.sender.clone(),
             sender_profile: timeline_item.sender_profile.clone(),
-        })
+        }
     }
 
     pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
@@ -487,12 +477,13 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent);
         };
 
-        let message = Message::from_event(c, event.relations(), &vector![]);
+        let content =
+            TimelineItemContent::Message(Message::from_event(c, event.relations(), &vector![]));
         let sender = event.sender().to_owned();
         let sender_profile =
             TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);
 
-        Ok(Self { message, sender, sender_profile })
+        Ok(Self { content, sender, sender_profile })
     }
 }
 
