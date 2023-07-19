@@ -25,7 +25,7 @@ use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, TransactionId, UserId,
+    OwnedUserId, RoomVersionId, TransactionId, UserId,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
@@ -374,6 +374,23 @@ impl EventTimelineItem {
     /// Clone the current event item, and update its `sender_profile`.
     pub(super) fn with_sender_profile(&self, sender_profile: TimelineDetails<Profile>) -> Self {
         Self { sender_profile, ..self.clone() }
+    }
+
+    pub(super) fn redact(&self, room_version: &RoomVersionId) -> Self {
+        let content = self.content.redact(room_version);
+        let kind = match &self.kind {
+            EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
+            EventTimelineItemKind::Remote(r) => {
+                EventTimelineItemKind::Remote(r.without_reactions())
+            }
+        };
+        Self {
+            sender: self.sender.clone(),
+            sender_profile: self.sender_profile.clone(),
+            timestamp: self.timestamp,
+            content,
+            kind,
+        }
     }
 }
 

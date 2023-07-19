@@ -45,7 +45,7 @@ use ruma::{
     room_id,
     serde::Raw,
     server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId,
-    OwnedTransactionId, OwnedUserId, TransactionId, UserId,
+    OwnedTransactionId, OwnedUserId, RoomVersionId, TransactionId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -409,6 +409,10 @@ struct TestRoomDataProvider;
 impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
         &ALICE
+    }
+
+    fn room_version(&self) -> RoomVersionId {
+        RoomVersionId::V10
     }
 
     async fn profile(&self, _user_id: &UserId) -> Option<Profile> {
