@@ -46,3 +46,10 @@
 
 - Add new API `OlmMachine::query_keys_for_users` for generating out-of-band key
   queries.
+
+- Rename "recovery key" to "backup decryption key" to avoid confusion with the
+  secret-storage key which is also known as a recovery key.
+
+  This affects the `matrix_sdk_crypto::store::RecoveryKey` struct itself (now
+  renamed to `BackupDecryptionKey`, as well as
+  `BackupMachine::save_recovery_key` (now `save_decryption_key`).
