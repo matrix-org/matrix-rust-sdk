@@ -163,10 +163,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc@3.20.3
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -354,10 +354,10 @@ jobs:
       - name: Checkout the repo
         uses: actions/checkout@v3
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc@3.20.3
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
