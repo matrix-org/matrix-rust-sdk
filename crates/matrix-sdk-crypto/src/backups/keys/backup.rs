@@ -25,7 +25,7 @@ use ruma::{
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
-use super::{compat::PkEncryption, recovery::DecodeError};
+use super::{compat::PkEncryption, decryption::DecodeError};
 use crate::olm::InboundGroupSession;
 
 #[derive(Debug)]
