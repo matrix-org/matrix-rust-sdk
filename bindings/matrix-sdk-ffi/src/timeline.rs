@@ -1025,7 +1025,7 @@ impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
             TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
             TimelineDetails::Pending => RepliedToEventDetails::Pending,
             TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
-                message: Arc::new(Message(event.message().to_owned())),
+                content: Arc::new(TimelineItemContent(event.content().to_owned())),
                 sender: event.sender().to_string(),
                 sender_profile: event.sender_profile().into(),
             },
@@ -1042,7 +1042,7 @@ impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
 pub enum RepliedToEventDetails {
     Unavailable,
     Pending,
-    Ready { message: Arc<Message>, sender: String, sender_profile: ProfileDetails },
+    Ready { content: Arc<TimelineItemContent>, sender: String, sender_profile: ProfileDetails },
     Error { message: String },
 }
 
