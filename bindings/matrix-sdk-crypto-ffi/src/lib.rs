@@ -264,7 +264,7 @@ async fn migrate_data(
         data.inbound_group_sessions,
     )?;
 
-    let recovery_key = data
+    let backup_decryption_key = data
         .backup_recovery_key
         .map(|k| BackupDecryptionKey::from_base58(k.as_str()))
         .transpose()?;
@@ -308,7 +308,7 @@ async fn migrate_data(
         private_identity: Some(cross_signing),
         sessions,
         inbound_group_sessions,
-        backup_decryption_key: recovery_key,
+        backup_decryption_key,
         backup_version: data.backup_version,
         room_settings,
         ..Default::default()

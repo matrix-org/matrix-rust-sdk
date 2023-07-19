@@ -115,12 +115,12 @@ impl BackupRecoveryKey {
 
         pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, key.deref_mut());
 
-        let recovery_key = BackupDecryptionKey::from_bytes(&key);
+        let backup_decryption_key = BackupDecryptionKey::from_bytes(&key);
 
         key.zeroize();
 
         Arc::new(Self {
-            inner: recovery_key,
+            inner: backup_decryption_key,
             passphrase_info: Some(PassphraseInfo {
                 private_key_salt: salt,
                 private_key_iterations: rounds as i32,

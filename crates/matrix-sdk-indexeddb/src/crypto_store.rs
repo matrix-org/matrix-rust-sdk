@@ -78,6 +78,11 @@ mod keys {
     // backup v1
     pub const BACKUP_KEYS: &str = "backup_keys";
     pub const BACKUP_KEY_V1: &str = "backup_key_v1";
+    /// Indexeddb key for the backup decryption key.
+    ///
+    /// Known, for historical reasons, as the recovery key. Not to be confused
+    /// with the client-side recovery key, which is actually an AES key for use
+    /// with SSSS.
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
@@ -442,7 +447,7 @@ impl_crypto_store! {
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
-        let recovery_key_pickle = changes.backup_decryption_key;
+        let decryption_key_pickle = changes.backup_decryption_key;
         let backup_version = changes.backup_version;
 
         if let Some(a) = &account_pickle {
@@ -457,7 +462,7 @@ impl_crypto_store! {
             )?;
         }
 
-        if let Some(a) = &recovery_key_pickle {
+        if let Some(a) = &decryption_key_pickle {
             tx.object_store(keys::BACKUP_KEYS)?.put_key_val(
                 &JsValue::from_str(keys::RECOVERY_KEY_V1),
                 &self.serialize_value(&a)?,

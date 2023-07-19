@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_key() {
-        let recovery_key =
+        let decryption_key =
             BackupDecryptionKey::from_base64("Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw")
                 .unwrap();
 
@@ -300,7 +300,7 @@ mod tests {
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
         let mac = key_backup_data.session_data.mac.encode();
 
-        let decrypted = recovery_key
+        let decrypted = decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
             .expect("The backed up key should be decrypted successfully");
 
