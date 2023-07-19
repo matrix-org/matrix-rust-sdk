@@ -20,11 +20,11 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
-    EventId, OwnedUserId, UserId,
+    EventId, OwnedUserId, RoomVersionId, UserId,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use super::{Profile, TimelineBuilder};
 use crate::timeline::Timeline;
@@ -65,6 +65,7 @@ impl RoomExt for Room {
 #[async_trait]
 pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn own_user_id(&self) -> &UserId;
+    fn room_version(&self) -> RoomVersionId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
@@ -74,6 +75,13 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
 impl RoomDataProvider for Room {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
+    }
+
+    fn room_version(&self) -> RoomVersionId {
+        (**self).clone_info().room_version().cloned().unwrap_or_else(|| {
+            warn!("Unknown room version, falling back to v10");
+            RoomVersionId::V10
+        })
     }
 
     async fn profile(&self, user_id: &UserId) -> Option<Profile> {

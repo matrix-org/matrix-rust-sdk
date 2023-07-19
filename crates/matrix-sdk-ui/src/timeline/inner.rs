@@ -46,7 +46,7 @@ use ruma::{
     },
     push::Action,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UserId,
+    RoomVersionId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
@@ -79,7 +79,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     settings: TimelineInnerSettings,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
     pub(super) next_internal_id: u64,
@@ -98,6 +98,7 @@ pub(super) struct TimelineInnerState {
     pub(super) reaction_state: IndexMap<AnnotationKey, ReactionState>,
     /// the in flight reaction request state that is ongoing
     pub(super) in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
+    pub(super) room_version: RoomVersionId,
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +154,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // sliding-sync tests with 20 events lag. This should still be
             // small enough.
             items: ObservableVector::with_capacity(32),
-            ..Default::default()
+            ..TimelineInnerState::new(room_data_provider.room_version())
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -1123,6 +1124,20 @@ impl TimelineInner {
 }
 
 impl TimelineInnerState {
+    fn new(room_version: RoomVersionId) -> Self {
+        Self {
+            items: Default::default(),
+            next_internal_id: Default::default(),
+            reactions: Default::default(),
+            fully_read_event: Default::default(),
+            event_should_update_fully_read_marker: Default::default(),
+            users_read_receipts: Default::default(),
+            reaction_state: Default::default(),
+            in_flight_reaction: Default::default(),
+            room_version,
+        }
+    }
+
     #[instrument(skip_all)]
     pub(super) async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,

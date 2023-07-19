@@ -12,18 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_test::async_test;
 use ruma::events::{
     reaction::{ReactionEventContent, RedactedReactionEventContent},
     relation::Annotation,
-    room::message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
+    room::{
+        message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
+        name::RoomNameEventContent,
+    },
+    FullStateEventContent,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
 
 use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
+use crate::timeline::{AnyOtherFullStateEventContent, TimelineItemContent};
+
+#[async_test]
+async fn redact_state_event() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+
+    timeline
+        .handle_live_state_event(
+            &ALICE,
+            RoomNameEventContent::new(Some("Fancy room name".to_owned())),
+            None,
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let state = assert_matches!(item.content(), TimelineItemContent::OtherState(st) => st);
+    assert_matches!(
+        state.content,
+        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original { .. })
+    );
+
+    timeline.handle_live_redaction(&ALICE, item.event_id().unwrap()).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let state = assert_matches!(item.content(), TimelineItemContent::OtherState(st) => st);
+    assert_matches!(
+        state.content,
+        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Redacted(_))
+    );
+}
 
 #[async_test]
 async fn reaction_redaction() {

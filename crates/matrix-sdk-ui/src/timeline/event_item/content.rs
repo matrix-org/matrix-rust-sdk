@@ -59,7 +59,8 @@ use ruma::{
         AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
         StateEventType,
     },
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    UserId,
 };
 use tracing::error;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -281,6 +282,19 @@ impl TimelineItemContent {
                     change: None,
                 })
             }
+        }
+    }
+
+    pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
+        match self {
+            Self::Message(_)
+            | Self::RedactedMessage
+            | Self::Sticker(_)
+            | Self::UnableToDecrypt(_) => Self::RedactedMessage,
+            Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
+            Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
+            Self::OtherState(ev) => Self::OtherState(ev.redact(room_version)),
+            Self::FailedToParseMessageLike { .. } | Self::FailedToParseState { .. } => self.clone(),
         }
     }
 }
@@ -617,6 +631,14 @@ impl RoomMembershipChange {
     pub fn change(&self) -> Option<MembershipChange> {
         self.change
     }
+
+    fn redact(&self, room_version: &RoomVersionId) -> Self {
+        Self {
+            user_id: self.user_id.clone(),
+            content: FullStateEventContent::Redacted(self.content.clone().redact(room_version)),
+            change: self.change,
+        }
+    }
 }
 
 /// An enum over all the possible room membership changes.
@@ -699,6 +721,18 @@ impl MemberProfileChange {
     /// The avatar URL change induced by this event.
     pub fn avatar_url_change(&self) -> Option<&Change<Option<OwnedMxcUri>>> {
         self.avatar_url_change.as_ref()
+    }
+
+    fn redact(&self) -> Self {
+        Self {
+            user_id: self.user_id.clone(),
+            // FIXME: This isn't actually right, the profile is reset to an
+            // empty one when the member event is redacted. This can't be
+            // implemented without further architectural changes and is a
+            // somewhat rare edge case, so it should be fine for now.
+            displayname_change: None,
+            avatar_url_change: None,
+        }
     }
 }
 
@@ -831,6 +865,72 @@ impl AnyOtherFullStateEventContent {
             Self::_Custom { event_type } => event_type.as_str().into(),
         }
     }
+
+    fn redact(&self, room_version: &RoomVersionId) -> Self {
+        match self {
+            Self::PolicyRuleRoom(c) => Self::PolicyRuleRoom(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::PolicyRuleServer(c) => Self::PolicyRuleServer(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::PolicyRuleUser(c) => Self::PolicyRuleUser(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::RoomAliases(c) => {
+                Self::RoomAliases(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomAvatar(c) => {
+                Self::RoomAvatar(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(
+                FullStateEventContent::Redacted(c.clone().redact(room_version)),
+            ),
+            Self::RoomCreate(c) => {
+                Self::RoomCreate(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomEncryption(c) => Self::RoomEncryption(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::RoomGuestAccess(c) => Self::RoomGuestAccess(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(
+                FullStateEventContent::Redacted(c.clone().redact(room_version)),
+            ),
+            Self::RoomJoinRules(c) => {
+                Self::RoomJoinRules(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomName(c) => {
+                Self::RoomName(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomPinnedEvents(c) => Self::RoomPinnedEvents(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::RoomPowerLevels(c) => Self::RoomPowerLevels(FullStateEventContent::Redacted(
+                c.clone().redact(room_version),
+            )),
+            Self::RoomServerAcl(c) => {
+                Self::RoomServerAcl(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(
+                FullStateEventContent::Redacted(c.clone().redact(room_version)),
+            ),
+            Self::RoomTombstone(c) => {
+                Self::RoomTombstone(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::RoomTopic(c) => {
+                Self::RoomTopic(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::SpaceChild(c) => {
+                Self::SpaceChild(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::SpaceParent(c) => {
+                Self::SpaceParent(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+            }
+            Self::_Custom { event_type } => Self::_Custom { event_type: event_type.clone() },
+        }
+    }
 }
 
 /// A state event that doesn't have its own variant.
@@ -849,5 +949,9 @@ impl OtherState {
     /// The content of the event.
     pub fn content(&self) -> &AnyOtherFullStateEventContent {
         &self.content
+    }
+
+    fn redact(&self, room_version: &RoomVersionId) -> Self {
+        Self { state_key: self.state_key.clone(), content: self.content.redact(room_version) }
     }
 }

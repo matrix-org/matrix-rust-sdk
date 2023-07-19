@@ -40,6 +40,7 @@ use ruma::{
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -221,6 +222,7 @@ pub(super) struct TimelineEventHandler<'a> {
     track_read_receipts: bool,
     users_read_receipts:
         &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    room_version: &'a RoomVersionId,
     result: HandleEventResult,
 }
 
@@ -256,6 +258,7 @@ impl<'a> TimelineEventHandler<'a> {
             event_should_update_fully_read_marker: &mut state.event_should_update_fully_read_marker,
             track_read_receipts,
             users_read_receipts: &mut state.users_read_receipts,
+            room_version: &state.room_version,
             result: HandleEventResult::default(),
         }
     }
@@ -577,21 +580,17 @@ impl<'a> TimelineEventHandler<'a> {
         // `reaction_map`), it can still be present in the timeline items
         // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
-            let Some(remote_event_item) = event_item.as_remote() else {
+            if event_item.as_remote().is_none() {
                 error!("inconsistent state: redaction received on a non-remote event item");
                 return None;
-            };
+            }
 
             if let TimelineItemContent::RedactedMessage = &event_item.content {
                 debug!("event item is already redacted");
                 return None;
             }
 
-            let mut event_item = event_item.to_owned();
-            event_item.content = TimelineItemContent::RedactedMessage;
-            event_item.kind = remote_event_item.without_reactions().into();
-
-            Some(event_item)
+            Some(event_item.redact(self.room_version))
         });
 
         if self.result.items_updated == 0 {
@@ -797,7 +796,7 @@ impl<'a> TimelineEventHandler<'a> {
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
                             warn!("Got original form of an event that was previously redacted");
-                            item.content = TimelineItemContent::RedactedMessage;
+                            item.content = item.content.redact(self.room_version);
                             item.as_remote_mut()
                                 .expect("Can't have a local item when flow == Remote")
                                 .reactions
