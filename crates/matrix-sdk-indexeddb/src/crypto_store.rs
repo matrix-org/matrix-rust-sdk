@@ -1047,13 +1047,13 @@ impl_crypto_store! {
                 .map(|i| self.deserialize_value(i))
                 .transpose()?;
 
-            let recovery_key = store
+            let decryption_key = store
                 .get(&JsValue::from_str(keys::RECOVERY_KEY_V1))?
                 .await?
                 .map(|i| self.deserialize_value(i))
                 .transpose()?;
 
-            BackupKeys { backup_version, recovery_key }
+            BackupKeys { backup_version, decryption_key }
         };
 
         Ok(key)

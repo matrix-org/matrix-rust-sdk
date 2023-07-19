@@ -768,7 +768,7 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
     fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
         Ok(Self {
             recovery_key: BackupRecoveryKey {
-                inner: keys.recovery_key.ok_or(())?,
+                inner: keys.decryption_key.ok_or(())?,
                 passphrase_info: None,
             }
             .into(),

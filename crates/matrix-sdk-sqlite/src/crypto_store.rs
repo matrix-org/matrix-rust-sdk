@@ -954,7 +954,7 @@ impl CryptoStore for SqliteCryptoStore {
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
-        Ok(BackupKeys { backup_version, recovery_key })
+        Ok(BackupKeys { backup_version, decryption_key: recovery_key })
     }
 
     async fn get_outbound_group_session(

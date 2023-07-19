@@ -164,7 +164,7 @@ impl CryptoStore for MemoryStore {
         }
 
         if let Some(key) = changes.backup_decryption_key {
-            self.backup_keys.write().await.recovery_key = Some(key);
+            self.backup_keys.write().await.decryption_key = Some(key);
         }
 
         if let Some(version) = changes.backup_version {

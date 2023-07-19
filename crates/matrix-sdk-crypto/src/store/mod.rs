@@ -275,8 +275,8 @@ pub struct RoomKeyCounts {
 /// Stored versions of the backup keys.
 #[derive(Default, Clone, Debug)]
 pub struct BackupKeys {
-    /// The recovery key, the one used to decrypt backed up room keys.
-    pub recovery_key: Option<BackupDecryptionKey>,
+    /// The key used to decrypt backed up room keys.
+    pub decryption_key: Option<BackupDecryptionKey>,
     /// The version that we are using for backups.
     pub backup_version: Option<String>,
 }
@@ -676,7 +676,7 @@ impl Store {
             }
             SecretName::RecoveryKey => {
                 #[cfg(feature = "backups_v1")]
-                if let Some(key) = self.load_backup_keys().await?.recovery_key {
+                if let Some(key) = self.load_backup_keys().await?.decryption_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
