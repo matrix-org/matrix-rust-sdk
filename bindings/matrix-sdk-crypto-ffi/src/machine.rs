@@ -58,7 +58,10 @@ use crate::{
     Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
-/// A high level state machine that handles E2EE for Matrix.
+/// The return value for the [`OlmMachine::receive_sync_changes()`] method.
+///
+/// Will contain various information about the `/sync` changes the
+/// [`OlmMachine`] processed.
 #[derive(uniffi::Record)]
 pub struct SyncChangesResult {
     /// The, now possibly decrypted, to-device events the [`OlmMachine`]
