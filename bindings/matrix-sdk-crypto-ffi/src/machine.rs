@@ -58,6 +58,51 @@ use crate::{
     Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
+/// The return value for the [`OlmMachine::receive_sync_changes()`] method.
+///
+/// Will contain various information about the `/sync` changes the
+/// [`OlmMachine`] processed.
+#[derive(uniffi::Record)]
+pub struct SyncChangesResult {
+    /// The, now possibly decrypted, to-device events the [`OlmMachine`]
+    /// received, decrypted, and processed.
+    to_device_events: Vec<String>,
+
+    /// Information about the room keys that were extracted out of the to-device
+    /// events.
+    room_key_infos: Vec<RoomKeyInfo>,
+}
+
+/// Information on a room key that has been received or imported.
+#[derive(uniffi::Record)]
+pub struct RoomKeyInfo {
+    /// The [messaging algorithm] that this key is used for. Will be one of the
+    /// `m.megolm.*` algorithms.
+    ///
+    /// [messaging algorithm]: https://spec.matrix.org/v1.6/client-server-api/#messaging-algorithms
+    pub algorithm: String,
+
+    /// The room where the key is used.
+    pub room_id: String,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: String,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+}
+
+impl From<matrix_sdk_crypto::store::RoomKeyInfo> for RoomKeyInfo {
+    fn from(value: matrix_sdk_crypto::store::RoomKeyInfo) -> Self {
+        Self {
+            algorithm: value.algorithm.to_string(),
+            room_id: value.room_id.to_string(),
+            sender_key: value.sender_key.to_base64(),
+            session_id: value.session_id,
+        }
+    }
+}
+
 /// A high level state machine that handles E2EE for Matrix.
 #[derive(uniffi::Object)]
 pub struct OlmMachine {
@@ -474,7 +519,7 @@ impl OlmMachine {
         device_changes: DeviceLists,
         key_counts: HashMap<String, i32>,
         unused_fallback_keys: Option<Vec<String>>,
-    ) -> Result<String, CryptoStoreError> {
+    ) -> Result<SyncChangesResult, CryptoStoreError> {
         let to_device: ToDevice = serde_json::from_str(&events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
         let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
@@ -492,14 +537,19 @@ impl OlmMachine {
         let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
             unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
 
-        let events = self.runtime.block_on(self.inner.receive_sync_changes(
-            to_device.events,
-            &device_changes,
-            &key_counts,
-            unused_fallback_keys.as_deref(),
-        ))?;
+        let (to_device_events, room_key_infos) =
+            self.runtime.block_on(self.inner.receive_sync_changes(
+                to_device.events,
+                &device_changes,
+                &key_counts,
+                unused_fallback_keys.as_deref(),
+            ))?;
 
-        Ok(serde_json::to_string(&events)?)
+        let to_device_events =
+            to_device_events.into_iter().map(|event| event.json().get().to_owned()).collect();
+        let room_key_infos = room_key_infos.into_iter().map(|info| info.into()).collect();
+
+        Ok(SyncChangesResult { to_device_events, room_key_infos })
     }
 
     /// Add the given list of users to be tracked, triggering a key query
