@@ -16,20 +16,26 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_test::async_test;
-use ruma::events::{
-    reaction::{ReactionEventContent, RedactedReactionEventContent},
-    relation::Annotation,
-    room::{
-        message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
-        name::RoomNameEventContent,
+use ruma::{
+    events::{
+        reaction::{ReactionEventContent, RedactedReactionEventContent},
+        relation::Annotation,
+        room::{
+            message::{
+                ForwardThread, OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent,
+                RoomMessageEventContent,
+            },
+            name::RoomNameEventContent,
+        },
+        FullStateEventContent,
     },
-    FullStateEventContent,
+    owned_room_id,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
 
 use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
-use crate::timeline::{AnyOtherFullStateEventContent, TimelineItemContent};
+use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent};
 
 #[async_test]
 async fn redact_state_event() {
@@ -59,6 +65,50 @@ async fn redact_state_event() {
         state.content,
         AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Redacted(_))
     );
+}
+
+#[async_test]
+async fn redact_replied_to_event() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+
+    timeline
+        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("Hello, world!"))
+        .await;
+
+    let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_matches!(first_item.content(), TimelineItemContent::Message(_));
+    let first_event: OriginalSyncRoomMessageEvent =
+        first_item.original_json().unwrap().deserialize_as().unwrap();
+
+    timeline
+        .handle_live_message_event(
+            &BOB,
+            RoomMessageEventContent::text_plain("Hello, alice.").make_reply_to(
+                &first_event.into_full_event(owned_room_id!("!whocares:local.host")),
+                ForwardThread::Yes,
+            ),
+        )
+        .await;
+
+    let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let message = second_item.content().as_message().unwrap();
+    let in_reply_to = message.in_reply_to().unwrap();
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(val) => val);
+    assert_matches!(replied_to_event.content(), TimelineItemContent::Message(_));
+
+    timeline.handle_live_redaction(&ALICE, first_item.event_id().unwrap()).await;
+
+    let first_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert_matches!(first_item_again.content(), TimelineItemContent::RedactedMessage);
+
+    let second_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    let message = second_item_again.content().as_message().unwrap();
+    let in_reply_to = message.in_reply_to().unwrap();
+    let replied_to_event = assert_matches!(&in_reply_to.event, TimelineDetails::Ready(val) => val);
+    assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
 }
 
 #[async_test]

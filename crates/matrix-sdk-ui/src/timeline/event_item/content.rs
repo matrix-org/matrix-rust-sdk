@@ -476,6 +476,14 @@ impl RepliedToEvent {
         }
     }
 
+    pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
+        Self {
+            content: self.content.redact(room_version),
+            sender: self.sender.clone(),
+            sender_profile: self.sender_profile.clone(),
+        }
+    }
+
     pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
