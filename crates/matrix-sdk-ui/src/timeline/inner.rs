@@ -20,7 +20,7 @@ use eyeball_im::{ObservableVector, ObservableVectorEntry, VectorSubscriber};
 #[cfg(any(test, feature = "testing"))]
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
@@ -63,7 +63,7 @@ use super::{
     },
     event_item::EventItemIdentifier,
     item::{new_timeline_item, timeline_item},
-    reactions::ReactionToggleResult,
+    reactions::{ReactionToggleResult, Reactions},
     rfind_event_by_id, rfind_event_item,
     traits::RoomDataProvider,
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
@@ -83,11 +83,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
 pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
     pub(super) next_internal_id: u64,
-    /// Reaction event / txn ID => sender and reaction data.
-    pub(super) reaction_map: HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
-    /// ID of event that is not in the timeline yet => List of reaction event
-    /// IDs.
-    pub(super) pending_reactions: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
+    pub(super) reactions: Reactions,
     pub(super) fully_read_event: Option<OwnedEventId>,
     /// Whether the fully-read marker item should try to be updated when an
     /// event is added.
@@ -1225,7 +1221,7 @@ impl TimelineInnerState {
 
     pub(super) fn clear(&mut self) {
         self.items.clear();
-        self.reaction_map.clear();
+        self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
     }
@@ -1368,7 +1364,7 @@ fn update_timeline_reaction(
         // (should the local echo already be up-to-date after event handling?)
         if let Some(txn_id) = local_echo_to_remove {
             let id = EventItemIdentifier::TransactionId(txn_id.clone());
-            if state.reaction_map.remove(&id).is_none() {
+            if state.reactions.map.remove(&id).is_none() {
                 warn!(
                     "Tried to remove reaction by transaction ID, but didn't \
                      find matching reaction in the reaction map"
@@ -1377,7 +1373,7 @@ fn update_timeline_reaction(
         }
         // Add the remote echo to the reaction_map
         if let Some(event_id) = remote_echo_to_add {
-            state.reaction_map.insert(
+            state.reactions.map.insert(
                 EventItemIdentifier::EventId(event_id.clone()),
                 (reaction_sender_data, annotation.clone()),
             );
