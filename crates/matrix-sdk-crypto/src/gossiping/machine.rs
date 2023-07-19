@@ -813,13 +813,13 @@ impl GossipMachine {
                 }
             }
         } else {
-            // We would need to fire out a request to figure out if this backup recovery key
-            // is the one that is used for the current backup and if the backup
-            // is trusted.
+            // We would need to fire out a request to figure out if this backup decryption
+            // key is the one that is used for the current backup and if the
+            // backup is trusted.
             //
             // So we put the secret into our inbox. Later users can inspect the contents of
             // the inbox and decide if they want to activate the backup.
-            info!("Received a backup recovery key, storing it into the secret inbox.");
+            info!("Received a backup decryption key, storing it into the secret inbox.");
             changes.secrets.push(secret);
         }
 

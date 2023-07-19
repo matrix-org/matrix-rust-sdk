@@ -98,7 +98,7 @@ impl BackupDecryptionKey {
         bytes.iter().fold(Self::PREFIX_PARITY, |acc, x| acc ^ x)
     }
 
-    /// Create a new recovery key from the given byte array.
+    /// Create a new decryption key from the given byte array.
     ///
     /// **Warning**: You need to make sure that the byte array contains correct
     /// random data, either by using a random number generator or by using an
@@ -114,13 +114,12 @@ impl BackupDecryptionKey {
         Self { inner: key }
     }
 
-    /// Get the recovery key as a raw byte representation.
+    /// Get the decryption key as a raw byte representation.
     pub fn as_bytes(&self) -> &[u8; Self::KEY_SIZE] {
         &self.inner
     }
 
-    /// Try to create a [`BackupDecryptionKey`] from a base64 export of a
-    /// `RecoveryKey`.
+    /// Try to create a [`BackupDecryptionKey`] from a base64 export.
     pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
         let decoded = Zeroizing::new(crate::utilities::decode(key)?);
 
@@ -134,8 +133,7 @@ impl BackupDecryptionKey {
         }
     }
 
-    /// Try to create a [`BackupDecryptionKey`] from a base58 export of a
-    /// `RecoveryKey`.
+    /// Try to create a [`BackupDecryptionKey`] from a base58 export.
     pub fn from_base58(value: &str) -> Result<Self, DecodeError> {
         // Remove any whitespace we might have
         let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();

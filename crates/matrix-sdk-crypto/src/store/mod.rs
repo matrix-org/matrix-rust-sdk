@@ -224,10 +224,10 @@ pub struct BackupDecryptionKey {
 }
 
 impl BackupDecryptionKey {
-    /// The number of bytes the recovery key will hold.
+    /// The number of bytes the decryption key will hold.
     pub const KEY_SIZE: usize = 32;
 
-    /// Create a new random recovery key.
+    /// Create a new random decryption key.
     pub fn new() -> Result<Self, rand::Error> {
         let mut rng = rand::thread_rng();
 
@@ -754,7 +754,7 @@ impl Store {
                 }
             }
             SecretName::RecoveryKey => {
-                // We don't import the recovery key here since we'll want to
+                // We don't import the decryption key here since we'll want to
                 // check if the public key matches to the latest version on the
                 // server. We instead put the secret into a secret inbox where
                 // it will stay until it either gets overwritten
