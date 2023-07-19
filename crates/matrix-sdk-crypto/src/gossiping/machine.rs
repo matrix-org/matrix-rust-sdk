@@ -1810,7 +1810,7 @@ mod tests {
         bob_machine.store().save_devices(&[alice_device.inner]).await.unwrap();
 
         let recovery_key = crate::store::BackupDecryptionKey::new().unwrap();
-        alice_machine.backup_machine().save_recovery_key(Some(recovery_key), None).await.unwrap();
+        alice_machine.backup_machine().save_decryption_key(Some(recovery_key), None).await.unwrap();
         alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event);
         alice_machine.inner.key_request_machine.collect_incoming_key_requests().await.unwrap();
 

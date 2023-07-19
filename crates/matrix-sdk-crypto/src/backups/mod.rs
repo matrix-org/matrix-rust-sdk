@@ -399,20 +399,17 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// Store the recovery key in the crypto store.
+    /// Store the backup decryption key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
     /// key.
-    pub async fn save_recovery_key(
+    pub async fn save_decryption_key(
         &self,
-        recovery_key: Option<BackupDecryptionKey>,
+        backup_decryption_key: Option<BackupDecryptionKey>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let changes = Changes {
-            backup_decryption_key: recovery_key,
-            backup_version: version,
-            ..Default::default()
-        };
+        let changes =
+            Changes { backup_decryption_key, backup_version: version, ..Default::default() };
         self.store.save_changes(changes).await
     }
 

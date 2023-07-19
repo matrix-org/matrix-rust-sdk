@@ -1360,7 +1360,7 @@ impl OlmMachine {
             encoded.zeroize();
             key
         });
-        Ok(self.runtime.block_on(self.inner.backup_machine().save_recovery_key(key, version))?)
+        Ok(self.runtime.block_on(self.inner.backup_machine().save_decryption_key(key, version))?)
     }
 
     /// Get the backup keys we have saved in our crypto store.
