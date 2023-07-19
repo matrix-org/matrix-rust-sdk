@@ -179,8 +179,7 @@ async fn check_requests(server: MockServer, expected_requests: &[serde_json::Val
             &expected_requests[num_requests],
             assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
         ) {
-            dbg!(json_value);
-            panic!("{error}");
+            panic!("{error}\n\njson_value = {json_value:?}");
         }
 
         num_requests += 1;
