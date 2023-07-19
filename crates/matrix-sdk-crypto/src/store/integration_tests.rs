@@ -24,7 +24,7 @@ macro_rules! cryptostore_integration_tests {
                 },
                 store::{
                     BackupKeys, Changes, CryptoStore, DeviceChanges,
-                    GossipRequest, IdentityChanges, RecoveryKey, RoomSettings,
+                    GossipRequest, IdentityChanges, BackupDecryptionKey, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
@@ -843,7 +843,7 @@ macro_rules! cryptostore_integration_tests {
                 let restored = store.load_backup_keys().await.unwrap();
                 assert!(restored.recovery_key.is_none(), "Initially no backup recovery key should be present");
 
-                let recovery_key = Some(RecoveryKey::new().unwrap());
+                let recovery_key = Some(BackupDecryptionKey::new().unwrap());
 
                 let changes = Changes { recovery_key, ..Default::default() };
                 store.save_changes(changes).await.unwrap();

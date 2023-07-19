@@ -145,7 +145,7 @@ pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
-    pub recovery_key: Option<RecoveryKey>,
+    pub recovery_key: Option<BackupDecryptionKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -208,14 +208,22 @@ pub struct DeviceChanges {
 }
 
 /// The private part of a backup key.
+///
+/// The private part of the key is not used on a regular basis. Rather, it is
+/// used only when we need to *recover* the backup.
+///
+/// Typically, this private key is itself encrypted and stored in server-side
+/// secret storage (SSSS), whence it can be retrieved when it is needed for a
+/// recovery operation. Alternatively, the key can be "gossiped" between devices
+/// via "secret sharing".
 #[derive(Clone, Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 #[serde(transparent)]
-pub struct RecoveryKey {
-    pub(crate) inner: Box<[u8; RecoveryKey::KEY_SIZE]>,
+pub struct BackupDecryptionKey {
+    pub(crate) inner: Box<[u8; BackupDecryptionKey::KEY_SIZE]>,
 }
 
-impl RecoveryKey {
+impl BackupDecryptionKey {
     /// The number of bytes the recovery key will hold.
     pub const KEY_SIZE: usize = 32;
 
@@ -229,16 +237,16 @@ impl RecoveryKey {
         Ok(Self { inner: key })
     }
 
-    /// Export the `RecoveryKey` as a base64 encoded string.
+    /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         encode(self.inner.as_slice())
     }
 }
 
 #[cfg(not(tarpaulin_include))]
-impl Debug for RecoveryKey {
+impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RecoveryKey").finish()
+        f.debug_struct("BackupDecryptionKey").finish()
     }
 }
 
@@ -268,7 +276,7 @@ pub struct RoomKeyCounts {
 #[derive(Default, Clone, Debug)]
 pub struct BackupKeys {
     /// The recovery key, the one used to decrypt backed up room keys.
-    pub recovery_key: Option<RecoveryKey>,
+    pub recovery_key: Option<BackupDecryptionKey>,
     /// The version that we are using for backups.
     pub backup_version: Option<String>,
 }

@@ -210,7 +210,7 @@ async fn migrate_data(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::RecoveryKey};
+    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
     use vodozemac::olm::Account;
     use zeroize::Zeroize;
 
@@ -264,8 +264,10 @@ async fn migrate_data(
         data.inbound_group_sessions,
     )?;
 
-    let recovery_key =
-        data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
+    let recovery_key = data
+        .backup_recovery_key
+        .map(|k| BackupDecryptionKey::from_base58(k.as_str()))
+        .transpose()?;
 
     let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
     cross_signing
