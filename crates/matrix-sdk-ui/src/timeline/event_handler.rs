@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, ObservableVectorEntry};
 use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
@@ -58,7 +58,7 @@ use super::{
     ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
     TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::InReplyToDetails};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -597,6 +597,24 @@ impl<'a> TimelineEventHandler<'a> {
             // We will want to know this when debugging redaction issues.
             debug!("redaction affected no event");
         }
+
+        self.items.for_each(|mut entry| {
+            let Some(event_item) = entry.as_event() else { return };
+            let Some(message) = event_item.content.as_message() else { return };
+            let Some(in_reply_to) = message.in_reply_to() else { return };
+            let TimelineDetails::Ready(replied_to_event) = &in_reply_to.event else { return };
+            if redacts == in_reply_to.event_id {
+                let replied_to_event = replied_to_event.redact(self.room_version);
+                let in_reply_to = InReplyToDetails {
+                    event_id: in_reply_to.event_id.clone(),
+                    event: TimelineDetails::Ready(Box::new(replied_to_event)),
+                };
+                let content = TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
+                let new_item = entry.with_kind(event_item.with_content(content, None));
+
+                ObservableVectorEntry::set(&mut entry, new_item);
+            }
+        });
     }
 
     // Redacted redactions are no-ops (unfortunately)
