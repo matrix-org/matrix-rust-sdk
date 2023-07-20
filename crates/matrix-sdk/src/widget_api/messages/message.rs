@@ -2,20 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<Req, Resp> {
-    #[serde(flatten)]
-    pub header: Header,
+    pub request_id: String,
+    pub widget_id: String,
     #[serde(rename = "data")]
     pub request: Req,
     pub response: Option<Response<Resp>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Header {
-    pub request_id: String,
-    pub widget_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize )]
 #[serde(untagged)]
 pub enum Response<Resp> {
     Error(WidgetError),

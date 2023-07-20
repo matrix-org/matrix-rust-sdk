@@ -14,7 +14,8 @@ impl<Req, Resp> Reply<Req, Resp> {
 
     pub fn reply(self, response: Resp) -> Result<(), Resp> {
         let message = Message {
-            header: self.request.header,
+            widget_id: self.request.widget_id,
+            request_id: self.request.request_id,
             request: self.request.request,
             response: Some(Response::Response(response)),
         };
