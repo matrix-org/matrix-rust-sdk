@@ -7,7 +7,7 @@ pub struct Reply<Req, Resp> {
     response: Sender<Message<Req, Resp>>,
 }
 
-impl <Req, Resp> Reply<Req, Resp> {
+impl<Req, Resp> Reply<Req, Resp> {
     pub fn new(request: Message<Req, ()>, response: Sender<Message<Req, Resp>>) -> Self {
         Self { request, response }
     }

@@ -15,7 +15,7 @@ pub struct Header {
     pub widget_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize )]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Response<Resp> {
     Error(WidgetError),
@@ -24,12 +24,12 @@ pub enum Response<Resp> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WidgetError {
-    pub error: WidgetErrorMessage
+    pub error: WidgetErrorMessage,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WidgetErrorMessage {
-    pub message: String
+    pub message: String,
 }
 
 impl<Resp> Into<Result<Resp, WidgetError>> for Response<Resp> {
@@ -40,4 +40,3 @@ impl<Resp> Into<Result<Resp, WidgetError>> for Response<Resp> {
         }
     }
 }
-

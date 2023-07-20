@@ -12,8 +12,6 @@ pub struct Capabilities {
 
 impl<'t> From<&'t Capabilities> for Options {
     fn from(capabilities: &'t Capabilities) -> Self {
-        Self {
-            navigate: capabilities.navigate.is_some(),
-        }
+        Self { navigate: capabilities.navigate.is_some() }
     }
 }
