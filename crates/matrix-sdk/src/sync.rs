@@ -31,11 +31,11 @@ use matrix_sdk_base::{
 use ruma::{
     api::client::{
         push::get_notifications::v3::Notification,
-        sync::sync_events::{self, v3::InvitedRoom, DeviceLists},
+        sync::sync_events::{self, v3::InvitedRoom},
     },
     events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
+    OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};
 
@@ -55,13 +55,6 @@ pub struct SyncResponse {
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
     pub to_device: Vec<Raw<AnyToDeviceEvent>>,
-    /// Information on E2E device updates.
-    ///
-    /// Only present on an incremental sync.
-    pub device_lists: DeviceLists,
-    /// For each key algorithm, the number of unclaimed one-time keys
-    /// currently held on the server for a device.
-    pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
@@ -75,8 +68,6 @@ impl SyncResponse {
             presence,
             account_data,
             to_device,
-            device_lists,
-            device_one_time_keys_count,
             ambiguity_changes,
             notifications,
         } = base_response;
@@ -87,8 +78,6 @@ impl SyncResponse {
             presence,
             account_data,
             to_device,
-            device_lists,
-            device_one_time_keys_count,
             ambiguity_changes,
             notifications,
         }
@@ -102,8 +91,6 @@ impl fmt::Debug for SyncResponse {
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
             .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
-            .field("device_lists", &self.device_lists)
-            .field("device_one_time_keys_count", &self.device_one_time_keys_count)
             .field("ambiguity_changes", &self.ambiguity_changes)
             .field("notifications", &DebugNotificationMap(&self.notifications))
             .finish_non_exhaustive()
@@ -173,8 +160,6 @@ impl Client {
             presence,
             account_data,
             to_device,
-            device_lists: _,
-            device_one_time_keys_count: _,
             ambiguity_changes: _,
             notifications,
         } = response;

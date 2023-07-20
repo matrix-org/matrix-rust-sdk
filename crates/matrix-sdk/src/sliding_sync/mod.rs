@@ -38,6 +38,7 @@ pub use client::*;
 pub use error::*;
 use futures_core::stream::Stream;
 pub use list::*;
+use matrix_sdk_base::sync::SyncResponse;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -278,8 +279,30 @@ impl SlidingSync {
         // move to Sliding Sync, i.e. to `v4::Response`), but processing the
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
-        let mut sync_response =
-            self.inner.client.process_sliding_sync(&sliding_sync_response).await?;
+
+        let to_device_events = Vec::new();
+
+        #[cfg(feature = "e2e-encryption")]
+        let to_device_events = if self.is_e2ee_enabled() {
+            self.inner.client.process_sliding_sync_e2ee(&sliding_sync_response.extensions).await?
+        } else {
+            to_device_events
+        };
+
+        // Only handle the room's subsection of the response, if this sliding sync was configured
+        // to do so. That's because even when not requesting it, sometimes the current (2023-07-20)
+        // proxy will forward room events unrelated to the current connection's parameters.
+        // NOTE: SS proxy workaround.
+        let handle_room_response = {
+            !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
+                || !self.inner.lists.read().await.is_empty()
+        };
+
+        let mut sync_response = if handle_room_response {
+            self.inner.client.process_sliding_sync(&sliding_sync_response, to_device_events).await?
+        } else {
+            assign!(SyncResponse::default(), { to_device: to_device_events })
+        };
 
         debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
@@ -464,6 +487,12 @@ impl SlidingSync {
         ))
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    /// Is the e2ee extension enabled for this sliding sync instance?
+    fn is_e2ee_enabled(&self) -> bool {
+        self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
+    }
+
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
@@ -486,7 +515,7 @@ impl SlidingSync {
 
         #[cfg(feature = "e2e-encryption")]
         let response = {
-            if self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true) {
+            if self.is_e2ee_enabled() {
                 debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
 
                 // Here, we need to run 2 things:
@@ -570,7 +599,7 @@ impl SlidingSync {
             // unsubscriptions buffer. However, it would be an error to empty it entirely as
             // more unsubscriptions could have been inserted during the request/response
             // dance. So let's cherry-pick which unsubscriptions to remove.
-            {
+            if !requested_room_unsubscriptions.is_empty() {
                 let room_unsubscriptions = &mut *this.inner.room_unsubscriptions.write().unwrap();
 
                 room_unsubscriptions
@@ -828,6 +857,7 @@ impl StickyData for SlidingSyncStickyParameters {
 /// correctly, so we cheat and "correct" it using heuristics here.
 /// TODO remove this workaround as soon as support of the `limited` flag is
 /// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
+// NOTE: SS proxy workaround.
 fn compute_limited(
     known_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     response_rooms: &mut BTreeMap<OwnedRoomId, v4::SlidingSyncRoom>,
