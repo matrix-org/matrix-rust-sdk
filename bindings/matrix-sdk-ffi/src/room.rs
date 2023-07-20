@@ -289,11 +289,13 @@ impl Room {
     /// Raises an exception if there are no timeline listeners.
     pub fn paginate_backwards(&self, opts: PaginationOptions) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
-            if let Some(timeline) = &*self.timeline.read().await {
-                Ok(timeline.paginate_backwards(opts.into()).await?)
-            } else {
-                Err(anyhow!("No timeline listeners registered, can't paginate").into())
-            }
+            let timeline: Arc<_> = self
+                .timeline
+                .read()
+                .await
+                .clone()
+                .context("No timeline listeners registered, can't paginate")?;
+            Ok(timeline.paginate_backwards(opts.into()).await?)
         })
     }
 
