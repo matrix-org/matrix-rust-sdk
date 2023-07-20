@@ -1886,6 +1886,12 @@ impl OlmMachine {
     pub fn same_as(&self, other: &OlmMachine) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
+
+    #[cfg(any(feature = "testing", test))]
+    /// Testing purposes only.
+    pub fn uploaded_key_count(&self) -> u64 {
+        self.inner.account.uploaded_key_count()
+    }
 }
 
 #[cfg(any(feature = "testing", test))]

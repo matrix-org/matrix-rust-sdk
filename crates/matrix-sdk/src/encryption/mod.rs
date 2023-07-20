@@ -946,6 +946,14 @@ impl Encryption {
             Ok(None)
         }
     }
+
+    #[cfg(any(test, feature = "testing"))]
+    /// Testing purposees only.
+    pub async fn uploaded_key_count(&self) -> Result<u64> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
+        Ok(olm_machine.uploaded_key_count())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
