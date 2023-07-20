@@ -34,7 +34,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
 use matrix_sdk_crypto::store::locks::CryptoStoreLock;
 use ruma::{api::client::sync::sync_events::v4, assign};
-use tracing::{error, trace};
+use tracing::{debug, trace};
 
 /// Should the `EncryptionSync` make use of locking?
 pub enum WithLocking {
@@ -165,10 +165,10 @@ impl EncryptionSync {
                     // This API is only concerned with the e2ee and to-device extensions.
                     // Warn if anything weird has been received from the proxy.
                     if !update_summary.lists.is_empty() {
-                        error!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
+                        debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                     }
                     if !update_summary.rooms.is_empty() {
-                        error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
+                        debug!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                     }
 
                     // Cool cool, let's do it again.
@@ -215,10 +215,10 @@ impl EncryptionSync {
                         // This API is only concerned with the e2ee and to-device extensions.
                         // Warn if anything weird has been received from the proxy.
                         if !update_summary.lists.is_empty() {
-                            error!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
+                            debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                         }
                         if !update_summary.rooms.is_empty() {
-                            error!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
+                            debug!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
                         }
 
                         // Cool cool, let's do it again.
