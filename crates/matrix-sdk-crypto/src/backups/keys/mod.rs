@@ -12,34 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Module for the keys that are used to backup room keys.
+//! Module for the keys that are used to back up room keys.
 //!
 //! The backup key is split into two parts:
 //!
 //! ```text
-//!                     ┌───────────────────────────┐
-//!                     │  RecoveryKey | BackupKey  │
-//!                     └───────────────────────────┘
+//!                 ┌───────────────────────────────────────────┐
+//!                 │  BackupDecryptionKey | MegolmV1BackupKey  │
+//!                 └───────────────────────────────────────────┘
 //! ```
 //!
-//! 1. RecoveryKey, a private Curve25519 key that is used to decrypt backed up
-//!    room keys.
-//! 2. BackupKey, the public part of the Curve25519 RecoveryKey, this one is
-//!    used to encrypt room keys that get backed up.
+//! 1. [`crate::store::BackupDecryptionKey`], a private Curve25519 key that is
+//!    used to decrypt backed up room keys. Sometimes also referred to as a
+//!    "recovery key".
 //!
-//! The `RecoveryKey` can be derived from a passphrase or randomly generated.
-//! To allow other devices access to this key you'll either have to re-enter the
-//! passphrase or the key as a base58 encoded string or received from another
-//! device using the secret sharing mechanism.
+//! 2. [`MegolmV1BackupKey`], the public part of the Curve25519
+//!    `BackupDecryptionKey`. This is used to encrypt room keys that get backed
+//!    up.
 //!
-//! In practice deriving a recovery key from a passphrase isn't done, and is
-//! **not** supported by the spec. Instead the secret storage key that encrypts
-//! secrets and puts them into your global account data gets derived from a
-//! passphrase and presented as a base58 encoded string, confusingly also called
-//! recovery key.
+//! In theory, the `BackupDecryptionKey` can be derived from a passphrase.
+//! However, in practice deriving a decryption key from a passphrase isn't done,
+//! and is **not** supported by the spec.
 //!
-//! The `RecoveryKey` can also be uploaded to your account data as an
-//! `m.megolm.v1` event, which gets encrypted by the SSSS key.
+//! Instead, it is randomly generated, and then encrypted using the server-side
+//! secret storage (SSSS) key. (The SSSS key is, confusingly, also called a
+//! "recovery key".)
+//!
+//! The (encrypted) `BackupDecryptionKey` can then be uploaded to your account
+//! data as an `m.megolm.v1` event.
 //!
 //! The `MegolmV1BackupKey` is used to encrypt individual room keys so they can
 //! be uploaded to the homeserver.
@@ -49,8 +49,8 @@
 
 mod backup;
 mod compat;
-mod recovery;
+mod decryption;
 
 pub use backup::MegolmV1BackupKey;
 pub use compat::{Error as DecryptionError, MessageDecodeError};
-pub use recovery::DecodeError;
+pub use decryption::DecodeError;

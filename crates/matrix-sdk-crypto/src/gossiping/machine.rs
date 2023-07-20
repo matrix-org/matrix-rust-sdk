@@ -813,13 +813,13 @@ impl GossipMachine {
                 }
             }
         } else {
-            // We would need to fire out a request to figure out if this backup recovery key
-            // is the one that is used for the current backup and if the backup
-            // is trusted.
+            // We would need to fire out a request to figure out if this backup decryption
+            // key is the one that is used for the current backup and if the
+            // backup is trusted.
             //
             // So we put the secret into our inbox. Later users can inspect the contents of
             // the inbox and decide if they want to activate the backup.
-            info!("Received a backup recovery key, storing it into the secret inbox.");
+            info!("Received a backup decryption key, storing it into the secret inbox.");
             changes.secrets.push(secret);
         }
 
@@ -1809,8 +1809,12 @@ mod tests {
         alice_machine.store().save_devices(&[bob_device.inner]).await.unwrap();
         bob_machine.store().save_devices(&[alice_device.inner]).await.unwrap();
 
-        let recovery_key = crate::store::RecoveryKey::new().unwrap();
-        alice_machine.backup_machine().save_recovery_key(Some(recovery_key), None).await.unwrap();
+        let decryption_key = crate::store::BackupDecryptionKey::new().unwrap();
+        alice_machine
+            .backup_machine()
+            .save_decryption_key(Some(decryption_key), None)
+            .await
+            .unwrap();
         alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event);
         alice_machine.inner.key_request_machine.collect_incoming_key_requests().await.unwrap();
 

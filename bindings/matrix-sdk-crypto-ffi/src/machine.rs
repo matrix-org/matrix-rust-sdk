@@ -16,7 +16,7 @@ use matrix_sdk_crypto::{
     },
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
-    store::{Changes, RecoveryKey},
+    store::{BackupDecryptionKey, Changes},
     LocalTrust, OlmMachine as InnerMachine, UserIdentities,
 };
 use ruma::{
@@ -1355,12 +1355,12 @@ impl OlmMachine {
             // We need to clone here due to FFI limitations but RecoveryKey does
             // not want to expose clone since it's private key material.
             let mut encoded = k.to_base64();
-            let key = RecoveryKey::from_base64(&encoded)
+            let key = BackupDecryptionKey::from_base64(&encoded)
                 .expect("Encoding and decoding from base64 should always work");
             encoded.zeroize();
             key
         });
-        Ok(self.runtime.block_on(self.inner.backup_machine().save_recovery_key(key, version))?)
+        Ok(self.runtime.block_on(self.inner.backup_machine().save_decryption_key(key, version))?)
     }
 
     /// Get the backup keys we have saved in our crypto store.

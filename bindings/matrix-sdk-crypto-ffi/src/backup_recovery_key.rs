@@ -3,7 +3,7 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 use hmac::Hmac;
 use matrix_sdk_crypto::{
     backups::DecryptionError,
-    store::{CryptoStoreError as InnerStoreError, RecoveryKey},
+    store::{BackupDecryptionKey, CryptoStoreError as InnerStoreError},
 };
 use pbkdf2::pbkdf2;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 /// The private part of the backup key, the one used for recovery.
 #[derive(uniffi::Object)]
 pub struct BackupRecoveryKey {
-    pub(crate) inner: RecoveryKey,
+    pub(crate) inner: BackupDecryptionKey,
     pub(crate) passphrase_info: Option<PassphraseInfo>,
 }
 
@@ -76,7 +76,7 @@ impl BackupRecoveryKey {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            inner: RecoveryKey::new()
+            inner: BackupDecryptionKey::new()
                 .expect("Can't gather enough randomness to create a recovery key"),
             passphrase_info: None,
         })
@@ -85,13 +85,13 @@ impl BackupRecoveryKey {
     /// Try to create a [`BackupRecoveryKey`] from a base 64 encoded string.
     #[uniffi::constructor]
     pub fn from_base64(key: String) -> Result<Arc<Self>, DecodeError> {
-        Ok(Arc::new(Self { inner: RecoveryKey::from_base64(&key)?, passphrase_info: None }))
+        Ok(Arc::new(Self { inner: BackupDecryptionKey::from_base64(&key)?, passphrase_info: None }))
     }
 
     /// Try to create a [`BackupRecoveryKey`] from a base 58 encoded string.
     #[uniffi::constructor]
     pub fn from_base58(key: String) -> Result<Arc<Self>, DecodeError> {
-        Ok(Arc::new(Self { inner: RecoveryKey::from_base58(&key)?, passphrase_info: None }))
+        Ok(Arc::new(Self { inner: BackupDecryptionKey::from_base58(&key)?, passphrase_info: None }))
     }
 
     /// Create a new [`BackupRecoveryKey`] from the given passphrase.
@@ -115,12 +115,12 @@ impl BackupRecoveryKey {
 
         pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, key.deref_mut());
 
-        let recovery_key = RecoveryKey::from_bytes(&key);
+        let backup_decryption_key = BackupDecryptionKey::from_bytes(&key);
 
         key.zeroize();
 
         Arc::new(Self {
-            inner: recovery_key,
+            inner: backup_decryption_key,
             passphrase_info: Some(PassphraseInfo {
                 private_key_salt: salt,
                 private_key_iterations: rounds as i32,

@@ -210,7 +210,7 @@ async fn migrate_data(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::RecoveryKey};
+    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
     use vodozemac::olm::Account;
     use zeroize::Zeroize;
 
@@ -264,8 +264,10 @@ async fn migrate_data(
         data.inbound_group_sessions,
     )?;
 
-    let recovery_key =
-        data.backup_recovery_key.map(|k| RecoveryKey::from_base58(k.as_str())).transpose()?;
+    let backup_decryption_key = data
+        .backup_recovery_key
+        .map(|k| BackupDecryptionKey::from_base58(k.as_str()))
+        .transpose()?;
 
     let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
     cross_signing
@@ -306,7 +308,7 @@ async fn migrate_data(
         private_identity: Some(cross_signing),
         sessions,
         inbound_group_sessions,
-        recovery_key,
+        backup_decryption_key,
         backup_version: data.backup_version,
         room_settings,
         ..Default::default()
@@ -766,7 +768,7 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
     fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
         Ok(Self {
             recovery_key: BackupRecoveryKey {
-                inner: keys.recovery_key.ok_or(())?,
+                inner: keys.decryption_key.ok_or(())?,
                 passphrase_info: None,
             }
             .into(),

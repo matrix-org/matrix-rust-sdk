@@ -145,7 +145,7 @@ pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
-    pub recovery_key: Option<RecoveryKey>,
+    pub backup_decryption_key: Option<BackupDecryptionKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -208,18 +208,26 @@ pub struct DeviceChanges {
 }
 
 /// The private part of a backup key.
+///
+/// The private part of the key is not used on a regular basis. Rather, it is
+/// used only when we need to *recover* the backup.
+///
+/// Typically, this private key is itself encrypted and stored in server-side
+/// secret storage (SSSS), whence it can be retrieved when it is needed for a
+/// recovery operation. Alternatively, the key can be "gossiped" between devices
+/// via "secret sharing".
 #[derive(Clone, Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 #[serde(transparent)]
-pub struct RecoveryKey {
-    pub(crate) inner: Box<[u8; RecoveryKey::KEY_SIZE]>,
+pub struct BackupDecryptionKey {
+    pub(crate) inner: Box<[u8; BackupDecryptionKey::KEY_SIZE]>,
 }
 
-impl RecoveryKey {
-    /// The number of bytes the recovery key will hold.
+impl BackupDecryptionKey {
+    /// The number of bytes the decryption key will hold.
     pub const KEY_SIZE: usize = 32;
 
-    /// Create a new random recovery key.
+    /// Create a new random decryption key.
     pub fn new() -> Result<Self, rand::Error> {
         let mut rng = rand::thread_rng();
 
@@ -229,16 +237,16 @@ impl RecoveryKey {
         Ok(Self { inner: key })
     }
 
-    /// Export the `RecoveryKey` as a base64 encoded string.
+    /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         encode(self.inner.as_slice())
     }
 }
 
 #[cfg(not(tarpaulin_include))]
-impl Debug for RecoveryKey {
+impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RecoveryKey").finish()
+        f.debug_struct("BackupDecryptionKey").finish()
     }
 }
 
@@ -267,8 +275,8 @@ pub struct RoomKeyCounts {
 /// Stored versions of the backup keys.
 #[derive(Default, Clone, Debug)]
 pub struct BackupKeys {
-    /// The recovery key, the one used to decrypt backed up room keys.
-    pub recovery_key: Option<RecoveryKey>,
+    /// The key used to decrypt backed up room keys.
+    pub decryption_key: Option<BackupDecryptionKey>,
     /// The version that we are using for backups.
     pub backup_version: Option<String>,
 }
@@ -668,7 +676,7 @@ impl Store {
             }
             SecretName::RecoveryKey => {
                 #[cfg(feature = "backups_v1")]
-                if let Some(key) = self.load_backup_keys().await?.recovery_key {
+                if let Some(key) = self.load_backup_keys().await?.decryption_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
@@ -746,7 +754,7 @@ impl Store {
                 }
             }
             SecretName::RecoveryKey => {
-                // We don't import the recovery key here since we'll want to
+                // We don't import the decryption key here since we'll want to
                 // check if the public key matches to the latest version on the
                 // server. We instead put the secret into a secret inbox where
                 // it will stay until it either gets overwritten

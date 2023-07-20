@@ -763,9 +763,9 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("identity", &serialized_private_identity)?;
                 }
 
-                if let Some(recovery_key) = &changes.recovery_key {
-                    let serialized_recovery_key = this.serialize_value(recovery_key)?;
-                    txn.set_kv("recovery_key_v1", &serialized_recovery_key)?;
+                if let Some(decryption_key) = &changes.backup_decryption_key {
+                    let serialized_decryption_key = this.serialize_value(decryption_key)?;
+                    txn.set_kv("recovery_key_v1", &serialized_decryption_key)?;
                 }
 
                 if let Some(backup_version) = &changes.backup_version {
@@ -948,13 +948,13 @@ impl CryptoStore for SqliteCryptoStore {
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
-        let recovery_key = conn
+        let decryption_key = conn
             .get_kv("recovery_key_v1")
             .await?
             .map(|value| self.deserialize_value(&value))
             .transpose()?;
 
-        Ok(BackupKeys { backup_version, recovery_key })
+        Ok(BackupKeys { backup_version, decryption_key })
     }
 
     async fn get_outbound_group_session(
