@@ -122,7 +122,7 @@ mod tests {
         let mut room = v4::SlidingSyncRoom::new();
         room.timeline.push(event.event);
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.unwrap();
+        client.process_sliding_sync(&response, vec![]).await.unwrap();
     }
 
     fn message_event(

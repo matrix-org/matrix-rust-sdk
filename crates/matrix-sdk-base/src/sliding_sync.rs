@@ -21,7 +21,8 @@ use ruma::{
         v3::{self, InvitedRoom, RoomSummary},
         v4::{self, AccountData},
     },
-    events::AnySyncStateEvent,
+    events::{AnySyncStateEvent, AnyToDeviceEvent},
+    serde::Raw,
     RoomId,
 };
 use tracing::{debug, info, instrument, warn};
@@ -41,6 +42,57 @@ use crate::{
 };
 
 impl BaseClient {
+    #[cfg(feature = "e2e-encryption")]
+    /// Processes the E2EE-related events from the Sliding Sync response.
+    ///
+    /// In addition to writes to the crypto store, this may also write into the
+    /// state store, in particular it may write latest-events to the state
+    /// store.
+    pub async fn process_sliding_sync_e2ee(
+        &self,
+        extensions: &v4::Extensions,
+    ) -> Result<Vec<Raw<AnyToDeviceEvent>>> {
+        if extensions.is_empty() {
+            return Ok(Default::default());
+        }
+
+        let v4::Extensions { to_device, e2ee, .. } = extensions;
+
+        let to_device = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
+
+        info!(
+            to_device_events = to_device.len(),
+            device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
+            device_unused_fallback_key_types =
+                e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len())
+        );
+
+        let mut changes = StateChanges::default();
+
+        // Process the to-device events and other related e2ee data. This returns a list
+        // of all the to-device events that were passed in but encrypted ones
+        // were replaced with their decrypted version.
+        // Passing in the default empty maps and vecs for this is completely fine, since
+        // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
+        // counts.
+        let to_device = self
+            .preprocess_to_device_events(
+                to_device,
+                &e2ee.device_lists,
+                &e2ee.device_one_time_keys_count,
+                e2ee.device_unused_fallback_key_types.as_deref(),
+                &mut changes,
+            )
+            .await?;
+
+        debug!("ready to submit changes to store");
+        self.store.save_changes(&changes).await?;
+        self.apply_changes(&changes).await;
+        debug!("applied changes");
+
+        Ok(to_device)
+    }
+
     /// Process a response from a sliding sync call.
     ///
     /// # Arguments
@@ -49,7 +101,6 @@ impl BaseClient {
     ///   sync.
     #[instrument(skip_all, level = "trace")]
     pub async fn process_sliding_sync(&self, response: &v4::Response) -> Result<SyncResponse> {
-        #[allow(unused_variables)]
         let v4::Response {
             // FIXME not yet supported by sliding sync. see
             // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
@@ -70,35 +121,9 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let v4::Extensions { to_device, e2ee, account_data, receipts, .. } = extensions;
-
-        let to_device = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
-
-        info!(
-            to_device_events = to_device.len(),
-            device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
-            device_unused_fallback_key_types =
-                e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len())
-        );
+        let v4::Extensions { account_data, receipts, .. } = extensions;
 
         let mut changes = StateChanges::default();
-
-        // Process the to-device events and other related e2ee data. This returns a list
-        // of all the to-device events that were passed in but encrypted ones
-        // were replaced with their decrypted version.
-        // Passing in the default empty maps and vecs for this is completely fine, since
-        // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
-        // counts.
-        #[cfg(feature = "e2e-encryption")]
-        let to_device = self
-            .preprocess_to_device_events(
-                to_device,
-                &e2ee.device_lists,
-                &e2ee.device_one_time_keys_count,
-                e2ee.device_unused_fallback_key_types.as_deref(),
-                &mut changes,
-            )
-            .await?;
 
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
@@ -172,9 +197,6 @@ impl BaseClient {
         self.apply_changes(&changes).await;
         debug!("applied changes");
 
-        let device_one_time_keys_count =
-            e2ee.device_one_time_keys_count.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
-
         Ok(SyncResponse {
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
@@ -182,9 +204,7 @@ impl BaseClient {
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: account_data.global.clone(),
-            to_device,
-            device_lists: e2ee.device_lists.clone(),
-            device_one_time_keys_count,
+            to_device: Default::default(),
         })
     }
 

@@ -916,12 +916,6 @@ impl BaseClient {
             presence: response.presence.events,
             account_data: response.account_data.events,
             to_device,
-            device_lists: response.device_lists,
-            device_one_time_keys_count: response
-                .device_one_time_keys_count
-                .into_iter()
-                .map(|(k, v)| (k, v.into()))
-                .collect(),
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications: changes.notifications,
         };
