@@ -16,7 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls", "experimental-widget-api"]
 testing = ["matrix-sdk-sqlite?/testing"]
 
 e2e-encryption = [
@@ -47,6 +47,8 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
+
+experimental-widget-api = []
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 

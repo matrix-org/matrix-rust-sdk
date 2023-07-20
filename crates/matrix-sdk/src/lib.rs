@@ -47,6 +47,9 @@ pub mod widget_api;
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
 
+#[cfg(feature = "experimental-widget-api")]
+pub mod widget_api;
+
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 pub use account::Account;
