@@ -289,9 +289,11 @@ impl SlidingSync {
             to_device_events
         };
 
-        // Only handle the room's subsection of the response, if this sliding sync was configured
-        // to do so. That's because even when not requesting it, sometimes the current (2023-07-20)
-        // proxy will forward room events unrelated to the current connection's parameters.
+        // Only handle the room's subsection of the response, if this sliding sync was
+        // configured to do so. That's because even when not requesting it,
+        // sometimes the current (2023-07-20) proxy will forward room events
+        // unrelated to the current connection's parameters.
+        //
         // NOTE: SS proxy workaround.
         let handle_room_response = {
             !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
@@ -914,7 +916,8 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4::ToDeviceConfig, room_id, serde::Raw, TransactionId,
+        api::client::sync::sync_events::v4::ToDeviceConfig, owned_room_id, room_id, serde::Raw,
+        uint, DeviceKeyAlgorithm, TransactionId,
     };
     use serde_json::json;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
@@ -1619,5 +1622,93 @@ mod tests {
         assert!(!response_rooms.get(complete_overlap).unwrap().limited);
         assert!(!response_rooms.get(no_new_events).unwrap().limited);
         assert!(response_rooms.get(already_limited).unwrap().limited);
+    }
+
+    #[async_test]
+    async fn test_process_only_encryption_events() -> Result<()> {
+        let room = owned_room_id!("!croissant:example.org");
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let server_response = assign!(v4::Response::new("0".to_owned()), {
+            rooms: BTreeMap::from([(
+                room.clone(),
+                assign!(v4::SlidingSyncRoom::default(), {
+                    name: Some("Croissants lovers".to_owned()),
+                    timeline: Vec::new(),
+                }),
+            )]),
+
+            extensions: assign!(v4::Extensions::default(), {
+                e2ee: assign!(v4::E2EE::default(), {
+                    device_one_time_keys_count: BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, uint!(42))])
+                }),
+            })
+        });
+
+        // Don't process non-encryption events if the sliding sync is configured for
+        // encryption only.
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
+
+        sliding_sync.handle_response(server_response.clone()).await?;
+
+        // E2EE has been properly handled.
+        let uploaded_key_count = client.encryption().uploaded_key_count().await?;
+        assert_eq!(uploaded_key_count, 42);
+
+        // Room events haven't.
+        assert!(client.get_room(&room).is_none());
+
+        // Conversely, only process room lists events if the sliding sync was configured
+        // as so.
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .add_list(SlidingSyncList::builder("thelist"))
+            .build()
+            .await?;
+
+        sliding_sync.handle_response(server_response.clone()).await?;
+
+        // E2EE response has been ignored.
+        let uploaded_key_count = client.encryption().uploaded_key_count().await?;
+        assert_eq!(uploaded_key_count, 0);
+
+        // The room is now known.
+        assert!(client.get_room(&room).is_some());
+
+        // And it's also possible to set up both.
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .add_list(SlidingSyncList::builder("thelist"))
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
+
+        sliding_sync.handle_response(server_response.clone()).await?;
+
+        // E2EE has been properly handled.
+        let uploaded_key_count = client.encryption().uploaded_key_count().await?;
+        assert_eq!(uploaded_key_count, 42);
+
+        // The room is now known.
+        assert!(client.get_room(&room).is_some());
+
+        Ok(())
     }
 }
