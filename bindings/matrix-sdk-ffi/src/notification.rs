@@ -16,7 +16,9 @@ pub enum NotificationEvent {
     },
     /// The notification is for an invitation; the interesting context bits live
     /// in `NotificationItem`.
-    Invite,
+    Invite {
+        sender_id: String,
+    },
 }
 
 #[derive(uniffi::Record)]
@@ -54,8 +56,8 @@ impl NotificationItem {
             matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
                 NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
             }
-            matrix_sdk_ui::notification_client::NotificationEvent::Invite(_) => {
-                NotificationEvent::Invite
+            matrix_sdk_ui::notification_client::NotificationEvent::Invite(event) => {
+                NotificationEvent::Invite { sender_id: event.sender.to_string() }
             }
         };
 
