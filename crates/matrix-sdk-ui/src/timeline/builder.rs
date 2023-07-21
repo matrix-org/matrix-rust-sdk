@@ -25,7 +25,7 @@ use ruma::events::{
     AnySyncTimelineEvent,
 };
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info, warn};
+use tracing::{error, info, info_span, trace, warn, Instrument};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -191,6 +191,8 @@ impl TimelineBuilder {
                         }
                     };
 
+                    trace!("Handling a room update");
+
                     let update_start_token = |prev_batch: &Option<_>| {
                         // Only update start_token if it's not currently locked.
                         // If it is locked, pagination is currently in progress.
@@ -216,6 +218,7 @@ impl TimelineBuilder {
                     }
                 }
             }
+            .instrument(info_span!("room_update_handler", room_id = ?room.room_id()))
         });
 
         // Not using room.add_event_handler here because RoomKey events are
