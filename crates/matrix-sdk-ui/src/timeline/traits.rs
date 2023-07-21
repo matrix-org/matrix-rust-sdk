@@ -90,7 +90,7 @@ impl RoomDataProvider for Room {
             }),
             Ok(None) => None,
             Err(e) => {
-                error!(%user_id, "Failed to getch room member information: {e}");
+                error!(%user_id, "Failed to fetch room member information: {e}");
                 None
             }
         }
