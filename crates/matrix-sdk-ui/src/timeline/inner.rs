@@ -360,14 +360,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.lock().await.clear();
     }
 
+    #[instrument(skip_all)]
     pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
         let mut state = self.state.lock().await;
         state.handle_sync_timeline(update.timeline, &self.room_data_provider, &self.settings).await;
 
+        trace!("Handling account data");
         for raw_event in update.account_data {
             match raw_event.deserialize() {
                 Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
-                    state.set_fully_read_event(ev.content.event_id)
+                    state.set_fully_read_event(ev.content.event_id);
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -377,6 +379,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
 
         if !update.ephemeral.is_empty() {
+            trace!("Handling ephemeral room events");
             let own_user_id = self.room_data_provider.own_user_id();
             for raw_event in update.ephemeral {
                 match raw_event.deserialize() {
@@ -1132,7 +1135,9 @@ impl TimelineInnerState {
             self.clear();
         }
 
-        for event in timeline.events {
+        let num_events = timeline.events.len();
+        for (i, event) in timeline.events.into_iter().enumerate() {
+            trace!("Handling event {i} out of {num_events}");
             self.handle_live_event(event, room_data_provider, settings).await;
         }
     }
