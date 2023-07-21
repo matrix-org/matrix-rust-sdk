@@ -21,7 +21,8 @@ use opentelemetry_otlp::{Protocol, WithExportConfig};
 use other as platform_impl;
 use tokio::runtime::Handle;
 #[cfg(not(target_os = "android"))]
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::fmt;
+use tracing_subscriber::{prelude::*, EnvFilter};
 
 use crate::RUNTIME;
 
@@ -95,7 +96,9 @@ pub fn create_otlp_tracer(
 }
 
 #[cfg(not(target_os = "android"))]
-fn setup_tracing_helper(configuration: String, colors: bool) {
+fn setup_tracing_impl(configuration: String) {
+    let colors = !cfg!(target_os = "ios");
+
     tracing_subscriber::registry()
         .with(EnvFilter::new(configuration))
         .with(
@@ -104,6 +107,19 @@ fn setup_tracing_helper(configuration: String, colors: bool) {
                 .with_line_number(true)
                 .with_ansi(colors)
                 .with_writer(io::stderr),
+        )
+        .init();
+}
+
+#[cfg(target_os = "android")]
+pub fn setup_tracing_impl(configuration: String) {
+    android::log_panics();
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(configuration))
+        .with(
+            tracing_android::layer("org.matrix.rust.sdk")
+                .expect("Could not configure the Android tracing layer"),
         )
         .init();
 }
@@ -139,21 +155,9 @@ fn setup_otlp_tracing_helper(
 mod android {
     use tracing_subscriber::{prelude::*, EnvFilter};
 
-    fn log_panics() {
+    pub fn log_panics() {
         std::env::set_var("RUST_BACKTRACE", "1");
         log_panics::init();
-    }
-
-    pub fn setup_tracing(configuration: String) {
-        log_panics();
-
-        tracing_subscriber::registry()
-            .with(EnvFilter::new(configuration))
-            .with(
-                tracing_android::layer("org.matrix.rust.sdk")
-                    .expect("Could not configure the Android tracing layer"),
-            )
-            .init();
     }
 
     pub fn setup_otlp_tracing(
@@ -183,10 +187,6 @@ mod android {
 
 #[cfg(target_os = "ios")]
 mod ios {
-    pub fn setup_tracing(configuration: String) {
-        super::setup_tracing_helper(configuration, false);
-    }
-
     pub fn setup_otlp_tracing(
         configuration: String,
         client_name: String,
@@ -207,10 +207,6 @@ mod ios {
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod other {
-    pub fn setup_tracing(configuration: String) {
-        super::setup_tracing_helper(configuration, true);
-    }
-
     pub fn setup_otlp_tracing(
         configuration: String,
         client_name: String,
@@ -231,7 +227,7 @@ mod other {
 
 #[uniffi::export]
 pub fn setup_tracing(filter: String) {
-    platform_impl::setup_tracing(filter)
+    setup_tracing_impl(filter)
 }
 
 #[uniffi::export]
