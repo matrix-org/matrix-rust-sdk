@@ -229,22 +229,24 @@ impl Room {
         })
     }
 
-    pub async fn add_timeline_listener(
+    pub fn add_timeline_listener(
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        let timeline = self
-            .timeline
-            .write()
-            .await
-            .get_or_insert_with(|| {
-                let room = self.inner.clone();
-                let timeline = RUNTIME.block_on(room.timeline());
-                Arc::new(timeline)
-            })
-            .clone();
+        let (timeline_items, timeline_stream) = RUNTIME.block_on(async {
+            let timeline = self
+                .timeline
+                .write()
+                .await
+                .get_or_insert_with(|| {
+                    let room = self.inner.clone();
+                    let timeline = RUNTIME.block_on(room.timeline());
+                    Arc::new(timeline)
+                })
+                .clone();
 
-        let (timeline_items, timeline_stream) = timeline.subscribe().await;
+            timeline.subscribe().await
+        });
 
         let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(timeline_stream);
