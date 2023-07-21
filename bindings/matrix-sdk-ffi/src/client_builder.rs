@@ -1,13 +1,13 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use anyhow::anyhow;
 use matrix_sdk::{
     config::StoreConfig,
     ruma::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuilder as MatrixClientBuilder, MemoryStore, SqliteCryptoStore,
+    Client as MatrixClient, ClientBuilder as MatrixClientBuilder, MemoryStore, ServerNameProtocol,
+    SqliteCryptoStore,
 };
 use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
@@ -16,11 +16,17 @@ use zeroize::Zeroizing;
 use super::{client::Client, RUNTIME};
 use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
 
+#[derive(uniffi::Enum, Clone)]
+pub(crate) enum Protocol {
+    Http,
+    Https,
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
-    server_name: Option<String>,
+    server_name: Option<(String, Protocol)>,
     homeserver_url: Option<String>,
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
@@ -59,7 +65,8 @@ impl ClientBuilder {
 
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.server_name = Some(server_name);
+        // Assume HTTPS if no protocol is provided.
+        builder.server_name = Some((server_name, Protocol::Https));
         Arc::new(builder)
     }
 
@@ -111,6 +118,16 @@ impl ClientBuilder {
 }
 
 impl ClientBuilder {
+    pub(crate) fn server_name_with_protocol(
+        self: Arc<Self>,
+        server_name: String,
+        protocol: Protocol,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.server_name = Some((server_name, protocol));
+        Arc::new(builder)
+    }
+
     pub(crate) fn build_inner(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
@@ -138,16 +155,20 @@ impl ClientBuilder {
         // Determine server either from URL, server name or user ID.
         if let Some(homeserver_url) = builder.homeserver_url {
             inner_builder = inner_builder.homeserver_url(homeserver_url);
-        } else if let Some(server_name) = builder.server_name {
+        } else if let Some((server_name, protocol)) = builder.server_name {
             let server_name = ServerName::parse(server_name)?;
-            inner_builder = inner_builder.server_name(&server_name);
+            let protocol = match protocol {
+                Protocol::Http => ServerNameProtocol::Http,
+                Protocol::Https => ServerNameProtocol::Https,
+            };
+            inner_builder = inner_builder.server_name_with_protocol(&server_name, protocol);
         } else if let Some(username) = builder.username {
             let user = UserId::parse(username)?;
             inner_builder = inner_builder.server_name(user.server_name());
         } else {
-            return Err(anyhow!(
+            anyhow::bail!(
                 "Failed to build: One of homeserver_url, server_name or username must be called."
-            ));
+            );
         }
 
         if let Some(proxy) = builder.proxy {

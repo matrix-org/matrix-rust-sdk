@@ -10,7 +10,7 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::error::ClientError;
+use crate::{client_builder::Protocol, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -115,14 +115,21 @@ impl AuthenticationService {
 
         // Attempt discovery as a server name first.
         let result = matrix_sdk::sanitize_server_name(&server_name_or_homeserver_url);
+
         match result {
             Ok(server_name) => {
-                builder = builder.server_name(server_name.to_string());
+                let protocol = if server_name_or_homeserver_url.starts_with("http://") {
+                    Protocol::Http
+                } else {
+                    Protocol::Https
+                };
+                builder = builder.server_name_with_protocol(server_name.to_string(), protocol);
             }
+
             Err(e) => {
                 // When the input isn't a valid server name check it is a URL.
                 // If this is the case, build the client with a homeserver URL.
-                if let Ok(_url) = Url::parse(&server_name_or_homeserver_url) {
+                if Url::parse(&server_name_or_homeserver_url).is_ok() {
                     builder = builder.homeserver_url(server_name_or_homeserver_url.clone());
                 } else {
                     return Err(e.into());

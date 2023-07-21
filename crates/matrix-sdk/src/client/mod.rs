@@ -93,7 +93,7 @@ mod builder;
 mod futures;
 
 pub use self::{
-    builder::{ClientBuildError, ClientBuilder},
+    builder::{ClientBuildError, ClientBuilder, ServerNameProtocol},
     futures::SendRequest,
 };
 
@@ -1923,6 +1923,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
+        client::builder::ServerNameProtocol,
         config::{RequestConfig, SyncSettings},
         test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
     };
@@ -1975,7 +1976,11 @@ pub(crate) mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
             .mount(&server)
             .await;
-        let client = Client::builder().server_name(alice.server_name()).build().await.unwrap();
+        let client = Client::builder()
+            .server_name_with_protocol(alice.server_name(), ServerNameProtocol::Http)
+            .build()
+            .await
+            .unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -1994,7 +1999,11 @@ pub(crate) mod tests {
             .await;
 
         assert!(
-            Client::builder().server_name(alice.server_name()).build().await.is_err(),
+            Client::builder()
+                .server_name_with_protocol(alice.server_name(), ServerNameProtocol::Http)
+                .build()
+                .await
+                .is_err(),
             "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }
