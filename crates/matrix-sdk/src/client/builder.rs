@@ -111,11 +111,34 @@ impl ClientBuilder {
 
     /// Set the server name to discover the homeserver from.
     ///
+    /// We assume we can connect in HTTPS to that server. If that's not the
+    /// case, prefer using [`Self::server_name_with_protocol`].
+    ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
-        self.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name.to_owned()));
+        self.homeserver_cfg = Some(HomeserverConfig::ServerName {
+            server: server_name.to_owned(),
+            // Assume HTTPS if not precised.
+            protocol: ServerNameProtocol::Https,
+        });
+        self
+    }
+
+    /// Set the server name to discover the homeserver from, with a given
+    /// protocol.
+    ///
+    /// This method is mutually exclusive with
+    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
+    /// set last will be used.
+    pub fn server_name_with_protocol(
+        mut self,
+        server_name: &ServerName,
+        protocol: ServerNameProtocol,
+    ) -> Self {
+        self.homeserver_cfg =
+            Some(HomeserverConfig::ServerName { server: server_name.to_owned(), protocol });
         self
     }
 
@@ -364,10 +387,14 @@ impl ClientBuilder {
         let mut sliding_sync_proxy: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
-            HomeserverConfig::ServerName(server_name) => {
+            HomeserverConfig::ServerName { server: server_name, protocol } => {
                 debug!("Trying to discover the homeserver");
 
-                let homeserver = homeserver_from_name(&server_name);
+                let homeserver = match protocol {
+                    ServerNameProtocol::Http => format!("http://{server_name}"),
+                    ServerNameProtocol::Https => format!("https://{server_name}"),
+                };
+
                 let well_known = http_client
                     .send(
                         discover_homeserver::Request::new(),
@@ -390,6 +417,7 @@ impl ClientBuilder {
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
                     sliding_sync_proxy = Url::parse(&proxy).ok();
                 }
+
                 debug!(
                     homeserver_url = well_known.homeserver.base_url,
                     "Discovered the homeserver"
@@ -439,20 +467,21 @@ impl ClientBuilder {
     }
 }
 
-fn homeserver_from_name(server_name: &ServerName) -> String {
-    #[cfg(not(test))]
-    return format!("https://{server_name}");
-
-    // Wiremock only knows how to test http endpoints:
-    // https://github.com/LukeMathWalker/wiremock-rs/issues/58
-    #[cfg(test)]
-    return format!("http://{server_name}");
+/// Protocol for a server name.
+#[derive(Clone, Debug)]
+pub enum ServerNameProtocol {
+    /// Not secured http.
+    Http,
+    /// HTTP over TLS.
+    Https,
 }
 
 #[derive(Clone, Debug)]
 enum HomeserverConfig {
+    /// A precise URL, including the protocol.
     Url(String),
-    ServerName(OwnedServerName),
+    /// An host/port pair representing a server URL.
+    ServerName { server: OwnedServerName, protocol: ServerNameProtocol },
 }
 
 #[derive(Clone, Debug)]
