@@ -420,20 +420,20 @@ impl BackupMachine {
 
     /// Encrypt a batch of room keys and return a request that needs to be sent
     /// out to backup the room keys.
-    pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
+    pub async fn backup(&self) -> Result<Option<KeysBackupRequest>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 
         if let Some(request) = &*request {
             trace!("Backing up, returning an existing request");
 
-            Ok(Some(request.clone().into()))
+            Ok(Some(request.clone().request))
         } else {
             trace!("Backing up, creating a new request");
 
             let new_request = self.backup_helper().await?;
             *request = new_request.clone();
 
-            Ok(new_request.map(|r| r.into()))
+            Ok(new_request.map(|r| r.request))
         }
     }
 
