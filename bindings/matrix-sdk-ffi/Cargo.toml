@@ -56,7 +56,6 @@ tracing-android = { git = "https://github.com/jmartinesp/tracing-android", rev =
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
