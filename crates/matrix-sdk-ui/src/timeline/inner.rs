@@ -911,25 +911,35 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             let maybe_profile = self.room_data_provider.profile(&sender).await;
 
             let event_item = entry.as_event().unwrap();
+            let event_id = event_item.event_id().map(debug);
+            let transaction_id = event_item.transaction_id().map(debug);
             match maybe_profile {
                 Some(profile) => {
                     if !event_item.sender_profile().contains(&profile) {
+                        trace!(event_id, transaction_id, "Adding profile");
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
                         let new_item = entry.with_kind(updated_item);
                         ObservableVectorEntry::set(&mut entry, new_item);
+                    } else {
+                        trace!(event_id, transaction_id, "Profile already set");
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
+                        trace!(event_id, transaction_id, "Marking profile unavailable");
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
                         let new_item = entry.with_kind(updated_item);
                         ObservableVectorEntry::set(&mut entry, new_item);
+                    } else {
+                        trace!(event_id, transaction_id, "Profile already marked unavailable");
                     }
                 }
             }
         }
+
+        trace!("Done updating sender profiles");
     }
 
     #[cfg(test)]
