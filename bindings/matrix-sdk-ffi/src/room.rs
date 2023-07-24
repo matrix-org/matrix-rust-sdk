@@ -230,31 +230,36 @@ impl Room {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        let timeline = self
-            .timeline
-            .write()
-            .await
-            .get_or_insert_with(|| {
-                let room = self.inner.clone();
-                let timeline = RUNTIME.block_on(room.timeline());
-                Arc::new(timeline)
+        let timeline = self.timeline.clone();
+        let room = self.inner.clone();
+        RUNTIME
+            .spawn(async move {
+                let timeline = timeline
+                    .write()
+                    .await
+                    .get_or_insert_with(|| {
+                        let timeline = RUNTIME.block_on(room.timeline());
+                        Arc::new(timeline)
+                    })
+                    .clone();
+
+                let (timeline_items, timeline_stream) = timeline.subscribe().await;
+
+                let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
+                    pin_mut!(timeline_stream);
+
+                    while let Some(diff) = timeline_stream.next().await {
+                        listener.on_update(Arc::new(TimelineDiff::new(diff)));
+                    }
+                }));
+
+                RoomTimelineListenerResult {
+                    items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+                    items_stream: Arc::new(timeline_stream),
+                }
             })
-            .clone();
-
-        let (timeline_items, timeline_stream) = timeline.subscribe().await;
-
-        let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
-            pin_mut!(timeline_stream);
-
-            while let Some(diff) = timeline_stream.next().await {
-                listener.on_update(Arc::new(TimelineDiff::new(diff)));
-            }
-        }));
-
-        RoomTimelineListenerResult {
-            items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-            items_stream: Arc::new(timeline_stream),
-        }
+            .await
+            .unwrap()
     }
 
     pub fn subscribe_to_back_pagination_status(
@@ -883,33 +888,40 @@ impl Room {
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
-        let timeline_guard = self.timeline.read().await;
-        let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
+        let timeline = self.timeline.clone();
+        RUNTIME
+            .spawn(async move {
+                let timeline_guard = timeline.read().await;
+                let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
 
-        let request = timeline.send_attachment(url, mime_type, attachment_config);
-        if let Some(progress_watcher) = progress_watcher {
-            let mut subscriber = request.subscribe_to_send_progress();
-            RUNTIME.spawn(async move {
-                while let Some(progress) = subscriber.next().await {
-                    progress_watcher.transmission_progress(progress.into());
+                let request = timeline.send_attachment(url, mime_type, attachment_config);
+                if let Some(progress_watcher) = progress_watcher {
+                    let mut subscriber = request.subscribe_to_send_progress();
+                    RUNTIME.spawn(async move {
+                        while let Some(progress) = subscriber.next().await {
+                            progress_watcher.transmission_progress(progress.into());
+                        }
+                    });
                 }
-            });
-        }
-        request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-        Ok(())
+
+                request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 }
 
 #[derive(uniffi::Object)]
 pub struct SendAttachmentJoinHandle {
-    join_hdl: Mutex<JoinHandle<Result<(), RoomError>>>,
+    join_hdl: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
     abort_hdl: AbortHandle,
 }
 
 impl SendAttachmentJoinHandle {
     fn new(join_hdl: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
         let abort_hdl = join_hdl.abort_handle();
-        let join_hdl = Mutex::new(join_hdl);
+        let join_hdl = Arc::new(Mutex::new(join_hdl));
         Arc::new(Self { join_hdl, abort_hdl })
     }
 }
@@ -917,7 +929,8 @@ impl SendAttachmentJoinHandle {
 #[uniffi::export(async_runtime = "tokio")]
 impl SendAttachmentJoinHandle {
     pub async fn join(&self) -> Result<(), RoomError> {
-        (&mut *self.join_hdl.lock().await).await.unwrap()
+        let join_hdl = self.join_hdl.clone();
+        RUNTIME.spawn(async move { (&mut *join_hdl.lock().await).await.unwrap() }).await.unwrap()
     }
 
     pub fn cancel(&self) {
