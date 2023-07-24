@@ -16,6 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["e2e-encryption"]
 e2e-encryption = ["matrix-sdk-base/e2e-encryption", "dep:matrix-sdk-crypto"]
+testing = ["matrix-sdk-crypto?/testing"]
 
 [dependencies]
 anyhow = { workspace = true }
