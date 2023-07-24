@@ -23,6 +23,7 @@ pub enum NotificationEvent {
 
 #[derive(uniffi::Record)]
 pub struct NotificationSenderInfo {
+    pub user_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
 }
@@ -52,6 +53,8 @@ pub struct NotificationItem {
 
 impl NotificationItem {
     fn from_inner(item: MatrixNotificationItem) -> Self {
+        let sender_id = item.event.sender().to_string();
+
         let event = match item.event {
             matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
                 NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
@@ -64,6 +67,7 @@ impl NotificationItem {
         Self {
             event,
             sender_info: NotificationSenderInfo {
+                user_id: sender_id,
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,
             },

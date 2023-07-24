@@ -474,7 +474,7 @@ pub enum NotificationEvent {
 }
 
 impl NotificationEvent {
-    fn sender(&self) -> &UserId {
+    pub fn sender(&self) -> &UserId {
         match self {
             NotificationEvent::Timeline(ev) => ev.sender(),
             NotificationEvent::Invite(ev) => &ev.sender,
