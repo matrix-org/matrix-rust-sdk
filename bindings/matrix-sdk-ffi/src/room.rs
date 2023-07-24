@@ -157,18 +157,15 @@ impl Room {
         });
     }
 
-    pub fn fetch_members(&self) {
-        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
-            Some(t) => Arc::clone(t),
-            None => {
-                error!("Timeline not set up, can't fetch members");
-                return;
-            }
-        };
+    pub fn fetch_members(&self) -> Result<Arc<TaskHandle>, ClientError> {
+        let timeline = RUNTIME
+            .block_on(self.timeline.read())
+            .clone()
+            .context("Timeline not set up, can't fetch members")?;
 
-        RUNTIME.spawn(async move {
+        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             timeline.fetch_members().await;
-        });
+        }))))
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {
