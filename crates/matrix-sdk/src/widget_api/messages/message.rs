@@ -1,7 +1,18 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message<Req, Resp> {
+use super::{FromWidgetMessage, ToWidgetMessage};
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "api")]
+pub enum Message {
+    #[serde(rename = "fromWidget")]
+    FromWidget(FromWidgetMessage),
+    #[serde(rename = "toWidget")]
+    ToWidget(ToWidgetMessage),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MessageBody<Req, Resp> {
     pub request_id: String,
     pub widget_id: String,
     #[serde(rename = "data")]
@@ -9,19 +20,19 @@ pub struct Message<Req, Resp> {
     pub response: Option<Response<Resp>>,
 }
 
-#[derive(Debug, Serialize, Deserialize )]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Response<Resp> {
     Error(WidgetError),
     Response(Resp),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WidgetError {
     pub error: WidgetErrorMessage,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WidgetErrorMessage {
     pub message: String,
 }

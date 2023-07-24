@@ -1,8 +1,8 @@
-mod incoming;
-mod message;
-mod outgoing;
+mod from_widget;
+pub mod message;
+mod to_widget;
 
 pub use self::{
-    incoming::{ApiVersion, Incoming, SupportedVersions},
-    outgoing::{CapabilitiesUpdated, Outgoing, SendMeCapabilities},
+    from_widget::{ApiVersion, FromWidgetMessage, SupportedVersions},
+    to_widget::{CapabilitiesUpdated, ToWidgetMessage, ToWidget, SendMeCapabilities},
 };
