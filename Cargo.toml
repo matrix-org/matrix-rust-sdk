@@ -19,6 +19,7 @@ rust-version = "1.70"
 [workspace.dependencies]
 anyhow = "1.0.68"
 assert_matches = "1.5.0"
+async-rx = { git = "https://codeberg.org/jplatte/async-rx", rev = "4ba058835e947a316d859f3b46e0b86c41754df7" }
 async-stream = "0.3.3"
 async-trait = "0.1.60"
 base64 = "0.21.0"
@@ -41,6 +42,7 @@ serde_html_form = "0.2.0"
 serde_json = "1.0.91"
 thiserror = "1.0.38"
 tokio = { version = "1.24", default-features = false, features = ["sync"] }
+tokio-stream = "0.1.14"
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-core = "0.1.30"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "8565b7f941e7967778efd39c5ab27551dfa23ec6" }

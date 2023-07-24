@@ -21,6 +21,7 @@ testing = ["dep:eyeball-im-util"]
 
 [dependencies]
 async-once-cell = "0.5.2"
+async-rx = { workspace = true }
 async-std = { version = "1.12.0", features = ["unstable"] }
 async-stream = { workspace = true, optional = true }
 async-trait = { workspace = true }
@@ -44,6 +45,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 
 [dev-dependencies]

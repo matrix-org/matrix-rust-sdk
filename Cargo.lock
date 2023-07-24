@@ -347,6 +347,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-rx"
+version = "0.1.0"
+source = "git+https://codeberg.org/jplatte/async-rx?rev=4ba058835e947a316d859f3b46e0b86c41754df7#4ba058835e947a316d859f3b46e0b86c41754df7"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-std"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2890,6 +2899,7 @@ dependencies = [
  "assert-json-diff",
  "assert_matches",
  "async-once-cell",
+ "async-rx",
  "async-std",
  "async-stream",
  "async-trait",
@@ -2916,6 +2926,7 @@ dependencies = [
  "stream_assert",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "wiremock",
