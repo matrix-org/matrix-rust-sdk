@@ -80,7 +80,7 @@ impl RoomList {
                     pin_mut!(room_list_service_state);
 
                     // As soon as the state changed, drain the entries stream.
-                    while let Some(_) = room_list_service_state.next().await {
+                    while room_list_service_state.next().await.is_some() {
                         // Since a broadcast channel is used, if there is no receiver, it won't
                         // break. We are not interested by the result of the drainer send, we just
                         // drain.
