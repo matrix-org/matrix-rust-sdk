@@ -11,14 +11,8 @@ use crate::{error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_a
 
 #[derive(uniffi::Enum)]
 pub enum NotificationEvent {
-    Timeline {
-        event: Arc<TimelineEvent>,
-    },
-    /// The notification is for an invitation; the interesting context bits live
-    /// in `NotificationItem`.
-    Invite {
-        sender_id: String,
-    },
+    Timeline { event: Arc<TimelineEvent> },
+    Invite { sender_id: String },
 }
 
 #[derive(uniffi::Record)]
