@@ -267,7 +267,7 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         mut sliding_sync_response: v4::Response,
-    ) -> Result<UpdateSummary, crate::Error> {
+    ) -> Result<(UpdateSummary, Option<String>), crate::Error> {
         {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
@@ -393,17 +393,12 @@ impl SlidingSync {
                 updated_lists
             };
 
-            UpdateSummary {
-                lists: updated_lists,
-                rooms: updated_rooms,
-                to_device_token: sliding_sync_response
-                    .extensions
-                    .to_device
-                    .map(|ext| ext.next_batch),
-            }
+            UpdateSummary { lists: updated_lists, rooms: updated_rooms }
         };
 
-        Ok(update_summary)
+        let to_device_token = sliding_sync_response.extensions.to_device.map(|ext| ext.next_batch);
+
+        Ok((update_summary, to_device_token))
     }
 
     async fn generate_sync_request(
@@ -610,9 +605,9 @@ impl SlidingSync {
             }
 
             // Handle the response.
-            let updates = this.handle_response(response).await?;
+            let (updates, to_device_token) = this.handle_response(response).await?;
 
-            this.cache_to_storage(updates.to_device_token.clone()).await?;
+            this.cache_to_storage(to_device_token).await?;
 
             // Release the lock.
             drop(response_handling_lock);
@@ -820,8 +815,6 @@ pub struct UpdateSummary {
     pub lists: Vec<String>,
     /// The rooms that have seen updates
     pub rooms: Vec<OwnedRoomId>,
-    /// The `prev_batch` token from the ToDevice extension, if any.
-    pub to_device_token: Option<String>,
 }
 
 /// The set of sticky parameters owned by the `SlidingSyncInner` instance, and
