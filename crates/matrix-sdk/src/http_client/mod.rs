@@ -46,7 +46,7 @@ pub(crate) use native::HttpSettings;
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
@@ -56,16 +56,6 @@ pub(crate) struct HttpClient {
 impl HttpClient {
     pub(crate) fn new(inner: reqwest::Client, request_config: RequestConfig) -> Self {
         HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
-    }
-
-    /// Creates a new `HttpClient` with the same configuration, but with a blank
-    /// transient state.
-    pub(crate) fn partial_clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            request_config: self.request_config.clone(),
-            next_request_id: Default::default(),
-        }
     }
 
     fn get_request_id(&self) -> String {

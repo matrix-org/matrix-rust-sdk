@@ -63,7 +63,7 @@ impl NotificationClient {
     const LOCK_ID: &str = "notifications";
 
     /// Create a new builder for a notification client.
-    pub async fn builder(client: Client) -> NotificationClientBuilder {
+    pub async fn builder(client: Client) -> Result<NotificationClientBuilder, Error> {
         NotificationClientBuilder::new(client).await
     }
 
@@ -420,15 +420,15 @@ pub struct NotificationClientBuilder {
 }
 
 impl NotificationClientBuilder {
-    async fn new(client: Client) -> Self {
-        let client = client.clone_builder().await.with_in_memory_state_store().build();
+    async fn new(client: Client) -> Result<Self, Error> {
+        let client = client.notification_client().await?;
 
-        Self {
+        Ok(Self {
             client,
             retry_decryption: false,
             with_cross_process_lock: false,
             filter_by_push_rules: false,
-        }
+        })
     }
 
     /// Filter out the notification event according to the push rules present in

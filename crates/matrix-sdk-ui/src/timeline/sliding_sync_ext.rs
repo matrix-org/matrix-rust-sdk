@@ -163,10 +163,13 @@ mod tests {
     async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         let base_client = BaseClient::new();
         base_client
-            .set_session_meta(SessionMeta {
-                user_id: user_id!("@u:e.uk").to_owned(),
-                device_id: device_id!("XYZ").to_owned(),
-            })
+            .set_session_meta(
+                SessionMeta {
+                    user_id: user_id!("@u:e.uk").to_owned(),
+                    device_id: device_id!("XYZ").to_owned(),
+                },
+                matrix_sdk_base::RegenerateOlmMachine::Yes,
+            )
             .await
             .expect("Failed to set session meta");
 

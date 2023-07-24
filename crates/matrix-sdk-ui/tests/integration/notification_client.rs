@@ -49,7 +49,7 @@ async fn test_notification_client_legacy() {
     server.reset().await;
 
     // Then, try to simulate receiving a notification for that message.
-    let notification_client = NotificationClient::builder(client).await.build();
+    let notification_client = NotificationClient::builder(client).await.unwrap().build();
 
     {
         // The notification client retrieves the event via `/rooms/*/event/`.
@@ -236,7 +236,7 @@ async fn test_notification_client_sliding_sync() {
         .mount(&server)
         .await;
 
-    let notification_client = NotificationClient::builder(client).await.build();
+    let notification_client = NotificationClient::builder(client).await.unwrap().build();
     let item =
         notification_client.get_notification_with_sliding_sync(room_id, event_id).await.unwrap();
 

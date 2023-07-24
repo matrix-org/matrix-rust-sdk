@@ -359,7 +359,9 @@ impl Room {
                 LazyLoadOptions::Enabled { include_redundant_members: false };
         }
 
-        let Some(event) = self.client.send(request, None).await?.event else { return Ok(None); };
+        let Some(event) = self.client.send(request, None).await?.event else {
+            return Ok(None);
+        };
 
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(

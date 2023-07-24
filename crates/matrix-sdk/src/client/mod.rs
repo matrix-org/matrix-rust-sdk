@@ -1947,61 +1947,32 @@ impl Client {
         NotificationSettings::new(self.clone(), ruleset)
     }
 
-    /// Create a new specialized `Client` clone as a builder, to retrieve most
-    /// of the configuration of the current client without transient state.
-    pub async fn clone_builder(&self) -> ClientCloneBuilder {
-        ClientCloneBuilder {
-            homeserver: self.inner.homeserver.read().await.clone(),
-            authentication_server_info: self.inner.authentication_server_info.clone(),
-            sliding_sync_proxy: self.inner.sliding_sync_proxy.read().unwrap().clone(),
-            http_client: self.inner.http_client.partial_clone(),
-            base_client: self.inner.base_client.clone(),
-            server_versions: self.inner.server_versions.get().cloned(),
-            appservice_mode: self.inner.appservice_mode.clone(),
-            respect_login_well_known: self.inner.respect_login_well_known.clone(),
-            handle_refresh_tokens: self.inner.handle_refresh_tokens.clone(),
-        }
-    }
-}
-
-/// Specialized `Client` clone that can be used to tweak an existing `Client`'s
-/// configuration.
-#[derive(Debug)]
-pub struct ClientCloneBuilder {
-    homeserver: Url,
-    authentication_server_info: Option<AuthenticationServerInfo>,
-    sliding_sync_proxy: Option<Url>,
-    http_client: HttpClient,
-    base_client: BaseClient,
-    server_versions: Option<Box<[MatrixVersion]>>,
-    appservice_mode: bool,
-    respect_login_well_known: bool,
-    handle_refresh_tokens: bool,
-}
-
-impl ClientCloneBuilder {
-    /// Sets the current client to use an in-memory state store, instead of that
-    /// was previously configured.
-    pub fn with_in_memory_state_store(mut self) -> Self {
-        self.base_client = self.base_client.clone_with_in_memory_state_store();
-        self
-    }
-
-    /// Finish building the client.
-    pub fn build(self) -> Client {
-        Client {
+    /// Create a new specialized `Client` that can process notifications.
+    pub async fn notification_client(&self) -> Result<Client> {
+        let client = Client {
             inner: Arc::new(ClientInner::new(
-                self.homeserver,
-                self.authentication_server_info,
-                self.sliding_sync_proxy,
-                self.http_client,
-                self.base_client,
-                self.server_versions,
-                self.appservice_mode,
-                self.respect_login_well_known,
-                self.handle_refresh_tokens,
+                self.inner.homeserver.read().await.clone(),
+                self.inner.authentication_server_info.clone(),
+                self.inner.sliding_sync_proxy.read().unwrap().clone(),
+                self.inner.http_client.clone(),
+                self.inner.base_client.clone_with_in_memory_state_store(),
+                self.inner.server_versions.get().cloned(),
+                self.inner.appservice_mode.clone(),
+                self.inner.respect_login_well_known.clone(),
+                self.inner.handle_refresh_tokens.clone(),
             )),
+        };
+
+        // Now inherit the session without restarting the crypto machine.
+        if let Some(session) = self.session() {
+            match session {
+                AuthSession::Matrix(s) => {
+                    client.matrix_auth().inherit_session(s).await?;
+                }
+            }
         }
+
+        Ok(client)
     }
 }
 
