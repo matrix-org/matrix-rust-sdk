@@ -313,7 +313,8 @@ impl RoomListService {
     pub async fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         {
             let rooms = self.rooms.read().await;
-            if let Some(room) = rooms.iter().find(|room| room.id() == room_id) {
+
+            if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
                 return Ok(room.clone());
             }
         }
