@@ -15,17 +15,21 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::{
         v3::{self, InvitedRoom, RoomSummary},
         v4::{self, AccountData},
     },
-    events::{AnySyncStateEvent, AnyToDeviceEvent},
-    serde::Raw,
+    events::AnySyncStateEvent,
     RoomId,
 };
-use tracing::{debug, info, instrument, warn};
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnyToDeviceEvent, serde::Raw};
+#[cfg(feature = "e2e-encryption")]
+use tracing::warn;
+use tracing::{debug, info, instrument};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -432,7 +436,7 @@ fn cache_latest_events(room: &mut Room, room_info: &mut RoomInfo, events: &[Sync
             }
         } else {
             warn!(
-                "Failed to deserialise event as AnySyncTimelineEvent. ID={}",
+                "Failed to deserialize event as AnySyncTimelineEvent. ID={}",
                 e.event_id().expect("Event has no ID!")
             );
         }

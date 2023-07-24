@@ -347,7 +347,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             (
                 "crates/matrix-sdk",
-                "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls --lib",
+                "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls,testing --lib",
             ),
         ),
         (

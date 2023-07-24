@@ -34,11 +34,9 @@ use std::{
 
 use async_stream::stream;
 pub use builder::*;
-pub use client::*;
 pub use error::*;
 use futures_core::stream::Stream;
 pub use list::*;
-use matrix_sdk_base::sync::SyncResponse;
 pub use room::*;
 use ruma::{
     api::client::{
@@ -60,7 +58,9 @@ use self::{
     cache::restore_sliding_sync_state,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
-use crate::{config::RequestConfig, Client, Result};
+use crate::{
+    config::RequestConfig, sliding_sync::client::SlidingSyncResponseProcessor, Client, Result,
+};
 
 /// The Sliding Sync instance.
 ///
@@ -280,14 +280,12 @@ impl SlidingSync {
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
 
-        let to_device_events = Vec::new();
+        let mut response_processor = SlidingSyncResponseProcessor::new(self.inner.client.clone());
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device_events = if self.is_e2ee_enabled() {
-            self.inner.client.process_sliding_sync_e2ee(&sliding_sync_response.extensions).await?
-        } else {
-            to_device_events
-        };
+        if self.is_e2ee_enabled() {
+            response_processor.handle_encryption(&sliding_sync_response.extensions).await?
+        }
 
         // Only handle the room's subsection of the response, if this sliding sync was
         // configured to do so. That's because even when not requesting it,
@@ -295,16 +293,11 @@ impl SlidingSync {
         // unrelated to the current connection's parameters.
         //
         // NOTE: SS proxy workaround.
-        let handle_room_response = {
-            !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
-                || !self.inner.lists.read().await.is_empty()
-        };
+        if self.must_process_rooms_response().await {
+            response_processor.handle_room_response(&sliding_sync_response).await?
+        }
 
-        let mut sync_response = if handle_room_response {
-            self.inner.client.process_sliding_sync(&sliding_sync_response, to_device_events).await?
-        } else {
-            assign!(SyncResponse::default(), { to_device: to_device_events })
-        };
+        let mut sync_response = response_processor.process_and_take_response().await?;
 
         debug!(?sync_response, "Sliding Sync response has been handled by the client");
 
@@ -489,10 +482,18 @@ impl SlidingSync {
         ))
     }
 
-    #[cfg(feature = "e2e-encryption")]
     /// Is the e2ee extension enabled for this sliding sync instance?
+    #[cfg(feature = "e2e-encryption")]
     fn is_e2ee_enabled(&self) -> bool {
         self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
+    }
+
+    /// Should we process the room's subpart of a response?
+    async fn must_process_rooms_response(&self) -> bool {
+        // We consider that we must, if there's any room subscription or there's any
+        // list.
+        !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
+            || !self.inner.lists.read().await.is_empty()
     }
 
     #[instrument(skip_all, fields(pos))]
@@ -1625,6 +1626,7 @@ mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "e2e-encryption")]
     async fn test_process_only_encryption_events() -> Result<()> {
         let room = owned_room_id!("!croissant:example.org");
 

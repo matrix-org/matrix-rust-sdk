@@ -537,7 +537,7 @@ mod test {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response, vec![]).await.unwrap();
+        client.process_sliding_sync(&response).await.unwrap();
 
         // When we construct a timeline event from it
         let timeline_item = EventTimelineItem::from_latest_event(&ss_room, event).await.unwrap();

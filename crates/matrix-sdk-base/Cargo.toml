@@ -25,7 +25,7 @@ message-ids = ["matrix-sdk-crypto?/message-ids"]
 experimental-sliding-sync = ["ruma/unstable-msc3575"]
 
 # helpers for testing features build upon this
-testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches"]
+testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches", "matrix-sdk-crypto?/testing"]
 
 [dependencies]
 assert_matches = { workspace = true, optional = true }

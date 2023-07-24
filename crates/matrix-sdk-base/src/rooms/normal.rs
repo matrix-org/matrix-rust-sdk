@@ -383,7 +383,7 @@ impl Room {
     }
 
     /// Update the last event in the room
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub(crate) fn set_latest_event(&self, latest_event: Option<SyncTimelineEvent>) {
         self.inner.write().unwrap().latest_event = latest_event;
     }
