@@ -1,18 +1,18 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub struct Capabilities {
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct Options {
     navigate: bool,
 }
 
-/// A wrapper for the matrix client that only exposes what is available through the capabilities.
-pub struct ClientCapabilities {
+#[allow(missing_debug_implementations)]
+pub struct Capabilities {
     pub navigate: Option<Box<dyn Fn(Url) + Send + Sync + 'static>>,
 }
 
-impl<'t> From<&'t ClientCapabilities> for Capabilities {
-    fn from(capabilities: &'t ClientCapabilities) -> Self {
+impl<'t> From<&'t Capabilities> for Options {
+    fn from(capabilities: &'t Capabilities) -> Self {
         Self { navigate: capabilities.navigate.is_some() }
     }
 }
