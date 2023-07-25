@@ -112,7 +112,7 @@ impl ClientBuilder {
     /// Set the server name to discover the homeserver from.
     ///
     /// We assume we can connect in HTTPS to that server. If that's not the
-    /// case, prefer using [`Self::server_name_with_protocol`].
+    /// case, prefer using [`Self::insecure_server_name_no_tls`].
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
@@ -120,25 +120,23 @@ impl ClientBuilder {
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
-            // Assume HTTPS if not precised.
-            protocol: ServerNameProtocol::Https,
+            // Assume HTTPS if not specified.
+            protocol: UrlScheme::Https,
         });
         self
     }
 
-    /// Set the server name to discover the homeserver from, with a given
-    /// protocol.
+    /// Set the server name to discover the homeserver from, assuming an HTTP
+    /// (not secured) scheme.
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
-    pub fn server_name_with_protocol(
-        mut self,
-        server_name: &ServerName,
-        protocol: ServerNameProtocol,
-    ) -> Self {
-        self.homeserver_cfg =
-            Some(HomeserverConfig::ServerName { server: server_name.to_owned(), protocol });
+    pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
+        self.homeserver_cfg = Some(HomeserverConfig::ServerName {
+            server: server_name.to_owned(),
+            protocol: UrlScheme::Http,
+        });
         self
     }
 
@@ -391,8 +389,8 @@ impl ClientBuilder {
                 debug!("Trying to discover the homeserver");
 
                 let homeserver = match protocol {
-                    ServerNameProtocol::Http => format!("http://{server_name}"),
-                    ServerNameProtocol::Https => format!("https://{server_name}"),
+                    UrlScheme::Http => format!("http://{server_name}"),
+                    UrlScheme::Https => format!("https://{server_name}"),
                 };
 
                 let well_known = http_client
@@ -467,12 +465,9 @@ impl ClientBuilder {
     }
 }
 
-/// Protocol for a server name.
 #[derive(Clone, Debug)]
-pub enum ServerNameProtocol {
-    /// Not secured http.
+enum UrlScheme {
     Http,
-    /// HTTP over TLS.
     Https,
 }
 
@@ -480,8 +475,8 @@ pub enum ServerNameProtocol {
 enum HomeserverConfig {
     /// A precise URL, including the protocol.
     Url(String),
-    /// An host/port pair representing a server URL.
-    ServerName { server: OwnedServerName, protocol: ServerNameProtocol },
+    /// A host/port pair representing a server URL.
+    ServerName { server: OwnedServerName, protocol: UrlScheme },
 }
 
 #[derive(Clone, Debug)]

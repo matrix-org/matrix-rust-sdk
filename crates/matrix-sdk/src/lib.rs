@@ -50,10 +50,7 @@ pub mod sliding_sync;
 pub mod encryption;
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession};
-pub use client::{
-    Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, ServerNameProtocol,
-    UnknownToken,
-};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{

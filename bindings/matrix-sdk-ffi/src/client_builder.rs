@@ -6,8 +6,7 @@ use matrix_sdk::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuilder as MatrixClientBuilder, MemoryStore, ServerNameProtocol,
-    SqliteCryptoStore,
+    Client as MatrixClient, ClientBuilder as MatrixClientBuilder, MemoryStore, SqliteCryptoStore,
 };
 use sanitize_filename_reader_friendly::sanitize;
 use url::Url;
@@ -16,8 +15,8 @@ use zeroize::Zeroizing;
 use super::{client::Client, RUNTIME};
 use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
 
-#[derive(uniffi::Enum, Clone)]
-pub(crate) enum Protocol {
+#[derive(Clone)]
+pub(crate) enum UrlScheme {
     Http,
     Https,
 }
@@ -26,7 +25,7 @@ pub(crate) enum Protocol {
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
-    server_name: Option<(String, Protocol)>,
+    server_name: Option<(String, UrlScheme)>,
     homeserver_url: Option<String>,
     server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
@@ -66,7 +65,7 @@ impl ClientBuilder {
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         // Assume HTTPS if no protocol is provided.
-        builder.server_name = Some((server_name, Protocol::Https));
+        builder.server_name = Some((server_name, UrlScheme::Https));
         Arc::new(builder)
     }
 
@@ -121,7 +120,7 @@ impl ClientBuilder {
     pub(crate) fn server_name_with_protocol(
         self: Arc<Self>,
         server_name: String,
-        protocol: Protocol,
+        protocol: UrlScheme,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.server_name = Some((server_name, protocol));
@@ -157,11 +156,10 @@ impl ClientBuilder {
             inner_builder = inner_builder.homeserver_url(homeserver_url);
         } else if let Some((server_name, protocol)) = builder.server_name {
             let server_name = ServerName::parse(server_name)?;
-            let protocol = match protocol {
-                Protocol::Http => ServerNameProtocol::Http,
-                Protocol::Https => ServerNameProtocol::Https,
+            inner_builder = match protocol {
+                UrlScheme::Http => inner_builder.insecure_server_name_no_tls(&server_name),
+                UrlScheme::Https => inner_builder.server_name(&server_name),
             };
-            inner_builder = inner_builder.server_name_with_protocol(&server_name, protocol);
         } else if let Some(username) = builder.username {
             let user = UserId::parse(username)?;
             inner_builder = inner_builder.server_name(user.server_name());
