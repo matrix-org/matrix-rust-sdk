@@ -197,10 +197,11 @@ pub(crate) struct ClientInner {
 }
 
 impl ClientInner {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         homeserver: Url,
         authentication_server_info: Option<AuthenticationServerInfo>,
-        sliding_sync_proxy: Option<Url>,
+        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
         http_client: HttpClient,
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
@@ -1953,13 +1954,14 @@ impl Client {
             inner: Arc::new(ClientInner::new(
                 self.inner.homeserver.read().await.clone(),
                 self.inner.authentication_server_info.clone(),
+                #[cfg(feature = "experimental-sliding-sync")]
                 self.inner.sliding_sync_proxy.read().unwrap().clone(),
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
-                self.inner.appservice_mode.clone(),
-                self.inner.respect_login_well_known.clone(),
-                self.inner.handle_refresh_tokens.clone(),
+                self.inner.appservice_mode,
+                self.inner.respect_login_well_known,
+                self.inner.handle_refresh_tokens,
             )),
         };
 

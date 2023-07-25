@@ -40,8 +40,11 @@ use crate::encryption_sync::{EncryptionSync, WithLocking};
 /// In particular, it takes care of running a full decryption sync, in case the
 /// event in the notification was impossible to decrypt beforehand.
 pub struct NotificationClient {
-    /// SDK client.
+    /// SDK client that uses an in-memory state store.
     client: Client,
+
+    /// SDK client that uses the same state store as the caller's context.
+    parent_client: Client,
 
     /// Should we retry decrypting an event, after it was impossible to decrypt
     /// on the first attempt?
@@ -309,17 +312,17 @@ impl NotificationClient {
             RawNotificationEvent::Timeline(timeline_event) => {
                 // Timeline events may be encrypted, so make sure they get decrypted first.
                 if let Some(timeline_event) =
-                    self.maybe_retry_decryption(&room, &timeline_event).await?
+                    self.maybe_retry_decryption(&room, timeline_event).await?
                 {
                     raw_event = RawNotificationEvent::Timeline(timeline_event.event.cast());
                     timeline_event.push_actions
                 } else {
-                    room.event_push_actions(&timeline_event).await?
+                    room.event_push_actions(timeline_event).await?
                 }
             }
             RawNotificationEvent::Invite(invite_event) => {
                 // Invite events can't be encrypted, so they should be in clear text.
-                room.event_push_actions(&invite_event).await?
+                room.event_push_actions(invite_event).await?
             }
         };
 
@@ -379,7 +382,9 @@ impl NotificationClient {
         // XXX Will this work for invites? A sliding sync may be running in the
         // background, but it's unclear that it's fetched the invite event yet.
         // bnjbvr thinks this is racy.
-        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
+        let Some(room) = self.parent_client.get_room(room_id) else {
+            return Err(Error::UnknownRoom);
+        };
 
         let timeline_event =
             room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
@@ -400,7 +405,9 @@ impl NotificationClient {
         tracing::info!("legacy attempt at fetching the notification");
 
         // XXX This won't work for invites.
-        let Some(room) = self.client.get_room(room_id) else { return Err(Error::UnknownRoom) };
+        let Some(room) = self.parent_client.get_room(room_id) else {
+            return Err(Error::UnknownRoom);
+        };
 
         let timeline_event = room.event(event_id).await?;
 
@@ -413,18 +420,23 @@ impl NotificationClient {
 /// Fields have the same meaning as in `NotificationClient`.
 #[derive(Clone)]
 pub struct NotificationClientBuilder {
+    /// SDK client that uses an in-memory state store, to be used with the
+    /// sliding sync method.
     client: Client,
+    /// SDK client that uses the same state store as the caller's context.
+    parent_client: Client,
     retry_decryption: bool,
     with_cross_process_lock: bool,
     filter_by_push_rules: bool,
 }
 
 impl NotificationClientBuilder {
-    async fn new(client: Client) -> Result<Self, Error> {
-        let client = client.notification_client().await?;
+    async fn new(parent_client: Client) -> Result<Self, Error> {
+        let client = parent_client.notification_client().await?;
 
         Ok(Self {
             client,
+            parent_client,
             retry_decryption: false,
             with_cross_process_lock: false,
             filter_by_push_rules: false,
@@ -455,6 +467,7 @@ impl NotificationClientBuilder {
     pub fn build(self) -> NotificationClient {
         NotificationClient {
             client: self.client,
+            parent_client: self.parent_client,
             with_cross_process_lock: self.with_cross_process_lock,
             filter_by_push_rules: self.filter_by_push_rules,
             retry_decryption: self.retry_decryption,

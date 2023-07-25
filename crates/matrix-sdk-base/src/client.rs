@@ -130,11 +130,11 @@ impl BaseClient {
     /// Clones the current base client to use the same crypto store but a
     /// different, in-memory store config, and resets transient state.
     pub fn clone_with_in_memory_state_store(&self) -> Self {
-        let mut config = StoreConfig::new().state_store(MemoryStore::new());
+        let config = StoreConfig::new().state_store(MemoryStore::new());
+
         #[cfg(feature = "e2e-encryption")]
-        {
-            config = config.crypto_store(self.crypto_store.clone());
-        }
+        let config = config.crypto_store(self.crypto_store.clone());
+
         Self::with_store_config(config)
     }
 
