@@ -1170,13 +1170,10 @@ mod test {
     async fn logged_in_client() -> BaseClient {
         let client = BaseClient::new();
         client
-            .set_session_meta(
-                SessionMeta {
-                    user_id: user_id!("@u:e.uk").to_owned(),
-                    device_id: device_id!("XYZ").to_owned(),
-                },
-                crate::RegenerateOlmMachine::Yes,
-            )
+            .set_session_meta(SessionMeta {
+                user_id: user_id!("@u:e.uk").to_owned(),
+                device_id: device_id!("XYZ").to_owned(),
+            })
             .await
             .expect("Failed to set session meta");
         client

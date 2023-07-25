@@ -72,15 +72,6 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{error::Error, RoomMemberships};
 
-/// Whether to regenerate an `OlmMachine` after certain operations happened.
-#[derive(Debug)]
-pub enum RegenerateOlmMachine {
-    /// The `OlmMachine` should be regenerated.
-    Yes,
-    /// The `OlmMachine` should not be regenerated.
-    No,
-}
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
@@ -203,18 +194,12 @@ impl BaseClient {
     /// restored sessions, false for inherited sessions.
     ///
     /// This method panics if it is called twice.
-    pub async fn set_session_meta(
-        &self,
-        session_meta: SessionMeta,
-        regenerate_olm: RegenerateOlmMachine,
-    ) -> Result<()> {
+    pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
         self.store.set_session_meta(session_meta.clone()).await?;
 
-        if let RegenerateOlmMachine::Yes = regenerate_olm {
-            #[cfg(feature = "e2e-encryption")]
-            self.regenerate_olm().await?;
-        }
+        #[cfg(feature = "e2e-encryption")]
+        self.regenerate_olm().await?;
 
         Ok(())
     }
@@ -1502,10 +1487,10 @@ mod tests {
     async fn logged_in_client(user_id: &UserId) -> BaseClient {
         let client = BaseClient::new();
         client
-            .set_session_meta(
-                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
-                crate::RegenerateOlmMachine::Yes,
-            )
+            .set_session_meta(SessionMeta {
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
             .await
             .expect("set_session_meta failed!");
         client
@@ -1546,10 +1531,10 @@ mod tests {
 
         let client = BaseClient::new();
         client
-            .set_session_meta(
-                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
-                crate::RegenerateOlmMachine::Yes,
-            )
+            .set_session_meta(SessionMeta {
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
             .await
             .unwrap();
 

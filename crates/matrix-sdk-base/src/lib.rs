@@ -36,7 +36,7 @@ pub mod store;
 pub mod sync;
 mod utils;
 
-pub use client::{BaseClient, RegenerateOlmMachine};
+pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "e2e-encryption")]

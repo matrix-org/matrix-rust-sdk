@@ -23,7 +23,7 @@ use std::future::Future;
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_base::{RegenerateOlmMachine, SessionMeta};
+use matrix_sdk_base::SessionMeta;
 use ruma::{
     api::{
         client::{
@@ -799,7 +799,7 @@ impl MatrixAuth {
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         debug!("Restoring Matrix auth session");
 
-        self.set_session(session, RegenerateOlmMachine::Yes).await?;
+        self.set_session(session).await?;
 
         debug!("Done restoring Matrix auth session");
 
@@ -810,7 +810,7 @@ impl MatrixAuth {
     /// machine automatically.
     pub(crate) async fn inherit_session(&self, session: Session) -> Result<()> {
         debug!("Inheriting Matrix auth session");
-        self.set_session(session, RegenerateOlmMachine::No).await?;
+        self.set_session(session).await?;
         debug!("Done inheriting Matrix auth session");
         Ok(())
     }
@@ -827,18 +827,14 @@ impl MatrixAuth {
     ) -> Result<()> {
         self.client.maybe_update_login_well_known(response.well_known.as_ref()).await;
 
-        self.set_session(response.into(), RegenerateOlmMachine::Yes).await?;
+        self.set_session(response.into()).await?;
 
         Ok(())
     }
 
-    async fn set_session(
-        &self,
-        session: Session,
-        regenerate_olm: RegenerateOlmMachine,
-    ) -> Result<()> {
+    async fn set_session(&self, session: Session) -> Result<()> {
         self.set_session_tokens(session.tokens);
-        self.client.base_client().set_session_meta(session.meta, regenerate_olm).await?;
+        self.client.base_client().set_session_meta(session.meta).await?;
 
         Ok(())
     }

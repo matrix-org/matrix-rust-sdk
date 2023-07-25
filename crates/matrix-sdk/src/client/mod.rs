@@ -1967,15 +1967,9 @@ impl Client {
         if let Some(session) = self.session() {
             match session {
                 AuthSession::Matrix(s) => {
-                    tracing::warn!(
-                        "REMOVEME inheriting parent session when creating notification client: {s:?}"
-                    );
                     client.matrix_auth().inherit_session(s).await?;
-                    tracing::info!("REMOVEME properly inherited!");
                 }
             }
-        } else {
-            tracing::warn!("REMOVEME missing parent session when creating a notification client");
         }
 
         Ok(client)
