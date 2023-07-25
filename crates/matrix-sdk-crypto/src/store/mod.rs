@@ -700,7 +700,7 @@ impl Store {
                 changes.identities.changed.push(ReadOnlyUserIdentities::Own(public_identity.inner));
             }
 
-            info!(?status, "Successfully imported the private cross signing keys");
+            info!(?status, "Successfully imported the private cross-signing keys");
 
             self.save_changes(changes).await?;
         }

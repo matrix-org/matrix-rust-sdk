@@ -57,25 +57,25 @@ pub struct PrivateCrossSigningIdentity {
     pub(crate) self_signing_key: Arc<Mutex<Option<SelfSigning>>>,
 }
 
-/// A struct containing information if any of our cross signing keys differ from
-/// the public keys that are uploaded to the server.
+/// A struct containing information on whether any of our cross-signing keys
+/// differ from the public keys that exist on the server.
 #[derive(Debug, Clone)]
 pub struct DiffResult {
-    /// Does the master key differ.
+    /// Does the master key differ?
     master_differs: bool,
-    /// Does the self-signing key differ.
+    /// Does the self-signing key differ?
     self_signing_differs: bool,
-    /// DOes the user-signing key differ.
+    /// Does the user-signing key differ?
     user_signing_differs: bool,
 }
 
 impl DiffResult {
-    /// Do any of the keys differ?
+    /// Do any of the cross-signing keys differ?
     pub fn any_differ(&self) -> bool {
         self.master_differs || self.self_signing_differs || self.user_signing_differs
     }
 
-    /// Do none of them differ?
+    /// Do none of the cross-signing keys differ?
     pub fn none_differ(&self) -> bool {
         !self.master_differs && !self.self_signing_differs && !self.user_signing_differs
     }

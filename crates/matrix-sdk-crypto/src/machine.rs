@@ -3464,7 +3464,7 @@ pub(crate) mod tests {
             .export_cross_signing_keys()
             .await
             .unwrap()
-            .expect("We should be able to export our cross signing keys");
+            .expect("We should be able to export our cross-signing keys");
 
         let identity = second_alice
             .get_identity(second_alice.user_id(), None)
@@ -3479,7 +3479,7 @@ pub(crate) mod tests {
         second_alice
             .import_cross_signing_keys(export)
             .await
-            .expect("We should be able to import our cross signing keys");
+            .expect("We should be able to import our cross-signing keys");
 
         let identity = second_alice
             .get_identity(second_alice.user_id(), None)
@@ -3491,7 +3491,7 @@ pub(crate) mod tests {
 
         assert!(
             identity.is_verified(),
-            "Our identity should be verified after we imported the private cross signing keys"
+            "Our identity should be verified after we imported the private cross-signing keys"
         );
 
         let second_bob = create_additional_machine(&bob).await;
@@ -3500,10 +3500,10 @@ pub(crate) mod tests {
             .export_cross_signing_keys()
             .await
             .unwrap()
-            .expect("The machine should be now able to export cross signing keys as well");
+            .expect("The machine should now be able to export cross-signing keys as well");
 
         second_bob.import_cross_signing_keys(export).await.expect_err(
-            "Importing cross signing keys that don't match our public identity should fail.",
+            "Importing cross-signing keys that don't match our public identity should fail",
         );
 
         let identity = second_bob
@@ -3516,7 +3516,7 @@ pub(crate) mod tests {
 
         assert!(
             !identity.is_verified(),
-            "Our identity should not be verified if there's a mismatch in the cross signing keys"
+            "Our identity should not be verified when there's a mismatch in the cross-signing keys"
         );
     }
 }
