@@ -613,15 +613,15 @@ mod tests {
 
         backup_machine.enable_backup_v1(backup_key).await?;
 
-        let request =
+        let (request_id, _) =
             backup_machine.backup().await?.expect("Created a backup request successfully");
         assert_eq!(
-            Some(&*request.request_id),
-            backup_machine.backup().await?.as_ref().map(|r| &*r.request_id),
+            Some(&request_id),
+            backup_machine.backup().await?.as_ref().map(|(request_id, _)| request_id),
             "Calling backup again without uploading creates the same backup request"
         );
 
-        backup_machine.mark_request_as_sent(&request.request_id).await?;
+        backup_machine.mark_request_as_sent(&request_id).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2);
