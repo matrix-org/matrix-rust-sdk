@@ -219,9 +219,10 @@ impl ToDeviceEvents {
             }
             ToDeviceEvents::SecretSend(mut e) => {
                 if let Some(SecretName::RecoveryKey) = e.content.secret_name {
-                    // We don't zeroize the recovery key since it requires
-                    // additional requests and possibly user-interaction to be
-                    // verified. We let the user deal with this.
+                    // We don't zeroize the backup decryption key since it
+                    // requires additional requests and possibly
+                    // user-interaction to be verified. We let the user deal
+                    // with this.
                 } else {
                     e.content.secret.zeroize();
                 }

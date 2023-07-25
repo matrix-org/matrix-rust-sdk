@@ -30,12 +30,13 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
+    SecretInfo, TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
@@ -65,6 +66,8 @@ mod keys {
     pub const KEY_REQUEST: &str = "key_request";
     pub const ROOM_SETTINGS: &str = "room_settings";
 
+    pub const SECRETS_INBOX: &str = "secrets_inbox";
+
     pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 
     // keys
@@ -75,6 +78,11 @@ mod keys {
     // backup v1
     pub const BACKUP_KEYS: &str = "backup_keys";
     pub const BACKUP_KEY_V1: &str = "backup_key_v1";
+    /// Indexeddb key for the backup decryption key.
+    ///
+    /// Known, for historical reasons, as the recovery key. Not to be confused
+    /// with the client-side recovery key, which is actually an AES key for use
+    /// with SSSS.
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
@@ -149,7 +157,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 3)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 4)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
             // works with an unsigned integer.
@@ -201,6 +209,12 @@ impl IndexeddbCryptoStore {
 
                 // Support for MSC2399 withheld codes
                 db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
+            }
+
+            if old_version < 4 {
+                let db = evt.db();
+
+                db.create_object_store(keys::SECRETS_INBOX)?;
             }
 
             Ok(())
@@ -377,7 +391,7 @@ impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), keys::CORE),
-            (changes.recovery_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
+            (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
             (!changes.sessions.is_empty(), keys::SESSION),
             (
                 !changes.devices.new.is_empty()
@@ -395,6 +409,7 @@ impl_crypto_store! {
             (!changes.message_hashes.is_empty(), keys::OLM_HASHES),
             (!changes.withheld_session_info.is_empty(), keys::DIRECT_WITHHELD_INFO),
             (!changes.room_settings.is_empty(), keys::ROOM_SETTINGS),
+            (!changes.secrets.is_empty(), keys::SECRETS_INBOX),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -432,7 +447,7 @@ impl_crypto_store! {
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
-        let recovery_key_pickle = changes.recovery_key;
+        let decryption_key_pickle = changes.backup_decryption_key;
         let backup_version = changes.backup_version;
 
         if let Some(a) = &account_pickle {
@@ -447,7 +462,7 @@ impl_crypto_store! {
             )?;
         }
 
-        if let Some(a) = &recovery_key_pickle {
+        if let Some(a) = &decryption_key_pickle {
             tx.object_store(keys::BACKUP_KEYS)?.put_key_val(
                 &JsValue::from_str(keys::RECOVERY_KEY_V1),
                 &self.serialize_value(&a)?,
@@ -588,6 +603,17 @@ impl_crypto_store! {
                 let key = self.encode_key(keys::ROOM_SETTINGS, room_id);
                 let value = self.serialize_value(&settings)?;
                 settings_store.put_key_val(&key, &value)?;
+            }
+        }
+
+        if !changes.secrets.is_empty() {
+            let secrets_store = tx.object_store(keys::SECRETS_INBOX)?;
+
+            for secret in changes.secrets {
+                let key = self.encode_key(keys::SECRETS_INBOX, (secret.secret_name.as_str(), secret.event.content.request_id.as_str()));
+                let value = self.serialize_value(&secret)?;
+
+                secrets_store.put_key_val(&key, &value)?;
             }
         }
 
@@ -906,6 +932,40 @@ impl_crypto_store! {
             .is_some())
     }
 
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+        ) -> Result<Vec<GossippedSecret>> {
+        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readonly)?
+            .object_store(keys::SECRETS_INBOX)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .map(|d| {
+                let secret = self.deserialize_value(d)?;
+                Ok(secret)
+            }).collect()
+    }
+
+    async fn delete_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<()> {
+        let range = self.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readwrite)?
+            .object_store(keys::SECRETS_INBOX)?
+            .delete(&range)?;
+
+        Ok(())
+    }
+
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
@@ -992,13 +1052,13 @@ impl_crypto_store! {
                 .map(|i| self.deserialize_value(i))
                 .transpose()?;
 
-            let recovery_key = store
+            let decryption_key = store
                 .get(&JsValue::from_str(keys::RECOVERY_KEY_V1))?
                 .await?
                 .map(|i| self.deserialize_value(i))
                 .transpose()?;
 
-            BackupKeys { backup_version, recovery_key }
+            BackupKeys { backup_version, decryption_key }
         };
 
         Ok(key)

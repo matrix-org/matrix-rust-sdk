@@ -35,11 +35,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
-    types::events::room_key_request::{
-        RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo,
+    types::events::{
+        olm_v1::DecryptedSecretSendEvent,
+        room_key_request::{RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo},
     },
     Device,
 };
+
+/// Struct containing a `m.secret.send` event and its acompanying info.
+///
+/// This struct is created only iff the following three things are true:
+///
+/// 1. We requested the secret.
+/// 2. The secret was received over an encrypted channel.
+/// 3. The secret it was received from one ouf our own verified devices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GossippedSecret {
+    /// The name of the secret.
+    pub secret_name: SecretName,
+    /// The [`GossipRequest`] that has requested the secret.
+    pub gossip_request: GossipRequest,
+    /// The `m.secret.send` event containing the actual secret.
+    pub event: DecryptedSecretSendEvent,
+}
 
 /// An error describing why a key share request won't be honored.
 #[cfg(feature = "automatic-room-key-forwarding")]

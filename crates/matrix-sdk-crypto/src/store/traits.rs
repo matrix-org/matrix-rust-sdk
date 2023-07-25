@@ -16,7 +16,9 @@ use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
-use ruma::{DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId};
+use ruma::{
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
+};
 use tokio::sync::Mutex;
 
 use super::{BackupKeys, Changes, CryptoStoreError, Result, RoomKeyCounts, RoomSettings};
@@ -26,8 +28,8 @@ use crate::{
         Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
+    SecretInfo, TrackedUser,
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -200,6 +202,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         request_id: &TransactionId,
     ) -> Result<(), Self::Error>;
 
+    /// Get all the secrets with the given [`SecretName`] we have currently
+    /// stored.
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>, Self::Error>;
+
+    /// Delete all the secrets with the given [`SecretName`] we have currently
+    /// stored.
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<(), Self::Error>;
+
     /// Get the room settings, such as the encryption algorithm or whether to
     /// encrypt only for trusted devices.
     ///
@@ -369,6 +382,17 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         self.0.delete_outgoing_secret_requests(request_id).await.map_err(Into::into)
+    }
+
+    async fn get_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<GossippedSecret>> {
+        self.0.get_secrets_from_inbox(secret_name).await.map_err(Into::into)
+    }
+
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        self.0.delete_secrets_from_inbox(secret_name).await.map_err(Into::into)
     }
 
     async fn get_withheld_info(

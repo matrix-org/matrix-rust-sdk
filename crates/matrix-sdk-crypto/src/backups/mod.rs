@@ -37,7 +37,7 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{Account, InboundGroupSession, SignedJsonObject},
-    store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
+    store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
     types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
     CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest,
 };
@@ -399,16 +399,17 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// Store the recovery key in the crypto store.
+    /// Store the backup decryption key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
     /// key.
-    pub async fn save_recovery_key(
+    pub async fn save_decryption_key(
         &self,
-        recovery_key: Option<RecoveryKey>,
+        backup_decryption_key: Option<BackupDecryptionKey>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let changes = Changes { recovery_key, backup_version: version, ..Default::default() };
+        let changes =
+            Changes { backup_decryption_key, backup_version: version, ..Default::default() };
         self.store.save_changes(changes).await
     }
 
@@ -568,7 +569,7 @@ mod tests {
     use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
     use serde_json::json;
 
-    use crate::{store::RecoveryKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};
+    use crate::{store::BackupDecryptionKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -600,8 +601,8 @@ mod tests {
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
-        let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-        let backup_key = recovery_key.megolm_v1_public_key();
+        let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
+        let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
 
         backup_machine.enable_backup_v1(backup_key).await?;

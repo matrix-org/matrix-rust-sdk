@@ -63,6 +63,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
 use crate::{
+    gossiping::GossippedSecret,
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
@@ -132,6 +133,10 @@ struct StoreInner {
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
     room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
+
+    /// The sender side of a broadcast channel which sends out secrets we
+    /// received as a `m.secret.send` event.
+    secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 }
 
 #[derive(Default, Debug)]
@@ -140,7 +145,7 @@ pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
-    pub recovery_key: Option<RecoveryKey>,
+    pub backup_decryption_key: Option<BackupDecryptionKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -151,6 +156,7 @@ pub struct Changes {
     /// Stores when a `m.room_key.withheld` is received
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
+    pub secrets: Vec<GossippedSecret>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -202,18 +208,26 @@ pub struct DeviceChanges {
 }
 
 /// The private part of a backup key.
-#[derive(Zeroize, Deserialize, Serialize)]
+///
+/// The private part of the key is not used on a regular basis. Rather, it is
+/// used only when we need to *recover* the backup.
+///
+/// Typically, this private key is itself encrypted and stored in server-side
+/// secret storage (SSSS), whence it can be retrieved when it is needed for a
+/// recovery operation. Alternatively, the key can be "gossiped" between devices
+/// via "secret sharing".
+#[derive(Clone, Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 #[serde(transparent)]
-pub struct RecoveryKey {
-    pub(crate) inner: Box<[u8; RecoveryKey::KEY_SIZE]>,
+pub struct BackupDecryptionKey {
+    pub(crate) inner: Box<[u8; BackupDecryptionKey::KEY_SIZE]>,
 }
 
-impl RecoveryKey {
-    /// The number of bytes the recovery key will hold.
+impl BackupDecryptionKey {
+    /// The number of bytes the decryption key will hold.
     pub const KEY_SIZE: usize = 32;
 
-    /// Create a new random recovery key.
+    /// Create a new random decryption key.
     pub fn new() -> Result<Self, rand::Error> {
         let mut rng = rand::thread_rng();
 
@@ -223,16 +237,16 @@ impl RecoveryKey {
         Ok(Self { inner: key })
     }
 
-    /// Export the `RecoveryKey` as a base64 encoded string.
+    /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         encode(self.inner.as_slice())
     }
 }
 
 #[cfg(not(tarpaulin_include))]
-impl Debug for RecoveryKey {
+impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RecoveryKey").finish()
+        f.debug_struct("BackupDecryptionKey").finish()
     }
 }
 
@@ -259,10 +273,10 @@ pub struct RoomKeyCounts {
 }
 
 /// Stored versions of the backup keys.
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct BackupKeys {
-    /// The recovery key, the one used to decrypt backed up room keys.
-    pub recovery_key: Option<RecoveryKey>,
+    /// The key used to decrypt backed up room keys.
+    pub decryption_key: Option<BackupDecryptionKey>,
     /// The version that we are using for backups.
     pub backup_version: Option<String>,
 }
@@ -379,6 +393,8 @@ impl Store {
         verification_machine: VerificationMachine,
     ) -> Self {
         let (room_keys_received_sender, _) = broadcast::channel(10);
+        let (secrets_broadcaster, _) = broadcast::channel(10);
+
         let inner = Arc::new(StoreInner {
             user_id,
             identity,
@@ -390,7 +406,9 @@ impl Store {
             tracked_users_loaded: AtomicBool::new(false),
             tracked_user_loading_lock: Mutex::new(()),
             room_keys_received_sender,
+            secrets_broadcaster,
         });
+
         Self { inner }
     }
 
@@ -431,11 +449,17 @@ impl Store {
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
+        let secrets = changes.secrets.to_owned();
+
         self.inner.store.save_changes(changes).await?;
 
         if !room_key_updates.is_empty() {
             // Ignore the result. It can only fail if there are no listeners.
             let _ = self.inner.room_keys_received_sender.send(room_key_updates);
+        }
+
+        for secret in secrets {
+            let _ = self.inner.secrets_broadcaster.send(secret);
         }
 
         Ok(())
@@ -652,7 +676,7 @@ impl Store {
             }
             SecretName::RecoveryKey => {
                 #[cfg(feature = "backups_v1")]
-                if let Some(key) = self.load_backup_keys().await?.recovery_key {
+                if let Some(key) = self.load_backup_keys().await?.decryption_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
@@ -709,12 +733,8 @@ impl Store {
     }
 
     /// Import the given `secret` named `secret_name` into the keystore.
-    pub(crate) async fn import_secret(
-        &self,
-        secret_name: &SecretName,
-        secret: &str,
-    ) -> Result<(), SecretImportError> {
-        match secret_name {
+    pub async fn import_secret(&self, secret: &GossippedSecret) -> Result<(), SecretImportError> {
+        match &secret.secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
             | SecretName::CrossSigningSelfSigningKey => {
@@ -723,9 +743,15 @@ impl Store {
                 {
                     let identity = self.inner.identity.lock().await;
 
-                    identity.import_secret(public_identity, secret_name, secret).await?;
+                    identity
+                        .import_secret(
+                            public_identity,
+                            &secret.secret_name,
+                            &secret.event.content.secret,
+                        )
+                        .await?;
                     info!(
-                        secret_name = secret_name.as_ref(),
+                        secret_name = ?secret.secret_name,
                         "Successfully imported a private cross signing key"
                     );
 
@@ -736,10 +762,11 @@ impl Store {
                 }
             }
             SecretName::RecoveryKey => {
-                // We don't import the recovery key here since we'll want to
+                // We don't import the decryption key here since we'll want to
                 // check if the public key matches to the latest version on the
-                // server. We instead leave the key in the event and let the
-                // user import it later.
+                // server. We instead put the secret into a secret inbox where
+                // it will stay until it either gets overwritten
+                // or the user accepts the secret.
             }
             name => {
                 warn!(secret = ?name, "Tried to import an unknown secret");
@@ -1004,6 +1031,62 @@ impl Store {
     /// key and value when hold.
     pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
         CryptoStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
+    }
+
+    /// Receive notifications of gossipped secrets being received and stored in
+    /// the secret inbox as a [`Stream`].
+    ///
+    /// The gossipped secrets are received using the `m.secret.send` event type
+    /// and are guaranteed to have been received over a 1-to-1 Olm
+    /// [`Session`] from a verified [`Device`].
+    ///
+    /// The [`GossippedSecret`] can also be later found in the secret inbox and
+    /// retrieved using the [`CryptoStore::get_secrets_from_inbox()`] method.
+    ///
+    /// After a suitable secret of a certain type has been found it can be
+    /// removed from the store
+    /// using the [`CryptoStore::delete_secrets_from_inbox()`] method.
+    ///
+    /// The only secret this will currently broadcast is the
+    /// `m.megolm_backup.v1`.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # futures_executor::block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    ///
+    /// let secret_stream = machine.store().secrets_stream();
+    /// pin_mut!(secret_stream);
+    ///
+    /// for secret in secret_stream.next().await {
+    ///     // Accept the secret if it's valid, then delete all the secrets of this type.
+    ///     machine.store().delete_secrets_from_inbox(&secret.secret_name);
+    /// }
+    /// # });
+    /// ```
+    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
+        let stream = BroadcastStream::new(self.inner.secrets_broadcaster.subscribe());
+
+        // the raw BroadcastStream gives us Results which can fail with
+        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
+        // with, so here we just drop the errors.
+        stream.filter_map(|result| async move {
+            match result {
+                Ok(r) => Some(r),
+                Err(BroadcastStreamRecvError::Lagged(lag)) => {
+                    warn!("secrets_stream missed {lag} updates");
+                    None
+                }
+            }
+        })
     }
 }
 

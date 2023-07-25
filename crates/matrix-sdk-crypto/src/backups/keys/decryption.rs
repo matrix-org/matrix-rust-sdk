@@ -25,9 +25,9 @@ use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::store::RecoveryKey;
+use crate::store::BackupDecryptionKey;
 
-/// Error type for the decoding of a RecoveryKey.
+/// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
 pub enum DecodeError {
     /// The decoded recovery key has an invalid prefix.
@@ -63,7 +63,7 @@ pub enum UnpicklingError {
     Decode(#[from] DecodeError),
 }
 
-impl TryFrom<String> for RecoveryKey {
+impl TryFrom<String> for BackupDecryptionKey {
     type Error = DecodeError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -71,7 +71,7 @@ impl TryFrom<String> for RecoveryKey {
     }
 }
 
-impl std::fmt::Display for RecoveryKey {
+impl std::fmt::Display for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = Zeroizing::new(self.to_base58());
 
@@ -89,7 +89,7 @@ impl std::fmt::Display for RecoveryKey {
     }
 }
 
-impl RecoveryKey {
+impl BackupDecryptionKey {
     const PREFIX: [u8; 2] = [0x8b, 0x01];
     const PREFIX_PARITY: u8 = Self::PREFIX[0] ^ Self::PREFIX[1];
     const DISPLAY_CHUNK_SIZE: usize = 4;
@@ -98,11 +98,11 @@ impl RecoveryKey {
         bytes.iter().fold(Self::PREFIX_PARITY, |acc, x| acc ^ x)
     }
 
-    /// Create a new recovery key from the given byte array.
+    /// Create a new decryption key from the given byte array.
     ///
     /// **Warning**: You need to make sure that the byte array contains correct
     /// random data, either by using a random number generator or by using an
-    /// exported version of a previously created [`RecoveryKey`].
+    /// exported version of a previously created [`BackupDecryptionKey`].
     pub fn from_bytes(key: &[u8; Self::KEY_SIZE]) -> Self {
         let mut inner = Box::new([0u8; Self::KEY_SIZE]);
         inner.copy_from_slice(key);
@@ -114,12 +114,12 @@ impl RecoveryKey {
         Self { inner: key }
     }
 
-    /// Get the recovery key as a raw byte representation.
+    /// Get the decryption key as a raw byte representation.
     pub fn as_bytes(&self) -> &[u8; Self::KEY_SIZE] {
         &self.inner
     }
 
-    /// Try to create a [`RecoveryKey`] from a base64 export of a `RecoveryKey`.
+    /// Try to create a [`BackupDecryptionKey`] from a base64 export.
     pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
         let decoded = Zeroizing::new(crate::utilities::decode(key)?);
 
@@ -133,7 +133,7 @@ impl RecoveryKey {
         }
     }
 
-    /// Try to create a [`RecoveryKey`] from a base58 export of a `RecoveryKey`.
+    /// Try to create a [`BackupDecryptionKey`] from a base58 export.
     pub fn from_base58(value: &str) -> Result<Self, DecodeError> {
         // Remove any whitespace we might have
         let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
@@ -163,7 +163,7 @@ impl RecoveryKey {
         }
     }
 
-    /// Export the `RecoveryKey` as a base58 encoded string.
+    /// Export the `[`BackupDecryptionKey`] as a base58 encoded string.
     pub fn to_base58(&self) -> String {
         let bytes = Zeroizing::new(
             [
@@ -181,13 +181,13 @@ impl RecoveryKey {
         PkDecryption::from_bytes(self.inner.as_ref())
     }
 
-    /// Extract the megolm.v1 public key from this `RecoveryKey`.
+    /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decrytpion();
         MegolmV1BackupKey::new(pk.public_key(), None)
     }
 
-    /// Try to decrypt the given ciphertext using this `RecoveryKey`.
+    /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].
     ///
     /// This will use the [`m.megolm_backup.v1.curve25519-aes-sha2`] algorithm
     /// to decrypt the given ciphertext.
@@ -214,7 +214,7 @@ mod tests {
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
-    use super::{DecodeError, RecoveryKey};
+    use super::{BackupDecryptionKey, DecodeError};
     use crate::olm::BackedUpRoomKey;
 
     const TEST_KEY: [u8; 32] = [
@@ -225,34 +225,34 @@ mod tests {
 
     #[test]
     fn base64_decoding() -> Result<(), DecodeError> {
-        let key = RecoveryKey::new().expect("Can't create a new recovery key");
+        let key = BackupDecryptionKey::new().expect("Can't create a new recovery key");
 
         let base64 = key.to_base64();
-        let decoded_key = RecoveryKey::from_base64(&base64)?;
+        let decoded_key = BackupDecryptionKey::from_base64(&base64)?;
         assert_eq!(key.inner, decoded_key.inner, "The decode key doesn't match the original");
 
-        RecoveryKey::from_base64("i").expect_err("The recovery key is too short");
+        BackupDecryptionKey::from_base64("i").expect_err("The recovery key is too short");
 
         Ok(())
     }
 
     #[test]
     fn base58_decoding() -> Result<(), DecodeError> {
-        let key = RecoveryKey::new().expect("Can't create a new recovery key");
+        let key = BackupDecryptionKey::new().expect("Can't create a new recovery key");
 
         let base64 = key.to_base58();
-        let decoded_key = RecoveryKey::from_base58(&base64)?;
+        let decoded_key = BackupDecryptionKey::from_base58(&base64)?;
         assert_eq!(key.inner, decoded_key.inner, "The decode key doesn't match the original");
 
         let test_key =
-            RecoveryKey::from_base58("EsTcLW2KPGiFwKEA3As5g5c4BXwkqeeJZJV8Q9fugUMNUE4d")?;
+            BackupDecryptionKey::from_base58("EsTcLW2KPGiFwKEA3As5g5c4BXwkqeeJZJV8Q9fugUMNUE4d")?;
         assert_eq!(
             test_key.as_bytes(),
             &TEST_KEY,
             "The decoded recovery key doesn't match the test key"
         );
 
-        let test_key = RecoveryKey::from_base58(
+        let test_key = BackupDecryptionKey::from_base58(
             "EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4d",
         )?;
         assert_eq!(
@@ -261,16 +261,19 @@ mod tests {
             "The decoded recovery key doesn't match the test key"
         );
 
-        RecoveryKey::from_base58("EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4e")
-            .expect_err("Can't create a recovery key if the parity byte is invalid");
+        BackupDecryptionKey::from_base58(
+            "EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4e",
+        )
+        .expect_err("Can't create a recovery key if the parity byte is invalid");
 
         Ok(())
     }
 
     #[test]
     fn test_decrypt_key() {
-        let recovery_key =
-            RecoveryKey::from_base64("Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw").unwrap();
+        let decryption_key =
+            BackupDecryptionKey::from_base64("Ha9cklU/9NqFo9WKdVfGzmqUL/9wlkdxfEitbSIPVXw")
+                .unwrap();
 
         let data = json!({
             "first_message_index": 0,
@@ -297,7 +300,7 @@ mod tests {
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
         let mac = key_backup_data.session_data.mac.encode();
 
-        let decrypted = recovery_key
+        let decrypted = decryption_key
             .decrypt_v1(&ephemeral, &mac, &ciphertext)
             .expect("The backed up key should be decrypted successfully");
 
