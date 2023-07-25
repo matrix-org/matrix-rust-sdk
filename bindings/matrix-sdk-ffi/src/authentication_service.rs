@@ -10,7 +10,7 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client_builder::Protocol, error::ClientError};
+use crate::{client_builder::UrlScheme, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -119,9 +119,9 @@ impl AuthenticationService {
         match result {
             Ok(server_name) => {
                 let protocol = if server_name_or_homeserver_url.starts_with("http://") {
-                    Protocol::Http
+                    UrlScheme::Http
                 } else {
-                    Protocol::Https
+                    UrlScheme::Https
                 };
                 builder = builder.server_name_with_protocol(server_name.to_string(), protocol);
             }

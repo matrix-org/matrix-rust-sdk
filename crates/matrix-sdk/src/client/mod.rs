@@ -93,7 +93,7 @@ mod builder;
 mod futures;
 
 pub use self::{
-    builder::{ClientBuildError, ClientBuilder, ServerNameProtocol},
+    builder::{ClientBuildError, ClientBuilder},
     futures::SendRequest,
 };
 
@@ -1923,7 +1923,6 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        client::builder::ServerNameProtocol,
         config::{RequestConfig, SyncSettings},
         test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
     };
@@ -1977,7 +1976,7 @@ pub(crate) mod tests {
             .mount(&server)
             .await;
         let client = Client::builder()
-            .server_name_with_protocol(alice.server_name(), ServerNameProtocol::Http)
+            .insecure_server_name_no_tls(alice.server_name())
             .build()
             .await
             .unwrap();
@@ -2000,7 +1999,7 @@ pub(crate) mod tests {
 
         assert!(
             Client::builder()
-                .server_name_with_protocol(alice.server_name(), ServerNameProtocol::Http)
+                .insecure_server_name_no_tls(alice.server_name())
                 .build()
                 .await
                 .is_err(),
