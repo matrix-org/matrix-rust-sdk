@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    IncomingResponse, OutgoingRequest, OutgoingVerificationRequest as SdkVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest as RustUploadSigningKeysRequest,
-    KeysBackupRequest,
+    IncomingResponse, KeysBackupRequest, OutgoingRequest,
+    OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    UploadSigningKeysRequest as RustUploadSigningKeysRequest,
 };
 use ruma::{
     api::client::{
