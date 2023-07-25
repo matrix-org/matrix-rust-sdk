@@ -14,19 +14,13 @@
 
 mod events;
 
-#[cfg(feature = "experimental-encryption-sync")]
 pub mod encryption_sync;
-#[cfg(feature = "experimental-notification-client")]
 pub mod notification_client;
-#[cfg(feature = "experimental-room-list")]
 pub mod room_list_service;
-#[cfg(feature = "experimental-sync-service")]
 pub mod sync_service;
 pub mod timeline;
 
-#[cfg(feature = "experimental-room-list")]
-pub use self::room_list_service::RoomListService;
-pub use self::timeline::Timeline;
+pub use self::{room_list_service::RoomListService, timeline::Timeline};
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[ctor::ctor]

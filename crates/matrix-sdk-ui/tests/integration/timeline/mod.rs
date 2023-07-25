@@ -36,7 +36,7 @@ mod echo;
 mod pagination;
 mod queue;
 mod read_receipts;
-#[cfg(feature = "experimental-sliding-sync")]
+
 pub(crate) mod sliding_sync;
 
 use crate::{logged_in_client, mock_sync};

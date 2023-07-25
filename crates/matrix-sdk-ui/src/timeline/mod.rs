@@ -59,7 +59,6 @@ mod pagination;
 mod queue;
 mod reactions;
 mod read_receipts;
-#[cfg(feature = "experimental-sliding-sync")]
 mod sliding_sync_ext;
 #[cfg(test)]
 mod tests;
@@ -68,8 +67,6 @@ mod to_device;
 mod traits;
 mod virtual_item;
 
-#[cfg(feature = "experimental-sliding-sync")]
-pub use self::sliding_sync_ext::SlidingSyncRoomExt;
 pub use self::{
     builder::TimelineBuilder,
     event_item::{
@@ -82,6 +79,7 @@ pub use self::{
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
     reactions::ReactionSenderData,
+    sliding_sync_ext::SlidingSyncRoomExt,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
@@ -137,7 +135,6 @@ impl Timeline {
     }
 
     /// Clear all timeline items, and reset pagination parameters.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub async fn clear(&self) {
         let mut start_lock = self.start_token.lock().await;
         let mut end_lock = self._end_token.lock().await;
