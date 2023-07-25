@@ -496,7 +496,7 @@ impl SlidingSync {
             || !self.inner.lists.read().await.is_empty()
     }
 
-    #[instrument(skip_all, fields(pos))]
+    #[instrument(skip_all, fields(pos, conn_id = self.inner.id))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
