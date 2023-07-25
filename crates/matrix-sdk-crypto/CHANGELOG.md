@@ -1,5 +1,8 @@
 # unreleased
 
+- Mark our `OwnUserIdentity` as verified if we successfully import the matching
+  private keys.
+
 - The `OlmMachine::export_cross_signing_keys()` method now returns a `Result`.
   This removes an `unwrap()` from the codebase.
 

@@ -705,7 +705,7 @@ impl Store {
 
             identity
                 .import_secrets(
-                    public_identity,
+                    public_identity.to_owned(),
                     export.master_key.as_deref(),
                     export.self_signing_key.as_deref(),
                     export.user_signing_key.as_deref(),
@@ -713,10 +713,18 @@ impl Store {
                 .await?;
 
             let status = identity.status().await;
-            info!(?status, "Successfully imported the private cross signing keys");
 
-            let changes =
+            let diff = identity.get_public_identity_diff(&public_identity.inner).await;
+
+            let mut changes =
                 Changes { private_identity: Some(identity.clone()), ..Default::default() };
+
+            if diff.none_differ() {
+                public_identity.mark_as_verified();
+                changes.identities.changed.push(ReadOnlyUserIdentities::Own(public_identity.inner));
+            }
+
+            info!(?status, "Successfully imported the private cross-signing keys");
 
             self.save_changes(changes).await?;
         }

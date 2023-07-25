@@ -578,6 +578,11 @@ impl ReadOnlyOwnUserIdentity {
         self.verified.store(true, Ordering::SeqCst)
     }
 
+    #[cfg(test)]
+    pub fn mark_as_unverified(&self) {
+        self.verified.store(false, Ordering::SeqCst)
+    }
+
     /// Check if our identity is verified.
     pub fn is_verified(&self) -> bool {
         self.verified.load(Ordering::SeqCst)

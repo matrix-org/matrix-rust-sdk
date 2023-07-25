@@ -3459,4 +3459,92 @@ pub(crate) mod tests {
             Err(MegolmError::MismatchedIdentityKeys { .. })
         );
     }
+
+    #[async_test]
+    async fn importing_private_cross_signing_keys_verifies_the_public_identity() {
+        async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
+            let second_machine =
+                OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into()).await;
+
+            let identity = machine
+                .get_identity(machine.user_id(), None)
+                .await
+                .unwrap()
+                .expect("We should know about our own user identity if we bootstrapped it")
+                .own()
+                .unwrap();
+
+            let mut changes = Changes::default();
+            identity.mark_as_unverified();
+            changes.identities.new.push(crate::ReadOnlyUserIdentities::Own(identity.inner));
+
+            second_machine.store().save_changes(changes).await.unwrap();
+
+            second_machine
+        }
+
+        let (alice, bob) = get_machine_pair_with_setup_sessions(alice_id(), user_id(), false).await;
+        setup_cross_signing_for_machine(&alice, &bob).await;
+
+        let second_alice = create_additional_machine(&alice).await;
+
+        let export = alice
+            .export_cross_signing_keys()
+            .await
+            .unwrap()
+            .expect("We should be able to export our cross-signing keys");
+
+        let identity = second_alice
+            .get_identity(second_alice.user_id(), None)
+            .await
+            .unwrap()
+            .expect("We should know about our own user identity")
+            .own()
+            .unwrap();
+
+        assert!(!identity.is_verified(), "Initially our identity should not be verified");
+
+        second_alice
+            .import_cross_signing_keys(export)
+            .await
+            .expect("We should be able to import our cross-signing keys");
+
+        let identity = second_alice
+            .get_identity(second_alice.user_id(), None)
+            .await
+            .unwrap()
+            .expect("We should know about our own user identity")
+            .own()
+            .unwrap();
+
+        assert!(
+            identity.is_verified(),
+            "Our identity should be verified after we imported the private cross-signing keys"
+        );
+
+        let second_bob = create_additional_machine(&bob).await;
+
+        let export = second_alice
+            .export_cross_signing_keys()
+            .await
+            .unwrap()
+            .expect("The machine should now be able to export cross-signing keys as well");
+
+        second_bob.import_cross_signing_keys(export).await.expect_err(
+            "Importing cross-signing keys that don't match our public identity should fail",
+        );
+
+        let identity = second_bob
+            .get_identity(second_bob.user_id(), None)
+            .await
+            .unwrap()
+            .expect("We should know about our own user identity")
+            .own()
+            .unwrap();
+
+        assert!(
+            !identity.is_verified(),
+            "Our identity should not be verified when there's a mismatch in the cross-signing keys"
+        );
+    }
 }

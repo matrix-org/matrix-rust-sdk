@@ -57,23 +57,27 @@ pub struct PrivateCrossSigningIdentity {
     pub(crate) self_signing_key: Arc<Mutex<Option<SelfSigning>>>,
 }
 
-/// A struct containing information if any of our cross signing keys were
-/// cleared because the public keys differ from the keys that are uploaded to
-/// the server.
+/// A struct containing information on whether any of our cross-signing keys
+/// differ from the public keys that exist on the server.
 #[derive(Debug, Clone)]
-pub struct ClearResult {
-    /// Was the master key cleared.
-    master_cleared: bool,
-    /// Was the self-signing key cleared.
-    self_signing_cleared: bool,
-    /// Was the user-signing key cleared.
-    user_signing_cleared: bool,
+pub struct DiffResult {
+    /// Does the master key differ?
+    master_differs: bool,
+    /// Does the self-signing key differ?
+    self_signing_differs: bool,
+    /// Does the user-signing key differ?
+    user_signing_differs: bool,
 }
 
-impl ClearResult {
-    /// Did we clear any of the private cross signing keys.
-    pub fn any_cleared(&self) -> bool {
-        self.master_cleared || self.self_signing_cleared || self.user_signing_cleared
+impl DiffResult {
+    /// Do any of the cross-signing keys differ?
+    pub fn any_differ(&self) -> bool {
+        self.master_differs || self.self_signing_differs || self.user_signing_differs
+    }
+
+    /// Do none of the cross-signing keys differ?
+    pub fn none_differ(&self) -> bool {
+        !self.master_differs && !self.self_signing_differs && !self.user_signing_differs
     }
 }
 
@@ -309,28 +313,28 @@ impl PrivateCrossSigningIdentity {
     pub(crate) async fn clear_if_differs(
         &self,
         public_identity: &ReadOnlyOwnUserIdentity,
-    ) -> ClearResult {
+    ) -> DiffResult {
         let result = self.get_public_identity_diff(public_identity).await;
 
-        if result.master_cleared {
+        if result.master_differs {
             *self.master_key.lock().await = None;
         }
 
-        if result.user_signing_cleared {
+        if result.user_signing_differs {
             *self.user_signing_key.lock().await = None;
         }
 
-        if result.self_signing_cleared {
+        if result.self_signing_differs {
             *self.self_signing_key.lock().await = None;
         }
 
         result
     }
 
-    async fn get_public_identity_diff(
+    pub(crate) async fn get_public_identity_diff(
         &self,
         public_identity: &ReadOnlyOwnUserIdentity,
-    ) -> ClearResult {
+    ) -> DiffResult {
         let master_differs = self
             .master_public_key()
             .await
@@ -346,11 +350,7 @@ impl PrivateCrossSigningIdentity {
             .await
             .is_some_and(|subkey| &subkey != public_identity.self_signing_key());
 
-        ClearResult {
-            master_cleared: master_differs,
-            user_signing_cleared: user_signing_differs,
-            self_signing_cleared: self_signing_differs,
-        }
+        DiffResult { master_differs, user_signing_differs, self_signing_differs }
     }
 
     /// Get the names of the secrets we are missing.

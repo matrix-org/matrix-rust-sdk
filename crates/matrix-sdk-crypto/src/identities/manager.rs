@@ -406,7 +406,7 @@ impl IdentityManager {
         let private_identity = private_identity.lock().await;
         let result = private_identity.clear_if_differs(identity).await;
 
-        if result.any_cleared() {
+        if result.any_differ() {
             info!(cleared = ?result, "Removed some or all of our private cross signing keys");
             Some((*private_identity).clone())
         } else {
