@@ -196,6 +196,53 @@ pub(crate) struct ClientInner {
     pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
 }
 
+impl ClientInner {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        homeserver: Url,
+        authentication_server_info: Option<AuthenticationServerInfo>,
+        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
+        http_client: HttpClient,
+        base_client: BaseClient,
+        server_versions: Option<Box<[MatrixVersion]>>,
+        appservice_mode: bool,
+        respect_login_well_known: bool,
+        handle_refresh_tokens: bool,
+    ) -> Self {
+        let (unknown_token_error_sender, _) = broadcast::channel(1);
+
+        Self {
+            homeserver: RwLock::new(homeserver),
+            authentication_server_info,
+            #[cfg(feature = "experimental-sliding-sync")]
+            sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
+            http_client,
+            base_client,
+            server_versions: OnceCell::new_with(server_versions),
+            #[cfg(feature = "e2e-encryption")]
+            group_session_locks: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            key_claim_lock: Default::default(),
+            members_request_locks: Default::default(),
+            encryption_state_request_locks: Default::default(),
+            typing_notice_times: Default::default(),
+            event_handlers: Default::default(),
+            notification_handlers: Default::default(),
+            room_update_channels: Default::default(),
+            sync_gap_broadcast_txs: Default::default(),
+            appservice_mode,
+            respect_login_well_known,
+            sync_beat: event_listener::Event::new(),
+            handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
+            unknown_token_error_sender,
+            auth_data: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            cross_process_crypto_store_lock: OnceCell::new(),
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl Debug for Client {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1899,6 +1946,35 @@ impl Client {
     pub async fn notification_settings(&self) -> NotificationSettings {
         let ruleset = self.account().push_rules().await.unwrap_or_else(|_| Ruleset::new());
         NotificationSettings::new(self.clone(), ruleset)
+    }
+
+    /// Create a new specialized `Client` that can process notifications.
+    pub async fn notification_client(&self) -> Result<Client> {
+        let client = Client {
+            inner: Arc::new(ClientInner::new(
+                self.inner.homeserver.read().await.clone(),
+                self.inner.authentication_server_info.clone(),
+                #[cfg(feature = "experimental-sliding-sync")]
+                self.inner.sliding_sync_proxy.read().unwrap().clone(),
+                self.inner.http_client.clone(),
+                self.inner.base_client.clone_with_in_memory_state_store(),
+                self.inner.server_versions.get().cloned(),
+                self.inner.appservice_mode,
+                self.inner.respect_login_well_known,
+                self.inner.handle_refresh_tokens,
+            )),
+        };
+
+        // Now inherit the session without restarting the crypto machine.
+        if let Some(session) = self.session() {
+            match session {
+                AuthSession::Matrix(s) => {
+                    client.matrix_auth().inherit_session(s).await?;
+                }
+            }
+        }
+
+        Ok(client)
     }
 }
 

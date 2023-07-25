@@ -63,8 +63,8 @@ use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomState},
     store::{
-        ambiguity_map::AmbiguityCache, DynStateStore, Result as StoreResult, StateChanges,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
+        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
     },
     sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
@@ -127,6 +127,17 @@ impl BaseClient {
         }
     }
 
+    /// Clones the current base client to use the same crypto store but a
+    /// different, in-memory store config, and resets transient state.
+    pub fn clone_with_in_memory_state_store(&self) -> Self {
+        let config = StoreConfig::new().state_store(MemoryStore::new());
+
+        #[cfg(feature = "e2e-encryption")]
+        let config = config.crypto_store(self.crypto_store.clone());
+
+        Self::with_store_config(config)
+    }
+
     /// Get the session meta information.
     ///
     /// If the client is currently logged in, this will return a
@@ -178,6 +189,9 @@ impl BaseClient {
     ///
     /// * `session_meta` - The meta of a session that the user already has from
     ///   a previous login call.
+    /// * `regenerate_olm`: whether the `OlmMachine` should be regenerated or
+    ///   not. True for
+    /// restored sessions, false for inherited sessions.
     ///
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {

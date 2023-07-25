@@ -46,7 +46,7 @@ pub(crate) use native::HttpSettings;
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,

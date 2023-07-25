@@ -21,7 +21,9 @@ use ruma::events::{
 use ruma::{
     api::client::{
         config::set_global_account_data,
+        context,
         error::ErrorKind,
+        filter::LazyLoadOptions,
         membership::{
             ban_user, forget_room, get_member_events,
             invite_user::{self, v3::InvitationRecipient},
@@ -59,7 +61,7 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
-    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedServerName,
+    uint, EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
@@ -338,6 +340,42 @@ impl Room {
         let push_actions = self.event_push_actions(&event).await?;
 
         Ok(TimelineEvent { event, encryption_info: None, push_actions })
+    }
+
+    /// Fetch the event with the given `EventId` in this room, using the
+    /// `/context` endpoint to get more information.
+    pub async fn event_with_context(
+        &self,
+        event_id: &EventId,
+        lazy_load_members: bool,
+    ) -> Result<Option<TimelineEvent>> {
+        let mut request =
+            context::get_context::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
+
+        request.limit = uint!(0);
+
+        if lazy_load_members {
+            request.filter.lazy_load_options =
+                LazyLoadOptions::Enabled { include_redundant_members: false };
+        }
+
+        let Some(event) = self.client.send(request, None).await?.event else {
+            return Ok(None);
+        };
+
+        #[cfg(feature = "e2e-encryption")]
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(_),
+        ))) = event.deserialize_as::<AnySyncTimelineEvent>()
+        {
+            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                return Ok(Some(event));
+            }
+        }
+
+        let push_actions = self.event_push_actions(&event).await?;
+
+        Ok(Some(TimelineEvent { event, encryption_info: None, push_actions }))
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
