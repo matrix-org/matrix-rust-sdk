@@ -61,69 +61,94 @@ impl SessionVerificationController {
         *self.delegate.write().unwrap() = delegate;
     }
 
-    pub async fn request_verification(&self) -> Result<(), ClientError> {
-        let methods = vec![VerificationMethod::SasV1];
-        let verification_request = self
-            .user_identity
-            .request_verification_with_methods(methods)
+    pub async fn request_verification(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME
+            .spawn(async move {
+                let methods = vec![VerificationMethod::SasV1];
+                let verification_request = self
+                    .user_identity
+                    .request_verification_with_methods(methods)
+                    .await
+                    .map_err(anyhow::Error::from)?;
+                *self.verification_request.write().unwrap() = Some(verification_request);
+
+                Ok(())
+            })
             .await
-            .map_err(anyhow::Error::from)?;
-        *self.verification_request.write().unwrap() = Some(verification_request);
-
-        Ok(())
+            .unwrap()
     }
 
-    pub async fn start_sas_verification(&self) -> Result<(), ClientError> {
-        let verification_request = self.verification_request.read().unwrap().clone();
+    pub async fn start_sas_verification(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME
+            .spawn(async move {
+                let verification_request = self.verification_request.read().unwrap().clone();
 
-        if let Some(verification) = verification_request {
-            match verification.start_sas().await {
-                Ok(Some(verification)) => {
-                    *self.sas_verification.write().unwrap() = Some(verification.clone());
+                if let Some(verification) = verification_request {
+                    match verification.start_sas().await {
+                        Ok(Some(verification)) => {
+                            *self.sas_verification.write().unwrap() = Some(verification.clone());
 
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_start_sas_verification()
+                            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                                delegate.did_start_sas_verification()
+                            }
+
+                            let delegate = self.delegate.clone();
+                            RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
+                        }
+                        _ => {
+                            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                                delegate.did_fail()
+                            }
+                        }
                     }
-
-                    let delegate = self.delegate.clone();
-                    RUNTIME.spawn(Self::listen_to_changes(delegate, verification));
                 }
-                _ => {
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_fail()
-                    }
+
+                Ok(())
+            })
+            .await
+            .unwrap()
+    }
+
+    pub async fn approve_verification(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME
+            .spawn(async move {
+                let sas_verification = self.sas_verification.read().unwrap().clone();
+                if let Some(sas_verification) = sas_verification {
+                    sas_verification.confirm().await?;
                 }
-            }
-        }
 
-        Ok(())
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
-    pub async fn approve_verification(&self) -> Result<(), ClientError> {
-        let sas_verification = self.sas_verification.read().unwrap().clone();
-        if let Some(sas_verification) = sas_verification {
-            sas_verification.confirm().await?;
-        }
+    pub async fn decline_verification(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME
+            .spawn(async move {
+                let sas_verification = self.sas_verification.read().unwrap().clone();
+                if let Some(sas_verification) = sas_verification {
+                    sas_verification.mismatch().await?;
+                }
 
-        Ok(())
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
-    pub async fn decline_verification(&self) -> Result<(), ClientError> {
-        let sas_verification = self.sas_verification.read().unwrap().clone();
-        if let Some(sas_verification) = sas_verification {
-            sas_verification.mismatch().await?;
-        }
+    pub async fn cancel_verification(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME
+            .spawn(async move {
+                let verification_request = self.verification_request.read().unwrap().clone();
+                if let Some(verification) = verification_request {
+                    verification.cancel().await?;
+                }
 
-        Ok(())
-    }
-
-    pub async fn cancel_verification(&self) -> Result<(), ClientError> {
-        let verification_request = self.verification_request.read().unwrap().clone();
-        if let Some(verification) = verification_request {
-            verification.cancel().await?;
-        }
-
-        Ok(())
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 }
 

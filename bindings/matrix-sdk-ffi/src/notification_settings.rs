@@ -140,40 +140,53 @@ impl NotificationSettings {
     /// * `active_members_count` - the room's active members count (joined +
     ///   invited)
     pub async fn get_room_notification_settings(
-        &self,
+        self: Arc<Self>,
         room_id: String,
         is_encrypted: bool,
         active_members_count: u64,
     ) -> Result<RoomNotificationSettings, NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
-        // Get the current user defined mode for this room
-        if let Some(mode) =
-            notification_settings.get_user_defined_room_notification_mode(&parsed_room_id).await
-        {
-            return Ok(RoomNotificationSettings::new(mode.into(), false));
-        }
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let parsed_room_id = RoomId::parse(&room_id)
+                    .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+                // Get the current user defined mode for this room
+                if let Some(mode) = notification_settings
+                    .get_user_defined_room_notification_mode(&parsed_room_id)
+                    .await
+                {
+                    return Ok(RoomNotificationSettings::new(mode.into(), false));
+                }
 
-        // If the user has not defined a notification mode, return the default one for
-        // this room
-        let mode = notification_settings
-            .get_default_room_notification_mode(is_encrypted, active_members_count)
-            .await;
-        Ok(RoomNotificationSettings::new(mode.into(), true))
+                // If the user has not defined a notification mode, return the default one for
+                // this room
+                let mode = notification_settings
+                    .get_default_room_notification_mode(is_encrypted, active_members_count)
+                    .await;
+                Ok(RoomNotificationSettings::new(mode.into(), true))
+            })
+            .await
+            .unwrap()
     }
 
     /// Sets the notification mode for a room.
     pub async fn set_room_notification_mode(
-        &self,
+        self: Arc<Self>,
         room_id: String,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let parsed_room_idom_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
-        notification_settings.set_room_notification_mode(&parsed_room_idom_id, mode.into()).await?;
-        Ok(())
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let parsed_room_idom_id = RoomId::parse(&room_id)
+                    .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+                notification_settings
+                    .set_room_notification_mode(&parsed_room_idom_id, mode.into())
+                    .await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
     /// Get the default room notification mode
@@ -187,126 +200,186 @@ impl NotificationSettings {
     /// * `active_members_count` - the room's active members count (joined +
     ///   invited)
     pub async fn get_default_room_notification_mode(
-        &self,
+        self: Arc<Self>,
         is_encrypted: bool,
         active_members_count: u64,
     ) -> RoomNotificationMode {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let mode = notification_settings
-            .get_default_room_notification_mode(is_encrypted, active_members_count)
-            .await;
-        mode.into()
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let mode = notification_settings
+                    .get_default_room_notification_mode(is_encrypted, active_members_count)
+                    .await;
+                mode.into()
+            })
+            .await
+            .unwrap()
     }
 
     /// Restores the default notification mode for a room
     pub async fn restore_default_room_notification_mode(
-        &self,
+        self: Arc<Self>,
         room_id: String,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let parsed_room_idom_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
-        notification_settings.delete_user_defined_room_rules(&parsed_room_idom_id).await?;
-        Ok(())
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let parsed_room_idom_id = RoomId::parse(&room_id)
+                    .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+                notification_settings.delete_user_defined_room_rules(&parsed_room_idom_id).await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
     /// Get whether some enabled keyword rules exist.
-    pub async fn contains_keywords_rules(&self) -> bool {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings.contains_keyword_rules().await
+    pub async fn contains_keywords_rules(self: Arc<Self>) -> bool {
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                notification_settings.contains_keyword_rules().await
+            })
+            .await
+            .unwrap()
     }
 
     /// Get whether room mentions are enabled.
-    pub async fn is_room_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let enabled = notification_settings
-            .is_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.as_str(),
-            )
-            .await?;
-        Ok(enabled)
+    pub async fn is_room_mention_enabled(
+        self: Arc<Self>,
+    ) -> Result<bool, NotificationSettingsError> {
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let enabled = notification_settings
+                    .is_push_rule_enabled(
+                        RuleKind::Override,
+                        PredefinedOverrideRuleId::IsRoomMention.as_str(),
+                    )
+                    .await?;
+                Ok(enabled)
+            })
+            .await
+            .unwrap()
     }
 
     /// Set whether room mentions are enabled.
     pub async fn set_room_mention_enabled(
-        &self,
+        self: Arc<Self>,
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings
-            .set_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsRoomMention.as_str(),
-                enabled,
-            )
-            .await?;
-        Ok(())
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                notification_settings
+                    .set_push_rule_enabled(
+                        RuleKind::Override,
+                        PredefinedOverrideRuleId::IsRoomMention.as_str(),
+                        enabled,
+                    )
+                    .await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
     /// Get whether user mentions are enabled.
-    pub async fn is_user_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let enabled = notification_settings
-            .is_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.as_str(),
-            )
-            .await?;
-        Ok(enabled)
+    pub async fn is_user_mention_enabled(
+        self: Arc<Self>,
+    ) -> Result<bool, NotificationSettingsError> {
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let enabled = notification_settings
+                    .is_push_rule_enabled(
+                        RuleKind::Override,
+                        PredefinedOverrideRuleId::IsUserMention.as_str(),
+                    )
+                    .await?;
+                Ok(enabled)
+            })
+            .await
+            .unwrap()
     }
 
     /// Set whether user mentions are enabled.
     pub async fn set_user_mention_enabled(
-        &self,
+        self: Arc<Self>,
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings
-            .set_push_rule_enabled(
-                RuleKind::Override,
-                PredefinedOverrideRuleId::IsUserMention.as_str(),
-                enabled,
-            )
-            .await?;
-        Ok(())
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                notification_settings
+                    .set_push_rule_enabled(
+                        RuleKind::Override,
+                        PredefinedOverrideRuleId::IsUserMention.as_str(),
+                        enabled,
+                    )
+                    .await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
     /// Get whether the `.m.rule.call` push rule is enabled
-    pub async fn is_call_enabled(&self) -> Result<bool, NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let enabled = notification_settings
-            .is_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call.as_str())
-            .await?;
-        Ok(enabled)
+    pub async fn is_call_enabled(self: Arc<Self>) -> Result<bool, NotificationSettingsError> {
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let enabled = notification_settings
+                    .is_push_rule_enabled(
+                        RuleKind::Underride,
+                        PredefinedUnderrideRuleId::Call.as_str(),
+                    )
+                    .await?;
+                Ok(enabled)
+            })
+            .await
+            .unwrap()
     }
 
     /// Set whether the `.m.rule.call` push rule is enabled
-    pub async fn set_call_enabled(&self, enabled: bool) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings
-            .set_push_rule_enabled(
-                RuleKind::Underride,
-                PredefinedUnderrideRuleId::Call.as_str(),
-                enabled,
-            )
-            .await?;
-        Ok(())
+    pub async fn set_call_enabled(
+        self: Arc<Self>,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                notification_settings
+                    .set_push_rule_enabled(
+                        RuleKind::Underride,
+                        PredefinedUnderrideRuleId::Call.as_str(),
+                        enabled,
+                    )
+                    .await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 
     /// Unmute a room.
     pub async fn unmute_room(
-        &self,
+        self: Arc<Self>,
         room_id: String,
         is_encrypted: bool,
         members_count: u64,
     ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        let parsed_room_idom_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
-        notification_settings
-            .unmute_room(&parsed_room_idom_id, is_encrypted, members_count)
-            .await?;
-        Ok(())
+        RUNTIME
+            .spawn(async move {
+                let notification_settings = self.sdk_notification_settings.read().await;
+                let parsed_room_idom_id = RoomId::parse(&room_id)
+                    .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+                notification_settings
+                    .unmute_room(&parsed_room_idom_id, is_encrypted, members_count)
+                    .await?;
+                Ok(())
+            })
+            .await
+            .unwrap()
     }
 }
