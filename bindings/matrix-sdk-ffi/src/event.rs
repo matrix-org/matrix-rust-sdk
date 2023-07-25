@@ -126,6 +126,8 @@ pub enum MessageLikeEventContent {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
+    PollStart,
+    PollEnd,
     ReactionContent { related_event_id: String },
     RoomEncrypted,
     RoomMessage { message_type: MessageType },
