@@ -57,7 +57,6 @@ impl TimelineBuilder {
     }
 
     /// Add initial events to the timeline.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn events(
         mut self,
         prev_token: Option<String>,

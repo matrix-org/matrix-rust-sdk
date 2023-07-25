@@ -4,36 +4,30 @@ version = "0.6.0"
 edition = "2021"
 
 [features]
-default = ["e2e-encryption", "native-tls", "experimental-room-list", "experimental-encryption-sync", "experimental-sync-service", "experimental-notification-client"]
+default = ["e2e-encryption", "native-tls"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
-experimental-sync-service = ["experimental-room-list", "experimental-encryption-sync"]
-experimental-encryption-sync = ["experimental-sliding-sync", "dep:async-stream"]
-experimental-notification-client = ["experimental-encryption-sync"]
-experimental-room-list = ["experimental-sliding-sync", "dep:async-stream", "dep:eyeball-im-util"]
-experimental-sliding-sync = ["matrix-sdk/experimental-sliding-sync"]
-
-testing = ["dep:eyeball-im-util"]
+testing = []
 
 [dependencies]
 async-once-cell = "0.5.2"
 async-std = { version = "1.12.0", features = ["unstable"] }
-async-stream = { workspace = true, optional = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 chrono = "0.4.23"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
-eyeball-im-util = { workspace = true, optional = true }
+eyeball-im-util = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false }
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-sliding-sync"] }
 matrix-sdk-base = { version = "0.6.1", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 mime = "0.3.16"
