@@ -22,8 +22,6 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     RoomListEntry, SlidingSync, SlidingSyncList,
 };
-use tokio::sync::broadcast::{channel, Sender};
-use tokio_stream::wrappers::BroadcastStream;
 
 use super::{Error, State};
 
@@ -32,15 +30,13 @@ use super::{Error, State};
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync_list: SlidingSyncList,
-    entries_batch_drainer: Sender<()>,
-    entries_batch_task: JoinHandle<()>,
+    room_list_service_state: Subscriber<State>,
     loading_state: SharedObservable<RoomListLoadingState>,
     loading_state_task: JoinHandle<()>,
 }
 
 impl Drop for RoomList {
     fn drop(&mut self) {
-        self.entries_batch_task.abort();
         self.loading_state_task.abort();
     }
 }
@@ -56,39 +52,11 @@ impl RoomList {
             .await
             .ok_or_else(|| Error::UnknownList(sliding_sync_list_name.to_owned()))?;
 
-        // The channel capacity should theoretically be 2, as only one entries stream
-        // and one entries filtered stream should exist at a time, but we never
-        // know what the user may do. Let's assume we allow up to 128, as it
-        // seems a safe value.
-        //
-        // Why using a broadcast? Because if there is no receiver (if the entries stream
-        // is not used), we don't want the sender to fail and disconnect. And we want
-        // new receiver to have a fresh state: in a broadcast, newly created receiver
-        // doesn't receive queued messages.
-        let (entries_batch_drainer, _) = channel(128);
-
         let loading_state = SharedObservable::new(RoomListLoadingState::NotLoaded);
 
         Ok(Self {
             sliding_sync_list: sliding_sync_list.clone(),
-
-            entries_batch_drainer: entries_batch_drainer.clone(),
-            entries_batch_task: {
-                let room_list_service_state = room_list_service_state.clone();
-
-                spawn(async move {
-                    pin_mut!(room_list_service_state);
-
-                    // As soon as the state changed, drain the entries stream.
-                    while room_list_service_state.next().await.is_some() {
-                        // Since a broadcast channel is used, if there is no receiver, it won't
-                        // break. We are not interested by the result of the drainer send, we just
-                        // drain.
-                        let _ = entries_batch_drainer.send(());
-                    }
-                })
-            },
-
+            room_list_service_state: room_list_service_state.clone(),
             loading_state: loading_state.clone(),
             loading_state_task: spawn(async move {
                 pin_mut!(room_list_service_state);
@@ -139,9 +107,7 @@ impl RoomList {
             entries,
             // Batch the entries stream. Batch is drained every time the `room_list_service_state`
             // is changed.
-            entries_stream.batch_with(
-                BroadcastStream::new(self.entries_batch_drainer.subscribe()).map(|_| ()),
-            ),
+            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
         )
     }
 
@@ -160,9 +126,7 @@ impl RoomList {
             entries,
             // Batch the entries stream. Batch is drained every time the `room_list_service_state`
             // is changed.
-            entries_stream.batch_with(
-                BroadcastStream::new(self.entries_batch_drainer.subscribe()).map(|_| ()),
-            ),
+            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
         )
     }
 }
