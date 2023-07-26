@@ -189,7 +189,6 @@ macro_rules! assert_entries_stream {
             [
                 $( $accumulator )*
                 assert_eq!($entries.next(), None);
-                // assert_eq!($stream.next().now_or_never(), None);
             ]
         )
     };
@@ -199,14 +198,14 @@ macro_rules! assert_entries_stream {
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
-        // Wait on Tokio to run all the tasks. It won't happen in the main app.
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
         yield_now().await;
 
         let entries = $stream
             .next()
             .now_or_never()
-            .expect("failed to read from the stream")
-            .expect("failed to read from the stream (bis)");
+            .expect("stream entry wasn't in the ready state")
+            .expect("stream was stopped");
 
         let mut entries = entries.iter();
 
@@ -1163,7 +1162,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // There is a loading state update, it's loaded now!
@@ -1195,7 +1194,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // There is a loading state update because the number of rooms has been updated.
@@ -1227,7 +1226,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // No loading state update.
