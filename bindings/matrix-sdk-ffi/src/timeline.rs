@@ -474,6 +474,17 @@ pub enum TimelineItemContentKind {
         info: ImageInfo,
         url: String,
     },
+    Poll {
+        question: String,
+        kind: PollKind,
+        max_selections: u64,
+        answers: Vec<PollAnswer>,
+        votes: HashMap<String, Vec<String>>,
+        end_time: Option<u64>,
+    },
+    PollEnd {
+        start_event_id: String,
+    },
     UnableToDecrypt {
         msg: EncryptedMessage,
     },
@@ -1251,4 +1262,16 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::_Custom { event_type, .. } => Self::Custom { event_type: event_type.clone() },
         }
     }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PollKind {
+    Disclosed,
+    Undisclosed,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct PollAnswer {
+    pub id: String,
+    pub text: String,
 }
