@@ -34,7 +34,7 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
-ruma = { workspace = true, features = ["unstable-sanitize"] }
+ruma = { workspace = true, features = ["unstable-sanitize", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

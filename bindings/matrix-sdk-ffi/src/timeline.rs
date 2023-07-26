@@ -411,6 +411,29 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
+            Content::Poll(poll) => TimelineItemContentKind::Poll {
+                question: poll.question(),
+                kind: if poll.disclosed() { PollKind::Disclosed } else { PollKind::Undisclosed },
+                max_selections: poll.max_selections(),
+                answers: poll.answers().iter().map(|(id, label)| PollAnswer { id: id.0.clone(), text: label.clone()}).collect(),
+                end_time: poll.end_time().map(|t| t.0.into()),
+                votes: poll
+                    .calculate_poll_results()
+                    .iter()
+                    .map(|(vote, users)|
+                        (
+                            vote.0.clone(),
+                            users
+                                .iter()
+                                .map(|u| u.to_string())
+                                .collect::<Vec<String>>()
+                        )
+                    )
+                    .collect()
+            },
+            Content::PollEnd(poll_end) => {
+                TimelineItemContentKind::PollEnd { start_event_id: poll_end.start_event().to_string() }
+            }
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{collections::HashMap, fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -20,12 +20,13 @@ use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
-    assign,
+    assign, EventId,
     events::{
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        poll::{start::PollKind, unstable_start::UnstablePollStartContentBlock},
         relation::InReplyTo,
         room::{
             aliases::RoomAliasesEventContent,
@@ -56,8 +57,8 @@ use ruma::{
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent,
         MessageLikeEventType, OriginalSyncMessageLikeEvent, StateEventType,
     },
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, RoomVersionId,
-    UserId,
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
+    OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{error, warn};
 
@@ -78,6 +79,12 @@ pub enum TimelineItemContent {
 
     /// An `m.sticker` event.
     Sticker(Sticker),
+
+    /// An `m.poll.start` event.
+    Poll(PollState),
+
+    /// An `m.poll.end` event.
+    PollEnd(PollEnd),
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
@@ -281,6 +288,8 @@ impl TimelineItemContent {
     pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
         match self {
             Self::Message(_)
+            | Self::Poll(_)
+            | Self::PollEnd(_)
             | Self::RedactedMessage
             | Self::Sticker(_)
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,
@@ -600,6 +609,75 @@ impl Sticker {
     /// Get the data of this sticker.
     pub fn content(&self) -> &StickerEventContent {
         &self.content
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub struct PollAnswerId(pub String);
+
+/// State for a poll start event and related answers and close event, if any.
+#[derive(Clone, Debug)]
+pub struct PollState {
+    pub(in crate::timeline) question: String,
+    pub(in crate::timeline) disclosed: bool,
+    pub(in crate::timeline) max_selections: u64,
+    pub(in crate::timeline) answers: Vec<(PollAnswerId, String)>,
+    pub(in crate::timeline) end_time: Option<MilliSecondsSinceUnixEpoch>,
+    pub(in crate::timeline) votes: Vec<(OwnedUserId, Vec<PollAnswerId>, MilliSecondsSinceUnixEpoch)>,
+}
+
+impl PollState {
+    pub fn from(content: UnstablePollStartContentBlock) -> Self {
+        Self {
+            question: content.question.text,
+            disclosed: content.kind == PollKind::Disclosed,
+            max_selections: content.max_selections.into(),
+            answers: content.answers.into_iter().map(|a| (PollAnswerId(a.id.clone()), a.text.clone())).collect(),
+            end_time: None,
+            votes: Vec::new(),
+        }
+    }
+
+    /// Gets the question that was asked in this poll.
+    pub fn question(&self) -> String {
+        self.question.clone()
+    }
+
+    /// Whether the poll results should be disclosed (shown to the user before the poll ends).
+    pub fn disclosed(&self) -> bool {
+        self.disclosed
+    }
+
+    /// Gets the maximum number of votes each user may cast.
+    pub fn max_selections(&self) -> u64 {
+        self.max_selections
+    }
+
+    /// Gets the list of answers that were provided for this poll.
+    pub fn answers(&self) -> Vec<(PollAnswerId, String)> {
+        self.answers.clone()
+    }
+
+    /// Get the time this poll was ended, or None if it's still running.
+    pub fn end_time(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.end_time
+    }
+
+    /// Aggregates all known votes for this poll, handling late and spoiled votes.
+    pub fn calculate_poll_results(&self) -> HashMap<PollAnswerId, Vec<OwnedUserId>> {
+        // TODO(polls): Implement aggregation logic
+        HashMap::new()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PollEnd {
+    pub(in crate::timeline) start_event: OwnedEventId,
+}
+
+impl PollEnd {
+    pub fn start_event(&self) -> &EventId {
+        &self.start_event
     }
 }
 

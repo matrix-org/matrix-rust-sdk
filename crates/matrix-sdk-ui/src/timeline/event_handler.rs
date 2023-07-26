@@ -20,6 +20,10 @@ use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptType},
         relation::Replacement,
@@ -54,9 +58,10 @@ use super::{
     item::{new_timeline_item, timeline_item},
     reactions::Reactions,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
-    ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
-    TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, PollAnswerId,
+    PollEnd, PollState, ReactionGroup, ReactionSenderData, Sticker, TimelineDetails,
+    TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    DEFAULT_SANITIZER_MODE,
 };
 use crate::{events::SyncTimelineEventWithoutContent, timeline::InReplyToDetails};
 
@@ -309,6 +314,15 @@ impl<'a> TimelineEventHandler<'a> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
+                AnyMessageLikeEventContent::UnstablePollStart(c) => {
+                    self.add(should_add, TimelineItemContent::Poll(PollState::from(c.poll_start)));
+                }
+                AnyMessageLikeEventContent::UnstablePollResponse(c) => {
+                    self.handle_poll_vote(c);
+                }
+                AnyMessageLikeEventContent::UnstablePollEnd(c) => {
+                    self.handle_poll_end(c);
+                }
                 // TODO
                 _ => {
                     debug!(
@@ -414,6 +428,12 @@ impl<'a> TimelineEventHandler<'a> {
                     info!("Edit event applies to event that couldn't be parsed, discarding");
                     return None;
                 }
+                TimelineItemContent::Poll(_)
+                | TimelineItemContent::PollEnd(_) => {
+                    // TODO(polls): Handle edits to start events
+                    info!("Edit event applies to a poll, discarding as not yet supported");
+                    return None;
+                }
             };
 
             let mut msgtype = replacement.new_content.msgtype;
@@ -516,6 +536,53 @@ impl<'a> TimelineEventHandler<'a> {
             timestamp: self.meta.timestamp,
         };
         self.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
+    }
+
+    fn handle_poll_vote(&mut self, c: UnstablePollResponseEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
+        let id = c.relates_to.event_id.clone();
+        update_timeline_item!(self, &id, "vote", |event_item| {
+            match &event_item.content() {
+                TimelineItemContent::Poll(state) => {
+                    let answers = c
+                        .poll_response
+                        .answers
+                        .into_iter()
+                        .map(|a| PollAnswerId(a))
+                        .collect::<Vec<_>>();
+
+                    let mut votes = state.votes.clone();
+                    votes.push((self.meta.sender.clone(), answers, self.meta.timestamp));
+
+                    Some(event_item.with_content(
+                        TimelineItemContent::Poll(PollState { votes, ..state.clone() }),
+                        None,
+                    ))
+                }
+                _ => None,
+            }
+        });
+    }
+
+    fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
+        let id = c.relates_to.event_id;
+        update_timeline_item!(self, &id, "ended", |event_item| {
+            match &event_item.content() {
+                TimelineItemContent::Poll(state) => {
+                    Some(event_item.with_content(
+                        TimelineItemContent::Poll(PollState {
+                            end_time: Some(self.meta.timestamp),
+                            ..state.clone()
+                        }),
+                        None,
+                    ))
+                }
+                _ => None,
+            }
+        });
+
+        self.add(true, TimelineItemContent::PollEnd(PollEnd { start_event: id.clone() }));
     }
 
     #[instrument(skip_all)]
