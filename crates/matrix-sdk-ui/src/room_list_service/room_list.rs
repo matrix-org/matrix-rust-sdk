@@ -14,9 +14,10 @@
 
 use std::future::ready;
 
+use async_rx::StreamExt as _;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
     RoomListEntry, SlidingSync, SlidingSyncList,
@@ -29,6 +30,7 @@ use super::{Error, State};
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync_list: SlidingSyncList,
+    room_list_service_state: Subscriber<State>,
     loading_state: SharedObservable<RoomListLoadingState>,
     loading_state_task: JoinHandle<()>,
 }
@@ -49,10 +51,12 @@ impl RoomList {
             .on_list(sliding_sync_list_name, |list| ready(list.clone()))
             .await
             .ok_or_else(|| Error::UnknownList(sliding_sync_list_name.to_owned()))?;
+
         let loading_state = SharedObservable::new(RoomListLoadingState::NotLoaded);
 
         Ok(Self {
             sliding_sync_list: sliding_sync_list.clone(),
+            room_list_service_state: room_list_service_state.clone(),
             loading_state: loading_state.clone(),
             loading_state_task: spawn(async move {
                 pin_mut!(room_list_service_state);
@@ -96,8 +100,15 @@ impl RoomList {
     /// list entry's updates.
     pub fn entries(
         &self,
-    ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>) {
-        self.sliding_sync_list.room_list_stream()
+    ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>) {
+        let (entries, entries_stream) = self.sliding_sync_list.room_list_stream();
+
+        (
+            entries,
+            // Batch the entries stream. Batch is drained every time the `room_list_service_state`
+            // is changed.
+            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
+        )
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -105,11 +116,18 @@ impl RoomList {
     pub fn entries_filtered<F>(
         &self,
         filter: F,
-    ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>)
+    ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>)
     where
         F: Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
     {
-        self.sliding_sync_list.room_list_filtered_stream(filter)
+        let (entries, entries_stream) = self.sliding_sync_list.room_list_filtered_stream(filter);
+
+        (
+            entries,
+            // Batch the entries stream. Batch is drained every time the `room_list_service_state`
+            // is changed.
+            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
+        )
     }
 }
 

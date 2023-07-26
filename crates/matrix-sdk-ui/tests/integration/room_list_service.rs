@@ -111,17 +111,17 @@ macro_rules! entries {
 
 macro_rules! assert_entries_stream {
     // `append [$entries]`
-    ( @_ [ $stream:ident ] [ append [ $( $entries:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ append [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
-            [ $stream ]
+            [ $entries ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 assert_matches!(
-                    $stream.next().now_or_never(),
-                    Some(Some(VectorDiff::Append { values })) => {
-                        assert_eq!(values, entries!( $( $entries )+ ));
+                    $entries.next(),
+                    Some(&VectorDiff::Append { ref values }) => {
+                        assert_eq!(values, &entries!( $( $entry )+ ));
                     }
                 );
             ]
@@ -129,17 +129,17 @@ macro_rules! assert_entries_stream {
     };
 
     // `set [$nth] [$entry]`
-    ( @_ [ $stream:ident ] [ set [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ set [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
-            [ $stream ]
+            [ $entries ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 assert_matches!(
-                    $stream.next().now_or_never(),
-                    Some(Some(VectorDiff::Set { index: $index, value })) => {
-                        assert_eq!(value, entries!( $( $entry )+ )[0]);
+                    $entries.next(),
+                    Some(&VectorDiff::Set { index: $index, ref value }) => {
+                        assert_eq!(value, &entries!( $( $entry )+ )[0]);
                     }
                 );
             ]
@@ -147,33 +147,33 @@ macro_rules! assert_entries_stream {
     };
 
     // `remove [$nth]`
-    ( @_ [ $stream:ident ] [ remove [ $index:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ remove [ $index:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
-            [ $stream ]
+            [ $entries ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 assert_eq!(
-                    $stream.next().now_or_never(),
-                    Some(Some(VectorDiff::Remove { index: $index })),
+                    $entries.next(),
+                    Some(&VectorDiff::Remove { index: $index }),
                 );
             ]
         )
     };
 
     // `insert [$nth] [ $entry ]`
-    ( @_ [ $stream:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
-            [ $stream ]
+            [ $entries ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 assert_matches!(
-                    $stream.next().now_or_never(),
-                    Some(Some(VectorDiff::Insert { index: $index, value })) => {
-                        assert_eq!(value, entries!( $( $entry )+ )[0]);
+                    $entries.next(),
+                    Some(&VectorDiff::Insert { index: $index, ref value }) => {
+                        assert_eq!(value, &entries!( $( $entry )+ )[0]);
                     }
                 );
             ]
@@ -181,24 +181,35 @@ macro_rules! assert_entries_stream {
     };
 
     // `pending`
-    ( @_ [ $stream:ident ] [ pending ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ pending ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
-            [ $stream ]
+            [ $entries ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
-                assert_eq!($stream.next().now_or_never(), None);
+                assert_eq!($entries.next(), None);
             ]
         )
     };
 
-    ( @_ [ $stream:ident ] [] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [] [ $( $accumulator:tt )* ] ) => {
         $( $accumulator )*
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
-        assert_entries_stream!( @_ [ $stream ] [ $( $all )* ] [] )
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        let entries = $stream
+            .next()
+            .now_or_never()
+            .expect("stream entry wasn't in the ready state")
+            .expect("stream was stopped");
+
+        let mut entries = entries.iter();
+
+        assert_entries_stream!( @_ [ entries ] [ $( $all )* ] [] )
     };
 }
 
@@ -1151,7 +1162,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // There is a loading state update, it's loaded now!
@@ -1183,7 +1194,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // There is a loading state update because the number of rooms has been updated.
@@ -1215,7 +1226,7 @@ async fn test_loading_states() -> Result<(), Error> {
         },
     };
 
-    // Wait on Tokio to run all the tasks. It won't happen in the main app.
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
     // No loading state update.
@@ -1592,11 +1603,6 @@ async fn test_invites_stream() -> Result<(), Error> {
     assert_matches!(&previous_invites[0], RoomListEntry::Filled(room_id) => {
         assert_eq!(room_id, room_id_0);
     });
-
-    assert_entries_stream! {
-        [invites_stream]
-        pending;
-    };
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]

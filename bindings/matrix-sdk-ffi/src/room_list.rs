@@ -164,7 +164,7 @@ impl RoomList {
                 pin_mut!(entries_stream);
 
                 while let Some(diff) = entries_stream.next().await {
-                    listener.on_update(diff.into());
+                    listener.on_update(diff.into_iter().map(Into::into).collect());
                 }
             }))),
         })
@@ -278,7 +278,7 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
 
 #[uniffi::export(callback_interface)]
 pub trait RoomListEntriesListener: Send + Sync + Debug {
-    fn on_update(&self, room_entries_update: RoomListEntriesUpdate);
+    fn on_update(&self, room_entries_update: Vec<RoomListEntriesUpdate>);
 }
 
 #[derive(uniffi::Object)]

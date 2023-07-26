@@ -5,13 +5,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(PartialEq))]
 pub enum RoomListEntry {
-    /// This entry isn't known at this point and thus considered `Empty`.
+    /// The list knows there is an entry but this entry has not been loaded yet,
+    /// thus it's marked as empty.
     #[default]
     Empty,
-    /// There was `OwnedRoomId` but since the server told us to invalid this
-    /// entry. it is considered stale.
+    /// The list has loaded this entry in the past, but the entry is now out of
+    /// range and may no longer be synced, thus it's marked as invalidated (to
+    /// use the spec's term).
     Invalidated(OwnedRoomId),
-    /// This entry is followed with `OwnedRoomId`.
+    /// The list has loaded this entry, and it's up-to-date.
     Filled(OwnedRoomId),
 }
 
