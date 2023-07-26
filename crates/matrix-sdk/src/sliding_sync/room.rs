@@ -10,7 +10,7 @@ use ruma::{
     api::client::sync::sync_events::{v4, UnreadNotificationsCount},
     events::AnySyncStateEvent,
     serde::Raw,
-    OwnedRoomId, RoomId,
+    OwnedMxcUri, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,13 @@ impl SlidingSyncRoom {
         let inner = self.inner.inner.read().unwrap();
 
         inner.name.to_owned()
+    }
+
+    /// Get the room avatar URL.
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+        let inner = self.inner.inner.read().unwrap();
+
+        inner.avatar.clone()
     }
 
     /// Is this a direct message?
@@ -137,6 +144,7 @@ impl SlidingSyncRoom {
     ) {
         let v4::SlidingSyncRoom {
             name,
+            avatar,
             initial,
             limited,
             is_dm,
@@ -157,6 +165,10 @@ impl SlidingSyncRoom {
 
             if name.is_some() {
                 inner.name = name;
+            }
+
+            if avatar.is_some() {
+                inner.avatar = avatar;
             }
 
             if initial.is_some() {
@@ -307,7 +319,7 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use ruma::{
         api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
-        room_id, uint, RoomId,
+        mxc_uri, room_id, uint, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
@@ -430,6 +442,14 @@ mod tests {
             _ = Some("gordon".to_owned());
             receives nothing;
             _ = Some("gordon".to_owned());
+        }
+
+        test_avatar {
+            avatar_url() = None;
+            receives room_response!({"avatar": "mxc://homeserver/media"});
+            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
+            receives nothing;
+            _ = Some(mxc_uri!("mxc://homeserver/media").to_owned());
         }
 
         test_room_is_dm {
