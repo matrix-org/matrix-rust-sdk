@@ -54,9 +54,6 @@ zeroize = { workspace = true }
 log-panics = { version = "2", features = ["with-backtrace"]}
 tracing-android = { git = "https://github.com/jmartinesp/tracing-android", rev = "b9c0e89448dc93c5264721bbd41be64f1a84cded" }
 
-[target.'cfg(not(target_os = "android"))'.dependencies]
-tracing = { workspace = true }
-
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
 default-features = false
