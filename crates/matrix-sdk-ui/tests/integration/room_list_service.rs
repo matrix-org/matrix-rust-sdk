@@ -1428,7 +1428,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
     };
 
     let (previous_entries, entries_stream) =
-        all_rooms.entries_filtered(new_filter_fuzzy_match_room_name(&client, "mat ba".to_string()));
+        all_rooms.entries_filtered(new_filter_fuzzy_match_room_name(&client, "mat ba"));
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
