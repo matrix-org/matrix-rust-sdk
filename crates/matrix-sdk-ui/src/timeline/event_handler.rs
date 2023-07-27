@@ -548,7 +548,7 @@ impl<'a> TimelineEventHandler<'a> {
                         .poll_response
                         .answers
                         .into_iter()
-                        .map(|a| PollAnswerId(a))
+                        .map(PollAnswerId)
                         .collect::<Vec<_>>();
 
                     let mut votes = state.votes.clone();

@@ -632,7 +632,7 @@ impl PollState {
             question: content.question.text,
             disclosed: content.kind == PollKind::Disclosed,
             max_selections: content.max_selections.into(),
-            answers: content.answers.into_iter().map(|a| (PollAnswerId(a.id.clone()), a.text.clone())).collect(),
+            answers: content.answers.iter().map(|a| (PollAnswerId(a.id.clone()), a.text.clone())).collect(),
             end_time: None,
             votes: Vec::new(),
         }
