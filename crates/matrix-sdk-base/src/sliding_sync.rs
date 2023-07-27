@@ -80,10 +80,12 @@ impl BaseClient {
         // counts.
         let to_device = self
             .preprocess_to_device_events(
-                to_device,
-                &e2ee.device_lists,
-                &e2ee.device_one_time_keys_count,
-                e2ee.device_unused_fallback_key_types.as_deref(),
+                matrix_sdk_crypto::EncryptionSyncChanges {
+                    to_device_events: to_device,
+                    changed_devices: &e2ee.device_lists,
+                    one_time_keys_counts: &e2ee.device_one_time_keys_count,
+                    unused_fallback_keys: e2ee.device_unused_fallback_key_types.as_deref(),
+                },
                 &mut changes,
             )
             .await?;

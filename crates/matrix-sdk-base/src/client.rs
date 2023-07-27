@@ -25,7 +25,8 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, EncryptionSettings, OlmError, OlmMachine, ToDeviceRequest,
+    store::DynCryptoStore, EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
+    ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -578,10 +579,7 @@ impl BaseClient {
     #[instrument(skip_all)]
     pub(crate) async fn preprocess_to_device_events(
         &self,
-        to_device_events: Vec<Raw<ruma::events::AnyToDeviceEvent>>,
-        changed_devices: &api::sync::sync_events::DeviceLists,
-        one_time_keys_counts: &BTreeMap<ruma::DeviceKeyAlgorithm, UInt>,
-        unused_fallback_keys: Option<&[ruma::DeviceKeyAlgorithm]>,
+        encryption_sync_changes: EncryptionSyncChanges<'_>,
         #[cfg(feature = "experimental-sliding-sync")] changes: &mut StateChanges,
         #[cfg(not(feature = "experimental-sliding-sync"))] _changes: &mut StateChanges,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
@@ -590,14 +588,8 @@ impl BaseClient {
             // decrypts to-device events, but leaves room events alone.
             // This makes sure that we have the decryption keys for the room
             // events at hand.
-            let (events, room_key_updates) = o
-                .receive_sync_changes(
-                    to_device_events,
-                    changed_devices,
-                    one_time_keys_counts,
-                    unused_fallback_keys,
-                )
-                .await?;
+            let (events, room_key_updates) =
+                o.receive_sync_changes(encryption_sync_changes).await?;
 
             #[cfg(feature = "experimental-sliding-sync")]
             for room_key_update in room_key_updates {
@@ -613,7 +605,7 @@ impl BaseClient {
             // If we have no OlmMachine, just return the events that were passed in.
             // This should not happen unless we forget to set things up by calling
             // set_session_meta().
-            Ok(to_device_events)
+            Ok(encryption_sync_changes.to_device_events)
         }
     }
 
@@ -733,10 +725,12 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let to_device = self
             .preprocess_to_device_events(
-                response.to_device.events,
-                &response.device_lists,
-                &response.device_one_time_keys_count,
-                response.device_unused_fallback_key_types.as_deref(),
+                EncryptionSyncChanges {
+                    to_device_events: response.to_device.events,
+                    changed_devices: &response.device_lists,
+                    one_time_keys_counts: &response.device_one_time_keys_count,
+                    unused_fallback_keys: response.device_unused_fallback_key_types.as_deref(),
+                },
                 &mut changes,
             )
             .await?;
