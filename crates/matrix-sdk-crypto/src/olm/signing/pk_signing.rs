@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
 use thiserror::Error;
 use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
+use zeroize::Zeroize;
 
 use crate::{
     error::SignatureError,
@@ -25,7 +26,7 @@ use crate::{
         CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, Signatures, SigningKeys,
         UserSigningPubkey,
     },
-    utilities::{encode, DecodeError},
+    utilities::DecodeError,
     ReadOnlyUserIdentity,
 };
 
@@ -121,7 +122,7 @@ impl MasterSigning {
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.as_bytes())
+        self.inner.to_base64()
     }
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
@@ -168,7 +169,7 @@ impl UserSigning {
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.as_bytes())
+        self.inner.to_base64()
     }
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
@@ -229,7 +230,7 @@ impl SelfSigning {
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.as_bytes())
+        self.inner.to_base64()
     }
 
     pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
@@ -305,19 +306,21 @@ impl Signing {
         Ok(Self::new_helper(key))
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        self.inner.as_bytes()
-    }
-
     pub fn from_pickle(pickle: PickledSigning) -> Result<Self, SigningError> {
         Ok(Self::new_helper(pickle.0))
     }
 
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
+
     pub fn pickle(&self) -> PickledSigning {
-        PickledSigning(
-            Ed25519SecretKey::from_slice(self.inner.as_bytes())
-                .expect("Copying the private key should work"),
-        )
+        let mut bytes = self.inner.to_bytes();
+        let ret = PickledSigning(Ed25519SecretKey::from_slice(&bytes));
+
+        bytes.zeroize();
+
+        ret
     }
 
     pub fn public_key(&self) -> Ed25519PublicKey {
