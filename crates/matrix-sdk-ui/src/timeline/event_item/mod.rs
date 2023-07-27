@@ -447,11 +447,8 @@ impl<T> TimelineDetails<T> {
         matches!(self, Self::Unavailable)
     }
 
-    pub(crate) fn contains<U>(&self, value: &U) -> bool
-    where
-        T: PartialEq<U>,
-    {
-        matches!(self, Self::Ready(v) if v == value)
+    pub(crate) fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready(_))
     }
 }
 
