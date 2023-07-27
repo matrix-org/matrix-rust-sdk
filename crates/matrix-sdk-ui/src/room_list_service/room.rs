@@ -20,7 +20,7 @@ use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::{SlidingSync, SlidingSyncRoom};
 use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
-    RoomId,
+    OwnedMxcUri, RoomId,
 };
 
 use super::Error;
@@ -87,6 +87,14 @@ impl Room {
             Some(name) => name,
             None => self.inner.room.display_name().await.ok()?.to_string(),
         })
+    }
+
+    /// Get the best possible avatar for the room.
+    ///
+    /// If the sliding sync room has received an avatar from the server, then
+    /// use it, otherwise, let's try to find one from `Room`.
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+        self.inner.sliding_sync_room.avatar_url().or_else(|| self.inner.room.avatar_url())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].

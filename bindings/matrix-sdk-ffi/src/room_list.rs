@@ -296,15 +296,15 @@ impl RoomListItem {
         RUNTIME.block_on(async { self.inner.name().await })
     }
 
-    pub fn is_direct(&self) -> bool {
+    fn avatar_url(&self) -> Option<String> {
+        self.inner.avatar_url().map(|uri| uri.to_string())
+    }
+
+    fn is_direct(&self) -> bool {
         RUNTIME.block_on(async { self.inner.inner_room().is_direct().await.unwrap_or(false) })
     }
 
-    pub fn avatar_url(&self) -> Option<String> {
-        self.inner.inner_room().avatar_url().map(|uri| uri.to_string())
-    }
-
-    pub fn canonical_alias(&self) -> Option<String> {
+    fn canonical_alias(&self) -> Option<String> {
         self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
     }
 
@@ -399,13 +399,15 @@ pub struct UnreadNotificationsCount {
 
 #[uniffi::export]
 impl UnreadNotificationsCount {
-    pub fn highlight_count(&self) -> u32 {
+    fn highlight_count(&self) -> u32 {
         self.highlight_count
     }
-    pub fn notification_count(&self) -> u32 {
+
+    fn notification_count(&self) -> u32 {
         self.notification_count
     }
-    pub fn has_notifications(&self) -> bool {
+
+    fn has_notifications(&self) -> bool {
         self.notification_count != 0 || self.highlight_count != 0
     }
 }
