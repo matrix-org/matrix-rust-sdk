@@ -65,6 +65,7 @@ pub struct MemoryStore {
     leases: DashMap<String, (String, Instant)>,
     secret_inbox: DashMap<String, Vec<GossippedSecret>>,
     backup_keys: RwLock<BackupKeys>,
+    next_batch_token: RwLock<Option<String>>,
 }
 
 impl Default for MemoryStore {
@@ -82,6 +83,7 @@ impl Default for MemoryStore {
             leases: Default::default(),
             backup_keys: Default::default(),
             secret_inbox: Default::default(),
+            next_batch_token: Default::default(),
         }
     }
 }
@@ -136,6 +138,10 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
+    async fn next_batch_token(&self) -> Result<Option<String>> {
+        Ok(self.next_batch_token.read().await.clone())
+    }
+
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions).await;
@@ -182,6 +188,10 @@ impl CryptoStore for MemoryStore {
                     .or_insert_with(DashMap::new)
                     .insert(session_id, event);
             }
+        }
+
+        if let Some(next_batch) = changes.next_batch_token {
+            *self.next_batch_token.write().await = Some(next_batch);
         }
 
         Ok(())

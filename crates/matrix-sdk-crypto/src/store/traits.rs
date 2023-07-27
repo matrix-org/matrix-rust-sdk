@@ -257,6 +257,9 @@ pub trait CryptoStore: AsyncTraitDeps {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error>;
+
+    /// Load the next-batch token for a to-device query, if any.
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -422,6 +425,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         holder: &str,
     ) -> Result<bool, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
+    }
+
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
+        self.0.next_batch_token().await.map_err(Into::into)
     }
 }
 

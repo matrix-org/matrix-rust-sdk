@@ -763,6 +763,11 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("identity", &serialized_private_identity)?;
                 }
 
+                if let Some(next_batch) = &changes.next_batch_token {
+                    let serialized_next_batch = this.serialize_value(next_batch)?;
+                    txn.set_kv("next_batch_token", &serialized_next_batch)?;
+                }
+
                 if let Some(decryption_key) = &changes.backup_decryption_key {
                     let serialized_decryption_key = this.serialize_value(decryption_key)?;
                     txn.set_kv("recovery_key_v1", &serialized_decryption_key)?;
@@ -1208,6 +1213,16 @@ impl CryptoStore for SqliteCryptoStore {
             .await?;
 
         Ok(num_touched == 1)
+    }
+
+    async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
+        let conn = self.acquire().await?;
+        if let Some(token) = conn.get_kv("next_batch_token").await? {
+            let token = self.deserialize_value(&token)?;
+            Ok(Some(token))
+        } else {
+            Ok(None)
+        }
     }
 }
 
