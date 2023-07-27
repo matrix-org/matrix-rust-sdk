@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt, ops::Deref, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -58,9 +58,9 @@ use ruma::{
         MessageLikeEventType, OriginalSyncMessageLikeEvent, StateEventType,
     },
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, UserId,
+    OwnedUserId, RoomVersionId, uint, UserId
 };
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
 use crate::timeline::{
@@ -665,8 +665,172 @@ impl PollState {
 
     /// Aggregates all known votes for this poll, handling late and spoiled votes.
     pub fn calculate_poll_results(&self) -> HashMap<PollAnswerId, Vec<OwnedUserId>> {
-        // TODO(polls): Implement aggregation logic
-        HashMap::new()
+        let cut_off_time = self.end_time.unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
+        let answer_ids = self.answers.iter().map(|(a, _)| a.clone()).collect::<Vec<_>>();
+        let max_choices = self.max_selections as usize;
+
+        let results = self
+            .votes
+            .iter()
+            // Filter out any vote that was made after the cut off time.
+            .filter(|(_, _, timestamp)| *timestamp <= cut_off_time)
+            // Collate the most recent vote for each user. Spoiled votes (i.e., those for invalid
+            // options or for no options) count as retracting a vote, per MSC3381.
+            .fold(BTreeMap::new(), |mut acc, (sender, choices, time)| {
+                let response =
+                    acc.entry(sender).or_insert((MilliSecondsSinceUnixEpoch(uint!(0)), Vec::new()));
+
+                if response.0 < *time {
+                    if choices.is_empty() {
+                        debug!("Discarding poll vote: spoiled by selecting no options");
+                        *response = (*time, Vec::new());
+                    } else if choices.iter().any(|c| !answer_ids.contains(c)) {
+                        debug!("Discarding poll vote: spoiled by selecting invalid option");
+                        *response = (*time, Vec::new());
+                    } else {
+                        // Truncate their choices to the maximum number of selections.
+                        *response = (*time, choices.iter().take(max_choices).collect());
+                    }
+                }
+
+                acc
+            })
+            // Flatten the map into a list of (choice, sender) tuples.
+            .into_iter()
+            .flat_map(|(sender, (_, choices))| {
+                choices.into_iter().map(|c| (c, sender.clone()))
+            })
+            // Collate them into (choice, [sender]) tuples.
+            .into_group_map_by(|(choice, _)| *choice)
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.into_iter().map(|(_, sender)| sender).collect::<Vec<_>>()));
+
+        // Make sure all answers are included in the results, even if no one voted for them.
+        answer_ids.into_iter().map(|i| (i, Vec::new())).chain(results).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::{MilliSecondsSinceUnixEpoch, owned_user_id, uint};
+    use crate::timeline::{PollAnswerId, PollState};
+
+    macro_rules! answer_id {
+        ($s:literal) => {
+            PollAnswerId($s.to_string())
+        };
+    }
+
+    macro_rules! time {
+        ($s:literal) => {
+            MilliSecondsSinceUnixEpoch(uint!($s))
+        };
+    }
+
+    macro_rules! closed_poll_with_votes {
+    ($($x:tt)*) => {
+            PollState {
+                question: "Question".to_string(),
+                disclosed: false,
+                max_selections: 2,
+                answers: vec![
+                    (answer_id!("a"), "Answer A".to_string()),
+                    (answer_id!("b"), "Answer B".to_string()),
+                    (answer_id!("c"), "Answer C".to_string()),
+                ],
+                end_time: Some(time!(1000)),
+                votes: vec![$($x)*],
+            }
+        }
+    }
+
+    #[test]
+    fn test_calculate_poll_results_ignores_late_votes() {
+        let state = closed_poll_with_votes!(
+            // Before the end-time: allowed
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a")], time!(900)),
+            // Equal to the end-time: allowed
+            (owned_user_id!("@bob:example.org"), vec![answer_id!("a")], time!(1000)),
+            // After the end-time: ignored
+            (owned_user_id!("@charles:example.org"), vec![answer_id!("a")], time!(1100))
+        );
+
+        let results = state.calculate_poll_results();
+
+        assert_eq!(2, results[&answer_id!("a")].len());
+        assert_eq!(owned_user_id!("@alice:example.org"), results[&answer_id!("a")][0]);
+        assert_eq!(owned_user_id!("@bob:example.org"), results[&answer_id!("a")][1]);
+    }
+
+    #[test]
+    fn test_calculate_poll_results_uses_latest_votes() {
+        let state = closed_poll_with_votes!(
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a")], time!(100)),
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("b")], time!(300)),
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a")], time!(200)),
+        );
+
+        let results = state.calculate_poll_results();
+
+        assert_eq!(1, results[&answer_id!("b")].len());
+        assert_eq!(owned_user_id!("@alice:example.org"), results[&answer_id!("b")][0]);
+    }
+
+    #[test]
+    fn test_calculate_poll_results_spoils_votes() {
+        let state = closed_poll_with_votes!(
+            // Legitimate votes
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a")], time!(100)),
+            (owned_user_id!("@bob:example.org"), vec![answer_id!("a")], time!(100)),
+            // Spoiled due to invalid option
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a"), answer_id!("not")], time!(200)),
+            // Spoiled due to no options
+            (owned_user_id!("@bob:example.org"), vec![], time!(200)),
+        );
+
+        let results = state.calculate_poll_results();
+
+        // No votes, because a spoiled vote is treated as a retraction
+        assert_eq!(0, results[&answer_id!("a")].len());
+        assert_eq!(0, results[&answer_id!("b")].len());
+        assert!(!results.contains_key(&answer_id!("not")));
+    }
+
+
+    #[test]
+    fn test_calculate_poll_results_truncates_choices() {
+        let state = closed_poll_with_votes!(
+            // Too many choices: should be truncated to the first two
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a"), answer_id!("b"), answer_id!("c")], time!(100)),
+        );
+
+        let results = state.calculate_poll_results();
+
+        // No votes, because a spoiled vote is treated as a retraction
+        assert_eq!(1, results[&answer_id!("a")].len());
+        assert_eq!(1, results[&answer_id!("b")].len());
+        assert_eq!(0, results[&answer_id!("c")].len());
+    }
+
+    #[test]
+    fn test_calculate_poll_results_collates_votes_from_users() {
+        let state = closed_poll_with_votes!(
+            (owned_user_id!("@alice:example.org"), vec![answer_id!("a")], time!(100)),
+            (owned_user_id!("@bob:example.org"), vec![answer_id!("a")], time!(100)),
+            (owned_user_id!("@charles:example.org"), vec![answer_id!("a"), answer_id!("b")], time!(100)),
+            (owned_user_id!("@dennis:example.org"), vec![answer_id!("a")], time!(100)),
+        );
+
+        let results = state.calculate_poll_results();
+
+        assert_eq!(4, results[&answer_id!("a")].len());
+        assert_eq!(owned_user_id!("@alice:example.org"), results[&answer_id!("a")][0]);
+        assert_eq!(owned_user_id!("@bob:example.org"), results[&answer_id!("a")][1]);
+        assert_eq!(owned_user_id!("@charles:example.org"), results[&answer_id!("a")][2]);
+        assert_eq!(owned_user_id!("@dennis:example.org"), results[&answer_id!("a")][3]);
+
+        assert_eq!(1, results[&answer_id!("b")].len());
+        assert_eq!(owned_user_id!("@charles:example.org"), results[&answer_id!("b")][0]);
     }
 }
 
