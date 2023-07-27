@@ -3,6 +3,9 @@ mod fuzzy_match_room_name;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
+/// Normalize a string, i.e. decompose it into NFD (Normalization Form D, i.e. a
+/// canonical decomposition, see http://www.unicode.org/reports/tr15/) and
+/// filter out the combining marks.
 fn normalize_string(str: &str) -> String {
     str.nfd().filter(|c| !is_combining_mark(*c)).collect::<String>()
 }

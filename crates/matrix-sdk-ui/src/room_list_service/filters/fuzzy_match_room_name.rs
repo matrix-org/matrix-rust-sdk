@@ -27,6 +27,10 @@ impl FuzzyMatcher {
     }
 }
 
+/// Create a new filter that will fuzzy match a pattern on room names.
+///
+/// Rooms are fetched from the `Client`. The pattern and the room names are
+/// normalized with `normalize_string`.
 pub fn new_filter(
     client: &Client,
     pattern: &str,
