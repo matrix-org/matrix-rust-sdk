@@ -223,8 +223,8 @@ impl SlidingSyncListBuilder {
                 // otherwise.
                 state: StdRwLock::new(Observable::new(Default::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
-                // TODO: We need to do batching here instead of increasing the capacity. We want to
-                // avoid triggering `VectorDiff::Reset` as much as possible.
+                // We want to avoid triggering `VectorDiff::Reset` as much as possible, hence we
+                // increase the observable capacity.
                 room_list: StdRwLock::new(ObservableVector::with_capacity(4096)),
 
                 // Internal data.
