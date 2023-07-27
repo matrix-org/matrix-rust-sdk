@@ -139,6 +139,9 @@ struct StoreInner {
     secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 }
 
+/// Aggregated changes to be saved in the database.
+///
+// If you ever add a field here, make sure to update `Changes::is_empty` too.
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct Changes {
@@ -176,6 +179,8 @@ impl Changes {
     pub fn is_empty(&self) -> bool {
         self.account.is_none()
             && self.private_identity.is_none()
+            && self.backup_version.is_none()
+            && self.backup_decryption_key.is_none()
             && self.sessions.is_empty()
             && self.message_hashes.is_empty()
             && self.inbound_group_sessions.is_empty()
@@ -183,6 +188,9 @@ impl Changes {
             && self.key_requests.is_empty()
             && self.identities.is_empty()
             && self.devices.is_empty()
+            && self.withheld_session_info.is_empty()
+            && self.room_settings.is_empty()
+            && self.secrets.is_empty()
     }
 }
 
