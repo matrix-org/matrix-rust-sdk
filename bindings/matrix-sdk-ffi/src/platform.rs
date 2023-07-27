@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-#[cfg(not(target_os = "android"))]
-use std::io;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_core::future::BoxFuture;
@@ -14,9 +12,8 @@ use opentelemetry::{
 };
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use tokio::runtime::Handle;
-#[cfg(not(target_os = "android"))]
-use tracing_subscriber::fmt;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_core::Subscriber;
+use tracing_subscriber::{fmt, prelude::*, registry::LookupSpan, EnvFilter, Layer};
 
 use crate::RUNTIME;
 
@@ -89,97 +86,41 @@ pub fn create_otlp_tracer(
     Ok(tracer)
 }
 
-#[cfg(not(target_os = "android"))]
-fn setup_tracing_impl(configuration: String) {
-    let colors = !cfg!(target_os = "ios");
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            fmt::layer()
-                .with_file(true)
-                .with_line_number(true)
-                .with_ansi(colors)
-                .with_writer(io::stderr),
-        )
-        .init();
-}
-
-#[cfg(target_os = "android")]
-pub fn setup_tracing_impl(configuration: String) {
-    log_panics();
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            tracing_android::layer("org.matrix.rust.sdk")
-                .expect("Could not configure the Android tracing layer"),
-        )
-        .init();
-}
-
-#[cfg(not(target_os = "android"))]
-fn setup_otlp_tracing_impl(
-    configuration: String,
-    client_name: String,
-    user: String,
-    password: String,
-    otlp_endpoint: String,
-) -> anyhow::Result<()> {
-    let colors = !cfg!(target_os = "ios");
-
-    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)?;
-    let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            fmt::layer()
-                .with_file(true)
-                .with_line_number(true)
-                .with_ansi(colors)
-                .with_writer(io::stderr),
-        )
-        .with(otlp_layer)
-        .init();
-
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-pub fn setup_otlp_tracing_impl(
-    configuration: String,
-    client_name: String,
-    user: String,
-    password: String,
-    otlp_endpoint: String,
-) -> anyhow::Result<()> {
-    log_panics();
-
-    let otlp_tracer = super::create_otlp_tracer(user, password, otlp_endpoint, client_name)?;
-    let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            tracing_android::layer("org.matrix.rust.sdk")
-                .expect("Could not configure the Android tracing layer"),
-        )
-        .with(otlp_layer)
-        .init();
-
-    Ok(())
-}
-
 #[cfg(target_os = "android")]
 pub fn log_panics() {
     std::env::set_var("RUST_BACKTRACE", "1");
     log_panics::init();
 }
 
+fn fmt_layer<S>() -> impl Layer<S>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    #[cfg(not(target_os = "android"))]
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(!cfg!(target_os = "ios"))
+        .with_writer(std::io::stderr);
+
+    #[cfg(target_os = "android")]
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false)
+        .with_level(false)
+        .without_time()
+        .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+            "org.matrix.rust.sdk".to_owned(),
+        ));
+}
+
 #[uniffi::export]
 pub fn setup_tracing(filter: String) {
-    setup_tracing_impl(filter)
+    #[cfg(target_os = "android")]
+    log_panics();
+
+    tracing_subscriber::registry().with(EnvFilter::new(filter)).with(fmt_layer()).init();
 }
 
 #[uniffi::export]
@@ -190,6 +131,16 @@ pub fn setup_otlp_tracing(
     password: String,
     otlp_endpoint: String,
 ) {
-    setup_otlp_tracing_impl(filter, client_name, user, password, otlp_endpoint)
-        .expect("Couldn't configure the OpenTelemetry tracer")
+    #[cfg(target_os = "android")]
+    log_panics();
+
+    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)
+        .expect("Couldn't configure the OpenTelemetry tracer");
+    let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(filter))
+        .with(fmt_layer())
+        .with(otlp_layer)
+        .init();
 }
