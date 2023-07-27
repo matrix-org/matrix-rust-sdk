@@ -140,7 +140,6 @@ struct StoreInner {
 }
 
 /// Aggregated changes to be saved in the database.
-///
 // If you ever add a field here, make sure to update `Changes::is_empty` too.
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
@@ -160,6 +159,7 @@ pub struct Changes {
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
+    pub next_batch_token: Option<String>,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -191,6 +191,7 @@ impl Changes {
             && self.withheld_session_info.is_empty()
             && self.room_settings.is_empty()
             && self.secrets.is_empty()
+            && self.next_batch_token.is_none()
     }
 }
 

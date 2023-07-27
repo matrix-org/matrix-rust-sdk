@@ -73,6 +73,7 @@ mod keys {
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
     pub const ACCOUNT: &str = "account";
+    pub const NEXT_BATCH_TOKEN: &str = "account";
     pub const PRIVATE_IDENTITY: &str = "private_identity";
 
     // backup v1
@@ -390,7 +391,7 @@ macro_rules! impl_crypto_store {
 impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut stores: Vec<&str> = [
-            (changes.account.is_some() || changes.private_identity.is_some(), keys::CORE),
+            (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
             (!changes.sessions.is_empty(), keys::SESSION),
             (
@@ -453,6 +454,13 @@ impl_crypto_store! {
         if let Some(a) = &account_pickle {
             tx.object_store(keys::CORE)?
                 .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serialize_value(&a)?)?;
+        }
+
+        if let Some(next_batch) = changes.next_batch_token {
+            tx.object_store(keys::CORE)?.put_key_val(
+                &JsValue::from_str(keys::NEXT_BATCH_TOKEN),
+                &self.serialize_value(&next_batch)?
+            )?;
         }
 
         if let Some(i) = &private_identity_pickle {
@@ -723,6 +731,21 @@ impl_crypto_store! {
             *self.account_info.write().unwrap() = Some(account_info);
 
             Ok(Some(account))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn next_batch_token(&self) -> Result<Option<String>> {
+        if let Some(serialized) = self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .object_store(keys::CORE)?
+            .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))?
+            .await?
+        {
+            let token = self.deserialize_value(serialized)?;
+            Ok(Some(token))
         } else {
             Ok(None)
         }
