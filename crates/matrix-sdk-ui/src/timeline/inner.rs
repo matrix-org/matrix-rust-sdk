@@ -908,26 +908,22 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let mut state = self.state.lock().await;
         let mut entries = state.items.entries();
         while let Some(mut entry) = entries.next() {
-            let sender = match entry.as_event() {
-                Some(event_item) => event_item.sender().to_owned(),
-                None => continue,
-            };
-            let maybe_profile = self.room_data_provider.profile(&sender).await;
-
-            let event_item = entry.as_event().unwrap();
+            let Some(event_item) = entry.as_event() else { continue };
             let event_id = event_item.event_id().map(debug);
             let transaction_id = event_item.transaction_id().map(debug);
-            match maybe_profile {
+
+            if event_item.sender_profile().is_ready() {
+                trace!(event_id, transaction_id, "Profile already set");
+                continue;
+            }
+
+            match self.room_data_provider.profile(event_item.sender()).await {
                 Some(profile) => {
-                    if !event_item.sender_profile().contains(&profile) {
-                        trace!(event_id, transaction_id, "Adding profile");
-                        let updated_item =
-                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
-                    } else {
-                        trace!(event_id, transaction_id, "Profile already set");
-                    }
+                    trace!(event_id, transaction_id, "Adding profile");
+                    let updated_item =
+                        event_item.with_sender_profile(TimelineDetails::Ready(profile));
+                    let new_item = entry.with_kind(updated_item);
+                    ObservableVectorEntry::set(&mut entry, new_item);
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
@@ -937,7 +933,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                         let new_item = entry.with_kind(updated_item);
                         ObservableVectorEntry::set(&mut entry, new_item);
                     } else {
-                        trace!(event_id, transaction_id, "Profile already marked unavailable");
+                        debug!(event_id, transaction_id, "Profile already marked unavailable");
                     }
                 }
             }
