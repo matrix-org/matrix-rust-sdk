@@ -184,20 +184,13 @@ pub struct KeysQueryRequest {
     /// The keys to be downloaded. An empty list indicates all devices for
     /// the corresponding user.
     pub device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
-
-    /// If the client is fetching keys as a result of a device update
-    /// received in a sync request, this should be the 'since' token of that
-    /// sync request, or any later sync token. This allows the server to
-    /// ensure its response contains the keys advertised by the notification
-    /// in that sync.
-    pub token: Option<String>,
 }
 
 impl KeysQueryRequest {
     pub(crate) fn new(users: impl Iterator<Item = OwnedUserId>) -> Self {
         let device_keys = users.map(|u| (u, Vec::new())).collect();
 
-        Self { timeout: None, device_keys, token: None }
+        Self { timeout: None, device_keys }
     }
 }
 
