@@ -1,18 +1,21 @@
-use serde::{Deserialize, Serialize};
-use url::Url;
 
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct Options {
-    navigate: bool,
-}
+use super::messages::{MatrixEvent, self};
 
+/// A wrapper for the matrix client that only exposes what is available through the capabilities.
 #[allow(missing_debug_implementations)]
 pub struct Capabilities {
-    pub navigate: Option<Box<dyn Fn(Url) + Send + Sync + 'static>>,
+    pub send_room_event: Option<Box<dyn Fn(MatrixEvent) + Send + Sync + 'static>>,
 }
 
-impl<'t> From<&'t Capabilities> for Options {
+impl<'t> From<&'t Capabilities> for messages::capabilities::Options {
     fn from(capabilities: &'t Capabilities) -> Self {
-        Self { navigate: capabilities.navigate.is_some() }
+        Self {
+            send_room_event: if capabilities.send_room_event.is_some() {
+                Some(vec![])
+            } else {
+                None
+            },
+            ..Default::default()
+        }
     }
 }

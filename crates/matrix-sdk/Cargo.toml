@@ -88,6 +88,7 @@ tower = { version = "0.4.13", features = ["make"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = "2.2.2"
 zeroize = { workspace = true }
+uuid = "1.4.1"
 
 [dependencies.image]
 version = "0.24.2"

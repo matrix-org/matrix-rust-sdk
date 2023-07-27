@@ -1,17 +1,17 @@
 use async_trait::async_trait;
 
-use super::capabilities::{Capabilities, Options as CapabilitiesReq};
-
-pub use self::{
-    incoming::{ApiVersion, Message as Incoming, SupportedVersions},
-    outgoing::Message as Outgoing,
-    request::Request,
-};
-pub use super::{Error, Result};
-
 mod incoming;
 mod outgoing;
 mod request;
+
+pub use self::{incoming::Message as Incoming, outgoing::Message as Outgoing, request::Request};
+use super::{
+    capabilities::Capabilities,
+    messages::{
+        capabilities::Options as CapabilitiesReq, SupportedVersions, SUPPORTED_API_VERSIONS,
+    },
+};
+pub use super::{Error, Result};
 
 #[async_trait]
 pub trait Driver {
@@ -52,19 +52,7 @@ impl<T: Driver> MessageHandler<T> {
             }
 
             Incoming::GetSupportedApiVersion(r) => {
-                r.reply(SupportedVersions { versions: vec![ApiVersion::PreRelease] })?;
-            }
-
-            Incoming::Navigate(r) => {
-                match self.capabilities.as_ref().and_then(|c| c.navigate.as_ref()) {
-                    Some(navigate) => {
-                        navigate(r.clone());
-                        r.reply(Ok(()))?;
-                    }
-                    None => {
-                        r.reply(Err("Not permissions to call navigate"))?;
-                    }
-                }
+                r.reply(SupportedVersions { versions: SUPPORTED_API_VERSIONS.to_vec() })?;
             }
         }
 
