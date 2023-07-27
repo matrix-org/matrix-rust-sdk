@@ -1761,7 +1761,7 @@ mod tests {
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
-        use crate::machine::tests::get_machine_pair_with_setup_sessions;
+        use crate::{machine::tests::get_machine_pair_with_setup_sessions, EncryptionSyncChanges};
 
         let alice_id = user_id!("@alice:localhost");
 
@@ -1832,7 +1832,12 @@ mod tests {
         pin_mut!(stream);
 
         bob_machine
-            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .receive_sync_changes(EncryptionSyncChanges {
+                to_device_events: vec![event],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+            })
             .await
             .unwrap();
 

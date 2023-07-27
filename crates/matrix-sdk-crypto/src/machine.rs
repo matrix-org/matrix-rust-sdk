@@ -1124,10 +1124,7 @@ impl OlmMachine {
     #[instrument(skip_all)]
     pub async fn receive_sync_changes(
         &self,
-        to_device_events: Vec<Raw<AnyToDeviceEvent>>,
-        changed_devices: &DeviceLists,
-        one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
-        unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
+        sync_changes: EncryptionSyncChanges<'_>,
     ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
         // Remove verification objects that have expired or are done.
         let mut events = self.inner.verification_machine.garbage_collect();
@@ -1137,18 +1134,22 @@ impl OlmMachine {
         let mut changes =
             Changes { account: Some((*self.inner.account).clone()), ..Default::default() };
 
-        self.update_key_counts(one_time_keys_counts, unused_fallback_keys).await;
+        self.update_key_counts(
+            &sync_changes.one_time_keys_counts,
+            sync_changes.unused_fallback_keys.as_deref(),
+        )
+        .await;
 
         if let Err(e) = self
             .inner
             .identity_manager
-            .receive_device_changes(changed_devices.changed.iter().map(|u| u.as_ref()))
+            .receive_device_changes(sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()))
             .await
         {
             error!(error = ?e, "Error marking a tracked user as changed");
         }
 
-        for raw_event in to_device_events {
+        for raw_event in sync_changes.to_device_events {
             let raw_event = Box::pin(self.receive_to_device_event(&mut changes, raw_event)).await?;
             events.push(raw_event);
         }
@@ -1887,6 +1888,20 @@ impl OlmMachine {
     }
 }
 
+/// Data contained from a sync response and that needs to be processed by the
+/// OlmMachine.
+#[derive(Debug)]
+pub struct EncryptionSyncChanges<'a> {
+    /// The list of to-device events received in the sync.
+    pub to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    /// The mapping of changed and left devices, per user.
+    pub changed_devices: &'a DeviceLists,
+    /// The number of one time keys.
+    pub one_time_keys_counts: &'a BTreeMap<DeviceKeyAlgorithm, UInt>,
+    /// An optional list of fallback keys.
+    pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
+}
+
 #[cfg(any(feature = "testing", test))]
 pub(crate) mod testing {
     #![allow(dead_code)]
@@ -1946,7 +1961,7 @@ pub(crate) mod tests {
     use super::testing::response_from_file;
     use crate::{
         error::EventError,
-        machine::OlmMachine,
+        machine::{EncryptionSyncChanges, OlmMachine},
         olm::{InboundGroupSession, OutboundGroupSession, VerifyJson},
         store::Changes,
         types::{
@@ -2215,7 +2230,12 @@ pub(crate) mod tests {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         let key_counts = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 49u8.into())]);
         machine
-            .receive_sync_changes(Vec::new(), &Default::default(), &key_counts, None)
+            .receive_sync_changes(EncryptionSyncChanges {
+                to_device_events: Vec::new(),
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: None,
+            })
             .await
             .expect("We should be able to update our one-time key counts");
 
@@ -2485,7 +2505,12 @@ pub(crate) mod tests {
             alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         let (decrypted, room_key_updates) = bob
-            .receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
+            .receive_sync_changes(EncryptionSyncChanges {
+                to_device_events: vec![event],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+            })
             .await
             .unwrap();
 
@@ -2619,9 +2644,14 @@ pub(crate) mod tests {
 
         let event = json_convert(&event).unwrap();
 
-        bob.receive_sync_changes(vec![event], &Default::default(), &Default::default(), None)
-            .await
-            .unwrap();
+        bob.receive_sync_changes(EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &Default::default(),
+            one_time_keys_counts: &Default::default(),
+            unused_fallback_keys: None,
+        })
+        .await
+        .unwrap();
 
         let plaintext = "You shouldn't be able to decrypt that message";
 
@@ -3381,10 +3411,15 @@ pub(crate) mod tests {
         };
         let event = json_convert(&event).unwrap();
         let changed_devices = DeviceLists::new();
-        let key_counts = Default::default();
+        let key_counts: BTreeMap<_, _> = Default::default();
 
         let _ = bob
-            .receive_sync_changes(vec![event], &changed_devices, &key_counts, None)
+            .receive_sync_changes(EncryptionSyncChanges {
+                to_device_events: vec![event],
+                changed_devices: &changed_devices,
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: None,
+            })
             .await
             .unwrap();
 
@@ -3417,7 +3452,14 @@ pub(crate) mod tests {
 
         let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
 
-        bob.receive_sync_changes(vec![event], &changed_devices, &key_counts, None).await.unwrap();
+        bob.receive_sync_changes(EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &changed_devices,
+            one_time_keys_counts: &key_counts,
+            unused_fallback_keys: None,
+        })
+        .await
+        .unwrap();
 
         let session = bob.store().get_inbound_group_session(room_id, &session_id).await;
 

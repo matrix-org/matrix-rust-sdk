@@ -537,13 +537,14 @@ impl OlmMachine {
         let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
             unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
 
-        let (to_device_events, room_key_infos) =
-            self.runtime.block_on(self.inner.receive_sync_changes(
-                to_device.events,
-                &device_changes,
-                &key_counts,
-                unused_fallback_keys.as_deref(),
-            ))?;
+        let (to_device_events, room_key_infos) = self.runtime.block_on(
+            self.inner.receive_sync_changes(matrix_sdk_crypto::EncryptionSyncChanges {
+                to_device_events: to_device.events,
+                changed_devices: &device_changes,
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: unused_fallback_keys.as_deref(),
+            }),
+        )?;
 
         let to_device_events =
             to_device_events.into_iter().map(|event| event.json().get().to_owned()).collect();
