@@ -60,10 +60,10 @@ impl BaseClient {
 
         let v4::Extensions { to_device, e2ee, .. } = extensions;
 
-        let to_device = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
+        let to_device_events = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
         trace!(
-            to_device_events = to_device.len(),
+            to_device_events = to_device_events.len(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
             device_unused_fallback_key_types =
                 e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len()),
@@ -81,10 +81,13 @@ impl BaseClient {
         let to_device = self
             .preprocess_to_device_events(
                 matrix_sdk_crypto::EncryptionSyncChanges {
-                    to_device_events: to_device,
+                    to_device_events,
                     changed_devices: &e2ee.device_lists,
                     one_time_keys_counts: &e2ee.device_one_time_keys_count,
                     unused_fallback_keys: e2ee.device_unused_fallback_key_types.as_deref(),
+                    next_batch_token: to_device
+                        .as_ref()
+                        .map(|to_device| to_device.next_batch.clone()),
                 },
                 &mut changes,
             )

@@ -1837,6 +1837,7 @@ mod tests {
                 changed_devices: &Default::default(),
                 one_time_keys_counts: &Default::default(),
                 unused_fallback_keys: None,
+                next_batch_token: None,
             })
             .await
             .unwrap();

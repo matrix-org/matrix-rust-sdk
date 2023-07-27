@@ -190,9 +190,8 @@ impl CryptoStore for MemoryStore {
             }
         }
 
-        if let Some(next_batch) = changes.next_batch_token {
-            *self.next_batch_token.write().await = Some(next_batch);
-        }
+        // Note: this will save an empty next_batch token, if provided an empty one.
+        *self.next_batch_token.write().await = changes.next_batch_token;
 
         Ok(())
     }
