@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    IncomingResponse, OutgoingRequest, OutgoingVerificationRequest as SdkVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    IncomingResponse, KeysBackupRequest, OutgoingRequest,
+    OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    UploadSigningKeysRequest as RustUploadSigningKeysRequest,
 };
 use ruma::{
     api::client::{
@@ -157,12 +158,7 @@ impl From<OutgoingRequest> for Request {
             },
             RoomMessage(r) => Request::from(r),
             KeysClaim(c) => (r.request_id().to_owned(), c.clone()).into(),
-            KeysBackup(b) => Request::KeysBackup {
-                request_id: r.request_id().to_string(),
-                version: b.version.to_owned(),
-                rooms: serde_json::to_string(&b.rooms)
-                    .expect("Can't serialize keys backup request"),
-            },
+            KeysBackup(b) => (r.request_id().to_owned(), b.clone()).into(),
         }
     }
 }
@@ -193,6 +189,19 @@ impl From<(OwnedTransactionId, KeysClaimRequest)> for Request {
                     )
                 })
                 .collect(),
+        }
+    }
+}
+
+impl From<(OwnedTransactionId, KeysBackupRequest)> for Request {
+    fn from(request_tuple: (OwnedTransactionId, KeysBackupRequest)) -> Self {
+        let (request_id, request) = request_tuple;
+
+        Request::KeysBackup {
+            request_id: request_id.to_string(),
+            version: request.version.to_owned(),
+            rooms: serde_json::to_string(&request.rooms)
+                .expect("Can't serialize keys backup request"),
         }
     }
 }
