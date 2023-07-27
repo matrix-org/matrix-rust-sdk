@@ -62,6 +62,7 @@
 //! [`RoomListService::state`] provides a way to get a stream of the state
 //! machine's state, which can be pretty helpful for the client app.
 
+pub mod filters;
 mod room;
 mod room_list;
 mod state;

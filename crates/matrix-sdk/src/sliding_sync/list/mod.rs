@@ -373,6 +373,7 @@ impl SlidingSyncListInner {
     #[instrument(skip(self), fields(name = self.name))]
     fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> v4::SyncRequestList {
         use ruma::UInt;
+
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
 

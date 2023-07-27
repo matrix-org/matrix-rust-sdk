@@ -4,12 +4,13 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use imbl::vector;
+use matrix_sdk::Client;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State,
-        ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
-        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        filters::new_filter_fuzzy_match_room_name, Error, Input, InputResult, RoomListEntry,
+        RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
+        INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
     RoomListService,
@@ -30,11 +31,11 @@ use crate::{
     timeline::sliding_sync::{assert_timeline_stream, timeline_event},
 };
 
-async fn new_room_list_service() -> Result<(MockServer, RoomListService), Error> {
+async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
     let (client, server) = logged_in_client().await;
-    let room_list = RoomListService::new(client).await?;
+    let room_list = RoomListService::new(client.clone()).await?;
 
-    Ok((server, room_list))
+    Ok((client, server, room_list))
 }
 
 // Same macro as in the main, with additional checking that the state
@@ -215,7 +216,7 @@ macro_rules! assert_entries_stream {
 
 #[async_test]
 async fn test_sync_all_states() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -471,7 +472,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
 
 #[async_test]
 async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     // Start a sync, and drop it at the end of the block.
     {
@@ -590,7 +591,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
 
 #[async_test]
 async fn test_sync_resumes_from_error() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -891,7 +892,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 
 #[async_test]
 async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     // Let's stop the sync before actually syncing (we never know!).
     // We get an error, obviously.
@@ -1129,7 +1130,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 
 #[async_test]
 async fn test_loading_states() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1237,7 +1238,7 @@ async fn test_loading_states() -> Result<(), Error> {
 
 #[async_test]
 async fn test_entries_stream() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1372,7 +1373,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 
 #[async_test]
 async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1410,7 +1411,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
             },
             "rooms": {
                 "!r0:bar.org": {
-                    "name": "Room #0",
+                    "name": "Matrix Foobar",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1426,12 +1427,8 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         pending;
     };
 
-    let (previous_entries, entries_stream) = all_rooms.entries_filtered(|room_list_entry| {
-        matches!(
-            room_list_entry.as_room_id(),
-            Some(room_id) if room_id.server_name() == "bar.org"
-        )
-    });
+    let (previous_entries, entries_stream) =
+        all_rooms.entries_filtered(new_filter_fuzzy_match_room_name(&client, "mat ba"));
     pin_mut!(entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1461,8 +1458,8 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                             "range": [1, 4],
                             "room_ids": [
                                 "!r1:bar.org",
-                                "!r2:qux.org",
-                                "!r3:qux.org",
+                                "!r2:bar.org",
+                                "!r3:bar.org",
                                 "!r4:bar.org",
                             ],
                         },
@@ -1477,22 +1474,22 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
             },
             "rooms": {
                 "!r1:bar.org": {
-                    "name": "Room #1",
+                    "name": "Matrix Bar",
                     "initial": true,
                     "timeline": [],
                 },
-                "!r2:qux.org": {
-                    "name": "Room #2",
+                "!r2:bar.org": {
+                    "name": "Hello",
                     "initial": true,
                     "timeline": [],
                 },
-                "!r3:qux.org": {
-                    "name": "Room #3",
+                "!r3:bar.org": {
+                    "name": "Matrix Qux",
                     "initial": true,
                     "timeline": [],
                 },
                 "!r4:bar.org": {
-                    "name": "Room #4",
+                    "name": "Matrix Baz",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1513,7 +1510,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
 
 #[async_test]
 async fn test_invites_stream() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1666,7 +1663,7 @@ async fn test_invites_stream() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1749,7 +1746,7 @@ async fn test_room() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_not_found() -> Result<(), Error> {
-    let (_server, room_list) = new_room_list_service().await?;
+    let (_, _, room_list) = new_room_list_service().await?;
 
     let room_id = room_id!("!foo:bar.org");
 
@@ -1765,7 +1762,7 @@ async fn test_room_not_found() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_subscription() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1886,7 +1883,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_unread_notifications() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -1973,7 +1970,7 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_timeline() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -2057,7 +2054,7 @@ async fn test_room_timeline() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_latest_event() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -2148,7 +2145,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
 #[async_test]
 async fn test_input_viewport() -> Result<(), Error> {
-    let (server, room_list) = new_room_list_service().await?;
+    let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
