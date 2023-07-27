@@ -452,6 +452,14 @@ impl Client {
     }
 }
 
+#[cfg(any(feature = "testing", test))]
+impl Client {
+    /// Get the olm machine, for testing purposes only.
+    pub async fn olm_machine_for_testing(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
+        self.olm_machine().await
+    }
+}
+
 /// A high-level API to manage the client's encryption.
 ///
 /// To get this, use [`Client::encryption()`].

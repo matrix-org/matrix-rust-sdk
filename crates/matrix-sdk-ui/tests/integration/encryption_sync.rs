@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::SlidingSync;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::encryption_sync::{EncryptionSync, WithLocking};
 use serde_json::json;
@@ -313,9 +312,18 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     // This encryption sync now conceptually goes to sleep, and another encryption
     // sync starts in another process, runs a sync and changes the to-device
     // token cached on disk.
+    #[cfg(feature = "e2e-encryption")]
     {
-        let sliding_sync = SlidingSync::builder("encryption".to_owned(), client)?.build().await?;
-        sliding_sync.force_cache_to_storage(Some("nb2".to_owned())).await?;
+        use matrix_sdk_base::crypto::store::Changes;
+        if let Some(olm_machine) = &*client.olm_machine_for_testing().await {
+            olm_machine
+                .store()
+                .save_changes(Changes {
+                    next_batch_token: Some("nb2".to_owned()),
+                    ..Default::default()
+                })
+                .await?;
+        }
     }
 
     // Next iteration must have reloaded the latest to-device token.

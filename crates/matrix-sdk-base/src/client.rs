@@ -730,6 +730,7 @@ impl BaseClient {
                     changed_devices: &response.device_lists,
                     one_time_keys_counts: &response.device_one_time_keys_count,
                     unused_fallback_keys: response.device_unused_fallback_key_types.as_deref(),
+                    next_batch_token: Some(response.next_batch.clone()),
                 },
                 &mut changes,
             )

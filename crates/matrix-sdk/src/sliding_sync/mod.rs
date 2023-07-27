@@ -122,8 +122,8 @@ impl SlidingSync {
         Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
     }
 
-    async fn cache_to_storage(&self, to_device_token: Option<String>) -> Result<()> {
-        cache::store_sliding_sync_state(self, to_device_token).await
+    async fn cache_to_storage(&self) -> Result<()> {
+        cache::store_sliding_sync_state(self).await
     }
 
     /// Create a new [`SlidingSyncBuilder`].
@@ -267,7 +267,7 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         mut sliding_sync_response: v4::Response,
-    ) -> Result<(UpdateSummary, Option<String>), crate::Error> {
+    ) -> Result<UpdateSummary, crate::Error> {
         {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
@@ -396,9 +396,7 @@ impl SlidingSync {
             UpdateSummary { lists: updated_lists, rooms: updated_rooms }
         };
 
-        let to_device_token = sliding_sync_response.extensions.to_device.map(|ext| ext.next_batch);
-
-        Ok((update_summary, to_device_token))
+        Ok(update_summary)
     }
 
     async fn generate_sync_request(
@@ -602,9 +600,9 @@ impl SlidingSync {
             }
 
             // Handle the response.
-            let (updates, to_device_token) = this.handle_response(response).await?;
+            let updates = this.handle_response(response).await?;
 
-            this.cache_to_storage(to_device_token).await?;
+            this.cache_to_storage().await?;
 
             // Release the lock.
             drop(response_handling_lock);
@@ -756,11 +754,6 @@ impl SlidingSync {
         self.inner.sliding_sync_proxy.clone()
     }
 
-    /// Force caching the current sliding sync to storage.
-    pub async fn force_cache_to_storage(&self, to_device_token: Option<String>) -> Result<()> {
-        self.cache_to_storage(to_device_token).await
-    }
-
     /// Read the static extension configuration for this Sliding Sync.
     ///
     /// Note: this is not the next content of the sticky parameters, but rightly
@@ -788,8 +781,10 @@ pub(super) struct SlidingSyncPositionMarkers {
     delta_token: Option<String>,
 }
 
+/// Frozen bits of a Sliding Sync that are stored in the *state* store.
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSync {
+    /// Deprecated: prefer storing in the crypto store.
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -797,10 +792,11 @@ struct FrozenSlidingSync {
 }
 
 impl FrozenSlidingSync {
-    fn new(sliding_sync: &SlidingSync, to_device_since: Option<String>) -> Self {
+    fn new(sliding_sync: &SlidingSync) -> Self {
         let position = sliding_sync.inner.position.read().unwrap();
 
-        Self { delta_token: position.delta_token.clone(), to_device_since }
+        // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
+        Self { delta_token: position.delta_token.clone(), to_device_since: None }
     }
 }
 
@@ -1061,17 +1057,10 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        // When no to-device token is present, it's still not there after caching
-        // either.
-        let frozen = FrozenSlidingSync::new(&sliding_sync, None);
+        // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
+        // in the crypto store since PR #2323.
+        let frozen = FrozenSlidingSync::new(&sliding_sync);
         assert!(frozen.to_device_since.is_none());
-
-        // When a to-device token is present, `prepare_extensions_config` fills the
-        // request with it.
-        let since = String::from("my-to-device-since-token");
-
-        let frozen = FrozenSlidingSync::new(&sliding_sync, Some(since.clone()));
-        assert_eq!(frozen.to_device_since, Some(since));
 
         Ok(())
     }
@@ -1285,8 +1274,21 @@ mod tests {
         // If there's a to-device `since` token, we make sure we put the token
         // into the extension config. The rest doesn't need to be re-enabled due to
         // stickiness.
-        let since_token = "since";
-        sync.force_cache_to_storage(Some(since_token.to_owned())).await?;
+        let _since_token = "since";
+
+        #[cfg(feature = "e2e-encryption")]
+        {
+            use matrix_sdk_base::crypto::store::Changes;
+            if let Some(olm_machine) = &*client.olm_machine().await {
+                olm_machine
+                    .store()
+                    .save_changes(Changes {
+                        next_batch_token: Some(_since_token.to_owned()),
+                        ..Default::default()
+                    })
+                    .await?;
+            }
+        }
 
         let txn_id = TransactionId::new();
         let (request, _, _) = sync
@@ -1295,7 +1297,9 @@ mod tests {
 
         assert!(request.extensions.e2ee.enabled.is_none());
         assert!(request.extensions.to_device.enabled.is_none());
-        assert_eq!(request.extensions.to_device.since.as_deref(), Some(since_token));
+
+        #[cfg(feature = "e2e-encryption")]
+        assert_eq!(request.extensions.to_device.since.as_deref(), Some(_since_token));
 
         Ok(())
     }
@@ -1636,6 +1640,9 @@ mod tests {
                 e2ee: assign!(v4::E2EE::default(), {
                     device_one_time_keys_count: BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, uint!(42))])
                 }),
+                to_device: Some(assign!(v4::ToDevice::default(), {
+                    next_batch: "to-device-token".to_string()
+                })),
             })
         });
 
@@ -1657,6 +1664,14 @@ mod tests {
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
         assert_eq!(uploaded_key_count, 42);
 
+        {
+            let olm_machine = &*client.olm_machine_for_testing().await;
+            assert_eq!(
+                olm_machine.as_ref().unwrap().store().next_batch_token().await?.as_deref(),
+                Some("to-device-token")
+            );
+        }
+
         // Room events haven't.
         assert!(client.get_room(&room).is_none());
 
@@ -1675,6 +1690,14 @@ mod tests {
         // E2EE response has been ignored.
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
         assert_eq!(uploaded_key_count, 0);
+
+        {
+            let olm_machine = &*client.olm_machine_for_testing().await;
+            assert_eq!(
+                olm_machine.as_ref().unwrap().store().next_batch_token().await?.as_deref(),
+                None
+            );
+        }
 
         // The room is now known.
         assert!(client.get_room(&room).is_some());
@@ -1697,6 +1720,14 @@ mod tests {
         // E2EE has been properly handled.
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
         assert_eq!(uploaded_key_count, 42);
+
+        {
+            let olm_machine = &*client.olm_machine_for_testing().await;
+            assert_eq!(
+                olm_machine.as_ref().unwrap().store().next_batch_token().await?.as_deref(),
+                Some("to-device-token")
+            );
+        }
 
         // The room is now known.
         assert!(client.get_room(&room).is_some());

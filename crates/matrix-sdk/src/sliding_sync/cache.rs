@@ -32,7 +32,7 @@ fn format_storage_key_for_sliding_sync_list(storage_key: &str, list_name: &str) 
 }
 
 /// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the
-/// cache.
+/// state store cache.
 async fn invalidate_cached_list(
     storage: &dyn StateStore<Error = StoreError>,
     storage_key: &str,
@@ -59,21 +59,19 @@ async fn clean_storage(
 }
 
 /// Store the `SlidingSync`'s state in the storage.
-pub(super) async fn store_sliding_sync_state(
-    sliding_sync: &SlidingSync,
-    to_device_token: Option<String>,
-) -> Result<()> {
+pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
+    let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
-    trace!(storage_key, "Saving a `SlidingSync`");
+    trace!(storage_key, "Saving a `SlidingSync` to the state store");
     let storage = sliding_sync.inner.client.store();
 
     // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
     // the store.
     storage
         .set_custom_value(
-            format_storage_key_for_sliding_sync(storage_key).as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync, to_device_token))?,
+            instance_storage_key.as_bytes(),
+            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync))?,
         )
         .await?;
 
@@ -163,6 +161,16 @@ pub(super) async fn restore_sliding_sync_state(
     delta_token: &mut Option<String>,
     to_device_token: &mut Option<String>,
 ) -> Result<()> {
+    #[cfg(feature = "e2e-encryption")]
+    if let Some(olm_machine) = &*client.olm_machine().await {
+        match olm_machine.store().next_batch_token().await? {
+            Some(token) => {
+                *to_device_token = Some(token);
+            }
+            None => trace!("No `SlidingSync` in the crypto-store cache"),
+        }
+    }
+
     let storage = client.store();
 
     // Preload the `SlidingSync` object from the cache.
@@ -174,9 +182,10 @@ pub(super) async fn restore_sliding_sync_state(
         // `SlidingSync` has been found and successfully deserialized.
         Some(Ok(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
-            // Let's update the `SlidingSync`.
-            if let Some(since) = to_device_since {
-                *to_device_token = Some(since);
+            // Only update the to-device token if we failed to read it from the crypto store
+            // above.
+            if to_device_token.is_none() {
+                *to_device_token = to_device_since;
             }
             *delta_token = frozen_delta_token;
         }
@@ -210,13 +219,15 @@ pub(super) async fn restore_sliding_sync_state(
 mod tests {
     use std::sync::{Arc, RwLock};
 
+    use assert_matches::assert_matches;
     use futures_util::StreamExt;
+    use matrix_sdk_test::async_test;
 
     use super::*;
     use crate::{test_utils::logged_in_client, Result};
 
     #[allow(clippy::await_holding_lock)]
-    #[tokio::test]
+    #[async_test]
     async fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
 
@@ -265,7 +276,7 @@ mod tests {
                 list_bar.set_maximum_number_of_rooms(Some(1337));
             }
 
-            assert!(sliding_sync.cache_to_storage(None).await.is_ok());
+            assert!(sliding_sync.cache_to_storage().await.is_ok());
             storage_key
         };
 
@@ -359,6 +370,105 @@ mod tests {
             )
             .await?
             .is_none());
+
+        Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
+        let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
+
+        let sync_id = "test-sync-id";
+        let storage_key_prefix = format_storage_key_prefix(sync_id, client.user_id().unwrap());
+        let full_storage_key = format_storage_key_for_sliding_sync(&storage_key_prefix);
+        let sliding_sync = client.sliding_sync(sync_id)?.build().await?;
+
+        // At first, there's nothing in both stores.
+        if let Some(olm_machine) = &*client.base_client().olm_machine().await {
+            let store = olm_machine.store();
+            assert!(store.next_batch_token().await?.is_none());
+        }
+
+        let state_store = client.store();
+        assert!(state_store.get_custom_value(full_storage_key.as_bytes()).await?.is_none());
+
+        // Emulate some data to be cached.
+        let delta_token = "delta_token".to_owned();
+        sliding_sync.inner.position.write().unwrap().delta_token = Some(delta_token.clone());
+
+        // Then, we can correctly cache the sliding sync instance.
+        store_sliding_sync_state(&sliding_sync).await?;
+
+        // The delta token has been correctly written to the state store (but not the
+        // to_device_since, since it's in the other store).
+        let state_store = client.store();
+        assert_matches!(
+            state_store.get_custom_value(full_storage_key.as_bytes()).await?,
+            Some(bytes) => {
+                let deserialized: FrozenSlidingSync = serde_json::from_slice(&bytes)?;
+                assert_eq!(deserialized.delta_token, Some(delta_token.clone()));
+                assert!(deserialized.to_device_since.is_none());
+            }
+        );
+
+        // Ok, forget about the sliding sync, let's recreate one from scratch.
+        drop(sliding_sync);
+
+        let mut read_delta_token = None;
+
+        restore_sliding_sync_state(
+            &client,
+            &storage_key_prefix,
+            &[].into(),
+            &mut read_delta_token,
+            &mut None,
+        )
+        .await?;
+
+        // After restoring, the delta token and to-device token could be read.
+        assert_eq!(read_delta_token.unwrap(), delta_token);
+
+        // Test the "migration" path: assume a missing to-device token in crypto store,
+        // but present in a former state store.
+
+        // For our sanity, check no to-device token has been saved in the database.
+        {
+            let olm_machine = client.base_client().olm_machine().await;
+            let olm_machine = olm_machine.as_ref().unwrap();
+            assert!(olm_machine.store().next_batch_token().await?.is_none());
+        }
+
+        let to_device_token = "to_device_token".to_owned();
+
+        // Put that delta-token in the state store.
+        let state_store = client.store();
+        state_store
+            .set_custom_value(
+                full_storage_key.as_bytes(),
+                serde_json::to_vec(&FrozenSlidingSync {
+                    to_device_since: Some(to_device_token.clone()),
+                    delta_token: Some(delta_token.clone()),
+                })?,
+            )
+            .await?;
+
+        let mut read_delta_token = None;
+        let mut read_to_device_token = None;
+
+        restore_sliding_sync_state(
+            &client,
+            &storage_key_prefix,
+            &[].into(),
+            &mut read_delta_token,
+            &mut read_to_device_token,
+        )
+        .await?;
+
+        // After restoring, the delta token and to-device token could be read, even if
+        // they came both from the state store.
+        assert_eq!(read_delta_token.unwrap(), delta_token);
+        assert_eq!(read_to_device_token.unwrap(), to_device_token);
 
         Ok(())
     }

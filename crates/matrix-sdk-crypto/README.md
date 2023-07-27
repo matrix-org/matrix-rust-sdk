@@ -19,7 +19,7 @@ The state machine works in a push/pull manner:
 ```rust,no_run
 use std::collections::BTreeMap;
 
-use matrix_sdk_crypto::{OlmMachine, OlmError};
+use matrix_sdk_crypto::{EncryptionSyncChanges, OlmMachine, OlmError};
 use ruma::{
     api::client::sync::sync_events::{v3::ToDevice, DeviceLists},
     device_id, user_id,
@@ -33,14 +33,16 @@ async fn main() -> Result<(), OlmError> {
     let changed_devices = DeviceLists::default();
     let one_time_key_counts = BTreeMap::default();
     let unused_fallback_keys = Some(Vec::new());
+    let next_batch_token = "T0K3N".to_owned();
 
     // Push changes that the server sent to us in a sync response.
-    let decrypted_to_device = machine.receive_sync_changes(
-        vec![],
-        &changed_devices,
-        &one_time_key_counts,
-        unused_fallback_keys.as_deref(),
-    ).await?;
+    let decrypted_to_device = machine.receive_sync_changes(EncryptionSyncChanges {
+        to_device_events: vec![],
+        changed_devices: &changed_devices,
+        one_time_keys_counts: &one_time_key_counts,
+        unused_fallback_keys: unused_fallback_keys.as_deref(),
+        next_batch_token: Some(next_batch_token),
+    }).await?;
 
     // Pull requests that we need to send out.
     let outgoing_requests = machine.outgoing_requests().await?;

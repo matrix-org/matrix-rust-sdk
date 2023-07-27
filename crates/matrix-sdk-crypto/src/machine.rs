@@ -1135,8 +1135,8 @@ impl OlmMachine {
             Changes { account: Some((*self.inner.account).clone()), ..Default::default() };
 
         self.update_key_counts(
-            &sync_changes.one_time_keys_counts,
-            sync_changes.unused_fallback_keys.as_deref(),
+            sync_changes.one_time_keys_counts,
+            sync_changes.unused_fallback_keys,
         )
         .await;
 
@@ -1163,6 +1163,8 @@ impl OlmMachine {
             self.inner.key_request_machine.collect_incoming_key_requests().await?;
 
         changes.sessions.extend(changed_sessions);
+
+        changes.next_batch_token = sync_changes.next_batch_token;
 
         self.store().save_changes(changes).await?;
 
@@ -1900,6 +1902,8 @@ pub struct EncryptionSyncChanges<'a> {
     pub one_time_keys_counts: &'a BTreeMap<DeviceKeyAlgorithm, UInt>,
     /// An optional list of fallback keys.
     pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
+    /// A next-batch token obtained from a to-device sync query.
+    pub next_batch_token: Option<String>,
 }
 
 #[cfg(any(feature = "testing", test))]
@@ -2235,6 +2239,7 @@ pub(crate) mod tests {
                 changed_devices: &Default::default(),
                 one_time_keys_counts: &key_counts,
                 unused_fallback_keys: None,
+                next_batch_token: None,
             })
             .await
             .expect("We should be able to update our one-time key counts");
@@ -2510,6 +2515,7 @@ pub(crate) mod tests {
                 changed_devices: &Default::default(),
                 one_time_keys_counts: &Default::default(),
                 unused_fallback_keys: None,
+                next_batch_token: None,
             })
             .await
             .unwrap();
@@ -2649,6 +2655,7 @@ pub(crate) mod tests {
             changed_devices: &Default::default(),
             one_time_keys_counts: &Default::default(),
             unused_fallback_keys: None,
+            next_batch_token: None,
         })
         .await
         .unwrap();
@@ -3419,6 +3426,7 @@ pub(crate) mod tests {
                 changed_devices: &changed_devices,
                 one_time_keys_counts: &key_counts,
                 unused_fallback_keys: None,
+                next_batch_token: None,
             })
             .await
             .unwrap();
@@ -3457,6 +3465,7 @@ pub(crate) mod tests {
             changed_devices: &changed_devices,
             one_time_keys_counts: &key_counts,
             unused_fallback_keys: None,
+            next_batch_token: None,
         })
         .await
         .unwrap();
