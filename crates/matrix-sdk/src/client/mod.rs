@@ -205,6 +205,13 @@ pub(crate) struct ClientInner {
     /// DB over time. Observing a different value than the one read in
     /// memory, when reading from the store indicates that somebody else has
     /// written into the database under our feet.
+    ///
+    /// TODO: this should live in the `OlmMachine`, since it's information
+    /// related to the lock. As of today (2023-07-28), we blow up the entire
+    /// olm machine when there's a generation mismatch. So storing the
+    /// generation in the olm machine would make the client think there's
+    /// *always* a mismatch, and that's why we need to store the generation
+    /// outside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
