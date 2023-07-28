@@ -54,8 +54,8 @@ use ruma::{
             MediaSource,
         },
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, EmptyStateKey, MessageLikeEventContent, MessageLikeEventType,
-        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
+        AnyRoomAccountDataEvent, AnyStateEvent, EmptyStateKey, MessageLikeEventContent,
+        MessageLikeEventType, RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, StaticStateEventContent,
     },
@@ -348,7 +348,7 @@ impl Room {
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
-    ) -> Result<Option<TimelineEvent>> {
+    ) -> Result<Option<(TimelineEvent, Vec<Raw<AnyStateEvent>>)>> {
         let mut request =
             context::get_context::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
@@ -359,7 +359,9 @@ impl Room {
                 LazyLoadOptions::Enabled { include_redundant_members: false };
         }
 
-        let Some(event) = self.client.send(request, None).await?.event else {
+        let response = self.client.send(request, None).await?;
+
+        let Some(event) = response.event else {
             return Ok(None);
         };
 
@@ -369,13 +371,13 @@ impl Room {
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
             if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                return Ok(Some(event));
+                return Ok(Some((event, response.state)));
             }
         }
 
         let push_actions = self.event_push_actions(&event).await?;
 
-        Ok(Some(TimelineEvent { event, encryption_info: None, push_actions }))
+        Ok(Some((TimelineEvent { event, encryption_info: None, push_actions }, response.state)))
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
