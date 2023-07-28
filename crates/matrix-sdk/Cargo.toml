@@ -66,7 +66,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
-aquamarine = "0.6.0"
+aquamarine = { workspace = true }
 assert_matches2 = { workspace = true, optional = true }
 as_variant = { workspace = true }
 async-channel = "2.2.1"

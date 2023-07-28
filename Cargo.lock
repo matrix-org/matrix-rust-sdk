@@ -3027,6 +3027,7 @@ version = "0.8.0"
 dependencies = [
  "aes",
  "anyhow",
+ "aquamarine",
  "as_variant",
  "assert_matches",
  "assert_matches2",

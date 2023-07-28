@@ -36,6 +36,7 @@ testing = ["matrix-sdk-test"]
 
 [dependencies]
 aes = "0.8.1"
+aquamarine = { workspace = true }
 as_variant = { workspace = true }
 async-trait = { workspace = true }
 bs58 = { version = "0.5.0" }
