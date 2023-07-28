@@ -786,7 +786,7 @@ pub(crate) mod testing {
         let identity = PrivateCrossSigningIdentity::new(user_id().into()).await;
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id().to_owned();
-        let account = ReadOnlyAccount::new(&user_id, device_id());
+        let account = ReadOnlyAccount::with_device_id(&user_id, device_id());
         let store: Arc<DynCryptoStore> = MemoryStore::new().into_crypto_store();
         let verification = VerificationMachine::new(account, identity.clone(), store);
         let store = Store::new(

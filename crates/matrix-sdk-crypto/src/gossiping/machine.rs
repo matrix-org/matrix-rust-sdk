@@ -1098,15 +1098,15 @@ mod tests {
     }
 
     fn account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(alice_id(), alice_device_id())
+        ReadOnlyAccount::with_device_id(alice_id(), alice_device_id())
     }
 
     fn bob_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(bob_id(), bob_device_id())
+        ReadOnlyAccount::with_device_id(bob_id(), bob_device_id())
     }
 
     fn alice_2_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(alice_id(), alice2_device_id())
+        ReadOnlyAccount::with_device_id(alice_id(), alice2_device_id())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1114,7 +1114,7 @@ mod tests {
         let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
-        let account = ReadOnlyAccount::new(&user_id, &device_id);
+        let account = ReadOnlyAccount::with_device_id(&user_id, &device_id);
         let store = MemoryStore::new().into_crypto_store();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
@@ -1126,10 +1126,13 @@ mod tests {
 
     async fn get_machine() -> GossipMachine {
         let user_id = alice_id().to_owned();
-        let account = ReadOnlyAccount::new(&user_id, alice_device_id());
+        let account = ReadOnlyAccount::with_device_id(&user_id, alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
-        let another_device =
-            ReadOnlyDevice::from_account(&ReadOnlyAccount::new(&user_id, alice2_device_id())).await;
+        let another_device = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
+            &user_id,
+            alice2_device_id(),
+        ))
+        .await;
 
         let store = MemoryStore::new().into_crypto_store();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
