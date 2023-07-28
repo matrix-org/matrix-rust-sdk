@@ -2409,7 +2409,7 @@ mod tests {
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
-        let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
+        let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
         let session = Session {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
