@@ -1126,6 +1126,22 @@ impl OlmMachine {
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
     ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+        let (events, changes) = self.preprocess_sync_changes(sync_changes).await?;
+
+        // Technically save_changes also does the same work, so if it's slow we could
+        // refactor this to do it only once.
+        let room_key_updates: Vec<_> =
+            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+
+        self.store().save_changes(changes).await?;
+
+        Ok((events, room_key_updates))
+    }
+
+    pub(crate) async fn preprocess_sync_changes(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Changes)> {
         // Remove verification objects that have expired or are done.
         let mut events = self.inner.verification_machine.garbage_collect();
 
@@ -1154,21 +1170,13 @@ impl OlmMachine {
             events.push(raw_event);
         }
 
-        // Technically save_changes also does the same work, so if it's slow we could
-        // refactor this to do it only once.
-        let room_key_updates: Vec<_> =
-            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
-
         let changed_sessions =
             self.inner.key_request_machine.collect_incoming_key_requests().await?;
 
         changes.sessions.extend(changed_sessions);
-
         changes.next_batch_token = sync_changes.next_batch_token;
 
-        self.store().save_changes(changes).await?;
-
-        Ok((events, room_key_updates))
+        Ok((events, changes))
     }
 
     /// Request a room key from our devices.
@@ -1419,8 +1427,8 @@ impl OlmMachine {
     ///   of tracked users
     ///
     /// Any users that hadn't been seen before will be flagged for a key query
-    /// immediately, and whenever `receive_sync_changes` receives a
-    /// "changed" notification for that user in the future.
+    /// immediately, and whenever [`OlmMachine::receive_sync_changes()`]
+    /// receives a "changed" notification for that user in the future.
     ///
     /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(
