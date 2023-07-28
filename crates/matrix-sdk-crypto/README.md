@@ -1,13 +1,11 @@
-A no-network-IO implementation of a state machine that handles E2EE for
-[Matrix] clients.
-
-# Usage
+A no-network-IO implementation of a state machine that handles end-to-end
+encryption for [Matrix] clients.
 
 If you're just trying to write a Matrix client or bot in Rust, you're probably
 looking for [matrix-sdk] instead.
 
-However, if you're looking to add E2EE to an existing Matrix client or library,
-read on.
+However, if you're looking to add end-to-end encryption to an existing Matrix
+client or library, read on.
 
 The state machine works in a push/pull manner:
 
@@ -52,28 +50,42 @@ async fn main() -> Result<(), OlmError> {
     Ok(())
 }
 ```
+It is recommended to use the [tutorial] to understand how end-to-end encryption
+works in Matrix and how to add end-to-end encryption support in your Matrix
+client library.
 
 [Matrix]: https://matrix.org/
 [matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
-
-# Room key forwarding algorithm
-
-The decision tree below visualizes the way this crate decides whether a message
-key ("room key") will be [forwarded][forwarded_room_key] to a requester upon a
-key request, provided the `automatic-room-key-forwarding` feature is enabled.
-Key forwarding is sometimes also referred to as key *gossiping*.
-
-[forwarded_room_key]: <https://spec.matrix.org/v1.10/client-server-api/#mforwarded_room_key>
-
-![](https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/main/contrib/key-sharing-algorithm/model.png)
-
 
 # Crate Feature Flags
 
 The following crate feature flags are available:
 
-* `qrcode`: Enbles QRcode generation and reading code
+| Feature             | Default | Description                                                                                                                |
+| ------------------- | :-----: | -------------------------------------------------------------------------------------------------------------------------- |
+| `qrcode`            |   No    | Enables QR code based interactive verification                                                                             |
+| `js`                |   No    | Enables JavaScript API usage for things like the current system time on WASM (does nothing on other targets)               |
+| `testing`           |   No    | Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider. |
 
 * `testing`: Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider.
 
 * `_disable-minimum-rotation-period-ms`: Do not use except for testing. Disables the floor on the rotation period of room keys.
+# Enabling logging
+
+Users of the `matrix-sdk-crypto` crate can enable log output by depending on the
+`tracing-subscriber` crate and including the following line in their
+application (e.g. at the start of `main`):
+
+```no_compile
+tracing_subscriber::fmt::init();
+```
+
+The log output is controlled via the `RUST_LOG` environment variable by
+setting it to one of the `error`, `warn`, `info`, `debug` or `trace` levels.
+The output is printed to stdout.
+
+The `RUST_LOG` variable also supports a more advanced syntax for filtering
+log output more precisely, for instance with crate-level granularity. For
+more information on this, check out the [tracing-subscriber documentation].
+
+[tracing-subscriber documentation]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/
