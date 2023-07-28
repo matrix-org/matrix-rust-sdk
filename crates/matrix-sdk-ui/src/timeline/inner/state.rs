@@ -35,8 +35,8 @@ use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
         event_handler::{
-            update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
-            TimelineEventMetadata, TimelineItemPosition,
+            update_read_marker, Flow, HandleEventResult, TimelineEventContext,
+            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
         item::timeline_item,
@@ -182,7 +182,7 @@ impl TimelineInnerState {
             Default::default()
         };
         let is_highlighted = event.push_actions.iter().any(Action::is_highlight);
-        let event_meta = TimelineEventMetadata {
+        let ctx = TimelineEventContext {
             sender,
             sender_profile,
             timestamp,
@@ -193,7 +193,7 @@ impl TimelineInnerState {
         };
         let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add };
 
-        TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+        TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
             .handle_event(event_kind)
     }
 
@@ -206,7 +206,7 @@ impl TimelineInnerState {
         content: AnyMessageLikeEventContent,
         settings: &TimelineInnerSettings,
     ) {
-        let event_meta = TimelineEventMetadata {
+        let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
             timestamp: MilliSecondsSinceUnixEpoch::now(),
@@ -221,8 +221,7 @@ impl TimelineInnerState {
         let flow = Flow::Local { txn_id };
         let kind = TimelineEventKind::Message { content, relations: Default::default() };
 
-        TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
-            .handle_event(kind);
+        TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts).handle_event(kind);
     }
 
     /// Handle the local redaction of an event.
@@ -236,7 +235,7 @@ impl TimelineInnerState {
         settings: &TimelineInnerSettings,
     ) {
         let flow = Flow::Local { txn_id: txn_id.clone() };
-        let event_meta = TimelineEventMetadata {
+        let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
             timestamp: MilliSecondsSinceUnixEpoch::now(),
@@ -253,13 +252,13 @@ impl TimelineInnerState {
                 let kind =
                     TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() };
 
-                TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+                TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
                     .handle_event(kind);
             }
             EventItemIdentifier::EventId(event_id) => {
                 let kind = TimelineEventKind::Redaction { redacts: event_id, content };
 
-                TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+                TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
                     .handle_event(kind);
             }
         }
