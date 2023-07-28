@@ -7,17 +7,22 @@ use matrix_sdk_ui::notification_client::{
 };
 use ruma::{EventId, RoomId};
 
-use crate::{error::ClientError, event::TimelineEvent, helpers::unwrap_or_clone_arc, RUNTIME};
+use crate::{
+    error::ClientError,
+    event::{TimelineEvent, TimelineEventType},
+    helpers::unwrap_or_clone_arc,
+    RUNTIME,
+};
 
 #[derive(uniffi::Enum)]
 pub enum NotificationEvent {
-    Timeline { event: Arc<TimelineEvent> },
-    Invite { sender_id: String },
+    Timeline { event: TimelineEventType },
+    Invite,
 }
 
 #[derive(uniffi::Record)]
 pub struct NotificationSenderInfo {
-    pub user_id: String,
+    pub sender_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
 }
@@ -46,22 +51,23 @@ pub struct NotificationItem {
 }
 
 impl NotificationItem {
-    fn from_inner(item: MatrixNotificationItem) -> Self {
+    fn from_inner(item: MatrixNotificationItem) -> Result<Self, ClientError> {
         let sender_id = item.event.sender().to_string();
 
         let event = match item.event {
             matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
-                NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
+                let event_type = TimelineEvent(event).event_type()?;
+                NotificationEvent::Timeline { event: event_type }
             }
-            matrix_sdk_ui::notification_client::NotificationEvent::Invite(event) => {
-                NotificationEvent::Invite { sender_id: event.sender.to_string() }
+            matrix_sdk_ui::notification_client::NotificationEvent::Invite(_event) => {
+                NotificationEvent::Invite
             }
         };
 
-        Self {
+        Ok(Self {
             event,
             sender_info: NotificationSenderInfo {
-                user_id: sender_id,
+                sender_id,
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,
             },
@@ -74,7 +80,7 @@ impl NotificationItem {
                 is_direct: item.is_direct_message_room,
             },
             is_noisy: item.is_noisy,
-        }
+        })
     }
 }
 
@@ -142,7 +148,11 @@ impl NotificationClient {
                 .get_notification(&room_id, &event_id)
                 .await
                 .map_err(ClientError::from)?;
-            Ok(item.map(NotificationItem::from_inner))
+            if let Some(item) = item {
+                Ok(Some(NotificationItem::from_inner(item)?))
+            } else {
+                Ok(None)
+            }
         })
     }
 }
