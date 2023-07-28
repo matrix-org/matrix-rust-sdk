@@ -16,7 +16,7 @@
 use std::collections::BTreeSet;
 use std::{fmt, sync::Arc};
 
-use eyeball_im::{ObservableVector, ObservableVectorEntry, VectorSubscriber};
+use eyeball_im::{ObservableVectorEntry, VectorSubscriber};
 #[cfg(any(test, feature = "testing"))]
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use imbl::Vector;
@@ -43,8 +43,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncTimelineEvent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
@@ -55,10 +54,7 @@ use tracing::{field, info_span, Instrument as _};
 use super::traits::Decryptor;
 use super::{
     compare_events_positions,
-    event_handler::{
-        Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind, TimelineEventMetadata,
-        TimelineItemPosition,
-    },
+    event_handler::{HandleEventResult, TimelineItemPosition},
     event_item::EventItemIdentifier,
     item::{new_timeline_item, timeline_item},
     reactions::ReactionToggleResult,
@@ -128,13 +124,7 @@ pub(super) type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent) -> bool + 
 
 impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
-        let state = TimelineInnerState {
-            // Upstream default capacity is currently 16, which is making
-            // sliding-sync tests with 20 events lag. This should still be
-            // small enough.
-            items: ObservableVector::with_capacity(32),
-            ..TimelineInnerState::new(room_data_provider.room_version())
-        };
+        let state = TimelineInnerState::new(room_data_provider.room_version());
         Self {
             state: Arc::new(Mutex::new(state)),
             room_data_provider,
@@ -228,14 +218,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 let event_content = AnyMessageLikeEventContent::Reaction(
                     ReactionEventContent::from(annotation.clone()),
                 );
-                self.handle_local_event_internal(
-                    &mut state,
+                state.handle_local_event(
                     sender,
                     sender_profile,
                     txn_id.clone(),
                     event_content.clone(),
-                )
-                .await;
+                    &self.settings,
+                );
                 ReactionState::Sending(txn_id)
             }
             (to_redact_local, to_redact_remote) => {
@@ -249,15 +238,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     error!("Transaction id and event id are both missing");
                     return Err(super::Error::FailedToToggleReaction);
                 };
-                self.handle_local_redaction_internal(
-                    &mut state,
+                state.handle_local_redaction(
                     sender,
                     sender_profile,
                     TransactionId::new(),
                     to_redact,
                     no_reason.clone(),
-                )
-                .await;
+                    &self.settings,
+                );
 
                 // Remember the remote echo to redact on the homeserver
                 ReactionState::Redacting(to_redact_remote.cloned())
@@ -400,39 +388,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         content: AnyMessageLikeEventContent,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
-        let sender_profile = self.room_data_provider.profile(&sender).await;
+        let profile = self.room_data_provider.profile(&sender).await;
 
         let mut state = self.state.lock().await;
-        self.handle_local_event_internal(&mut state, sender, sender_profile, txn_id, content).await;
-    }
-
-    /// Handle the creation of a new local event.
-    #[instrument(skip_all)]
-    async fn handle_local_event_internal(
-        &self,
-        state: &mut TimelineInnerState,
-        own_user_id: OwnedUserId,
-        own_profile: Option<Profile>,
-        txn_id: OwnedTransactionId,
-        content: AnyMessageLikeEventContent,
-    ) {
-        let event_meta = TimelineEventMetadata {
-            sender: own_user_id,
-            sender_profile: own_profile,
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
-            read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
-            is_highlighted: false,
-        };
-
-        let flow = Flow::Local { txn_id };
-        let kind = TimelineEventKind::Message { content, relations: Default::default() };
-
-        TimelineEventHandler::new(event_meta, flow, state, self.settings.track_read_receipts)
-            .handle_event(kind);
+        state.handle_local_event(sender, profile, txn_id, content, &self.settings);
     }
 
     /// Handle the creation of a new local event.
@@ -447,61 +406,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile(&sender).await;
 
         let mut state = self.state.lock().await;
-        self.handle_local_redaction_internal(
-            &mut state, sender, profile, txn_id, to_redact, content,
-        )
-        .await;
-    }
-
-    /// Handle the local redaction of an event.
-    #[instrument(skip_all)]
-    async fn handle_local_redaction_internal(
-        &self,
-        state: &mut TimelineInnerState,
-        own_user_id: OwnedUserId,
-        own_profile: Option<Profile>,
-        txn_id: OwnedTransactionId,
-        to_redact: EventItemIdentifier,
-        content: RoomRedactionEventContent,
-    ) {
-        let flow = Flow::Local { txn_id: txn_id.clone() };
-        let event_meta = TimelineEventMetadata {
-            sender: own_user_id,
-            sender_profile: own_profile,
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
-            read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
-            is_highlighted: false,
-        };
-
-        match to_redact {
-            EventItemIdentifier::TransactionId(txn_id) => {
-                let kind =
-                    TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() };
-
-                TimelineEventHandler::new(
-                    event_meta,
-                    flow,
-                    state,
-                    self.settings.track_read_receipts,
-                )
-                .handle_event(kind);
-            }
-            EventItemIdentifier::EventId(event_id) => {
-                let kind = TimelineEventKind::Redaction { redacts: event_id, content };
-
-                TimelineEventHandler::new(
-                    event_meta,
-                    flow,
-                    state,
-                    self.settings.track_read_receipts,
-                )
-                .handle_event(kind);
-            }
-        }
+        state.handle_local_redaction(sender, profile, txn_id, to_redact, content, &self.settings);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
