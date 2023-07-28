@@ -880,7 +880,9 @@ impl Encryption {
         {
             let guard = lock.try_lock_once().await?;
             if guard.is_some() {
-                olm_machine.initialize_crypto_store_generation().await?;
+                olm_machine
+                    .initialize_crypto_store_generation(&self.client.inner.crypto_store_generation)
+                    .await?;
             }
         }
 
@@ -899,7 +901,10 @@ impl Encryption {
         let olm_machine_guard = self.client.olm_machine().await;
         if let Some(olm_machine) = olm_machine_guard.as_ref() {
             // If the crypto store generation has changed,
-            if olm_machine.maintain_crypto_store_generation().await? {
+            if olm_machine
+                .maintain_crypto_store_generation(&self.client.inner.crypto_store_generation)
+                .await?
+            {
                 // (get rid of the reference to the current crypto store first)
                 drop(olm_machine_guard);
                 // Recreate the OlmMachine.
