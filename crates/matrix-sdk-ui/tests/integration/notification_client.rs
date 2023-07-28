@@ -6,7 +6,7 @@ use matrix_sdk_ui::notification_client::{NotificationClient, NotificationEvent};
 use ruma::{event_id, events::TimelineEventType, room_id, user_id};
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
+    matchers::{header, method, path},
     Mock, Request, ResponseTemplate,
 };
 
@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[async_test]
-async fn test_notification_client_legacy() {
+async fn test_notification_client_with_context() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
 
@@ -52,38 +52,30 @@ async fn test_notification_client_legacy() {
     let notification_client = NotificationClient::builder(client).await.unwrap().build();
 
     {
-        // The notification client retrieves the event via `/rooms/*/event/`.
+        // The notification client retrieves the event via `/rooms/*/context/`.
         Mock::given(method("GET"))
-            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/event/{event_id}")))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(event_json))
-            .mount(&server)
-            .await;
-
-        // The sender's information is retrieved through the `/rooms/*/members`
-        // endpoint.
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
+            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id}")))
             .and(header("authorization", "Bearer 1234"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "chunk": [
-                {
-                    "content": {
-                        "avatar_url": "https://example.org/avatar.jpeg",
-                        "displayname": "John Mastodon",
-                        "membership": "join"
-                    },
-                    "room_id": room_id.clone(),
-                    "event_id": "$151800140517rfvjc:example.org",
-                    "membership": "join",
-                    "origin_server_ts": 151800140,
-                    "sender": sender.clone(),
-                    "state_key": sender,
-                    "type": "m.room.member",
-                    "unsigned": {
-                        "age": 2970366,
+                "event": event_json,
+                "state": [
+                    {
+                        "content": {
+                            "avatar_url": "https://example.org/avatar.jpeg",
+                            "displayname": "John Mastodon",
+                            "membership": "join"
+                        },
+                        "room_id": room_id.clone(),
+                        "event_id": "$151800140517rfvjc:example.org",
+                        "membership": "join",
+                        "origin_server_ts": 151800140,
+                        "sender": sender.clone(),
+                        "state_key": sender,
+                        "type": "m.room.member",
+                        "unsigned": {
+                            "age": 2970366,
+                        }
                     }
-                }
                 ]
             })))
             .mount(&server)
@@ -94,7 +86,7 @@ async fn test_notification_client_legacy() {
         mock_encryption_state(&server, false).await;
     }
 
-    let item = notification_client.legacy_get_notification(room_id, event_id).await.unwrap();
+    let item = notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
 
     server.reset().await;
 

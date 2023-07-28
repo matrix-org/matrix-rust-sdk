@@ -25,7 +25,10 @@ use ruma::{
         AccountDataConfig, RoomSubscription, SyncRequestListFilters,
     },
     assign,
-    events::{room::member::StrippedRoomMemberEvent, AnySyncTimelineEvent, StateEventType},
+    events::{
+        room::member::StrippedRoomMemberEvent, AnyFullStateEventContent, AnyStateEvent,
+        AnySyncTimelineEvent, FullStateEventContent, StateEventType,
+    },
     push::Action,
     serde::Raw,
     uint, EventId, OwnedEventId, RoomId, UserId,
@@ -68,6 +71,24 @@ impl NotificationClient {
     /// Create a new builder for a notification client.
     pub async fn builder(client: Client) -> Result<NotificationClientBuilder, Error> {
         NotificationClientBuilder::new(client).await
+    }
+
+    /// Fetches the content of a notification using a mix of different
+    /// strategies.
+    ///
+    /// This will first try to get the notification using a short-lived sliding
+    /// sync, and if the sliding-sync can't find the event, then it'll use a
+    /// /context query to find the event with associated member information.
+    pub async fn get_notification(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<NotificationItem>, Error> {
+        if let Some(found) = self.get_notification_with_sliding_sync(room_id, event_id).await? {
+            Ok(Some(found))
+        } else {
+            self.get_notification_with_context(room_id, event_id).await
+        }
     }
 
     /// Run an encryption sync loop, in case an event is still encrypted.
@@ -277,13 +298,6 @@ impl NotificationClient {
     ///
     /// This will run a small sliding sync to retrieve the content of the event,
     /// along with extra data to form a rich notification context.
-    ///
-    /// For this to work, this sliding sync must not interfere with other
-    /// sliding syncs running for the same client. If this is running in a
-    /// separate process, then the state store must be independent from
-    /// those used in other processes, at the risk of corrupting in-memory
-    /// caches. Ideally, an in-memory store could and should be used in that
-    /// context.
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -332,17 +346,35 @@ impl NotificationClient {
             }
         }
 
-        Ok(Some(NotificationItem::new(false, &room, &raw_event, push_actions.as_deref()).await?))
+        Ok(Some(
+            NotificationItem::new(&room, &raw_event, push_actions.as_deref(), Vec::new()).await?,
+        ))
     }
 
-    async fn handle_timeline_event(
+    /// Retrieve a notification using a /context query.
+    ///
+    /// This is for clients that are already running other sliding syncs in the
+    /// same process, so that most of the contextual information for the
+    /// notification should already be there. In particular, the room containing
+    /// the event MUST be known (via a sliding sync for invites, or another
+    /// sliding sync).
+    pub async fn get_notification_with_context(
         &self,
-        room: &Room,
-        mut timeline_event: TimelineEvent,
-        sync_members: bool,
+        room_id: &RoomId,
+        event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
+        tracing::info!("fetching notification event with a /context query");
+
+        // See above comment.
+        let Some(room) = self.parent_client.get_room(room_id) else {
+            return Err(Error::UnknownRoom);
+        };
+
+        let (mut timeline_event, state_events) =
+            room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
+
         if let Some(decrypted_event) =
-            self.maybe_retry_decryption(room, timeline_event.event.cast_ref()).await?
+            self.maybe_retry_decryption(&room, timeline_event.event.cast_ref()).await?
         {
             timeline_event = decrypted_event;
         }
@@ -358,60 +390,13 @@ impl NotificationClient {
 
         Ok(Some(
             NotificationItem::new(
-                sync_members,
-                room,
+                &room,
                 &RawNotificationEvent::Timeline(timeline_event.event.cast()),
                 timeline_event.push_actions.as_deref(),
+                state_events,
             )
             .await?,
         ))
-    }
-
-    /// Retrieve a notification using a /context query.
-    ///
-    /// This is for clients that are already running other sliding syncs in the
-    /// same process, so that most of the contextual information for the
-    /// notification should already be there.
-    pub async fn get_notification_with_context(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
-        tracing::info!("fetching notification event with a /context query");
-
-        // XXX Will this work for invites? A sliding sync may be running in the
-        // background, but it's unclear that it's fetched the invite event yet.
-        // bnjbvr thinks this is racy.
-        let Some(room) = self.parent_client.get_room(room_id) else {
-            return Err(Error::UnknownRoom);
-        };
-
-        let timeline_event =
-            room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
-
-        // No need to sync members, the /context query should have fetched the member.
-        self.handle_timeline_event(&room, timeline_event, false).await
-    }
-
-    /// Legacy implementation to retrieve the content of a notification.
-    ///
-    /// This doesn't work for invites, and may miss extra context that the
-    /// notification wants. It will likely be removed in subsequent commits.
-    pub async fn legacy_get_notification(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
-        tracing::info!("legacy attempt at fetching the notification");
-
-        // XXX This won't work for invites.
-        let Some(room) = self.parent_client.get_room(room_id) else {
-            return Err(Error::UnknownRoom);
-        };
-
-        let timeline_event = room.event(event_id).await?;
-
-        self.handle_timeline_event(&room, timeline_event, true).await
     }
 }
 
@@ -527,10 +512,10 @@ pub struct NotificationItem {
 
 impl NotificationItem {
     async fn new(
-        sync_members: bool,
         room: &Room,
         raw_event: &RawNotificationEvent,
         push_actions: Option<&[Action]>,
+        state_events: Vec<Raw<AnyStateEvent>>,
     ) -> Result<Self, Error> {
         let event = match raw_event {
             RawNotificationEvent::Timeline(raw_event) => NotificationEvent::Timeline(
@@ -543,22 +528,42 @@ impl NotificationItem {
 
         let sender = match room.state() {
             RoomState::Invited => room.invite_details().await?.inviter,
-            _ => {
-                if sync_members {
-                    room.get_member(event.sender()).await?
-                } else {
-                    room.get_member_no_sync(event.sender()).await?
-                }
-            }
+            _ => room.get_member_no_sync(event.sender()).await?,
         };
 
-        let (sender_display_name, sender_avatar_url) = match sender {
+        let (mut sender_display_name, mut sender_avatar_url) = match &sender {
             Some(sender) => (
                 sender.display_name().map(|s| s.to_owned()),
                 sender.avatar_url().map(|s| s.to_string()),
             ),
             None => (None, None),
         };
+
+        // XXX(bnjbvr): (remove before merging) Very manual processing here, but it's
+        // unclear if we should hold it in the state store.
+        if sender_display_name.is_none() || sender_avatar_url.is_none() {
+            let sender_id = event.sender();
+            for ev in state_events {
+                let Ok(ev) = ev.deserialize() else {
+                    continue;
+                };
+                if ev.sender() != sender_id {
+                    continue;
+                }
+                if let AnyFullStateEventContent::RoomMember(FullStateEventContent::Original {
+                    content,
+                    ..
+                }) = ev.content()
+                {
+                    if sender_display_name.is_none() {
+                        sender_display_name = content.displayname;
+                    }
+                    if sender_avatar_url.is_none() {
+                        sender_avatar_url = content.avatar_url.map(|url| url.to_string());
+                    }
+                }
+            }
+        }
 
         let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
 
