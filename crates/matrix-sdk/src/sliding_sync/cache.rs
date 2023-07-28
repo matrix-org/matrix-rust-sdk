@@ -199,7 +199,7 @@ pub(super) async fn restore_sliding_sync_state(
         }
 
         None => {
-            trace!("Failed to find the `SlidingSync` object in the cache");
+            trace!("No Sliding Sync object in the cache");
         }
     }
 
