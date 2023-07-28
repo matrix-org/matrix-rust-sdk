@@ -71,6 +71,8 @@ use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient,
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
+    #[cfg(feature = "experimental-sliding-sync")]
+    sliding_sync_proxy: Option<String>,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
@@ -85,6 +87,8 @@ impl ClientBuilder {
     pub(crate) fn new() -> Self {
         Self {
             homeserver_cfg: None,
+            #[cfg(feature = "experimental-sliding-sync")]
+            sliding_sync_proxy: None,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
@@ -103,6 +107,18 @@ impl ClientBuilder {
     /// last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
+        self
+    }
+
+    /// Set the sliding-sync proxy URL to use.
+    ///
+    /// This is used only if the homeserver URL was defined with
+    /// [`Self::homeserver_url`]. If the homeserver address was defined with
+    /// [`Self::server_name`], then auto-discovery via the `.well-known`
+    /// endpoint will be performed.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn sliding_sync_proxy(mut self, url: impl AsRef<str>) -> Self {
+        self.sliding_sync_proxy = Some(url.as_ref().to_owned());
         self
     }
 
@@ -383,7 +399,14 @@ impl ClientBuilder {
         let mut sliding_sync_proxy: Option<Url> = None;
 
         let homeserver = match homeserver_cfg {
-            HomeserverConfig::Url(url) => url,
+            HomeserverConfig::Url(url) => {
+                #[cfg(feature = "experimental-sliding-sync")]
+                {
+                    sliding_sync_proxy =
+                        self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
+                }
+                url
+            }
             HomeserverConfig::ServerName { server: server_name, protocol } => {
                 debug!("Trying to discover the homeserver");
 
