@@ -7,6 +7,7 @@
 #![allow(unused_qualifications)]
 
 mod backup_recovery_key;
+mod dehydrated_devices;
 mod device;
 mod error;
 mod logger;
