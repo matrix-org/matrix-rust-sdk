@@ -18,11 +18,14 @@ use eyeball_im::ObservableVector;
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
 use ruma::{
-    events::receipt::{Receipt, ReceiptType},
+    events::{
+        receipt::{Receipt, ReceiptType},
+        relation::Annotation,
+    },
     push::Action,
-    OwnedEventId, OwnedUserId, RoomVersionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{ReactionState, TimelineInnerSettings};
 use crate::{
@@ -32,9 +35,12 @@ use crate::{
             update_read_marker, Flow, HandleEventResult, TimelineEventHandler, TimelineEventKind,
             TimelineEventMetadata, TimelineItemPosition,
         },
-        reactions::Reactions,
+        event_item::EventItemIdentifier,
+        item::timeline_item,
+        reactions::{ReactionToggleResult, Reactions},
+        rfind_event_item,
         traits::RoomDataProvider,
-        AnnotationKey, TimelineItem,
+        AnnotationKey, Error as TimelineError, ReactionSenderData, TimelineItem,
     },
 };
 
@@ -207,5 +213,102 @@ impl TimelineInnerState {
             self.fully_read_event.as_deref(),
             &mut self.event_should_update_fully_read_marker,
         );
+    }
+
+    pub(super) fn update_timeline_reaction(
+        &mut self,
+        own_user_id: &UserId,
+        annotation: &Annotation,
+        result: &ReactionToggleResult,
+    ) -> Result<(), TimelineError> {
+        if matches!(result, ReactionToggleResult::RedactSuccess) {
+            // We did a successful redaction, so no need to update the item
+            // because the reaction is already gone.
+            return Ok(());
+        }
+
+        let (remote_echo_to_add, local_echo_to_remove) = match result {
+            ReactionToggleResult::AddSuccess { event_id, txn_id } => (Some(event_id), Some(txn_id)),
+            ReactionToggleResult::AddFailure { txn_id } => (None, Some(txn_id)),
+            ReactionToggleResult::RedactSuccess => (None, None),
+            ReactionToggleResult::RedactFailure { event_id } => (Some(event_id), None),
+        };
+
+        let related = rfind_event_item(&self.items, |it| {
+            it.event_id().is_some_and(|it| it == annotation.event_id)
+        });
+
+        let Some((idx, related)) = related else {
+            // Event isn't found at all.
+            warn!("Timeline item not found, can't update reaction ID");
+            return Err(TimelineError::FailedToToggleReaction);
+        };
+        let Some(remote_related) = related.as_remote() else {
+            error!("inconsistent state: reaction received on a non-remote event item");
+            return Err(TimelineError::FailedToToggleReaction);
+        };
+        // Note: remote event is not synced yet, so we're adding an item
+        // with the local timestamp.
+        let reaction_sender_data = ReactionSenderData {
+            sender_id: own_user_id.to_owned(),
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+        };
+
+        let new_reactions = {
+            let mut reactions = remote_related.reactions.clone();
+            let reaction_group = reactions.entry(annotation.key.clone()).or_default();
+
+            // Remove the local echo from the related event.
+            if let Some(txn_id) = local_echo_to_remove {
+                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                if reaction_group.0.remove(&id).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
+                     find matching reaction in the related event's reactions"
+                    );
+                }
+            }
+
+            // Add the remote echo to the related event
+            if let Some(event_id) = remote_echo_to_add {
+                reaction_group.0.insert(
+                    EventItemIdentifier::EventId(event_id.clone()),
+                    reaction_sender_data.clone(),
+                );
+            };
+
+            if reaction_group.0.is_empty() {
+                reactions.remove(&annotation.key);
+            }
+
+            reactions
+        };
+        let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
+
+        // Update the reactions stored in the timeline state
+        {
+            // Remove the local echo from reaction_map
+            // (should the local echo already be up-to-date after event handling?)
+            if let Some(txn_id) = local_echo_to_remove {
+                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                if self.reactions.map.remove(&id).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
+                     find matching reaction in the reaction map"
+                    );
+                }
+            }
+            // Add the remote echo to the reaction_map
+            if let Some(event_id) = remote_echo_to_add {
+                self.reactions.map.insert(
+                    EventItemIdentifier::EventId(event_id.clone()),
+                    (reaction_sender_data, annotation.clone()),
+                );
+            }
+        }
+
+        self.items.set(idx, timeline_item(new_related, related.internal_id));
+
+        Ok(())
     }
 }
