@@ -48,17 +48,14 @@ use super::{
         EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
         RemoteEventTimelineItem,
     },
-    find_read_marker,
     item::timeline_item,
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
-    ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
-    TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
+    util::{find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date},
+    EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
+    Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    timeline::{timestamp_to_date, InReplyToDetails},
-};
+use crate::events::SyncTimelineEventWithoutContent;
 
 #[derive(Clone)]
 pub(super) enum Flow {

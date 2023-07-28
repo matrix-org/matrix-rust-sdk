@@ -16,10 +16,9 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{ops::Deref, pin::Pin, sync::Arc, task::Poll, time::Duration};
+use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
-use chrono::{Datelike, Local, TimeZone};
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -44,7 +43,7 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -66,6 +65,7 @@ mod tests;
 #[cfg(feature = "e2e-encryption")]
 mod to_device;
 mod traits;
+mod util;
 mod virtual_item;
 
 pub use self::{
@@ -85,10 +85,10 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    event_item::EventTimelineItemKind,
     inner::{ReactionAction, TimelineInner, TimelineInnerState},
     queue::LocalMessage,
     reactions::ReactionToggleResult,
+    util::rfind_event_by_id,
 };
 
 /// The default sanitizer mode used when sanitizing HTML.
@@ -692,57 +692,6 @@ impl<S: Stream> Stream for TimelineStream<S> {
     }
 }
 
-struct EventTimelineItemWithId<'a> {
-    inner: &'a EventTimelineItem,
-    internal_id: u64,
-}
-
-impl<'a> EventTimelineItemWithId<'a> {
-    fn with_inner_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Arc<TimelineItem> {
-        Arc::new(TimelineItem {
-            kind: self.inner.with_kind(kind).into(),
-            internal_id: self.internal_id,
-        })
-    }
-}
-
-impl Deref for EventTimelineItemWithId<'_> {
-    type Target = EventTimelineItem;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner
-    }
-}
-
-// FIXME: Put an upper bound on timeline size or add a separate map to look up
-// the index of a timeline item by its key, to avoid large linear scans.
-fn rfind_event_item(
-    items: &Vector<Arc<TimelineItem>>,
-    mut f: impl FnMut(&EventTimelineItem) -> bool,
-) -> Option<(usize, EventTimelineItemWithId<'_>)> {
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, item)| {
-            Some((
-                idx,
-                EventTimelineItemWithId { inner: item.as_event()?, internal_id: item.internal_id },
-            ))
-        })
-        .rfind(|(_, it)| f(it.inner))
-}
-
-fn rfind_event_by_id<'a>(
-    items: &'a Vector<Arc<TimelineItem>>,
-    event_id: &EventId,
-) -> Option<(usize, EventTimelineItemWithId<'a>)> {
-    rfind_event_item(items, |it| it.event_id() == Some(event_id))
-}
-
-fn find_read_marker(items: &Vector<Arc<TimelineItem>>) -> Option<usize> {
-    items.iter().rposition(|item| item.is_read_marker())
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackPaginationStatus {
     Idle,
@@ -789,54 +738,4 @@ pub enum Error {
     /// Could not get user
     #[error("User ID is not available")]
     UserIdNotAvailable,
-}
-
-/// Result of comparing events position in the timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RelativePosition {
-    /// Event B is after (more recent than) event A.
-    After,
-    /// They are the same event.
-    Same,
-    /// Event B is before (older than) event A.
-    Before,
-}
-
-fn compare_events_positions(
-    event_a: &EventId,
-    event_b: &EventId,
-    timeline_items: &Vector<Arc<TimelineItem>>,
-) -> Option<RelativePosition> {
-    if event_a == event_b {
-        return Some(RelativePosition::Same);
-    }
-
-    let (pos_event_a, _) = rfind_event_by_id(timeline_items, event_a)?;
-    let (pos_event_b, _) = rfind_event_by_id(timeline_items, event_b)?;
-
-    if pos_event_a > pos_event_b {
-        Some(RelativePosition::Before)
-    } else {
-        Some(RelativePosition::After)
-    }
-}
-
-#[derive(PartialEq)]
-struct Date {
-    year: i32,
-    month: u32,
-    day: u32,
-}
-
-/// Converts a timestamp since Unix Epoch to a year, month and day.
-fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
-    let datetime = Local
-        .timestamp_millis_opt(ts.0.into())
-        // Only returns `None` if date is after Dec 31, 262143 BCE.
-        .single()
-        // Fallback to the current date to avoid issues with malicious
-        // homeservers.
-        .unwrap_or_else(Local::now);
-
-    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
 }

@@ -53,16 +53,14 @@ use tracing::{field, info_span, Instrument as _};
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
 use super::{
-    compare_events_positions,
     event_handler::{HandleEventResult, TimelineItemPosition},
     event_item::EventItemIdentifier,
     item::timeline_item,
     reactions::ReactionToggleResult,
-    rfind_event_by_id, rfind_event_item,
     traits::RoomDataProvider,
+    util::{compare_events_positions, rfind_event_by_id, rfind_event_item, RelativePosition},
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
-    RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
-    TimelineItemKind,
+    RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 
 mod state;
