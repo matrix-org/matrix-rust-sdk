@@ -202,7 +202,8 @@ impl GroupSessionManager {
         content: Value,
         event_type: &str,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
-        let session = self.sessions.get(room_id).expect("Session wasn't created nor shared");
+        let session =
+            self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
 
