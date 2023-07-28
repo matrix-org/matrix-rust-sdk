@@ -508,8 +508,7 @@ impl Store {
         self.save_changes(changes).await
     }
 
-    #[cfg(test)]
-    /// Testing helper to allow to save only a set of InboundGroupSession
+    /// Convenience helper to persist an array of [`InboundGroupSession`]s.
     pub(crate) async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],

@@ -19,7 +19,7 @@ default = []
 automatic-room-key-forwarding = []
 js = ["ruma/js", "vodozemac/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
-backups_v1 = ["dep:bs58", "dep:cbc", "dep:hkdf"]
+backups_v1 = ["dep:bs58", "dep:cbc"]
 message-ids = ["dep:ulid"]
 experimental-algorithms = []
 
@@ -41,7 +41,7 @@ dashmap = { workspace = true }
 eyeball = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-hkdf = { version = "0.12.3", optional = true }
+hkdf = "0.12.3"
 hmac = "0.12.1"
 http = { workspace = true, optional = true } # feature = testing only
 itertools = { workspace = true }
@@ -50,7 +50,7 @@ matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
 rmp-serde = "1.1.1"
-ruma = { workspace = true, features = ["rand", "canonical-json"] }
+ruma = { workspace = true, features = ["rand", "canonical-json", "unstable-msc3814"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 sha2 = "0.10.2"
