@@ -24,9 +24,12 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{
-    compare_events_positions, event_item::EventTimelineItemKind, inner::TimelineInnerState,
-    item::timeline_item, rfind_event_by_id, traits::RoomDataProvider, EventTimelineItem,
-    RelativePosition, TimelineItem,
+    event_item::EventTimelineItemKind,
+    inner::TimelineInnerState,
+    item::timeline_item,
+    traits::RoomDataProvider,
+    util::{compare_events_positions, rfind_event_by_id, RelativePosition},
+    EventTimelineItem, TimelineItem,
 };
 
 struct FullReceipt<'a> {
