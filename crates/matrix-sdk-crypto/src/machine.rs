@@ -129,18 +129,6 @@ pub struct OlmMachineInner {
     /// A state machine that handles creating room key backups.
     #[cfg(feature = "backups_v1")]
     backup_machine: BackupMachine,
-    /// Latest "generation" of data known by the crypto store.
-    ///
-    /// This is a counter that only increments, set in the database (and can
-    /// wrap). It's incremented whenever some process acquires a lock for the
-    /// first time. *This assumes the crypto store lock is being held, to
-    /// avoid data races on writing to this value in the store*.
-    ///
-    /// The current process will maintain this value in local memory and in the
-    /// DB over time. Observing a different value than the one read in
-    /// memory, when reading from the store indicates that somebody else has
-    /// written into the database under our feet.
-    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -226,7 +214,6 @@ impl OlmMachine {
             identity_manager,
             #[cfg(feature = "backups_v1")]
             backup_machine,
-            crypto_store_generation: Arc::new(Mutex::new(None)),
         });
 
         Self { inner }
@@ -1782,10 +1769,13 @@ impl OlmMachine {
     /// Syncs the database and in-memory generation counter.
     ///
     /// This requires that the crypto store lock has been acquired already.
-    pub async fn initialize_crypto_store_generation(&self) -> StoreResult<()> {
+    pub async fn initialize_crypto_store_generation(
+        &self,
+        generation: &Mutex<Option<u64>>,
+    ) -> StoreResult<()> {
         // Avoid reentrant initialization by taking the lock for the entire's function
         // scope.
-        let mut gen_guard = self.inner.crypto_store_generation.lock().await;
+        let mut gen_guard = generation.lock().await;
 
         let prev_generation =
             self.inner.store.get_custom_value(Self::CURRENT_GENERATION_STORE_KEY).await?;
@@ -1823,8 +1813,11 @@ impl OlmMachine {
     /// - This assumes that `initialize_crypto_store_generation` has been called
     /// beforehand.
     /// - This requires that the crypto store lock has been acquired.
-    pub async fn maintain_crypto_store_generation(&self) -> StoreResult<bool> {
-        let mut gen_guard = self.inner.crypto_store_generation.lock().await;
+    pub async fn maintain_crypto_store_generation(
+        &self,
+        generation: &Mutex<Option<u64>>,
+    ) -> StoreResult<bool> {
+        let mut gen_guard = generation.lock().await;
 
         // The database value must be there:
         // - either we could initialize beforehand, thus write into the database,
