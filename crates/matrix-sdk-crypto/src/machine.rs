@@ -25,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     api::client::{
+        dehydrated_device::DehydratedDeviceData,
         keys::{
             claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::v3::Response as KeysQueryResponse,
@@ -56,6 +57,7 @@ use vodozemac::{
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
 use crate::{
+    dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
@@ -158,6 +160,26 @@ impl OlmMachine {
         OlmMachine::with_store(user_id, device_id, MemoryStore::new())
             .await
             .expect("Reading and writing to the memory store always succeeds")
+    }
+
+    pub(crate) async fn rehydrate(
+        &self,
+        pickle_key: &[u8; 32],
+        device_id: &DeviceId,
+        device_data: Raw<DehydratedDeviceData>,
+    ) -> Result<OlmMachine, DehydrationError> {
+        let account =
+            ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+
+        let store = MemoryStore::new().into_crypto_store();
+
+        Ok(Self::new_helper(
+            self.user_id(),
+            self.device_id(),
+            store,
+            account,
+            self.store().private_identity(),
+        ))
     }
 
     fn new_helper(
@@ -1884,6 +1906,11 @@ impl OlmMachine {
         Ok(true)
     }
 
+    /// Manage dehydrated devices.
+    pub fn dehydrated_devices(&self) -> DehydratedDevices {
+        DehydratedDevices { inner: self.to_owned() }
+    }
+
     #[cfg(any(feature = "testing", test))]
     /// Returns whether this `OlmMachine` is the same another one.
     ///
@@ -2022,7 +2049,7 @@ pub(crate) mod tests {
             .expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(
+    pub fn to_device_requests_to_content(
         requests: Vec<Arc<ToDeviceRequest>>,
     ) -> ToDeviceEncryptedEventContent {
         let to_device_request = &requests[0];
@@ -2335,7 +2362,7 @@ pub(crate) mod tests {
         assert!(user_sessions.contains_key(alice_device));
     }
 
-    async fn create_session(
+    pub async fn create_session(
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,

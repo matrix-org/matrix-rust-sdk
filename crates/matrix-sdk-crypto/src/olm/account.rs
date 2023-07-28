@@ -23,17 +23,23 @@ use std::{
 };
 
 use ruma::{
-    api::client::keys::{
-        upload_keys,
-        upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+    api::client::{
+        dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV1},
+        keys::{
+            upload_keys,
+            upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+        },
     },
     events::AnyToDeviceEvent,
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue as RawJsonValue, Value};
+use serde::{de::Error, Deserialize, Serialize};
+use serde_json::{
+    value::{to_raw_value, RawValue as RawJsonValue},
+    Value,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
@@ -52,6 +58,7 @@ use super::{
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
+    dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
@@ -826,6 +833,36 @@ impl ReadOnlyAccount {
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.creation_local_time,
+        }
+    }
+
+    pub(crate) async fn dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
+        let device_pickle =
+            self.inner.lock().await.to_libolm_pickle(pickle_key).expect(
+                "We should be able to convert a freshly created Account into a libolm pickle",
+            );
+
+        let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
+        Raw::from_json(to_raw_value(&data).expect("Coulnd't our dehydrated device data"))
+    }
+
+    pub(crate) async fn rehydrate(
+        pickle_key: &[u8; 32],
+        user_id: &UserId,
+        device_id: &DeviceId,
+        device_data: Raw<DehydratedDeviceData>,
+    ) -> Result<Self, DehydrationError> {
+        let data = device_data.deserialize()?;
+
+        match data {
+            DehydratedDeviceData::V1(d) => {
+                let account = InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key)?;
+                Ok(Self::new_helper(account, user_id, device_id))
+            }
+            _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
+                "Unsupported dehydrated device algorithm {:?}",
+                data.algorithm()
+            )))),
         }
     }
 

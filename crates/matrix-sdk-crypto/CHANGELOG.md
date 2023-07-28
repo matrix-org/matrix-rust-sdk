@@ -1,5 +1,7 @@
 # unreleased
 
+- Add initial support for MSC3814 - dehydrated devices.
+
 - Mark our `OwnUserIdentity` as verified if we successfully import the matching
   private keys.
 

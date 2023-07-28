@@ -34,8 +34,8 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = ["alloc"] }
 http = "0.2.6"
 itertools = "0.11.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "8b4ece2b0fa31be21eb1273a6e6bf32e09909480", features = ["client-api-c", "compat-upload-signatures", "compat-user-id"] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "8b4ece2b0fa31be21eb1273a6e6bf32e09909480" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "f1772ae5bc1d849655498f51b0fec7b0ef10e339", features = ["client-api-c", "compat-upload-signatures", "compat-user-id"] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "f1772ae5bc1d849655498f51b0fec7b0ef10e339" }
 once_cell = "1.16.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
@@ -46,7 +46,7 @@ tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-core = "0.1.30"
 uniffi = { git = "https://github.com/Hywan/uniffi-rs", rev = "9e2ffac3e6c8dbad4dcd9c6339069ef31ef87a7b" }
 uniffi_bindgen = { git = "https://github.com/Hywan/uniffi-rs", rev = "9e2ffac3e6c8dbad4dcd9c6339069ef31ef87a7b" }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "cedc9a08fdd8d0931ea778acf68c619a8298ee70" }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "e3b658526f6f1dd0a9065c1c96346b796712c425" }
 zeroize = "1.6.0"
 
 # Default release profile, select with `--release`
