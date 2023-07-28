@@ -75,7 +75,7 @@ pub(super) enum Flow {
 }
 
 #[derive(Clone)]
-pub(super) struct TimelineEventMetadata {
+pub(super) struct TimelineEventContext {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
@@ -212,7 +212,7 @@ pub(super) struct HandleEventResult {
 // timeline item, transforming that item or creating a new one, updating the
 // reactive Vec).
 pub(super) struct TimelineEventHandler<'a> {
-    meta: TimelineEventMetadata,
+    ctx: TimelineEventContext,
     flow: Flow,
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
     next_internal_id: &'a mut u64,
@@ -243,13 +243,13 @@ macro_rules! update_timeline_item {
 
 impl<'a> TimelineEventHandler<'a> {
     pub(super) fn new(
-        event_meta: TimelineEventMetadata,
+        ctx: TimelineEventContext,
         flow: Flow,
         state: &'a mut TimelineInnerState,
         track_read_receipts: bool,
     ) -> Self {
         Self {
-            meta: event_meta,
+            ctx,
             flow,
             items: &mut state.items,
             next_internal_id: &mut state.next_internal_id,
@@ -381,9 +381,9 @@ impl<'a> TimelineEventHandler<'a> {
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         update_timeline_item!(self, &replacement.event_id, "edit", |event_item| {
-            if self.meta.sender != event_item.sender() {
+            if self.ctx.sender != event_item.sender() {
                 info!(
-                    original_sender = ?event_item.sender(), edit_sender = ?self.meta.sender,
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
                     "Edit event applies to another user's timeline item, discarding"
                 );
                 return None;
@@ -477,8 +477,8 @@ impl<'a> TimelineEventHandler<'a> {
                 reaction_group.0.insert(
                     reaction_id.clone(),
                     ReactionSenderData {
-                        sender_id: self.meta.sender.clone(),
-                        timestamp: self.meta.timestamp,
+                        sender_id: self.ctx.sender.clone(),
+                        timestamp: self.ctx.timestamp,
                     },
                 );
 
@@ -512,8 +512,8 @@ impl<'a> TimelineEventHandler<'a> {
             }
         }
         let reaction_sender_data = ReactionSenderData {
-            sender_id: self.meta.sender.clone(),
-            timestamp: self.meta.timestamp,
+            sender_id: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
         };
         self.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
@@ -669,9 +669,9 @@ impl<'a> TimelineEventHandler<'a> {
 
         self.result.item_added = true;
 
-        let sender = self.meta.sender.to_owned();
-        let sender_profile = TimelineDetails::from_initial_value(self.meta.sender_profile.clone());
-        let timestamp = self.meta.timestamp;
+        let sender = self.ctx.sender.to_owned();
+        let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
+        let timestamp = self.ctx.timestamp;
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.flow {
@@ -707,10 +707,10 @@ impl<'a> TimelineEventHandler<'a> {
                 RemoteEventTimelineItem {
                     event_id: event_id.clone(),
                     reactions,
-                    read_receipts: self.meta.read_receipts.clone(),
-                    is_own: self.meta.is_own_event,
-                    is_highlighted: self.meta.is_highlighted,
-                    encryption_info: self.meta.encryption_info.clone(),
+                    read_receipts: self.ctx.read_receipts.clone(),
+                    is_own: self.ctx.is_own_event,
+                    is_highlighted: self.ctx.is_highlighted,
+                    encryption_info: self.ctx.encryption_info.clone(),
                     original_json: raw_event.clone(),
                     latest_edit_json: None,
                     origin,
@@ -786,7 +786,7 @@ impl<'a> TimelineEventHandler<'a> {
                     maybe_add_implicit_read_receipt(
                         0,
                         &mut item,
-                        self.meta.is_own_event,
+                        self.ctx.is_own_event,
                         self.items,
                         self.users_read_receipts,
                     );
@@ -846,7 +846,7 @@ impl<'a> TimelineEventHandler<'a> {
                             maybe_add_implicit_read_receipt(
                                 idx,
                                 &mut item,
-                                self.meta.is_own_event,
+                                self.ctx.is_own_event,
                                 self.items,
                                 self.users_read_receipts,
                             );
@@ -968,7 +968,7 @@ impl<'a> TimelineEventHandler<'a> {
                     maybe_add_implicit_read_receipt(
                         insert_idx,
                         &mut item,
-                        self.meta.is_own_event,
+                        self.ctx.is_own_event,
                         self.items,
                         self.users_read_receipts,
                     );
