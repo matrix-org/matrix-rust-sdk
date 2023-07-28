@@ -2387,3 +2387,111 @@ impl Receipts {
             && self.private_read_receipt.is_none()
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_test::{
+        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+    };
+    use ruma::{device_id, user_id};
+    use wiremock::{
+        matchers::{header, method, path_regex},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use crate::{
+        config::RequestConfig,
+        matrix_auth::{Session, SessionTokens},
+        Client,
+    };
+
+    #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
+    #[async_test]
+    async fn test_cache_invalidation_while_encrypt() {
+        let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
+        let session = Session {
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        };
+
+        let client = Client::builder()
+            .homeserver_url("http://localhost:1234")
+            .request_config(RequestConfig::new().disable_retry())
+            .sqlite_store(&sqlite_path, None)
+            .build()
+            .await
+            .unwrap();
+        client.matrix_auth().restore_session(session.clone()).await.unwrap();
+
+        client.encryption().enable_cross_process_store_lock("client1".to_owned()).await.unwrap();
+
+        // Mock receiving an event to create an internal room.
+        let server = MockServer::start().await;
+        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
+        {
+            Mock::given(method("GET"))
+                .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
+                .and(header("authorization", "Bearer 1234"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+                )
+                .mount(&server)
+                .await;
+            let response = SyncResponseBuilder::default()
+                .add_joined_room(
+                    JoinedRoomBuilder::default()
+                        .add_state_event(StateTestEvent::Member)
+                        .add_state_event(StateTestEvent::PowerLevels)
+                        .add_state_event(StateTestEvent::Encryption),
+                )
+                .build_sync_response();
+            client.base_client().receive_sync_response(response).await.unwrap();
+        }
+
+        let room = client.get_room(room_id).expect("Room should exist");
+
+        // Step 1, preshare the room keys.
+        room.preshare_room_key().await.unwrap();
+
+        // Step 2, force lock invalidation by pretending another client obtained the
+        // lock.
+        {
+            let client = Client::builder()
+                .homeserver_url("http://localhost:1234")
+                .request_config(RequestConfig::new().disable_retry())
+                .sqlite_store(&sqlite_path, None)
+                .build()
+                .await
+                .unwrap();
+            client.matrix_auth().restore_session(session.clone()).await.unwrap();
+            client
+                .encryption()
+                .enable_cross_process_store_lock("client2".to_owned())
+                .await
+                .unwrap();
+
+            let guard = client.encryption().spin_lock_store(None).await.unwrap();
+            assert!(guard.is_some());
+        }
+
+        // Step 3, take the crypto-store lock.
+        let guard = client.encryption().spin_lock_store(None).await.unwrap();
+        assert!(guard.is_some());
+
+        // Step 4, try to encrypt a message.
+        let olm = client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        // Now pretend we're encrypting an event; the olm machine shouldn't rely on
+        // caching the outgoing session before.
+        let _encrypted_content = olm
+            .encrypt_room_event_raw(room.room_id(), serde_json::json!({}), "test-event")
+            .await
+            .unwrap();
+    }
+}
