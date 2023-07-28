@@ -50,7 +50,7 @@ use tokio::{
     select, spawn,
     sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
-use tracing::{debug, error, instrument, warn, Instrument, Span};
+use tracing::{debug, error, info, instrument, warn, Instrument, Span};
 use url::Url;
 use utils::JoinHandleExt as _;
 
@@ -483,6 +483,11 @@ impl SlidingSync {
         self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
     }
 
+    #[cfg(not(feature = "e2e-encryption"))]
+    fn is_e2ee_enabled(&self) -> bool {
+        false
+    }
+
     /// Should we process the room's subpart of a response?
     async fn must_process_rooms_response(&self) -> bool {
         // We consider that we must, if there's any room subscription or there's any
@@ -491,12 +496,12 @@ impl SlidingSync {
             || !self.inner.lists.read().await.is_empty()
     }
 
-    #[instrument(skip_all, fields(pos, conn_id = self.inner.id))]
+    #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, requested_room_unsubscriptions) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
-        debug!("Sending the sliding sync request");
+        debug!("Sending request");
 
         // Prepare the request.
         let request = self.inner.client.send_with_homeserver(
@@ -514,8 +519,6 @@ impl SlidingSync {
         #[cfg(feature = "e2e-encryption")]
         let response = {
             if self.is_e2ee_enabled() {
-                debug!("Sliding Sync is sending the request along with outgoing E2EE requests");
-
                 // Here, we need to run 2 things:
                 //
                 // 1. Send the sliding sync request and get a response,
@@ -556,21 +559,15 @@ impl SlidingSync {
 
                 response
             } else {
-                debug!("Sliding Sync is sending the request (e2ee not enabled in this instance)");
-
                 request.await?
             }
         };
 
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
-        let response = {
-            debug!("Sliding Sync is sending the request");
+        let response = request.await?;
 
-            request.await?
-        };
-
-        debug!("Sliding Sync response received");
+        debug!("Received response");
 
         // At this point, the request has been sent, and a response has been received.
         //
@@ -586,7 +583,7 @@ impl SlidingSync {
         // Spawn a new future to ensure that the code inside this future cannot be
         // cancelled if this method is cancelled.
         let future = async move {
-            debug!("Sliding Sync response handling starts");
+            debug!("Start handling response");
 
             // In case the task running this future is detached, we must
             // ensure responses are handled one at a time, hence we lock the
@@ -612,7 +609,7 @@ impl SlidingSync {
             // Release the lock.
             drop(response_handling_lock);
 
-            debug!("Sliding Sync response has been fully handled");
+            debug!("Done handling response");
 
             Ok(updates)
         };
@@ -629,9 +626,9 @@ impl SlidingSync {
     /// return `Err(…)`. An `Err` will _always_ lead to the `Stream`
     /// termination.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
-    #[instrument(name = "sync_stream", skip_all)]
+    #[instrument(name = "sync_stream", skip_all, fields(conn_id = self.inner.id, with_e2ee = self.is_e2ee_enabled()))]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
-        debug!(?self.inner.position, "About to run the sync-loop");
+        debug!("Starting sync stream");
 
         let sync_span = Span::current();
         let mut internal_channel_receiver = self.inner.internal_channel.subscribe();
@@ -639,7 +636,7 @@ impl SlidingSync {
         stream! {
             loop {
                 sync_span.in_scope(|| {
-                    debug!(?self.inner.position, "Sync-loop is running");
+                    debug!("Sync stream is running");
                 });
 
                 select! {
@@ -649,7 +646,7 @@ impl SlidingSync {
                         use SlidingSyncInternalMessage::*;
 
                         sync_span.in_scope(|| {
-                            debug!(?internal_message, "Sync-loop has received an internal message");
+                            debug!(?internal_message, "Sync stream has received an internal message");
                         });
 
                         match internal_message {
@@ -673,7 +670,7 @@ impl SlidingSync {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
                                     sync_span.in_scope(|| async {
-                                        warn!("Session expired; resetting `pos` and sticky parameters");
+                                        info!("Session expired; resetting `pos` and sticky parameters");
 
                                         {
                                             let mut position_lock = self.inner.position.write().unwrap();
@@ -697,7 +694,7 @@ impl SlidingSync {
                 }
             }
 
-            debug!("Sync-loop has exited.");
+            debug!("Sync stream has exited.");
         }
     }
 
