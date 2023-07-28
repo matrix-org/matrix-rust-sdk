@@ -119,12 +119,3 @@ pub(crate) fn timeline_item(
 ) -> Arc<TimelineItem> {
     Arc::new(TimelineItem { kind: kind.into(), internal_id })
 }
-
-pub(crate) fn new_timeline_item(
-    kind: impl Into<TimelineItemKind>,
-    next_internal_id: &mut u64,
-) -> Arc<TimelineItem> {
-    let internal_id = *next_internal_id;
-    *next_internal_id += 1;
-    timeline_item(kind, internal_id)
-}

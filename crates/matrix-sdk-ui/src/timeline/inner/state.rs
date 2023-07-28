@@ -41,16 +41,17 @@ use crate::{
         event_item::EventItemIdentifier,
         item::timeline_item,
         reactions::{ReactionToggleResult, Reactions},
-        rfind_event_item,
+        rfind_event_item, timestamp_to_date,
         traits::RoomDataProvider,
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
+        TimelineItemKind, VirtualTimelineItem,
     },
 };
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
-    pub next_internal_id: u64,
+    next_internal_id: u64,
     pub reactions: Reactions,
     pub fully_read_event: Option<OwnedEventId>,
     /// Whether the fully-read marker item should try to be updated when an
@@ -85,6 +86,27 @@ impl TimelineInnerState {
             in_flight_reaction: Default::default(),
             room_version,
         }
+    }
+
+    pub fn next_internal_id(&mut self) -> u64 {
+        let val = self.next_internal_id;
+        self.next_internal_id += 1;
+        val
+    }
+
+    pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
+        timeline_item(kind, self.next_internal_id())
+    }
+
+    /// Returns a new day divider item for the new timestamp if it is on a
+    /// different day than the old timestamp
+    pub fn maybe_create_day_divider_from_timestamps(
+        &mut self,
+        old_ts: MilliSecondsSinceUnixEpoch,
+        new_ts: MilliSecondsSinceUnixEpoch,
+    ) -> Option<Arc<TimelineItem>> {
+        (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
+            .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
     }
 
     pub async fn handle_sync_timeline<P: RoomDataProvider>(

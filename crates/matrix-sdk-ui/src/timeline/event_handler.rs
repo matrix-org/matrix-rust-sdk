@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::{ObservableVector, ObservableVectorEntry};
 use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
@@ -50,13 +49,16 @@ use super::{
         RemoteEventTimelineItem,
     },
     find_read_marker,
-    item::{new_timeline_item, timeline_item},
+    item::timeline_item,
     read_receipts::maybe_add_implicit_read_receipt,
     rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
     ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
     TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::{events::SyncTimelineEventWithoutContent, timeline::InReplyToDetails};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    timeline::{timestamp_to_date, InReplyToDetails},
+};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -713,26 +715,22 @@ impl<'a> TimelineEventHandler<'a> {
                 {
                     let old_ts = latest_event.timestamp();
 
-                    if let Some(day_divider_item) = maybe_create_day_divider_from_timestamps(
-                        old_ts,
-                        timestamp,
-                        &mut self.state.next_internal_id,
-                    ) {
+                    if let Some(day_divider_item) =
+                        self.state.maybe_create_day_divider_from_timestamps(old_ts, timestamp)
+                    {
                         trace!("Adding day divider (local)");
                         self.state.items.push_back(day_divider_item);
                     }
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider (local)");
-                    self.state.items.push_back(new_timeline_item(
-                        VirtualTimelineItem::DayDivider(timestamp),
-                        &mut self.state.next_internal_id,
-                    ));
+                    let day_divider =
+                        self.state.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp));
+                    self.state.items.push_back(day_divider);
                 }
 
-                self.state
-                    .items
-                    .push_back(new_timeline_item(item, &mut self.state.next_internal_id));
+                let item = self.state.new_timeline_item(item);
+                self.state.items.push_back(item);
             }
 
             Flow::Remote { position: TimelineItemPosition::Start, event_id, .. } => {
@@ -753,19 +751,16 @@ impl<'a> TimelineEventHandler<'a> {
                 if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
                     self.state.items.front().and_then(|item| item.as_virtual())
                 {
-                    if let Some(day_divider_item) = maybe_create_day_divider_from_timestamps(
-                        *divider_ts,
-                        timestamp,
-                        &mut self.state.next_internal_id,
-                    ) {
+                    if let Some(day_divider_item) =
+                        self.state.maybe_create_day_divider_from_timestamps(*divider_ts, timestamp)
+                    {
                         self.state.items.push_front(day_divider_item);
                     }
                 } else {
                     // The list must always start with a day divider.
-                    self.state.items.push_front(new_timeline_item(
-                        VirtualTimelineItem::DayDivider(timestamp),
-                        &mut self.state.next_internal_id,
-                    ));
+                    let day_divider =
+                        self.state.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp));
+                    self.state.items.push_front(day_divider);
                 }
 
                 if self.track_read_receipts {
@@ -778,9 +773,8 @@ impl<'a> TimelineEventHandler<'a> {
                     );
                 }
 
-                self.state
-                    .items
-                    .insert(1, new_timeline_item(item, &mut self.state.next_internal_id));
+                let item = self.state.new_timeline_item(item);
+                self.state.items.insert(1, item);
             }
 
             Flow::Remote {
@@ -921,11 +915,7 @@ impl<'a> TimelineEventHandler<'a> {
                             // If a day divider was removed for an item about to be moved and we
                             // now need to add a new one, reuse the previous one's ID.
                             Some(day_divider_id) => day_divider_id,
-                            None => {
-                                let internal_id = self.state.next_internal_id;
-                                self.state.next_internal_id += 1;
-                                internal_id
-                            }
+                            None => self.state.next_internal_id(),
                         };
 
                         let day_divider_item =
@@ -941,10 +931,8 @@ impl<'a> TimelineEventHandler<'a> {
                 } else {
                     // If there is no event item, there is no day divider yet.
                     trace!("Adding first day divider (remote)");
-                    let new_day_divider = new_timeline_item(
-                        VirtualTimelineItem::DayDivider(timestamp),
-                        &mut self.state.next_internal_id,
-                    );
+                    let new_day_divider =
+                        self.state.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp));
                     if should_push {
                         self.state.items.push_back(new_day_divider);
                     } else {
@@ -968,11 +956,7 @@ impl<'a> TimelineEventHandler<'a> {
                     // echo) was removed and we now need to add it again, reuse
                     // the previous item's ID.
                     Some(id) => id,
-                    None => {
-                        let internal_id = self.state.next_internal_id;
-                        self.state.next_internal_id += 1;
-                        internal_id
-                    }
+                    None => self.state.next_internal_id(),
                 };
 
                 trace!("Adding new remote timeline item after all non-pending events");
@@ -987,9 +971,8 @@ impl<'a> TimelineEventHandler<'a> {
             #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
-                self.state
-                    .items
-                    .set(*idx, new_timeline_item(item, &mut self.state.next_internal_id));
+                let item = self.state.new_timeline_item(item);
+                self.state.items.set(*idx, item);
             }
         }
 
@@ -1100,35 +1083,4 @@ fn _update_timeline_item(
     } else {
         debug!("Timeline item not found, discarding {action}");
     }
-}
-
-#[derive(PartialEq)]
-struct Date {
-    year: i32,
-    month: u32,
-    day: u32,
-}
-
-/// Converts a timestamp since Unix Epoch to a year, month and day.
-fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
-    let datetime = Local
-        .timestamp_millis_opt(ts.0.into())
-        // Only returns `None` if date is after Dec 31, 262143 BCE.
-        .single()
-        // Fallback to the current date to avoid issues with malicious
-        // homeservers.
-        .unwrap_or_else(Local::now);
-
-    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
-}
-
-/// Returns a new day divider item for the new timestamp if it is on a different
-/// day than the old timestamp
-fn maybe_create_day_divider_from_timestamps(
-    old_ts: MilliSecondsSinceUnixEpoch,
-    new_ts: MilliSecondsSinceUnixEpoch,
-    next_internal_id: &mut u64,
-) -> Option<Arc<TimelineItem>> {
-    (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
-        .then(|| new_timeline_item(VirtualTimelineItem::DayDivider(new_ts), next_internal_id))
 }
