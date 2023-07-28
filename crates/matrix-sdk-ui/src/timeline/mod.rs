@@ -100,7 +100,7 @@ const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    inner: TimelineInner<Room>,
+    inner: TimelineInner,
 
     start_token: Arc<Mutex<Option<String>>>,
     start_token_condvar: Arc<Condvar>,
