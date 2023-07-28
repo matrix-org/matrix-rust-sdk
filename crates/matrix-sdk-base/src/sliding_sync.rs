@@ -27,9 +27,7 @@ use ruma::{
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnyToDeviceEvent, serde::Raw};
-#[cfg(feature = "e2e-encryption")]
-use tracing::warn;
-use tracing::{debug, info, instrument};
+use tracing::{instrument, trace, warn};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -64,7 +62,7 @@ impl BaseClient {
 
         let to_device = to_device.as_ref().map(|v4| v4.events.clone()).unwrap_or_default();
 
-        info!(
+        trace!(
             to_device_events = to_device.len(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
             device_unused_fallback_key_types =
@@ -89,10 +87,10 @@ impl BaseClient {
             )
             .await?;
 
-        debug!("ready to submit changes to store");
+        trace!("ready to submit changes to store");
         self.store.save_changes(&changes).await?;
         self.apply_changes(&changes).await;
-        debug!("applied changes");
+        trace!("applied changes");
 
         Ok(to_device)
     }
@@ -117,7 +115,7 @@ impl BaseClient {
             ..
         } = response;
 
-        info!(rooms = rooms.len(), lists = lists.len(), extensions = !extensions.is_empty());
+        trace!(rooms = rooms.len(), lists = lists.len(), extensions = !extensions.is_empty());
 
         if rooms.is_empty() && extensions.is_empty() {
             // we received a room reshuffling event only, there won't be anything for us to
@@ -167,7 +165,7 @@ impl BaseClient {
                 Err(e) => {
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
                     #[rustfmt::skip]
-                    info!(
+                    warn!(
                         ?room_id, event_id,
                         "Failed to deserialize ephemeral room event: {e}"
                     );
@@ -195,11 +193,10 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
-        debug!("ready to submit changes to store");
-
+        trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
         self.apply_changes(&changes).await;
-        debug!("applied changes");
+        trace!("applied changes");
 
         Ok(SyncResponse {
             rooms: new_rooms,
