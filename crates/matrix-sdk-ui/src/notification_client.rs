@@ -229,6 +229,7 @@ impl NotificationClient {
                 ready(())
             });
 
+        // Room power levels are necessary to build the push context.
         let required_state = vec![
             (StateEventType::RoomAvatar, "".to_owned()),
             (StateEventType::RoomEncryption, "".to_owned()),
@@ -236,8 +237,7 @@ impl NotificationClient {
             (StateEventType::RoomMember, "$ME".to_owned()),
             (StateEventType::RoomCanonicalAlias, "".to_owned()),
             (StateEventType::RoomName, "".to_owned()),
-            (StateEventType::RoomPowerLevels, "".to_owned()), /* necessary to build the push
-                                                               * context */
+            (StateEventType::RoomPowerLevels, "".to_owned()),
         ];
 
         let invites = SlidingSyncList::builder("invites")
