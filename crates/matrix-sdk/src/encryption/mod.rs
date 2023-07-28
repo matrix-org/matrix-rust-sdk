@@ -1184,4 +1184,78 @@ mod tests {
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
         assert!(!initial_olm_machine.same_as(&olm_machine));
     }
+
+    #[cfg(feature = "sqlite")]
+    #[async_test]
+    async fn test_generation_counter_no_spurious_invalidation() {
+        // Create two clients using the same sqlite database.
+        let sqlite_path =
+            std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
+        let session = Session {
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        };
+
+        let client = Client::builder()
+            .homeserver_url("http://localhost:1234")
+            .request_config(RequestConfig::new().disable_retry())
+            .sqlite_store(&sqlite_path, None)
+            .build()
+            .await
+            .unwrap();
+        client.matrix_auth().restore_session(session.clone()).await.unwrap();
+
+        let initial_olm_machine = client.olm_machine().await.as_ref().unwrap().clone();
+
+        client.encryption().enable_cross_process_store_lock("client1".to_owned()).await.unwrap();
+
+        // Enabling the lock doesn't update the olm machine.
+        let after_enabling_lock = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(initial_olm_machine.same_as(&after_enabling_lock));
+
+        {
+            // Simulate that another client hold the lock before.
+            let client2 = Client::builder()
+                .homeserver_url("http://localhost:1234")
+                .request_config(RequestConfig::new().disable_retry())
+                .sqlite_store(sqlite_path, None)
+                .build()
+                .await
+                .unwrap();
+            client2.matrix_auth().restore_session(session).await.unwrap();
+
+            client2
+                .encryption()
+                .enable_cross_process_store_lock("client2".to_owned())
+                .await
+                .unwrap();
+
+            let guard = client2.encryption().spin_lock_store(None).await.unwrap();
+            assert!(guard.is_some());
+
+            drop(guard);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        {
+            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            assert!(acquired.is_some());
+        }
+
+        // Taking the lock the first time will update the olm machine.
+        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
+
+        {
+            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            assert!(acquired.is_some());
+        }
+
+        // Re-taking the lock doesn't update the olm machine.
+        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
+    }
 }
