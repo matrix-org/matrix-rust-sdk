@@ -5,6 +5,8 @@ use futures_util::{pin_mut, stream::StreamExt};
 use matrix_sdk::{Client, RoomListEntry, SlidingSyncBuilder, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 
+mod notification_client;
+
 async fn setup(
     name: String,
     use_sqlite_store: bool,

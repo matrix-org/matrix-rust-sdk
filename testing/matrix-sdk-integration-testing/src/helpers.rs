@@ -28,28 +28,25 @@ fn init_logging() {
         .init();
 }
 
-/// read the test configuration from the environment
-pub fn test_server_conf() -> (String, String) {
-    (
-        option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned(),
-        option_env!("HOMESERVER_DOMAIN").unwrap_or("matrix-sdk.rs").to_owned(),
-    )
-}
-
 pub async fn get_client_for_user(username: String, use_sqlite_store: bool) -> Result<Client> {
     let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
         return Ok(client.clone());
     }
 
-    let (homeserver_url, _domain_name) = test_server_conf();
+    let homeserver_url =
+        option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
+    let sliding_sync_proxy_url =
+        option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
 
     let tmp_dir = tempdir()?;
 
     let client_builder = Client::builder()
         .user_agent("matrix-sdk-integration-tests")
         .homeserver_url(homeserver_url)
+        .sliding_sync_proxy(sliding_sync_proxy_url)
         .request_config(RequestConfig::short_retry());
+
     let client = if use_sqlite_store {
         client_builder.sqlite_store(tmp_dir.path(), None).build().await?
     } else {
