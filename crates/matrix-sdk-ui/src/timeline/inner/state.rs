@@ -174,27 +174,23 @@ impl TimelineInnerState {
         };
 
         let is_own_event = sender == room_data_provider.own_user_id();
-        let encryption_info = event.encryption_info;
         let sender_profile = room_data_provider.profile(&sender).await;
-        let read_receipts = if settings.track_read_receipts {
-            self.load_read_receipts_for_event(&event_id, room_data_provider).await
-        } else {
-            Default::default()
-        };
-        let is_highlighted = event.push_actions.iter().any(Action::is_highlight);
         let ctx = TimelineEventContext {
             sender,
             sender_profile,
             timestamp,
             is_own_event,
-            encryption_info,
-            read_receipts,
-            is_highlighted,
+            encryption_info: event.encryption_info,
+            read_receipts: if settings.track_read_receipts {
+                self.load_read_receipts_for_event(&event_id, room_data_provider).await
+            } else {
+                Default::default()
+            },
+            is_highlighted: event.push_actions.iter().any(Action::is_highlight),
+            flow: Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add },
         };
-        let flow = Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add };
 
-        TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
-            .handle_event(event_kind)
+        TimelineEventHandler::new(self, ctx, settings.track_read_receipts).handle_event(event_kind)
     }
 
     /// Handle the creation of a new local event.
@@ -216,12 +212,11 @@ impl TimelineInnerState {
             read_receipts: Default::default(),
             // An event sent by ourself is never matched against push rules.
             is_highlighted: false,
+            flow: Flow::Local { txn_id },
         };
 
-        let flow = Flow::Local { txn_id };
-        let kind = TimelineEventKind::Message { content, relations: Default::default() };
-
-        TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts).handle_event(kind);
+        TimelineEventHandler::new(self, ctx, settings.track_read_receipts)
+            .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
     }
 
     /// Handle the local redaction of an event.
@@ -234,7 +229,6 @@ impl TimelineInnerState {
         content: RoomRedactionEventContent,
         settings: &TimelineInnerSettings,
     ) {
-        let flow = Flow::Local { txn_id: txn_id.clone() };
         let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
@@ -245,21 +239,21 @@ impl TimelineInnerState {
             read_receipts: Default::default(),
             // An event sent by ourself is never matched against push rules.
             is_highlighted: false,
+            flow: Flow::Local { txn_id: txn_id.clone() },
         };
+        let timeline_event_handler =
+            TimelineEventHandler::new(self, ctx, settings.track_read_receipts);
 
         match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
-                let kind =
-                    TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() };
-
-                TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
-                    .handle_event(kind);
+                timeline_event_handler.handle_event(TimelineEventKind::LocalRedaction {
+                    redacts: txn_id,
+                    content: content.clone(),
+                });
             }
             EventItemIdentifier::EventId(event_id) => {
-                let kind = TimelineEventKind::Redaction { redacts: event_id, content };
-
-                TimelineEventHandler::new(ctx, flow, self, settings.track_read_receipts)
-                    .handle_event(kind);
+                timeline_event_handler
+                    .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
             }
         }
     }

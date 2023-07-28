@@ -83,6 +83,7 @@ pub(super) struct TimelineEventContext {
     pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
+    pub(super) flow: Flow,
 }
 
 #[derive(Clone, Debug)]
@@ -213,7 +214,6 @@ pub(super) struct HandleEventResult {
 // reactive Vec).
 pub(super) struct TimelineEventHandler<'a> {
     ctx: TimelineEventContext,
-    flow: Flow,
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
     next_internal_id: &'a mut u64,
     reactions: &'a mut Reactions,
@@ -243,14 +243,12 @@ macro_rules! update_timeline_item {
 
 impl<'a> TimelineEventHandler<'a> {
     pub(super) fn new(
-        ctx: TimelineEventContext,
-        flow: Flow,
         state: &'a mut TimelineInnerState,
+        ctx: TimelineEventContext,
         track_read_receipts: bool,
     ) -> Self {
         Self {
             ctx,
-            flow,
             items: &mut state.items,
             next_internal_id: &mut state.next_internal_id,
             reactions: &mut state.reactions,
@@ -270,7 +268,7 @@ impl<'a> TimelineEventHandler<'a> {
     pub(super) fn handle_event(mut self, event_kind: TimelineEventKind) -> HandleEventResult {
         let span = tracing::Span::current();
 
-        let should_add = match &self.flow {
+        let should_add = match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
                 span.record("txn_id", debug(txn_id));
 
@@ -361,7 +359,8 @@ impl<'a> TimelineEventHandler<'a> {
             trace!("No new item added");
 
             #[cfg(feature = "e2e-encryption")]
-            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.flow {
+            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.ctx.flow
+            {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
@@ -426,7 +425,7 @@ impl<'a> TimelineEventHandler<'a> {
                 edited: true,
             });
 
-            let edit_json = match &self.flow {
+            let edit_json = match &self.ctx.flow {
                 Flow::Local { .. } => None,
                 Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
             };
@@ -440,7 +439,7 @@ impl<'a> TimelineEventHandler<'a> {
     #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
-        let (reaction_id, old_txn_id) = match &self.flow {
+        let (reaction_id, old_txn_id) = match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
                 (EventItemIdentifier::TransactionId(txn_id.clone()), None)
             }
@@ -501,7 +500,7 @@ impl<'a> TimelineEventHandler<'a> {
             pending.insert(reaction_event_id);
         }
 
-        if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.flow {
+        if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.ctx.flow {
             let id = EventItemIdentifier::TransactionId(txn_id.clone());
             // Remove the local echo from the reaction map.
             if self.reactions.map.remove(&id).is_none() {
@@ -674,7 +673,7 @@ impl<'a> TimelineEventHandler<'a> {
         let timestamp = self.ctx.timestamp;
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
-        let kind: EventTimelineItemKind = match &self.flow {
+        let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id } => {
                 let send_state = EventSendState::NotSentYet;
                 let transaction_id = txn_id.to_owned();
@@ -721,7 +720,7 @@ impl<'a> TimelineEventHandler<'a> {
 
         let mut item = EventTimelineItem::new(sender, sender_profile, timestamp, content, kind);
 
-        match &self.flow {
+        match &self.ctx.flow {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
@@ -1013,7 +1012,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn pending_reactions(&mut self) -> Option<BundledReactions> {
-        match &self.flow {
+        match &self.ctx.flow {
             Flow::Local { .. } => None,
             Flow::Remote { event_id, .. } => {
                 let reactions = self.reactions.pending.remove(event_id)?;
