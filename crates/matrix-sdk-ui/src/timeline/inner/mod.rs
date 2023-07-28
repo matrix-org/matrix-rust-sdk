@@ -56,7 +56,7 @@ use super::{
     compare_events_positions,
     event_handler::{HandleEventResult, TimelineItemPosition},
     event_item::EventItemIdentifier,
-    item::{new_timeline_item, timeline_item},
+    item::timeline_item,
     reactions::ReactionToggleResult,
     rfind_event_by_id, rfind_event_item,
     traits::RoomDataProvider,
@@ -1029,8 +1029,8 @@ async fn fetch_replied_to_event(
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
 
-    let state_ref = &mut *state;
-    state_ref.items.set(index, new_timeline_item(event_item, &mut state_ref.next_internal_id));
+    let new_timeline_item = state.new_timeline_item(event_item);
+    state.items.set(index, new_timeline_item);
 
     // Don't hold the state lock while the network request is made
     drop(state);

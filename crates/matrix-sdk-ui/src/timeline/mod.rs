@@ -19,6 +19,7 @@
 use std::{ops::Deref, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use async_std::sync::{Condvar, Mutex};
+use chrono::{Datelike, Local, TimeZone};
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -43,7 +44,7 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -818,4 +819,24 @@ fn compare_events_positions(
     } else {
         Some(RelativePosition::After)
     }
+}
+
+#[derive(PartialEq)]
+struct Date {
+    year: i32,
+    month: u32,
+    day: u32,
+}
+
+/// Converts a timestamp since Unix Epoch to a year, month and day.
+fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
+    let datetime = Local
+        .timestamp_millis_opt(ts.0.into())
+        // Only returns `None` if date is after Dec 31, 262143 BCE.
+        .single()
+        // Fallback to the current date to avoid issues with malicious
+        // homeservers.
+        .unwrap_or_else(Local::now);
+
+    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
 }
