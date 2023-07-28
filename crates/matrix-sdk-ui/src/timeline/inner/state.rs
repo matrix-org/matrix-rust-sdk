@@ -21,9 +21,12 @@ use ruma::{
     events::{
         receipt::{Receipt, ReceiptType},
         relation::Annotation,
+        room::redaction::RoomRedactionEventContent,
+        AnyMessageLikeEventContent,
     },
     push::Action,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    UserId,
 };
 use tracing::{debug, error, instrument, trace, warn};
 
@@ -40,7 +43,7 @@ use crate::{
         reactions::{ReactionToggleResult, Reactions},
         rfind_event_item,
         traits::RoomDataProvider,
-        AnnotationKey, Error as TimelineError, ReactionSenderData, TimelineItem,
+        AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
     },
 };
 
@@ -69,7 +72,10 @@ pub(in crate::timeline) struct TimelineInnerState {
 impl TimelineInnerState {
     pub(super) fn new(room_version: RoomVersionId) -> Self {
         Self {
-            items: Default::default(),
+            // Upstream default capacity is currently 16, which is making
+            // sliding-sync tests with 20 events lag. This should still be
+            // small enough.
+            items: ObservableVector::with_capacity(32),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             fully_read_event: Default::default(),
@@ -81,7 +87,6 @@ impl TimelineInnerState {
         }
     }
 
-    #[instrument(skip_all)]
     pub async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         timeline: Timeline,
@@ -190,6 +195,74 @@ impl TimelineInnerState {
 
         TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
             .handle_event(event_kind)
+    }
+
+    /// Handle the creation of a new local event.
+    pub(super) fn handle_local_event(
+        &mut self,
+        own_user_id: OwnedUserId,
+        own_profile: Option<Profile>,
+        txn_id: OwnedTransactionId,
+        content: AnyMessageLikeEventContent,
+        settings: &TimelineInnerSettings,
+    ) {
+        let event_meta = TimelineEventMetadata {
+            sender: own_user_id,
+            sender_profile: own_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            is_own_event: true,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+            read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
+        };
+
+        let flow = Flow::Local { txn_id };
+        let kind = TimelineEventKind::Message { content, relations: Default::default() };
+
+        TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+            .handle_event(kind);
+    }
+
+    /// Handle the local redaction of an event.
+    pub(super) fn handle_local_redaction(
+        &mut self,
+        own_user_id: OwnedUserId,
+        own_profile: Option<Profile>,
+        txn_id: OwnedTransactionId,
+        to_redact: EventItemIdentifier,
+        content: RoomRedactionEventContent,
+        settings: &TimelineInnerSettings,
+    ) {
+        let flow = Flow::Local { txn_id: txn_id.clone() };
+        let event_meta = TimelineEventMetadata {
+            sender: own_user_id,
+            sender_profile: own_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            is_own_event: true,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+            read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
+        };
+
+        match to_redact {
+            EventItemIdentifier::TransactionId(txn_id) => {
+                let kind =
+                    TimelineEventKind::LocalRedaction { redacts: txn_id, content: content.clone() };
+
+                TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+                    .handle_event(kind);
+            }
+            EventItemIdentifier::EventId(event_id) => {
+                let kind = TimelineEventKind::Redaction { redacts: event_id, content };
+
+                TimelineEventHandler::new(event_meta, flow, self, settings.track_read_receipts)
+                    .handle_event(kind);
+            }
+        }
     }
 
     pub(super) fn clear(&mut self) {
