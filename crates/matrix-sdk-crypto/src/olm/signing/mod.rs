@@ -745,7 +745,7 @@ mod tests {
 
     #[async_test]
     async fn private_identity_signed_by_account() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
@@ -768,7 +768,7 @@ mod tests {
 
     #[async_test]
     async fn sign_device() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let mut device = ReadOnlyDevice::from_account(&account).await;
@@ -785,10 +785,11 @@ mod tests {
 
     #[async_test]
     async fn sign_user_identity() {
-        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
-        let bob_account = ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("DEVICEID"));
+        let bob_account =
+            ReadOnlyAccount::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
         let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
         let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 

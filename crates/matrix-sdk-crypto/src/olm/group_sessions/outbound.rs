@@ -778,7 +778,8 @@ mod tests {
 
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
-        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+        let account =
+            ReadOnlyAccount::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"));
         let (session, _) = account
             .create_group_session_pair(room_id!("!test_room:example.org"), settings)
             .await

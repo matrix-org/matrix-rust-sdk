@@ -165,10 +165,9 @@ impl OlmMachine {
         device_id: &DeviceId,
         store: Arc<DynCryptoStore>,
         account: ReadOnlyAccount,
-        user_identity: PrivateCrossSigningIdentity,
+        user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
         let user_id: OwnedUserId = user_id.into();
-        let user_identity = Arc::new(Mutex::new(user_identity));
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
@@ -262,7 +261,7 @@ impl OlmMachine {
                 account
             }
             None => {
-                let account = ReadOnlyAccount::new(user_id, device_id);
+                let account = ReadOnlyAccount::with_device_id(user_id, device_id);
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -302,6 +301,8 @@ impl OlmMachine {
                 PrivateCrossSigningIdentity::empty(user_id)
             }
         };
+
+        let identity = Arc::new(Mutex::new(identity));
 
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }

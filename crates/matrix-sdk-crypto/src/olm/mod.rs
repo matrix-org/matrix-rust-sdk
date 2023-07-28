@@ -80,8 +80,8 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
@@ -100,7 +100,7 @@ pub(crate) mod tests {
 
     #[test]
     fn account_creation() {
-        let account = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let account = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
 
         assert!(!account.shared());
 
@@ -110,7 +110,10 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn one_time_keys_creation() {
-        let account = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let account = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let one_time_keys = account.one_time_keys().await;
+
+        assert!(!one_time_keys.is_empty());
         assert_ne!(account.max_one_time_keys().await, 0);
 
         account.generate_one_time_keys_helper(10).await;
@@ -127,8 +130,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn session_creation() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
         let alice_keys = alice.identity_keys();
         alice.generate_one_time_keys_helper(1).await;
         let one_time_keys = alice.one_time_keys().await;
@@ -165,7 +168,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn group_session_creation() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await;
@@ -201,7 +204,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn edit_decryption() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
@@ -260,7 +263,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn relates_to_decryption() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
@@ -332,7 +335,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn group_session_export() {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
