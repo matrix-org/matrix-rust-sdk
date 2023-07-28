@@ -276,7 +276,7 @@ impl Client {
             .olm_machine()
             .await
             .as_ref()
-            .ok_or(Error::AuthenticationRequired)?
+            .ok_or(Error::NoOlmMachine)?
             .get_missing_sessions(users)
             .await?
         {
@@ -431,7 +431,7 @@ impl Client {
             self.olm_machine()
                 .await
                 .as_ref()
-                .ok_or(Error::AuthenticationRequired)?
+                .ok_or(Error::NoOlmMachine)?
                 .outgoing_requests()
                 .await?,
         )
@@ -600,7 +600,7 @@ impl Encryption {
             .olm_machine()
             .await
             .as_ref()
-            .ok_or(Error::AuthenticationRequired)?
+            .ok_or(Error::NoOlmMachine)?
             .get_user_devices(user_id, None)
             .await?;
 
@@ -696,7 +696,7 @@ impl Encryption {
     /// # anyhow::Ok(()) };
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData>) -> Result<()> {
         let olm = self.client.olm_machine().await;
-        let olm = olm.as_ref().ok_or(Error::AuthenticationRequired)?;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
@@ -773,7 +773,7 @@ impl Encryption {
         predicate: impl FnMut(&matrix_sdk_base::crypto::olm::InboundGroupSession) -> bool,
     ) -> Result<()> {
         let olm = self.client.olm_machine().await;
-        let olm = olm.as_ref().ok_or(Error::AuthenticationRequired)?;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let keys = olm.export_room_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
@@ -868,7 +868,7 @@ impl Encryption {
         }
 
         let olm_machine = self.client.base_client().olm_machine().await;
-        let olm_machine = olm_machine.as_ref().ok_or(Error::AuthenticationRequired)?;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let lock =
             olm_machine.store().create_store_lock("cross_process_lock".to_owned(), lock_value);

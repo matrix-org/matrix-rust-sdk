@@ -25,6 +25,7 @@ eyeball-im = { workspace = true }
 eyeball-im-util = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
+fuzzy-matcher = "0.3.7"
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
@@ -40,6 +41,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
+unicode-normalization = "0.1.22"
 
 [dev-dependencies]
 anyhow = { workspace = true }

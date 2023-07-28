@@ -19,4 +19,8 @@ WeeChat = "WeeChat"
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
 # automatically ignored, we ignore them here.
-extend-exclude = ["*.json"]
+extend-exclude = [
+    "*.json",
+    # We are using some fuzzy match patterns that can be understood as typos confusingly.
+    "crates/matrix-sdk-ui/tests/integration/room_list_service.rs",
+]

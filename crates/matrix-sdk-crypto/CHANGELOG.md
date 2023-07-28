@@ -56,3 +56,6 @@
   This affects the `matrix_sdk_crypto::store::RecoveryKey` struct itself (now
   renamed to `BackupDecryptionKey`, as well as
   `BackupMachine::save_recovery_key` (now `save_decryption_key`).
+
+- Change the returned success value type of `BackupMachine::backup` from
+  `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.

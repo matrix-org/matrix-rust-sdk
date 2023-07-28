@@ -78,12 +78,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
 
 [[package]]
-name = "android_log-sys"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85965b6739a430150bdd138e2374a98af0c3ee0d030b3bb7fc3bddff58d0102e"
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1749,6 +1743,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2311,6 +2314,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "453ad9f582a441959e5f0d088b02ce04cfe8d51a8eaf077f12ac6d3e94164ca6"
 
 [[package]]
+name = "jni-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
+
+[[package]]
 name = "jpeg-decoder"
 version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2363,7 +2372,6 @@ checksum = "1d9a8bb6c7c71d151b25936b03e012a4c00daea99e3a3797c6ead66b0a0d55e2"
 dependencies = [
  "const_panic",
  "konst_kernel",
- "konst_proc_macros",
  "typewit",
 ]
 
@@ -2375,12 +2383,6 @@ checksum = "55d2ab266022e7309df89ed712bddc753e3a3c395c3ced1bb2e4470ec2a8146d"
 dependencies = [
  "typewit",
 ]
-
-[[package]]
-name = "konst_proc_macros"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e28ab1dc35e09d60c2b8c90d12a9a8d9666c876c10a3739a3196db0103b6043"
 
 [[package]]
 name = "kv-log-macro"
@@ -2743,6 +2745,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
+ "paranoid-android",
  "ruma",
  "sanitize-filename-reader-friendly",
  "serde_json",
@@ -2750,7 +2753,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-android",
  "tracing-core",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -2911,6 +2913,7 @@ dependencies = [
  "eyeball-im-util",
  "futures-core",
  "futures-util",
+ "fuzzy-matcher",
  "imbl",
  "indexmap 2.0.0",
  "itertools 0.11.0",
@@ -2929,6 +2932,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "wiremock",
 ]
 
@@ -3049,6 +3053,15 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "ndk-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e5a6ae77c8ee183dcbbba6150e2e6b9f3f4196a7666c02a715a95692ec1fa97"
+dependencies = [
+ "jni-sys",
 ]
 
 [[package]]
@@ -3361,6 +3374,20 @@ name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
+
+[[package]]
+name = "paranoid-android"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e736c9fbaf42b43459cd1fded3dd272968daadfcbc5660ee231a12899f092289"
+dependencies = [
+ "lazy_static",
+ "ndk-sys",
+ "sharded-slab",
+ "smallvec",
+ "tracing-core",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "parking"
@@ -4074,7 +4101,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.8.2"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "assign",
  "js_int",
@@ -4089,7 +4116,7 @@ dependencies = [
 [[package]]
 name = "ruma-appservice-api"
 version = "0.8.1"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4100,7 +4127,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.16.2"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "assign",
  "bytes",
@@ -4117,7 +4144,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.11.3"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "base64 0.21.2",
  "bytes",
@@ -4150,7 +4177,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.7.1"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -4161,7 +4188,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.1"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "js_int",
  "thiserror",
@@ -4170,7 +4197,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.11.3"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -4185,7 +4212,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.7.1"
-source = "git+https://github.com/csmith/ruma?rev=c3df9fd52c1d2383353f1b9d741e6729daf3942c#c3df9fd52c1d2383353f1b9d741e6729daf3942c"
+source = "git+https://github.com/ruma/ruma?rev=8b4ece2b0fa31be21eb1273a6e6bf32e09909480#8b4ece2b0fa31be21eb1273a6e6bf32e09909480"
 dependencies = [
  "js_int",
  "ruma-common",
@@ -5079,16 +5106,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-android"
-version = "0.2.0"
-source = "git+https://github.com/jmartinesp/tracing-android?rev=b9c0e89448dc93c5264721bbd41be64f1a84cded#b9c0e89448dc93c5264721bbd41be64f1a84cded"
-dependencies = [
- "android_log-sys",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

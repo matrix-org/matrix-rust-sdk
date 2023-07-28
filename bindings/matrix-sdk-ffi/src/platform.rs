@@ -1,13 +1,7 @@
 use std::collections::HashMap;
-#[cfg(not(target_os = "android"))]
-use std::io;
 
-#[cfg(target_os = "android")]
-use android as platform_impl;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_core::future::BoxFuture;
-#[cfg(target_os = "ios")]
-use ios as platform_impl;
 use opentelemetry::{
     sdk::{
         trace::{BatchMessage, TraceRuntime, Tracer},
@@ -17,12 +11,9 @@ use opentelemetry::{
     KeyValue,
 };
 use opentelemetry_otlp::{Protocol, WithExportConfig};
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-use other as platform_impl;
 use tokio::runtime::Handle;
-#[cfg(not(target_os = "android"))]
-use tracing_subscriber::fmt;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_core::Subscriber;
+use tracing_subscriber::{fmt, prelude::*, registry::LookupSpan, EnvFilter, Layer};
 
 use crate::RUNTIME;
 
@@ -95,139 +86,41 @@ pub fn create_otlp_tracer(
     Ok(tracer)
 }
 
-#[cfg(not(target_os = "android"))]
-fn setup_tracing_impl(configuration: String) {
-    let colors = !cfg!(target_os = "ios");
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            fmt::layer()
-                .with_file(true)
-                .with_line_number(true)
-                .with_ansi(colors)
-                .with_writer(io::stderr),
-        )
-        .init();
-}
-
 #[cfg(target_os = "android")]
-pub fn setup_tracing_impl(configuration: String) {
-    android::log_panics();
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            tracing_android::layer("org.matrix.rust.sdk")
-                .expect("Could not configure the Android tracing layer"),
-        )
-        .init();
+pub fn log_panics() {
+    std::env::set_var("RUST_BACKTRACE", "1");
+    log_panics::init();
 }
 
-#[cfg(not(target_os = "android"))]
-fn setup_otlp_tracing_helper(
-    configuration: String,
-    colors: bool,
-    client_name: String,
-    user: String,
-    password: String,
-    otlp_endpoint: String,
-) -> anyhow::Result<()> {
-    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)?;
-    let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
+fn fmt_layer<S>() -> impl Layer<S>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    #[cfg(not(target_os = "android"))]
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(!cfg!(target_os = "ios"))
+        .with_writer(std::io::stderr);
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(configuration))
-        .with(
-            fmt::layer()
-                .with_file(true)
-                .with_line_number(true)
-                .with_ansi(colors)
-                .with_writer(io::stderr),
-        )
-        .with(otlp_layer)
-        .init();
-
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-mod android {
-    use tracing_subscriber::{prelude::*, EnvFilter};
-
-    pub fn log_panics() {
-        std::env::set_var("RUST_BACKTRACE", "1");
-        log_panics::init();
-    }
-
-    pub fn setup_otlp_tracing(
-        configuration: String,
-        client_name: String,
-        user: String,
-        password: String,
-        otlp_endpoint: String,
-    ) -> anyhow::Result<()> {
-        log_panics();
-
-        let otlp_tracer = super::create_otlp_tracer(user, password, otlp_endpoint, client_name)?;
-        let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
-
-        tracing_subscriber::registry()
-            .with(EnvFilter::new(configuration))
-            .with(
-                tracing_android::layer("org.matrix.rust.sdk")
-                    .expect("Could not configure the Android tracing layer"),
-            )
-            .with(otlp_layer)
-            .init();
-
-        Ok(())
-    }
-}
-
-#[cfg(target_os = "ios")]
-mod ios {
-    pub fn setup_otlp_tracing(
-        configuration: String,
-        client_name: String,
-        user: String,
-        password: String,
-        otlp_endpoint: String,
-    ) -> anyhow::Result<()> {
-        super::setup_otlp_tracing_helper(
-            configuration,
-            false,
-            client_name,
-            user,
-            password,
-            otlp_endpoint,
-        )
-    }
-}
-
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-mod other {
-    pub fn setup_otlp_tracing(
-        configuration: String,
-        client_name: String,
-        user: String,
-        password: String,
-        otlp_endpoint: String,
-    ) -> anyhow::Result<()> {
-        super::setup_otlp_tracing_helper(
-            configuration,
-            true,
-            client_name,
-            user,
-            password,
-            otlp_endpoint,
-        )
-    }
+    #[cfg(target_os = "android")]
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false)
+        .with_level(false)
+        .without_time()
+        .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+            "org.matrix.rust.sdk".to_owned(),
+        ));
 }
 
 #[uniffi::export]
 pub fn setup_tracing(filter: String) {
-    setup_tracing_impl(filter)
+    #[cfg(target_os = "android")]
+    log_panics();
+
+    tracing_subscriber::registry().with(EnvFilter::new(filter)).with(fmt_layer()).init();
 }
 
 #[uniffi::export]
@@ -238,6 +131,16 @@ pub fn setup_otlp_tracing(
     password: String,
     otlp_endpoint: String,
 ) {
-    platform_impl::setup_otlp_tracing(filter, client_name, user, password, otlp_endpoint)
-        .expect("Couldn't configure the OpenTelemetry tracer")
+    #[cfg(target_os = "android")]
+    log_panics();
+
+    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)
+        .expect("Couldn't configure the OpenTelemetry tracer");
+    let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(filter))
+        .with(fmt_layer())
+        .with(otlp_layer)
+        .init();
 }

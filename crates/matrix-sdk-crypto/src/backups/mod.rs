@@ -420,20 +420,22 @@ impl BackupMachine {
 
     /// Encrypt a batch of room keys and return a request that needs to be sent
     /// out to backup the room keys.
-    pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
+    pub async fn backup(
+        &self,
+    ) -> Result<Option<(OwnedTransactionId, KeysBackupRequest)>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 
         if let Some(request) = &*request {
             trace!("Backing up, returning an existing request");
 
-            Ok(Some(request.clone().into()))
+            Ok(Some((request.request_id.clone(), request.request.clone())))
         } else {
             trace!("Backing up, creating a new request");
 
             let new_request = self.backup_helper().await?;
             *request = new_request.clone();
 
-            Ok(new_request.map(|r| r.into()))
+            Ok(new_request.map(|r| (r.request_id, r.request)))
         }
     }
 
@@ -607,15 +609,15 @@ mod tests {
 
         backup_machine.enable_backup_v1(backup_key).await?;
 
-        let request =
+        let (request_id, _) =
             backup_machine.backup().await?.expect("Created a backup request successfully");
         assert_eq!(
-            Some(&*request.request_id),
-            backup_machine.backup().await?.as_ref().map(|r| &*r.request_id),
+            Some(&request_id),
+            backup_machine.backup().await?.as_ref().map(|(request_id, _)| request_id),
             "Calling backup again without uploading creates the same backup request"
         );
 
-        backup_machine.mark_request_as_sent(&request.request_id).await?;
+        backup_machine.mark_request_as_sent(&request_id).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2);
