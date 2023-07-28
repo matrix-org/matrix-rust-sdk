@@ -62,6 +62,9 @@ pub struct NotificationClient {
     /// Should we try to filter out the notification event according to the push
     /// rules?
     filter_by_push_rules: bool,
+
+    /// A mutex to serialize requests to sliding sync.
+    sliding_sync_mutex: Mutex<()>,
 }
 
 impl NotificationClient {
@@ -177,6 +180,10 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<RawNotificationEvent>, Error> {
+        // Serialize all the calls to this method by taking a lock at the beginning,
+        // that will be dropped later.
+        let _guard = self.sliding_sync_mutex.lock().unwrap();
+
         // Set up a sliding sync that only subscribes to the room that had the
         // notification, so we can figure out the full event and associated
         // information.
@@ -456,6 +463,7 @@ impl NotificationClientBuilder {
             with_cross_process_lock: self.with_cross_process_lock,
             filter_by_push_rules: self.filter_by_push_rules,
             retry_decryption: self.retry_decryption,
+            sliding_sync_mutex: Mutex::new(()),
         }
     }
 }
