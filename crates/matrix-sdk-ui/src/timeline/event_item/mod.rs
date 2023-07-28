@@ -40,6 +40,7 @@ pub use self::{
     local::EventSendState,
 };
 pub(super) use self::{
+    content::PollResponse,
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };

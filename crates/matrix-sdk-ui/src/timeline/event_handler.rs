@@ -63,7 +63,7 @@ use super::{
     TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
     DEFAULT_SANITIZER_MODE,
 };
-use crate::{events::SyncTimelineEventWithoutContent, timeline::InReplyToDetails};
+use crate::{events::SyncTimelineEventWithoutContent, timeline::{event_item::PollResponse, InReplyToDetails}};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -222,6 +222,7 @@ pub(super) struct TimelineEventHandler<'a> {
     items: &'a mut ObservableVector<Arc<TimelineItem>>,
     next_internal_id: &'a mut u64,
     reactions: &'a mut Reactions,
+    pending_poll_events: &'a mut HashMap<OwnedEventId, (Option<MilliSecondsSinceUnixEpoch>, Vec<PollResponse>)>,
     fully_read_event: &'a mut Option<OwnedEventId>,
     event_should_update_fully_read_marker: &'a mut bool,
     track_read_receipts: bool,
@@ -259,6 +260,7 @@ impl<'a> TimelineEventHandler<'a> {
             items: &mut state.items,
             next_internal_id: &mut state.next_internal_id,
             reactions: &mut state.reactions,
+            pending_poll_events: &mut state.pending_poll_events,
             fully_read_event: &mut state.fully_read_event,
             event_should_update_fully_read_marker: &mut state.event_should_update_fully_read_marker,
             track_read_receipts,
@@ -315,7 +317,15 @@ impl<'a> TimelineEventHandler<'a> {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
                 AnyMessageLikeEventContent::UnstablePollStart(c) => {
-                    self.add(should_add, TimelineItemContent::Poll(PollState::from(c.poll_start)));
+                    let pending_events = match &self.flow {
+                        Flow::Local { .. } => None,
+                        Flow::Remote { event_id, .. } => { self.pending_poll_events.remove(event_id) }
+                    };
+
+                    self.add(
+                        should_add,
+                        TimelineItemContent::Poll(PollState::from(c.poll_start, pending_events))
+                    );
                 }
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => {
                     self.handle_poll_vote(c);
@@ -539,50 +549,65 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_vote(&mut self, c: UnstablePollResponseEventContent) {
-        // TODO(polls): what if the event isn't found? Cache this for later?
-        let id = c.relates_to.event_id.clone();
-        update_timeline_item!(self, &id, "vote", |event_item| {
-            match &event_item.content() {
-                TimelineItemContent::Poll(state) => {
-                    let answers = c
-                        .poll_response
-                        .answers
-                        .into_iter()
-                        .map(PollAnswerId)
-                        .collect::<Vec<_>>();
+        let event_id = c.relates_to.event_id.clone();
+        let response = PollResponse {
+            user_id: self.meta.sender.clone(),
+            selections: c
+                .poll_response
+                .answers
+                .into_iter()
+                .map(PollAnswerId)
+                .collect::<Vec<_>>(),
+            timestamp: self.meta.timestamp,
+        };
 
-                    let mut votes = state.votes.clone();
-                    votes.push((self.meta.sender.clone(), answers, self.meta.timestamp));
+        if let Some((idx, item)) = rfind_event_by_id(self.items, &event_id) {
+            // We have the start event in the timeline, update it directly.
+            if let TimelineItemContent::Poll(state) = item.inner.content() {
+                let mut votes = state.votes.clone();
+                votes.push(response);
 
-                    Some(event_item.with_content(
-                        TimelineItemContent::Poll(PollState { votes, ..state.clone() }),
-                        None,
-                    ))
-                }
-                _ => None,
+                self.items.set(idx, timeline_item(item.inner.with_content(
+                    TimelineItemContent::Poll(PollState {
+                        votes,
+                        ..state.clone()
+                    }),
+                    None,
+                ), item.internal_id));
+                self.result.items_updated += 1;
+            } else {
+                debug!("Received a poll response for a non-poll event, discarding");
             }
-        });
+        } else {
+            // We don't yet know about the start event, cache the response for later.
+            let state = self.pending_poll_events.entry(event_id).or_insert((None, Vec::new()));
+            state.1.push(response);
+        }
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        // TODO(polls): what if the event isn't found? Cache this for later?
-        let id = c.relates_to.event_id;
-        update_timeline_item!(self, &id, "ended", |event_item| {
-            match &event_item.content() {
-                TimelineItemContent::Poll(state) => {
-                    Some(event_item.with_content(
-                        TimelineItemContent::Poll(PollState {
-                            end_time: Some(self.meta.timestamp),
-                            ..state.clone()
-                        }),
-                        None,
-                    ))
-                }
-                _ => None,
+        let event_id = c.relates_to.event_id;
+        if let Some((idx, item)) = rfind_event_by_id(self.items, &event_id) {
+            // We have the start event in the timeline, update it directly.
+            if let TimelineItemContent::Poll(state) = item.inner.content() {
+                self.items.set(idx, timeline_item(item.inner.with_content(
+                    TimelineItemContent::Poll(PollState {
+                        end_time: Some(self.meta.timestamp),
+                        ..state.clone()
+                    }),
+                    None
+                ), item.internal_id));
+                self.result.items_updated += 1;
+            } else {
+                debug!("Received a poll end for a non-poll event, discarding");
             }
-        });
+        } else {
+            // We don't yet know about the start event, cache the response for later.
+            let state = self.pending_poll_events.entry(event_id.clone()).or_insert((None, Vec::new()));
+            state.0 = Some(self.meta.timestamp);
+        }
 
-        self.add(true, TimelineItemContent::PollEnd(PollEnd { start_event: id.clone() }));
+        self.add(true, TimelineItemContent::PollEnd(PollEnd { start_event: event_id }));
     }
 
     #[instrument(skip_all)]

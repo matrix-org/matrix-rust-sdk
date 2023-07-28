@@ -615,6 +615,13 @@ impl Sticker {
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct PollAnswerId(pub String);
 
+#[derive(Clone, Debug)]
+pub(in crate::timeline) struct PollResponse {
+    pub user_id: OwnedUserId,
+    pub selections: Vec<PollAnswerId>,
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+}
+
 /// State for a poll start event and related answers and close event, if any.
 #[derive(Clone, Debug)]
 pub struct PollState {
@@ -623,18 +630,18 @@ pub struct PollState {
     pub(in crate::timeline) max_selections: u64,
     pub(in crate::timeline) answers: Vec<(PollAnswerId, String)>,
     pub(in crate::timeline) end_time: Option<MilliSecondsSinceUnixEpoch>,
-    pub(in crate::timeline) votes: Vec<(OwnedUserId, Vec<PollAnswerId>, MilliSecondsSinceUnixEpoch)>,
+    pub(in crate::timeline) votes: Vec<PollResponse>,
 }
 
 impl PollState {
-    pub fn from(content: UnstablePollStartContentBlock) -> Self {
+    pub(in crate::timeline) fn from(content: UnstablePollStartContentBlock, state: Option<(Option<MilliSecondsSinceUnixEpoch>, Vec<PollResponse>)>) -> Self {
         Self {
             question: content.question.text,
             disclosed: content.kind == PollKind::Disclosed,
             max_selections: content.max_selections.into(),
             answers: content.answers.iter().map(|a| (PollAnswerId(a.id.clone()), a.text.clone())).collect(),
-            end_time: None,
-            votes: Vec::new(),
+            end_time: state.as_ref().map(|s| s.0).unwrap_or(None),
+            votes: state.as_ref().map(|s| s.1.clone()).unwrap_or(Vec::new()),
         }
     }
 

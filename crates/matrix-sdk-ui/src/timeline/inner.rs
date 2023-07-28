@@ -71,6 +71,7 @@ use super::{
     TimelineItemContent, TimelineItemKind,
 };
 use crate::events::SyncTimelineEventWithoutContent;
+use crate::timeline::event_item::PollResponse;
 
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
@@ -84,6 +85,7 @@ pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
     pub(super) next_internal_id: u64,
     pub(super) reactions: Reactions,
+    pub(super) pending_poll_events: HashMap<OwnedEventId, (Option<MilliSecondsSinceUnixEpoch>, Vec<PollResponse>)>,
     pub(super) fully_read_event: Option<OwnedEventId>,
     /// Whether the fully-read marker item should try to be updated when an
     /// event is added.
@@ -1125,6 +1127,7 @@ impl TimelineInnerState {
             items: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
+            pending_poll_events: Default::default(),
             fully_read_event: Default::default(),
             event_should_update_fully_read_marker: Default::default(),
             users_read_receipts: Default::default(),
