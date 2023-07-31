@@ -66,7 +66,8 @@ impl BaseClient {
             to_device_events = to_device.len(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
             device_unused_fallback_key_types =
-                e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len())
+                e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len()),
+            "Processing sliding sync e2ee events",
         );
 
         let mut changes = StateChanges::default();
@@ -115,7 +116,12 @@ impl BaseClient {
             ..
         } = response;
 
-        trace!(rooms = rooms.len(), lists = lists.len(), extensions = !extensions.is_empty());
+        trace!(
+            rooms = rooms.len(),
+            lists = lists.len(),
+            extensions = !extensions.is_empty(),
+            "Processing sliding sync room events"
+        );
 
         if rooms.is_empty() && extensions.is_empty() {
             // we received a room reshuffling event only, there won't be anything for us to
