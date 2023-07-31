@@ -120,7 +120,7 @@ impl Rules {
 
     /// Get whether the `IsUserMention` rule is enabled.
     fn is_user_mention_enabled(&self) -> bool {
-        // Search for an enabled `Override` rule `IsUserMention` (MSC3952).
+        // Search for an `Override` rule `IsUserMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
@@ -152,7 +152,7 @@ impl Rules {
 
     /// Get whether the `IsRoomMention` rule is enabled.
     fn is_room_mention_enabled(&self) -> bool {
-        // Search for an enabled `Override` rule `IsRoomMention` (MSC3952).
+        // Search for an `Override` rule `IsRoomMention` (MSC3952).
         // This is a new push rule that may not yet be present.
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
