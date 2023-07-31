@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use eyeball_im::ObservableVector;
+use eyeball_im::{ObservableVector, ObservableVectorEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
 use ruma::{
@@ -281,7 +281,35 @@ impl TimelineInnerState {
     }
 
     pub(super) fn clear(&mut self) {
-        self.items.clear();
+        // By first checking if there are any local echoes first, we do a bit
+        // more work in case some are found, but it should be worth it because
+        // there will often not be any, and only emitting a single
+        // `VectorDiff::Clear` should be much more efficient to process for
+        // subscribers.
+        if self.items.iter().any(|item| item.is_local_echo()) {
+            // Remove all remote events and the read marker
+            self.items.for_each(|entry| {
+                if entry.is_remote_event() || entry.is_read_marker() {
+                    ObservableVectorEntry::remove(entry);
+                }
+            });
+
+            // Remove stray day dividers
+            let mut idx = 0;
+            while idx < self.items.len() {
+                if self.items[idx].is_day_divider()
+                    && self.items.get(idx + 1).map_or(true, |item| item.is_day_divider())
+                {
+                    self.items.remove(idx);
+                    // don't increment idx because all elements have shifted
+                } else {
+                    idx += 1;
+                }
+            }
+        } else {
+            self.items.clear();
+        }
+
         self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;

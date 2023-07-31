@@ -18,8 +18,8 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
-use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
+use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
+use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -205,4 +205,73 @@ async fn retry_order() {
         assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
     });
     assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn clear_with_echoes() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+
+    // Send a message without mocking the server response.
+    timeline.send(RoomMessageEventContent::text_plain("Send failure").into(), None).await;
+
+    // Wait for the first message to fail.
+    sleep(Duration::from_millis(10)).await;
+
+    // Next message will take "forever" to send.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_delay(Duration::from_secs(3600)),
+        )
+        .mount(&server)
+        .await;
+
+    // (this one)
+    timeline.send(RoomMessageEventContent::text_plain("Pending").into(), None).await;
+
+    // Another message comes in.
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(TimelineTestEvent::MessageText),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+
+    // At this point, there should be three timeline items:
+    let timeline_items = timeline.items().await;
+    let event_items: Vec<_> = timeline_items.iter().filter_map(|item| item.as_event()).collect();
+
+    assert_eq!(event_items.len(), 3);
+    // The message that failed to send.
+    assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
+    // The message that came in from sync.
+    assert_matches!(event_items[1].origin(), Some(EventItemOrigin::Sync));
+    // The message that is still pending.
+    assert_matches!(event_items[2].send_state(), Some(EventSendState::NotSentYet));
+
+    // When we clear the timeline now,
+    timeline.clear().await;
+
+    // … the two local messages should remain.
+    let timeline_items = timeline.items().await;
+    let event_items: Vec<_> = timeline_items.iter().filter_map(|item| item.as_event()).collect();
+
+    assert_eq!(event_items.len(), 2);
+    assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
+    assert_matches!(event_items[1].send_state(), Some(EventSendState::NotSentYet));
 }

@@ -80,6 +80,14 @@ impl TimelineItem {
         })
     }
 
+    pub(crate) fn is_local_echo(&self) -> bool {
+        matches!(&self.kind, TimelineItemKind::Event(ev) if ev.is_local_echo())
+    }
+
+    pub(crate) fn is_remote_event(&self) -> bool {
+        matches!(&self.kind, TimelineItemKind::Event(ev) if ev.is_remote_event())
+    }
+
     pub(crate) fn is_virtual(&self) -> bool {
         matches!(self.kind, TimelineItemKind::Virtual(_))
     }
