@@ -22,6 +22,8 @@ pub(crate) enum Command {
     SetPushRuleEnabled { scope: RuleScope, kind: RuleKind, rule_id: String, enabled: bool },
     /// Delete a push rule
     DeletePushRule { scope: RuleScope, kind: RuleKind, rule_id: String },
+    /// Set a list of actions
+    SetPushRuleActions { scope: RuleScope, kind: RuleKind, rule_id: String, actions: Vec<Action> },
 }
 
 fn get_notify_actions(notify: bool) -> Vec<Action> {
@@ -55,11 +57,11 @@ impl Command {
                 Ok(NewPushRule::Override(new_rule))
             }
 
-            Self::SetPushRuleEnabled { .. } | Self::DeletePushRule { .. } => {
-                Err(NotificationSettingsError::InvalidParameter(
-                    "cannot create a push rule from this command.".to_owned(),
-                ))
-            }
+            Self::SetPushRuleEnabled { .. }
+            | Self::DeletePushRule { .. }
+            | Self::SetPushRuleActions { .. } => Err(NotificationSettingsError::InvalidParameter(
+                "cannot create a push rule from this command.".to_owned(),
+            )),
         }
     }
 }

@@ -131,7 +131,7 @@ impl NotificationSettings {
         }
     }
 
-    /// Gets the notification settings for a room.
+    /// Get the notification settings for a room.
     ///
     /// # Arguments
     ///
@@ -163,7 +163,7 @@ impl NotificationSettings {
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
 
-    /// Sets the notification mode for a room.
+    /// Set the notification mode for a room.
     pub async fn set_room_notification_mode(
         &self,
         room_id: String,
@@ -198,7 +198,27 @@ impl NotificationSettings {
         mode.into()
     }
 
-    /// Restores the default notification mode for a room
+    /// Set the default room notification mode
+    ///
+    /// # Arguments
+    ///
+    /// * `encrypted` - whether the mode is for encrypted rooms
+    /// * `one_to_one` - whether the mode is for direct chats
+    /// * `mode` - the new default mode
+    pub async fn set_default_room_notification_mode(
+        &self,
+        encrypted: bool,
+        one_to_one: bool,
+        mode: RoomNotificationMode,
+    ) -> Result<(), NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        notification_settings
+            .set_default_room_notification_mode(encrypted, one_to_one, mode.into())
+            .await?;
+        Ok(())
+    }
+
+    /// Restore the default notification mode for a room
     pub async fn restore_default_room_notification_mode(
         &self,
         room_id: String,

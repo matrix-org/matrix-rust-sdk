@@ -3,9 +3,11 @@
 use std::sync::Arc;
 
 use ruma::{
-    api::client::push::{delete_pushrule, set_pushrule, set_pushrule_enabled},
+    api::client::push::{
+        delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
+    },
     events::push_rules::PushRulesEvent,
-    push::{RuleKind, Ruleset},
+    push::{Action, RuleKind, Ruleset, Tweak},
     RoomId,
 };
 use tokio::sync::RwLock;
@@ -68,7 +70,7 @@ impl NotificationSettings {
         Self { client, rules, push_rules_event_handler }
     }
 
-    /// Gets the user defined notification mode for a room.
+    /// Get the user defined notification mode for a room.
     pub async fn get_user_defined_room_notification_mode(
         &self,
         room_id: &RoomId,
@@ -76,7 +78,7 @@ impl NotificationSettings {
         self.rules.read().await.get_user_defined_room_notification_mode(room_id)
     }
 
-    /// Gets the default notification mode for a room.
+    /// Get the default notification mode for a room.
     ///
     /// # Arguments
     ///
@@ -124,7 +126,43 @@ impl NotificationSettings {
         Ok(())
     }
 
-    /// Sets the notification mode for a room.
+    /// Set the default notification mode for a room kind.
+    ///
+    /// # Arguments
+    ///
+    /// * `encrypted` - `true` if the mode is for encrypted rooms
+    /// * `one_to_one` - `true` if the mode if for direct chats
+    /// * `mode` - the new default mode
+    pub async fn set_default_room_notification_mode(
+        &self,
+        encrypted: bool,
+        one_to_one: bool,
+        mode: RoomNotificationMode,
+    ) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
+        let rule_id = rules::get_predefined_underride_room_rule_id(encrypted, one_to_one);
+        let mut rule_commands = RuleCommands::new(rules.ruleset);
+
+        let actions = match mode {
+            RoomNotificationMode::AllMessages => {
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            }
+            _ => {
+                vec![]
+            }
+        };
+
+        rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
+
+        self.run_server_commands(&rule_commands).await?;
+
+        let rules = &mut *self.rules.write().await;
+        rules.apply(rule_commands);
+
+        Ok(())
+    }
+
+    /// Set the notification mode for a room.
     pub async fn set_room_notification_mode(
         &self,
         room_id: &RoomId,
@@ -276,6 +314,18 @@ impl NotificationSettings {
                         kind.to_owned(),
                         rule_id.to_owned(),
                         *enabled,
+                    );
+                    self.client
+                        .send(request, None)
+                        .await
+                        .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
+                }
+                Command::SetPushRuleActions { scope, kind, rule_id, actions } => {
+                    let request = set_pushrule_actions::v3::Request::new(
+                        scope.to_owned(),
+                        kind.to_owned(),
+                        rule_id.to_owned(),
+                        actions.to_owned(),
                     );
                     self.client
                         .send(request, None)
@@ -817,6 +867,53 @@ mod tests {
                 assert_eq!(rule.rule_id, room_id);
                 assert!(!rule.actions.is_empty());
             }
+        );
+    }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `AllMessages`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .set_actions(
+                RuleKind::Underride,
+                PredefinedUnderrideRuleId::RoomOneToOne,
+                vec![Action::Notify],
+            )
+            .unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+        assert_eq!(
+            settings.get_default_room_notification_mode(false, 2).await,
+            RoomNotificationMode::AllMessages
+        );
+
+        // After setting the default mode to `MentionsAndKeywordsOnly`
+        settings
+            .set_default_room_notification_mode(
+                false,
+                true,
+                RoomNotificationMode::MentionsAndKeywordsOnly,
+            )
+            .await
+            .unwrap();
+
+        // The list of actions for this rule must be empty
+        assert_matches!(settings.rules.read().await.ruleset.get(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne),
+            Some(AnyPushRuleRef::Underride(rule)) => {
+                assert!(rule.actions.is_empty());
+            }
+        );
+
+        // and the new mode returned by `get_default_room_notification_mode()` should
+        // reflect the change.
+        assert_matches!(
+            settings.get_default_room_notification_mode(false, 2).await,
+            RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
 }
