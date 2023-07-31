@@ -65,6 +65,12 @@ pub struct NotificationClient {
     filter_by_push_rules: bool,
 
     /// A mutex to serialize requests to sliding sync.
+    ///
+    /// If several notifications come in at the same time (e.g. network was
+    /// unreachable because of airplane mode or something similar), then we
+    /// need to make sure that repeated calls to `get_notification` won't
+    /// cause multiple requests with the same `conn_id` we're using for
+    /// notifications. This mutex solves this by sequentializing the requests.
     sliding_sync_mutex: AsyncMutex<()>,
 }
 
