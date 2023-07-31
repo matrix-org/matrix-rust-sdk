@@ -34,6 +34,7 @@ use ruma::{
     uint, EventId, OwnedEventId, RoomId, UserId,
 };
 use thiserror::Error;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::encryption_sync::{EncryptionSync, WithLocking};
 
@@ -64,7 +65,7 @@ pub struct NotificationClient {
     filter_by_push_rules: bool,
 
     /// A mutex to serialize requests to sliding sync.
-    sliding_sync_mutex: Mutex<()>,
+    sliding_sync_mutex: AsyncMutex<()>,
 }
 
 impl NotificationClient {
@@ -182,7 +183,7 @@ impl NotificationClient {
     ) -> Result<Option<RawNotificationEvent>, Error> {
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
-        let _guard = self.sliding_sync_mutex.lock().unwrap();
+        let _guard = self.sliding_sync_mutex.lock().await;
 
         // Set up a sliding sync that only subscribes to the room that had the
         // notification, so we can figure out the full event and associated
@@ -463,7 +464,7 @@ impl NotificationClientBuilder {
             with_cross_process_lock: self.with_cross_process_lock,
             filter_by_push_rules: self.filter_by_push_rules,
             retry_decryption: self.retry_decryption,
-            sliding_sync_mutex: Mutex::new(()),
+            sliding_sync_mutex: AsyncMutex::new(()),
         }
     }
 }
