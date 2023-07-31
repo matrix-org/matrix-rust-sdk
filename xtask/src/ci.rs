@@ -281,7 +281,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     }
 
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
+        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk --no-default-features --features js,rustls-tls",
@@ -332,7 +332,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "")),
+        (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             ("crates/matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
