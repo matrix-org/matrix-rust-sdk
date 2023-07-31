@@ -11,6 +11,9 @@ readme = "README.md"
 rust-version = { workspace = true }
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
+[features]
+js = ["vodozemac/js"]
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
