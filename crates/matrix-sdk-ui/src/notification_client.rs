@@ -83,12 +83,11 @@ impl NotificationClient {
         NotificationClientBuilder::new(client).await
     }
 
-    /// Fetches the content of a notification using a mix of different
-    /// strategies.
+    /// Fetches the content of a notification.
     ///
     /// This will first try to get the notification using a short-lived sliding
     /// sync, and if the sliding-sync can't find the event, then it'll use a
-    /// /context query to find the event with associated member information.
+    /// `/context` query to find the event with associated member information.
     pub async fn get_notification(
         &self,
         room_id: &RoomId,
@@ -365,7 +364,7 @@ impl NotificationClient {
         ))
     }
 
-    /// Retrieve a notification using a /context query.
+    /// Retrieve a notification using a `/context` query.
     ///
     /// This is for clients that are already running other sliding syncs in the
     /// same process, so that most of the contextual information for the
@@ -554,8 +553,6 @@ impl NotificationItem {
             None => (None, None),
         };
 
-        // XXX(bnjbvr): (remove before merging) Very manual processing here, but it's
-        // unclear if we should hold it in the state store.
         if sender_display_name.is_none() || sender_avatar_url.is_none() {
             let sender_id = event.sender();
             for ev in state_events {
@@ -618,7 +615,7 @@ pub enum Error {
     #[error("the sliding sync response doesn't include the target room")]
     SlidingSyncEmptyRoom,
 
-    #[error("the event was missing in the /context query")]
+    #[error("the event was missing in the `/context` query")]
     ContextMissingEvent,
 
     /// An error forwarded from the client.
