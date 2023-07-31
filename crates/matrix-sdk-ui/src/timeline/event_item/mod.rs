@@ -165,6 +165,10 @@ impl EventTimelineItem {
         matches!(self.kind, EventTimelineItemKind::Local(_))
     }
 
+    pub(super) fn is_remote_event(&self) -> bool {
+        matches!(self.kind, EventTimelineItemKind::Remote(_))
+    }
+
     /// Get the `LocalEventTimelineItem` if `self` is `Local`.
     pub(super) fn as_local(&self) -> Option<&LocalEventTimelineItem> {
         match &self.kind {
