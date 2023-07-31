@@ -67,7 +67,7 @@ impl Rules {
             // enabled
             x.enabled &&
             // with a condition of type `EventMatch` for this `room_id`
-            // XXX why not checking against x.rule_id here?
+            // (checking on x.rule_id is not sufficient here as more than one override rule may have a condition matching on `room_id`)
             x.conditions.iter().any(|x| matches!(
                 x,
                 PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
@@ -240,8 +240,9 @@ pub(crate) mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         push::{
-            Action, NewConditionalPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition, RuleKind, Ruleset,
+            Action, NewConditionalPushRule, NewPushRule, NewSimplePushRule,
+            PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
+            PushCondition, RuleKind, Ruleset, Tweak,
         },
         OwnedRoomId, RoomId, UserId,
     };
@@ -264,16 +265,46 @@ pub(crate) mod tests {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
     }
 
-    fn build_rules(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Rules {
-        let mut rules = Rules::new(get_server_default_ruleset());
-        let mut commands = RuleCommands::new(rules.ruleset.clone());
+    fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
+        let mut ruleset = get_server_default_ruleset();
         for (kind, room_id, notify) in rule_list {
-            commands.insert_rule(kind, room_id, notify).unwrap();
+            let actions = if notify {
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            } else {
+                vec![]
+            };
+            match kind {
+                RuleKind::Room => {
+                    let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
+                    ruleset.insert(NewPushRule::Room(new_rule), None, None).unwrap();
+                }
+                RuleKind::Override => {
+                    let new_rule = NewConditionalPushRule::new(
+                        room_id.into(),
+                        vec![PushCondition::EventMatch {
+                            key: "room_id".to_owned(),
+                            pattern: room_id.to_string(),
+                        }],
+                        actions,
+                    );
+                    ruleset.insert(NewPushRule::Override(new_rule), None, None).unwrap();
+                }
+                RuleKind::Underride => {
+                    let new_rule = NewConditionalPushRule::new(
+                        room_id.into(),
+                        vec![PushCondition::EventMatch {
+                            key: "room_id".to_owned(),
+                            pattern: room_id.to_string(),
+                        }],
+                        actions,
+                    );
+                    ruleset.insert(NewPushRule::Underride(new_rule), None, None).unwrap();
+                }
+                _ => {}
+            }
         }
-        // XXX this should not make use of `apply()`, see other comment. Such a helper
-        // should return a `Ruleset`, and not have to do anything with `Rules`.
-        rules.apply(commands);
-        rules
+
+        ruleset
     }
 
     #[async_test]
@@ -284,19 +315,16 @@ pub(crate) mod tests {
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 0);
 
         // Initialize with one rule.
-        // XXX this is not testing things in isolation: `build_rules` makes use of
-        // `apply`, and then we use `get_custom_rules_for_room`. Instead, this
-        // test should create a `Ruleset` by hand, then test single functions in
-        // isolation in it. `build_rules` should not use `Rules` method, since
-        // we're testing `Rules` methods here!
-        let rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
+        let ruleset = build_ruleset(vec![(RuleKind::Override, &room_id, false)]);
+        let rules = Rules::new(ruleset);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 1);
 
         // Insert a Room rule
-        let rules = build_rules(vec![
+        let ruleset = build_ruleset(vec![
             (RuleKind::Override, &room_id, false),
             (RuleKind::Room, &room_id, false),
         ]);
+        let rules = Rules::new(ruleset);
         assert_eq!(rules.get_custom_rules_for_room(&room_id).len(), 2);
     }
 
@@ -325,21 +353,24 @@ pub(crate) mod tests {
         assert_eq!(rules.get_user_defined_room_notification_mode(&room_id), None);
 
         // Initialize with an `Override` rule that doesn't notify
-        let rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
+        let ruleset = build_ruleset(vec![(RuleKind::Override, &room_id, false)]);
+        let rules = Rules::new(ruleset);
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::Mute)
         );
 
         // Initialize with a `Room` rule that doesn't notify
-        let rules = build_rules(vec![(RuleKind::Room, &room_id, false)]);
+        let ruleset = build_ruleset(vec![(RuleKind::Room, &room_id, false)]);
+        let rules = Rules::new(ruleset);
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::MentionsAndKeywordsOnly)
         );
 
         // Initialize with a `Room` rule that doesn't notify
-        let rules = build_rules(vec![(RuleKind::Room, &room_id, true)]);
+        let ruleset = build_ruleset(vec![(RuleKind::Room, &room_id, true)]);
+        let rules = Rules::new(ruleset);
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
             Some(RoomNotificationMode::AllMessages)
@@ -347,12 +378,13 @@ pub(crate) mod tests {
 
         let room_id_a = RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap();
         let room_id_b = RoomId::parse("!BBBbBBBBBbbBBbbbbb:matrix.org").unwrap();
-        let rules = build_rules(vec![
+        let ruleset = build_ruleset(vec![
             // A mute rule for room_id_a
             (RuleKind::Override, &room_id_a, false),
             // A notifying rule for room_id_b
             (RuleKind::Override, &room_id_b, true),
         ]);
+        let rules = Rules::new(ruleset);
         let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
 
         // The mode should be Mute as there is an Override rule that doesn't notify,
@@ -518,7 +550,8 @@ pub(crate) mod tests {
     async fn test_apply_delete_command() {
         let room_id = get_test_room_id();
         // Initialize with a custom rule
-        let mut rules = build_rules(vec![(RuleKind::Override, &room_id, false)]);
+        let ruleset = build_ruleset(vec![(RuleKind::Override, &room_id, false)]);
+        let mut rules = Rules::new(ruleset);
 
         // Build a `RuleCommands` deleting this rule
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
@@ -533,7 +566,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_apply_set_command() {
         let room_id = get_test_room_id();
-        let mut rules = build_rules(vec![]);
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         // Build a `RuleCommands` inserting a rule
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
@@ -547,7 +580,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_apply_set_enabled_command() {
-        let mut rules = build_rules(vec![]);
+        let mut rules = Rules::new(get_server_default_ruleset());
 
         rules
             .ruleset

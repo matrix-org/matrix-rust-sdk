@@ -295,14 +295,14 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         push::{
-            Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
-            PredefinedUnderrideRuleId, RuleKind, Ruleset,
+            Action, AnyPushRuleRef, NewConditionalPushRule, NewPatternedPushRule, NewPushRule,
+            NewSimplePushRule, PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition,
+            RuleKind, Ruleset, Tweak,
         },
         OwnedRoomId, RoomId, UserId,
     };
     use wiremock::{http::Method, matchers::method, Mock, MockServer, ResponseTemplate};
 
-    use super::rule_commands::RuleCommands;
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{NotificationSettings, RoomNotificationMode},
@@ -323,14 +323,45 @@ mod tests {
         client: &Client,
         rules: Vec<(RuleKind, &RoomId, bool)>,
     ) -> NotificationSettings {
-        let ruleset = get_server_default_ruleset();
-        // XXX would be slightly better to only use `Ruleset` here too, and no
-        // `RuleCommands` so we're testing things more in isolation.
-        let mut rule_commands = RuleCommands::new(ruleset);
+        let mut ruleset = get_server_default_ruleset();
         for (kind, room_id, notify) in rules {
-            rule_commands.insert_rule(kind, room_id, notify).unwrap();
+            let actions = if notify {
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            } else {
+                vec![]
+            };
+            match kind {
+                RuleKind::Room => {
+                    let new_rule = NewSimplePushRule::new(room_id.to_owned(), actions);
+                    ruleset.insert(NewPushRule::Room(new_rule), None, None).unwrap();
+                }
+                RuleKind::Override => {
+                    let new_rule = NewConditionalPushRule::new(
+                        room_id.into(),
+                        vec![PushCondition::EventMatch {
+                            key: "room_id".to_owned(),
+                            pattern: room_id.to_string(),
+                        }],
+                        actions,
+                    );
+                    ruleset.insert(NewPushRule::Override(new_rule), None, None).unwrap();
+                }
+                RuleKind::Underride => {
+                    let new_rule = NewConditionalPushRule::new(
+                        room_id.into(),
+                        vec![PushCondition::EventMatch {
+                            key: "room_id".to_owned(),
+                            pattern: room_id.to_string(),
+                        }],
+                        actions,
+                    );
+                    ruleset.insert(NewPushRule::Underride(new_rule), None, None).unwrap();
+                }
+                _ => {}
+            }
         }
-        NotificationSettings::new(client.to_owned(), rule_commands.rules)
+
+        NotificationSettings::new(client.to_owned(), ruleset)
     }
 
     async fn get_custom_rules_for_room(
