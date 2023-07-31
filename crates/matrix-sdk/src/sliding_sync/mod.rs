@@ -50,7 +50,7 @@ use tokio::{
     select, spawn,
     sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
 };
-use tracing::{debug, error, info, instrument, warn, Instrument, Span};
+use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
 use utils::JoinHandleExt as _;
 
@@ -847,6 +847,7 @@ impl StickyData for SlidingSyncStickyParameters {
 /// TODO remove this workaround as soon as support of the `limited` flag is
 /// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
 // NOTE: SS proxy workaround.
+#[instrument(skip_all)]
 fn compute_limited(
     known_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     response_rooms: &mut BTreeMap<OwnedRoomId, v4::SlidingSyncRoom>,
@@ -859,9 +860,11 @@ fn compute_limited(
         }
 
         if room.limited {
-            // If the room was already marked as limited, the server knew more than we did.
+            // If the room was already marked as limited, the server knew more than we do.
             continue;
         }
+
+        trace!(?room_id, "starting");
 
         // If the known room had some timeline events, consider it's a `limited` if
         // there's absolutely no overlap between the known events and
@@ -872,24 +875,50 @@ fn compute_limited(
             if room.timeline.is_empty() && !known_events.is_empty() {
                 // If the cached timeline had events, but the one in the response didn't have
                 // any, don't mark the room as limited.
+                trace!(
+                    "no timeline updates in response, local timeline had events => not limited."
+                );
                 continue;
             }
 
             // Gather all the known event IDs. Ignore events that don't have an event ID.
+            let num_known_events = known_events.len();
             let known_events: HashSet<OwnedEventId> =
                 HashSet::from_iter(known_events.into_iter().filter_map(|event| event.event_id()));
 
+            if num_known_events != known_events.len() {
+                trace!(
+                    "{} local timeline events had no IDs",
+                    known_events.len() - num_known_events
+                );
+            }
+
             // There's overlap if, and only if, there's at least one event in the
             // response's timeline that matches an event id we've seen before.
+            let mut num_missing_event_ids = 0;
             let overlap = room.timeline.iter().any(|seen_event| {
-                seen_event
-                    .get_field::<OwnedEventId>("event_id")
-                    .ok()
-                    .flatten()
-                    .map_or(false, |seen_event_id| known_events.contains(&seen_event_id))
+                if let Some(seen_event_id) =
+                    seen_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+                {
+                    known_events.contains(&seen_event_id)
+                } else {
+                    warn!("unable to get event_id from {seen_event:?} when computing limited flag");
+                    num_missing_event_ids += 1;
+                    false
+                }
             });
 
             room.limited = !overlap;
+
+            trace!(
+                num_events_response = room.timeline.len(),
+                num_events_local = known_events.len(),
+                num_missing_event_ids,
+                room_limited = room.limited,
+                "done"
+            );
+        } else {
+            trace!("room isn't known locally => not limited");
         }
     }
 }
