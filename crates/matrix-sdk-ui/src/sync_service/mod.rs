@@ -155,15 +155,24 @@ impl SyncService {
                     }
                 }
             } else {
-                while let Some(res) = room_list_stream.next().await {
-                    if let Err(err) = res {
-                        tracing::error!("Error while processing app (room list) state: {err:#}");
-                        state_observer.set(SyncServiceState::Error);
-                        break;
+                loop {
+                    match room_list_stream.next().await {
+                        Some(Ok(())) => {
+                            // Carry on.
+                        }
+                        Some(Err(err)) => {
+                            tracing::error!(
+                                "Error while processing app (room list) state: {err:#}"
+                            );
+                            state_observer.set(SyncServiceState::Error);
+                            break;
+                        }
+                        None => {
+                            state_observer.set(SyncServiceState::Terminated);
+                            break;
+                        }
                     }
                 }
-
-                state_observer.set(SyncServiceState::Terminated);
             }
         }));
 
