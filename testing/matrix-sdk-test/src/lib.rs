@@ -6,6 +6,7 @@ use serde_json::Value as JsonValue;
 #[cfg(feature = "appservice")]
 pub mod appservice;
 mod event_builder;
+pub mod notification_settings;
 pub mod test_json;
 
 pub use event_builder::{
