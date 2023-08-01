@@ -19,7 +19,7 @@ rust-version = "1.70"
 [workspace.dependencies]
 anyhow = "1.0.68"
 assert_matches = "1.5.0"
-async-rx = "0.1.1"
+async-rx = "0.1.3"
 async-stream = "0.3.3"
 async-trait = "0.1.60"
 base64 = "0.21.0"
