@@ -229,7 +229,7 @@ impl TestTimeline {
 
     async fn handle_back_paginated_custom_event(&self, event: JsonValue) {
         let timeline_event = TimelineEvent::new(Raw::new(&event).unwrap().cast());
-        self.inner.handle_back_paginated_event(timeline_event).await;
+        self.inner.handle_back_paginated_events(vec![timeline_event]).await;
     }
 
     async fn handle_read_receipts(
