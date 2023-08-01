@@ -53,7 +53,7 @@ pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventCo
 
 #[uniffi::export(callback_interface)]
 pub trait TimelineListener: Sync + Send {
-    fn on_update(&self, diff: Arc<TimelineDiff>);
+    fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
 }
 
 #[derive(Clone, uniffi::Object)]

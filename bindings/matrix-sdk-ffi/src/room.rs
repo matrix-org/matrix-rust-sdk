@@ -241,13 +241,15 @@ impl Room {
                 })
                 .clone();
 
-            let (timeline_items, timeline_stream) = timeline.subscribe().await;
+            let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
 
             let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
                 pin_mut!(timeline_stream);
 
-                while let Some(diff) = timeline_stream.next().await {
-                    listener.on_update(Arc::new(TimelineDiff::new(diff)));
+                while let Some(diffs) = timeline_stream.next().await {
+                    listener.on_update(
+                        diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect(),
+                    );
                 }
             }));
 
