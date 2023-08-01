@@ -196,15 +196,11 @@ impl Timeline {
                 outcome.events_received = messages.chunk.len().try_into().ok()?;
                 outcome.total_events_received =
                     outcome.total_events_received.checked_add(outcome.events_received)?;
-                outcome.items_added = 0;
-                outcome.items_updated = 0;
 
-                for room_ev in messages.chunk {
-                    let res = self.inner.handle_back_paginated_event(room_ev).await;
-                    outcome.items_added = outcome.items_added.checked_add(res.item_added as u16)?;
-                    outcome.items_updated = outcome.items_updated.checked_add(res.items_updated)?;
-                }
+                let res = self.inner.handle_back_paginated_events(messages.chunk).await?;
 
+                outcome.items_added = res.items_added;
+                outcome.items_updated = res.items_updated;
                 outcome.total_items_added =
                     outcome.total_items_added.checked_add(outcome.items_added)?;
                 outcome.total_items_updated =

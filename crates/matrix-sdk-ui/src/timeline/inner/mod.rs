@@ -54,7 +54,7 @@ use tracing::{field, info_span, Instrument as _};
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
 use super::{
-    event_handler::{HandleEventResult, TimelineItemPosition},
+    event_handler::TimelineItemPosition,
     event_item::EventItemIdentifier,
     item::timeline_item,
     reactions::ReactionToggleResult,
@@ -607,24 +607,34 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    /// Handle a back-paginated event.
+    /// Handle a list of back-paginated events.
     ///
-    /// Returns the number of timeline updates that were made.
+    /// Returns the number of timeline updates that were made. Short-circuits
+    /// and returns `None` if the number of items added or updated exceeds
+    /// `u16::MAX`, which should practically never happen.
     #[instrument(skip_all)]
-    pub(super) async fn handle_back_paginated_event(
+    pub(super) async fn handle_back_paginated_events(
         &self,
-        event: TimelineEvent,
-    ) -> HandleEventResult {
-        self.state
-            .lock()
-            .await
-            .handle_remote_event(
-                event.into(),
-                TimelineItemPosition::Start,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await
+        events: Vec<TimelineEvent>,
+    ) -> Option<HandleManyEventsResult> {
+        let mut state = self.state.lock().await;
+
+        let mut total = HandleManyEventsResult::default();
+        for event in events {
+            let res = state
+                .handle_remote_event(
+                    event.into(),
+                    TimelineItemPosition::Start,
+                    &self.room_data_provider,
+                    &self.settings,
+                )
+                .await;
+
+            total.items_added = total.items_added.checked_add(res.item_added as u16)?;
+            total.items_updated = total.items_updated.checked_add(res.items_updated)?;
+        }
+
+        Some(total)
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
@@ -1014,6 +1024,12 @@ impl TimelineInner {
         // Let the server handle unknown receipts.
         true
     }
+}
+
+#[derive(Default)]
+pub(super) struct HandleManyEventsResult {
+    pub items_added: u16,
+    pub items_updated: u16,
 }
 
 async fn fetch_replied_to_event(
