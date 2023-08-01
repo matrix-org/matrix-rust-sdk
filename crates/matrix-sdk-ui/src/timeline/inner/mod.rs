@@ -879,6 +879,10 @@ impl TimelineInner {
             info!("Event is not a reply");
             return Ok(());
         };
+        if let TimelineDetails::Pending = &in_reply_to.event {
+            info!("Replied-to event is already being fetched");
+            return Ok(());
+        }
         if let TimelineDetails::Ready(_) = &in_reply_to.event {
             info!("Replied-to event has already been fetched");
             return Ok(());
