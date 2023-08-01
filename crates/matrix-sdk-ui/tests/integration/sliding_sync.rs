@@ -7,6 +7,8 @@ pub(crate) struct SlidingSyncMatcher;
 #[derive(serde::Deserialize)]
 pub(crate) struct PartialSlidingSyncRequest {
     pub txn_id: Option<String>,
+    #[serde(default)]
+    pub conn_id: Option<String>,
 }
 
 impl Match for SlidingSyncMatcher {
@@ -83,7 +85,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                         $crate::sliding_sync_then_assert_request_and_fake_response!(@assertion_config $sign)
                     ) {
                         dbg!(json_value);
-                        panic!("{}", error);
+                        panic!("{error}");
                     }
 
                     break;

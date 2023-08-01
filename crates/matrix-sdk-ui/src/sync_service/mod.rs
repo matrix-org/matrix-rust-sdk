@@ -41,7 +41,7 @@ use crate::{
 /// [`SyncService::start`] method, in case it terminated, gracefully or not.
 ///
 /// This can be observed with [`SyncService::state`].
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SyncServiceState {
     /// The service hasn't ever been started yet.
     Idle,
