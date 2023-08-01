@@ -226,10 +226,17 @@ async fn clear_with_echoes() {
     let timeline = room.timeline().await;
 
     // Send a message without mocking the server response.
-    timeline.send(RoomMessageEventContent::text_plain("Send failure").into(), None).await;
+    {
+        let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    // Wait for the first message to fail.
-    sleep(Duration::from_millis(10)).await;
+        timeline.send(RoomMessageEventContent::text_plain("Send failure").into(), None).await;
+
+        // Wait for the first message to fail. Don't use time, but listen for the first
+        // timeline item diff to get back signalling the error.
+        let _day_divider = timeline_stream.next().await;
+        let _local_echo = timeline_stream.next().await;
+        let _local_echo_replaced_with_failure = timeline_stream.next().await;
+    }
 
     // Next message will take "forever" to send.
     Mock::given(method("PUT"))
