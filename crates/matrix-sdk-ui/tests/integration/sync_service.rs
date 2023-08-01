@@ -1,4 +1,7 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{SyncService, SyncServiceState};
@@ -168,6 +171,43 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert!(num_encryption_sync_requests > 0);
     assert!(num_room_list_requests > 0);
     assert!((num_encryption_sync_requests - num_room_list_requests).abs() <= 1);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
+    let (client, _server) = logged_in_client().await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    let states = Arc::new(Mutex::new(Vec::new()));
+
+    let mut state = sync_service.state();
+
+    let task_states = states.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(state) = state.next().await {
+            task_states.lock().unwrap().push(state);
+        }
+    });
+
+    // At first, the sync service is sleeping.
+    assert_eq!(sync_service.state().get(), SyncServiceState::Idle);
+
+    // After starting, the sync service will be running for a very short while, then
+    // getting into the error state.
+    sync_service.start().await?;
+
+    // Wait a bit for the underlying sync to fail (server isn't mocked here, so will
+    // 404).
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Drop the service so the stream spawned in the task is aborted too.
+    drop(sync_service);
+    handle.await?;
+
+    let states = states.lock().unwrap();
+    assert_eq!(*states, &[SyncServiceState::Running, SyncServiceState::Error,]);
 
     Ok(())
 }
