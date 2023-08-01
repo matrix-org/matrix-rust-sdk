@@ -26,6 +26,42 @@ use serde_json::json;
 use crate::{logged_in_client, mock_sync};
 
 #[async_test]
+async fn batched() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline_builder().event_filter(|_| true).build().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+
+    let hdl = tokio::spawn(async move {
+        let next_batch = timeline_stream.next().await.unwrap();
+        // One day divider, three event items
+        assert_eq!(next_batch.len(), 4);
+    });
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::MessageText)
+            .add_timeline_event(TimelineTestEvent::Member)
+            .add_timeline_event(TimelineTestEvent::MessageNotice),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    tokio::time::timeout(Duration::from_millis(500), hdl).await.unwrap().unwrap();
+}
+
+#[async_test]
 async fn event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
