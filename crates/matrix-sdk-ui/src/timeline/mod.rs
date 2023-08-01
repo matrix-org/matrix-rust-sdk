@@ -314,6 +314,19 @@ impl Timeline {
         (items, stream)
     }
 
+    /// Get the current timeline items, and a batched stream of changes.
+    ///
+    /// In contrast to [`subscribe`](Self::subscribe), this stream can yield
+    /// multiple diffs at once. The batching is done such that no arbitrary
+    /// delays are added.
+    pub async fn subscribe_batched(
+        &self,
+    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+        let (items, stream) = self.inner.subscribe_batched().await;
+        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        (items, stream)
+    }
+
     #[cfg(feature = "testing")]
     pub async fn subscribe_filter_map<U: Clone>(
         &self,

@@ -16,9 +16,11 @@
 use std::collections::BTreeSet;
 use std::{fmt, sync::Arc};
 
-use eyeball_im::{ObservableVectorEntry, VectorSubscriber};
+use async_rx::StreamExt as _;
+use eyeball_im::{ObservableVectorEntry, VectorDiff, VectorSubscriber};
 #[cfg(any(test, feature = "testing"))]
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
+use futures_core::Stream;
 use imbl::Vector;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -45,7 +47,6 @@ use ruma::{
     },
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
-use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{field, info_span, Instrument as _};
@@ -66,10 +67,11 @@ use super::{
 mod state;
 
 pub(super) use self::state::TimelineInnerState;
+use self::state::{TimelineInnerStateLock, TimelineInnerStateLockGuard};
 
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
-    state: Arc<Mutex<TimelineInnerState>>,
+    state: TimelineInnerStateLock,
     room_data_provider: P,
     settings: TimelineInnerSettings,
 }
@@ -124,7 +126,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState::new(room_data_provider.room_version());
         Self {
-            state: Arc::new(Mutex::new(state)),
+            state: TimelineInnerStateLock::new(state),
             room_data_provider,
             settings: TimelineInnerSettings::default(),
         }
@@ -150,6 +152,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         // auto-deref to the inner vector's clone method
         let items = state.items.clone();
         let stream = state.items.subscribe();
+        (items, stream)
+    }
+
+    pub(super) async fn subscribe_batched(
+        &self,
+    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+        let (items, stream) = self.subscribe().await;
+        let stream = stream.batch_with(self.state.subscribe_lock_release());
         (items, stream)
     }
 
@@ -1006,7 +1016,7 @@ impl TimelineInner {
 }
 
 async fn fetch_replied_to_event(
-    mut state: MutexGuard<'_, TimelineInnerState>,
+    mut state: TimelineInnerStateLockGuard<'_>,
     index: usize,
     item: &EventTimelineItem,
     message: &Message,

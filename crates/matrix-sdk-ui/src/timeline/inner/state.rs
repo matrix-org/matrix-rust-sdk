@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, ObservableVectorEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
@@ -28,6 +34,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
     UserId,
 };
+use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{ReactionState, TimelineInnerSettings};
@@ -47,6 +54,42 @@ use crate::{
         TimelineItemKind, VirtualTimelineItem,
     },
 };
+
+#[derive(Clone)]
+pub(in crate::timeline) struct TimelineInnerStateLock {
+    inner: Arc<Mutex<TimelineInnerState>>,
+    lock_release_ob: SharedObservable<()>,
+}
+
+impl TimelineInnerStateLock {
+    pub(super) fn new(state: TimelineInnerState) -> Self {
+        Self { inner: Arc::new(Mutex::new(state)), lock_release_ob: Default::default() }
+    }
+
+    pub(super) fn subscribe_lock_release(&self) -> Subscriber<()> {
+        self.lock_release_ob.subscribe()
+    }
+
+    pub async fn lock(&self) -> TimelineInnerStateLockGuard<'_> {
+        TimelineInnerStateLockGuard {
+            inner: self.inner.lock().await,
+            lock_release_ob: self.lock_release_ob.clone(),
+        }
+    }
+
+    pub async fn lock_owned(&self) -> TimelineInnerStateOwnedLockGuard {
+        TimelineInnerStateOwnedLockGuard {
+            inner: self.inner.clone().lock_owned().await,
+            lock_release_ob: self.lock_release_ob.clone(),
+        }
+    }
+}
+
+impl fmt::Debug for TimelineInnerStateLock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
@@ -426,5 +469,55 @@ impl TimelineInnerState {
         self.items.set(idx, timeline_item(new_related, related.internal_id));
 
         Ok(())
+    }
+}
+
+pub(in crate::timeline) struct TimelineInnerStateLockGuard<'a> {
+    inner: MutexGuard<'a, TimelineInnerState>,
+    lock_release_ob: SharedObservable<()>,
+}
+
+impl Deref for TimelineInnerStateLockGuard<'_> {
+    type Target = TimelineInnerState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for TimelineInnerStateLockGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Drop for TimelineInnerStateLockGuard<'_> {
+    fn drop(&mut self) {
+        self.lock_release_ob.set(());
+    }
+}
+
+pub(in crate::timeline) struct TimelineInnerStateOwnedLockGuard {
+    inner: OwnedMutexGuard<TimelineInnerState>,
+    lock_release_ob: SharedObservable<()>,
+}
+
+impl Deref for TimelineInnerStateOwnedLockGuard {
+    type Target = TimelineInnerState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for TimelineInnerStateOwnedLockGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Drop for TimelineInnerStateOwnedLockGuard {
+    fn drop(&mut self) {
+        self.lock_release_ob.set(());
     }
 }
