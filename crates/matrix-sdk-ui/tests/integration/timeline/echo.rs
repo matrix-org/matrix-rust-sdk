@@ -12,9 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
+use axum::{http::StatusCode, response::IntoResponse, routing::put, Json};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
@@ -29,41 +36,33 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
-use wiremock::{
-    matchers::{header, method, path_regex},
-    Mock, ResponseTemplate,
-};
 
-use crate::{logged_in_client, mock_encryption_state, mock_sync};
+use crate::axum::{logged_in_client, RouterExt};
 
 #[async_test]
 async fn echo() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let client = logged_in_client(
+        axum::Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/:room_id/send/*rest",
+                put(|| async { Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })) }),
+            )
+            .mock_encryption_state(false)
+            .mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
-
-    mock_encryption_state(&server, false).await;
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&json!({ "event_id": event_id })))
-        .mount(&server)
-        .await;
 
     // Don't move the original timeline, it must live until the end of the test
     let timeline = timeline.clone();
@@ -106,10 +105,7 @@ async fn echo() {
             "unsigned": { "transaction_id": txn_id, },
         })),
     ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     // Local echo is removed
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 1 }));
@@ -136,22 +132,37 @@ async fn echo() {
 #[async_test]
 async fn retry_failed() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let num_requests = Arc::new(AtomicU8::new(0));
+    let client = logged_in_client(
+        axum::Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/:room_id/send/*rest",
+                put(move || async move {
+                    if num_requests.fetch_add(1, Ordering::AcqRel) < 1 {
+                        // The first request fails
+                        StatusCode::BAD_REQUEST.into_response()
+                    } else {
+                        // Subsequent requests succeed
+                        Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })).into_response()
+                    }
+                }),
+            )
+            .mock_encryption_state(false)
+            .mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
@@ -161,17 +172,10 @@ async fn retry_failed() {
         assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 
-    // Sending fails, the mock server has no matching route yet
+    // Sending fails the first time
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 0, value }) => {
         assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
     });
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&json!({ "event_id": event_id })))
-        .mount(&server)
-        .await;
 
     timeline.retry_send(txn_id).await.unwrap();
 
@@ -191,38 +195,35 @@ async fn retry_failed() {
 #[async_test]
 async fn dedup_by_event_id_late() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
+    let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let (response_wait_tx, response_wait_rx) = async_channel::bounded(1);
+    let client = logged_in_client(
+        axum::Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/:room_id/send/*rest",
+                put(move || async move {
+                    response_wait_rx.recv().await.unwrap();
+                    Json(json!({ "event_id": event_id }))
+                }),
+            )
+            .mock_encryption_state(false)
+            .mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
 
-    mock_encryption_state(&server, false).await;
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": event_id }))
-                // Not great to use a timer for this, but it's what wiremock gives us right now.
-                // Ideally we'd wait on a channel to produce a value or sth. like that.
-                .set_delay(Duration::from_millis(100)),
-        )
-        .mount(&server)
-        .await;
-
+    // Send a message
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
 
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { .. })); // day divider
@@ -230,6 +231,7 @@ async fn dedup_by_event_id_late() {
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
+    // Sync response with the event comes in before the send endpoint returns
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
             "content": {
@@ -243,9 +245,7 @@ async fn dedup_by_event_id_late() {
             // no transaction ID
         })),
     ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, .. }); // day divider
     let remote_echo =
@@ -253,7 +253,10 @@ async fn dedup_by_event_id_late() {
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
-    // Local echo and its day divider are removed.
+    // Unblock the send endpoint
+    response_wait_tx.send(()).await.unwrap();
+
+    // Local echo and its day divider are removed
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
 }
@@ -261,15 +264,15 @@ async fn dedup_by_event_id_late() {
 #[async_test]
 async fn cancel_failed() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let client = logged_in_client(
+        axum::Router::new().mock_encryption_state(false).mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);

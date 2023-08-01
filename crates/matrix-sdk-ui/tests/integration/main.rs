@@ -26,6 +26,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+mod axum;
 mod encryption_sync;
 mod notification_client;
 mod room_list_service;
