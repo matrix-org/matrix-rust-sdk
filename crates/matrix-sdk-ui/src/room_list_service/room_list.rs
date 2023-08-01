@@ -17,11 +17,13 @@ use std::future::ready;
 use async_rx::StreamExt as _;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, Stream, StreamExt as _};
+use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
     RoomListEntry, SlidingSync, SlidingSyncList,
 };
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 use super::{Error, State};
 
@@ -129,6 +131,34 @@ impl RoomList {
             entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
         )
     }
+
+    /// Get a stream of room list entries, filtered dynamically.
+    ///
+    /// The returned stream will only start yielding diffs once a filter is set
+    /// through the returned `DynamicRoomListFilter`. For every call to
+    /// [`DynamicRoomListFilter::set`], the stream will yield a
+    /// [`VectorDiff::Reset`] followed by any updates of the room list under
+    /// that filter (until the next reset).
+    pub fn entries_with_dynamic_filter(
+        &self,
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, DynamicRoomListFilter) {
+        // FIXME: Should ideally be a single-consumer watch channel / observable.
+        let (tx, rx) = mpsc::channel(1);
+
+        let list = self.sliding_sync_list.clone();
+        let room_list_service_state = self.room_list_service_state.clone();
+        let stream = ReceiverStream::new(rx)
+            .map(move |filter_fn| {
+                // FIXME: filter_fn is already boxed, we box it again here
+                let (items, stream) = list.room_list_filtered_stream(filter_fn);
+                stream::once(ready(vec![VectorDiff::Reset { values: items }]))
+                    .chain(stream.batch_with(room_list_service_state.clone().map(|_| ())))
+            })
+            .switch();
+
+        let filter = DynamicRoomListFilter::new(tx);
+        (stream, filter)
+    }
 }
 
 /// The loading state of a [`RoomList`].
@@ -170,4 +200,31 @@ pub enum RoomListLoadingState {
         /// to know which default to adopt in case of `None`.
         maximum_number_of_rooms: Option<u32>,
     },
+}
+
+type BoxedFilterFn = Box<dyn Fn(&RoomListEntry) -> bool + Send + Sync>;
+
+pub struct DynamicRoomListFilter {
+    tx: mpsc::Sender<BoxedFilterFn>,
+}
+
+impl DynamicRoomListFilter {
+    fn new(tx: mpsc::Sender<BoxedFilterFn>) -> Self {
+        Self { tx }
+    }
+
+    /// Set the filter.
+    ///
+    /// If the associated stream has been dropped, returns `false` to indicate
+    /// the operation didn't have an effect.
+    ///
+    /// The future returned by this should usually resolve immediately. The only
+    /// case where it doesn't is when the associated stream is polled less
+    /// frequently than the filter is being set.
+    pub async fn set(
+        &self,
+        filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
+    ) -> bool {
+        self.tx.send(Box::new(filter)).await.is_ok()
+    }
 }
