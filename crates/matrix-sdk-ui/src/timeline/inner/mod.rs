@@ -101,6 +101,7 @@ pub(super) struct TimelineInnerSettings {
     pub(super) add_failed_to_parse: bool,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineInnerSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TimelineInnerSettings")

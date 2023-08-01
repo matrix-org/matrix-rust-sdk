@@ -85,6 +85,7 @@ impl TimelineInnerStateLock {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineInnerStateLock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
