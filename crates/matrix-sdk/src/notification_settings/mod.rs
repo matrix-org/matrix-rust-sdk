@@ -292,17 +292,19 @@ impl NotificationSettings {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{
+        async_test,
+        notification_settings::{build_ruleset, get_server_default_ruleset},
+    };
     use ruma::{
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
-            PredefinedUnderrideRuleId, RuleKind, Ruleset,
+            PredefinedUnderrideRuleId, RuleKind,
         },
-        OwnedRoomId, RoomId, UserId,
+        OwnedRoomId, RoomId,
     };
     use wiremock::{http::Method, matchers::method, Mock, MockServer, ResponseTemplate};
 
-    use super::rule_commands::RuleCommands;
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{NotificationSettings, RoomNotificationMode},
@@ -314,23 +316,12 @@ mod tests {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
     }
 
-    fn get_server_default_ruleset() -> Ruleset {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        Ruleset::server_default(&user_id)
-    }
-
     fn from_insert_rules(
         client: &Client,
         rules: Vec<(RuleKind, &RoomId, bool)>,
     ) -> NotificationSettings {
-        let ruleset = get_server_default_ruleset();
-        // XXX would be slightly better to only use `Ruleset` here too, and no
-        // `RuleCommands` so we're testing things more in isolation.
-        let mut rule_commands = RuleCommands::new(ruleset);
-        for (kind, room_id, notify) in rules {
-            rule_commands.insert_rule(kind, room_id, notify).unwrap();
-        }
-        NotificationSettings::new(client.to_owned(), rule_commands.rules)
+        let ruleset = build_ruleset(rules);
+        NotificationSettings::new(client.to_owned(), ruleset)
     }
 
     async fn get_custom_rules_for_room(
