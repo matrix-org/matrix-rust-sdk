@@ -342,9 +342,9 @@ dependencies = [
 
 [[package]]
 name = "async-rx"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0753cb2fd5fbf00b3d660a7cb131029299b1bb136343154163b120c5499466fd"
+checksum = "a30de4e5329a0947e389f738a6ca0d0b938fea5cb7baaeae7d72e243614468a2"
 dependencies = [
  "futures-core",
  "pin-project-lite",
