@@ -292,6 +292,15 @@ impl<'a> TimelineEventHandler<'a> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
+                AnyMessageLikeEventContent::UnstablePollStart(c) => {
+                    self.add(should_add, TimelineItemContent::poll(c));
+                }
+                AnyMessageLikeEventContent::UnstablePollResponse(c) => {
+                    // TODO("run aggregation logic?")
+                }
+                AnyMessageLikeEventContent::UnstablePollEnd(c) => {
+                    // TODO("run aggregation logic?")
+                }
                 // TODO
                 _ => {
                     debug!(
@@ -397,6 +406,9 @@ impl<'a> TimelineEventHandler<'a> {
                 | TimelineItemContent::FailedToParseState { .. } => {
                     info!("Edit event applies to event that couldn't be parsed, discarding");
                     return None;
+                }
+                TimelineItemContent::Poll(_) => {
+                    todo!("Implement poll edit.")
                 }
             };
 

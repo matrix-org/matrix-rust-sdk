@@ -493,6 +493,9 @@ impl Timeline {
             | TimelineItemContent::FailedToParseState { .. } => {
                 error_return!("Invalid state: attempting to retry a failed-to-parse item");
             }
+            TimelineItemContent::Poll(_) => {
+                todo!("Implement retry for polls.");
+            }
         };
 
         let txn_id = txn_id.to_owned();

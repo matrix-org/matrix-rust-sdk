@@ -420,6 +420,9 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
+            Content::Poll(_) => {
+                // TODO("Map TimelineItemContent::Poll to TimelineItemContentKind::Poll")
+            }
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }

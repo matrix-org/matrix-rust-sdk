@@ -19,6 +19,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
 use ruma::{
     assign,
     events::{
@@ -111,6 +112,9 @@ pub enum TimelineItemContent {
         /// The deserialization error.
         error: Arc<serde_json::Error>,
     },
+
+    /// A poll event.
+    Poll(PollState),
 }
 
 impl TimelineItemContent {
@@ -207,6 +211,13 @@ impl TimelineItemContent {
         Self::Message(Message::from_event(c, relations, timeline_items))
     }
 
+    pub(crate) fn poll(content: UnstablePollStartEventContent) -> Self {
+        Self::Poll(PollState {
+            // TODO("Fill up the content)
+            question: String::from("Question of the poll"),
+        })
+    }
+
     pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
         TimelineItemContent::UnableToDecrypt(content.into())
     }
@@ -283,6 +294,7 @@ impl TimelineItemContent {
             Self::Message(_)
             | Self::RedactedMessage
             | Self::Sticker(_)
+            | Self::Poll(_)
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
@@ -955,4 +967,10 @@ impl OtherState {
     fn redact(&self, room_version: &RoomVersionId) -> Self {
         Self { state_key: self.state_key.clone(), content: self.content.redact(room_version) }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct PollState {
+    // TODO: Put current state of the poll here.
+    pub(in crate::timeline) question: String,
 }
