@@ -56,6 +56,7 @@ mod futures;
 mod inner;
 mod item;
 mod pagination;
+pub mod polls;
 mod queue;
 mod reactions;
 mod read_receipts;

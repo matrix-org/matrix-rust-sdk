@@ -19,7 +19,6 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
-use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
 use ruma::{
     assign,
     events::{
@@ -63,6 +62,7 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
+use crate::timeline::polls::PollState;
 use crate::timeline::{
     traits::RoomDataProvider, Error as TimelineError, ReactionSenderData, TimelineItem,
     DEFAULT_SANITIZER_MODE,
@@ -113,7 +113,7 @@ pub enum TimelineItemContent {
         error: Arc<serde_json::Error>,
     },
 
-    /// A poll event.
+    /// An `m.poll.start` event.
     Poll(PollState),
 }
 
@@ -209,13 +209,6 @@ impl TimelineItemContent {
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
         Self::Message(Message::from_event(c, relations, timeline_items))
-    }
-
-    pub(crate) fn poll(content: UnstablePollStartEventContent) -> Self {
-        Self::Poll(PollState {
-            // TODO("Fill up the content)
-            question: String::from("Question of the poll"),
-        })
     }
 
     pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
@@ -967,10 +960,4 @@ impl OtherState {
     fn redact(&self, room_version: &RoomVersionId) -> Self {
         Self { state_key: self.state_key.clone(), content: self.content.redact(room_version) }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct PollState {
-    // TODO: Put current state of the poll here.
-    pub(in crate::timeline) question: String,
 }

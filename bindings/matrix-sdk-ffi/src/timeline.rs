@@ -27,7 +27,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{polls::FfiPollKind, EventItemOrigin, Profile, TimelineDetails};
 use ruma::{assign, UInt};
 use tracing::warn;
 
@@ -420,8 +420,23 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
-            Content::Poll(_) => {
-                // TODO("Map TimelineItemContent::Poll to TimelineItemContentKind::Poll")
+            Content::Poll(poll_state) => {
+                let p = poll_state.results();
+                TimelineItemContentKind::Poll {
+                    question: p.question,
+                    kind: match p.kind {
+                        FfiPollKind::Disclosed => PollKind::Disclosed,
+                        FfiPollKind::Undisclosed => PollKind::Undisclosed,
+                    },
+                    max_selections: p.max_selections,
+                    answers: p
+                        .answers
+                        .iter()
+                        .map(|i| PollAnswer { id: i.id.clone(), text: i.text.clone() })
+                        .collect(),
+                    votes: p.votes.iter().map(|i| (i.0.clone(), i.1.clone())).collect(), // Why is this iter needed? If using into_iter() I can remove the clone()s, why?
+                    end_time: p.end_time,
+                }
             }
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
@@ -493,9 +508,6 @@ pub enum TimelineItemContentKind {
         answers: Vec<PollAnswer>,
         votes: HashMap<String, Vec<String>>,
         end_time: Option<u64>,
-    },
-    PollEnd {
-        start_event_id: String,
     },
     UnableToDecrypt {
         msg: EncryptedMessage,

@@ -19,6 +19,11 @@ use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+            unstable_start::UnstablePollStartEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::Receipt,
         relation::Replacement,
@@ -54,7 +59,7 @@ use super::{
     Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::polls::PollState};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -293,14 +298,10 @@ impl<'a> TimelineEventHandler<'a> {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
                 AnyMessageLikeEventContent::UnstablePollStart(c) => {
-                    self.add(should_add, TimelineItemContent::poll(c));
+                    self.handle_poll_start(c, should_add)
                 }
-                AnyMessageLikeEventContent::UnstablePollResponse(c) => {
-                    // TODO("run aggregation logic?")
-                }
-                AnyMessageLikeEventContent::UnstablePollEnd(c) => {
-                    // TODO("run aggregation logic?")
-                }
+                AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
+                AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
                 // TODO
                 _ => {
                     debug!(
@@ -512,6 +513,51 @@ impl<'a> TimelineEventHandler<'a> {
             timestamp: self.ctx.timestamp,
         };
         self.state.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
+    }
+
+    fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
+        self.add(
+            should_add,
+            TimelineItemContent::Poll(PollState::new(
+                self.ctx.sender.clone(),
+                self.ctx.timestamp,
+                c,
+            )),
+        );
+    }
+
+    fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
+        update_timeline_item!(self, &c.relates_to.event_id.clone(), "vote", |event_item| {
+            match event_item.content() {
+                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
+                    TimelineItemContent::Poll(poll_state.add_response(
+                        self.ctx.sender.clone(),
+                        self.ctx.timestamp,
+                        c,
+                    )),
+                    None,
+                )),
+                _ => None,
+            }
+        });
+    }
+
+    fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
+        update_timeline_item!(self, &c.relates_to.event_id.clone(), "ended", |event_item| {
+            match event_item.content() {
+                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
+                    TimelineItemContent::Poll(poll_state.end(
+                        self.ctx.sender.clone(),
+                        self.ctx.timestamp,
+                        c,
+                    )),
+                    None,
+                )),
+                _ => None,
+            }
+        });
     }
 
     #[instrument(skip_all)]
