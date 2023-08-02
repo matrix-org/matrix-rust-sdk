@@ -24,6 +24,7 @@ use std::{
 };
 
 use eyeball::SharedObservable;
+use futures_core::Stream;
 use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
@@ -82,6 +83,7 @@ pub use matrix_sdk_base::crypto::{
 };
 
 pub use self::futures::PrepareEncryptedFile;
+use self::identities::{DeviceUpdates, IdentityUpdates};
 pub use crate::error::RoomKeyImportError;
 
 impl Client {
@@ -659,9 +661,88 @@ impl Encryption {
                 UserIdentity::new_own(self.client.clone(), i)
             }
             matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
+                UserIdentity::new_other(self.client.clone(), i)
             }
         }))
+    }
+
+    /// Returns a stream of device updates, allowing users to listen for
+    /// notifications about new or changed devices.
+    ///
+    /// The stream produced by this method emits updates whenever a new device
+    /// is discovered or when an existing device's information is changed. Users
+    /// can subscribe to this stream and receive updates in real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let client: Client = unimplemented!();
+    /// # async {
+    /// let devices_stream = client.encryption().devices_stream().await?;
+    /// let user_id = client
+    ///     .user_id()
+    ///     .expect("We should know our user id afte we have logged in");
+    /// pin_mut!(devices_stream);
+    ///
+    /// for device_updates in devices_stream.next().await {
+    ///     if let Some(user_devices) = device_updates.new.get(user_id) {
+    ///         for device in user_devices.values() {
+    ///             println!("A new device has been added {}", device.device_id());
+    ///         }
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn devices_stream(&self) -> Result<impl Stream<Item = DeviceUpdates>> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        let client = self.client.to_owned();
+
+        Ok(olm
+            .store()
+            .devices_stream()
+            .map(move |updates| DeviceUpdates::new(client.to_owned(), updates)))
+    }
+
+    /// Returns a stream of user identity updates, allowing users to listen for
+    /// notifications about new or changed user identities.
+    ///
+    /// The stream produced by this method emits updates whenever a new user
+    /// identity is discovered or when an existing identities information is
+    /// changed. Users can subscribe to this stream and receive updates in
+    /// real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let client: Client = unimplemented!();
+    /// # async {
+    /// let identities_stream =
+    ///     client.encryption().user_identities_stream().await?;
+    /// pin_mut!(identities_stream);
+    ///
+    /// for identity_updates in identities_stream.next().await {
+    ///     for (_, identity) in identity_updates.new {
+    ///         println!("A new identity has been added {}", identity.user_id());
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn user_identities_stream(&self) -> Result<impl Stream<Item = IdentityUpdates>> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        let client = self.client.to_owned();
+
+        Ok(olm
+            .store()
+            .user_identities_stream()
+            .map(move |updates| IdentityUpdates::new(client.to_owned(), updates)))
     }
 
     /// Create and upload a new cross signing identity.
