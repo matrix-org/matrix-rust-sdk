@@ -226,38 +226,40 @@ impl Room {
         })
     }
 
-    pub fn add_timeline_listener(
+    pub async fn add_timeline_listener(
         self: Arc<Self>,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        RUNTIME.block_on(async move {
-            let timeline = self
-                .timeline
-                .write()
-                .await
-                .get_or_insert_with(|| {
-                    let timeline = RUNTIME.block_on(self.inner.timeline());
-                    Arc::new(timeline)
-                })
-                .clone();
+        RUNTIME
+            .spawn(async move {
+                let timeline = self
+                    .timeline
+                    .write()
+                    .await
+                    .get_or_insert_with(|| {
+                        let timeline = RUNTIME.block_on(self.inner.timeline());
+                        Arc::new(timeline)
+                    })
+                    .clone();
 
-            let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
+                let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
+                let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
+                    pin_mut!(timeline_stream);
 
-            let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
-                pin_mut!(timeline_stream);
+                    while let Some(diffs) = timeline_stream.next().await {
+                        listener.on_update(
+                            diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect(),
+                        );
+                    }
+                }));
 
-                while let Some(diffs) = timeline_stream.next().await {
-                    listener.on_update(
-                        diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect(),
-                    );
+                RoomTimelineListenerResult {
+                    items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+                    items_stream: Arc::new(timeline_stream),
                 }
-            }));
-
-            RoomTimelineListenerResult {
-                items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-                items_stream: Arc::new(timeline_stream),
-            }
-        })
+            })
+            .await
+            .unwrap()
     }
 
     pub fn subscribe_to_back_pagination_status(
@@ -959,10 +961,13 @@ impl SendAttachmentJoinHandle {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl SendAttachmentJoinHandle {
-    pub fn join(self: Arc<Self>) -> Result<(), RoomError> {
-        RUNTIME.block_on(async move { (&mut *self.join_hdl.lock().await).await.unwrap() })
+    pub async fn join(self: Arc<Self>) -> Result<(), RoomError> {
+        RUNTIME
+            .spawn(async move { (&mut *self.join_hdl.lock().await).await.unwrap() })
+            .await
+            .unwrap()
     }
 
     pub fn cancel(&self) {
