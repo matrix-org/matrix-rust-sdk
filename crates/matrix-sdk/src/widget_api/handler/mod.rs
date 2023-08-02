@@ -1,5 +1,6 @@
 use std::result::Result as StdResult;
 
+mod capabilities;
 mod driver;
 mod incoming;
 mod outgoing;
@@ -11,15 +12,16 @@ pub use self::{
     outgoing::Message as Outgoing,
     request::Request,
 };
-use super::{
-    capabilities::Capabilities,
-    messages::{
-        capabilities::Options as CapabilitiesReq,
-        from_widget::{SendEventResponse, SendToDeviceRequest, SendEventRequest, ReadEventRequest, ReadEventResponse},
-        MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
+use super::messages::{
+    capabilities::Options as CapabilitiesReq,
+    from_widget::{
+        ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
+        SendToDeviceRequest,
     },
+    SupportedVersions, SUPPORTED_API_VERSIONS,
 };
 pub use super::{Error, Result};
+use capabilities::Capabilities;
 
 #[allow(missing_debug_implementations)]
 pub struct MessageHandler<T> {

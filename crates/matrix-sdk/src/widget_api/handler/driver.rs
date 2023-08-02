@@ -2,10 +2,8 @@ use async_trait::async_trait;
 use tokio::sync::oneshot::Receiver;
 
 use super::{
-    super::{
-        capabilities::Capabilities,
-        messages::{capabilities::Options as CapabilitiesReq, openid},
-    },
+    super::messages::{capabilities::Options as CapabilitiesReq, openid},
+    capabilities::Capabilities,
     Outgoing, Result,
 };
 

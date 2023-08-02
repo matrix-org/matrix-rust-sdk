@@ -122,7 +122,6 @@ impl<'de> Deserialize<'de> for Options {
     }
 }
 
-
 // Event Filters
 
 #[derive(Debug, Default, Clone)]
