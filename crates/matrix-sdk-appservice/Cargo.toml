@@ -48,7 +48,7 @@ tracing = { workspace = true }
 url = "2.2.2"
 
 [dev-dependencies]
+axum = { version = "0.6.1", default-features = false, features = ["headers", "tokio"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", features = ["appservice"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3.11"
-wiremock = "0.5.13"

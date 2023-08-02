@@ -541,9 +541,15 @@ impl AppService {
 mod tests {
     use std::{
         future,
+        net::{SocketAddr, TcpListener},
         sync::{Arc, Mutex},
     };
 
+    use axum::{
+        headers::{authorization::Bearer, Authorization},
+        routing::post,
+        Json, TypedHeader,
+    };
     use http::{Method, Request};
     use hyper::Body;
     use matrix_sdk::{
@@ -560,10 +566,6 @@ mod tests {
     };
     use serde_json::json;
     use tower::{Service, ServiceExt};
-    use wiremock::{
-        matchers::{body_json, header, method, path},
-        Mock, MockServer, ResponseTemplate,
-    };
 
     use super::*;
 
@@ -572,7 +574,7 @@ mod tests {
     }
 
     async fn appservice(
-        homeserver_url: Option<String>,
+        addr: Option<SocketAddr>,
         registration: Option<Registration>,
     ) -> Result<AppService> {
         let _ = tracing_subscriber::fmt::try_init();
@@ -582,12 +584,15 @@ mod tests {
             None => AppServiceRegistration::try_from_yaml_str(registration_string()).unwrap(),
         };
 
-        let homeserver_url = homeserver_url.unwrap_or_else(|| "http://localhost:1234".to_owned());
+        let homeserver_url = match addr {
+            Some(addr) => format!("http://{addr}"),
+            None => "http://localhost:1234".to_owned(),
+        };
         let server_name = "localhost";
 
         let client_builder = Client::builder()
             .request_config(RequestConfig::default().disable_retry())
-            .server_versions([MatrixVersion::V1_0]);
+            .server_versions([MatrixVersion::V1_7]);
 
         AppServiceBuilder::new(homeserver_url.parse()?, server_name.parse()?, registration)
             .client_builder(client_builder)
@@ -595,29 +600,37 @@ mod tests {
             .await
     }
 
+    type BearerAuthHeader = TypedHeader<Authorization<Bearer>>;
+
     #[async_test]
     async fn test_register_user() -> Result<()> {
-        let server = MockServer::start().await;
-        let appservice = appservice(Some(server.uri()), None).await?;
-
         let localpart = "someone";
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/register"))
-            .and(header(
-                "authorization",
-                format!("Bearer {}", appservice.registration().as_token).as_str(),
-            ))
-            .and(body_json(json!({
-                "username": localpart.to_owned(),
-                "type": "m.login.application_service"
-            })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "access_token": "abc123",
-                "device_id": "GHTYAJCE",
-                "user_id": format!("@{localpart}:localhost"),
-            })))
-            .mount(&server)
-            .await;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let appservice = appservice(Some(listener.local_addr().unwrap()), None).await?;
+
+        let appservice_clone = appservice.clone();
+        let routes = axum::Router::new().route(
+            "/_matrix/client/v3/register",
+            post(move |bearer: BearerAuthHeader, Json(body): Json<serde_json::Value>| async move {
+                assert_eq!(bearer.token(), appservice_clone.registration().as_token);
+                assert_eq!(
+                    body,
+                    json!({
+                        "username": localpart.to_owned(),
+                        "type": "m.login.application_service"
+                    })
+                );
+                Json(json!({
+                    "access_token": "abc123",
+                    "device_id": "GHTYAJCE",
+                    "user_id": format!("@{localpart}:localhost"),
+                }))
+            }),
+        );
+        let server = axum::Server::from_tcp(listener).unwrap().serve(routes.into_make_service());
+        tokio::spawn(async move {
+            server.await.unwrap();
+        });
 
         appservice.register_user(localpart, None).await?;
 
