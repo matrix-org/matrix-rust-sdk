@@ -44,7 +44,7 @@ async fn back_pagination() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
+    let ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -144,7 +144,7 @@ async fn back_pagination_highlighted() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
+    let ev_builder = SyncResponseBuilder::new();
     ev_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(

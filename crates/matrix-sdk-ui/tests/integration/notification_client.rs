@@ -37,7 +37,7 @@ async fn test_notification_client_with_context() {
         "type": "m.room.message",
     });
 
-    let mut ev_builder = SyncResponseBuilder::new();
+    let ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id.clone())
             .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),

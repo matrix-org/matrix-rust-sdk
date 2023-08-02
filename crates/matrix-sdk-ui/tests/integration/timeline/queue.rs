@@ -37,7 +37,7 @@ async fn message_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
+    let ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -109,7 +109,7 @@ async fn retry_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
+    let ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -213,7 +213,7 @@ async fn clear_with_echoes() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut sync_builder = SyncResponseBuilder::new();
+    let sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;

@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use http::Response;
 use ruma::{
@@ -72,8 +75,13 @@ pub use test_event::{
 ///     )
 ///     .build_sync_response();
 /// ```
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SyncResponseBuilder {
+    inner: Arc<Mutex<SyncResponseBuilderInner>>,
+}
+
+#[derive(Default)]
+pub struct SyncResponseBuilderInner {
     /// Updates to joined `Room`s.
     joined_rooms: HashMap<OwnedRoomId, JoinedRoom>,
     /// Updates to invited `Room`s.
@@ -98,10 +106,11 @@ impl SyncResponseBuilder {
     ///
     /// If a room with the same room ID already exists, it is replaced by this
     /// one.
-    pub fn add_joined_room(&mut self, room: JoinedRoomBuilder) -> &mut Self {
-        self.invited_rooms.remove(&room.room_id);
-        self.left_rooms.remove(&room.room_id);
-        self.joined_rooms.insert(room.room_id, room.inner);
+    pub fn add_joined_room(&self, room: JoinedRoomBuilder) -> &Self {
+        let mut inner = self.lock();
+        inner.invited_rooms.remove(&room.room_id);
+        inner.left_rooms.remove(&room.room_id);
+        inner.joined_rooms.insert(room.room_id, room.inner);
         self
     }
 
@@ -109,10 +118,11 @@ impl SyncResponseBuilder {
     ///
     /// If a room with the same room ID already exists, it is replaced by this
     /// one.
-    pub fn add_invited_room(&mut self, room: InvitedRoomBuilder) -> &mut Self {
-        self.joined_rooms.remove(&room.room_id);
-        self.left_rooms.remove(&room.room_id);
-        self.invited_rooms.insert(room.room_id, room.inner);
+    pub fn add_invited_room(&self, room: InvitedRoomBuilder) -> &Self {
+        let mut inner = self.lock();
+        inner.joined_rooms.remove(&room.room_id);
+        inner.left_rooms.remove(&room.room_id);
+        inner.invited_rooms.insert(room.room_id, room.inner);
         self
     }
 
@@ -120,38 +130,36 @@ impl SyncResponseBuilder {
     ///
     /// If a room with the same room ID already exists, it is replaced by this
     /// one.
-    pub fn add_left_room(&mut self, room: LeftRoomBuilder) -> &mut Self {
-        self.joined_rooms.remove(&room.room_id);
-        self.invited_rooms.remove(&room.room_id);
-        self.left_rooms.insert(room.room_id, room.inner);
+    pub fn add_left_room(&self, room: LeftRoomBuilder) -> &Self {
+        let mut inner = self.lock();
+        inner.joined_rooms.remove(&room.room_id);
+        inner.invited_rooms.remove(&room.room_id);
+        inner.left_rooms.insert(room.room_id, room.inner);
         self
     }
 
     /// Add a presence event.
-    pub fn add_presence_event(&mut self, event: PresenceTestEvent) -> &mut Self {
+    pub fn add_presence_event(&self, event: PresenceTestEvent) -> &Self {
         let val = match event {
             PresenceTestEvent::Presence => test_json::PRESENCE.to_owned(),
             PresenceTestEvent::Custom(json) => json,
         };
 
-        self.presence.push(from_json_value(val).unwrap());
+        self.lock().presence.push(from_json_value(val).unwrap());
         self
     }
 
     /// Add presence in bulk.
-    pub fn add_presence_bulk<I>(&mut self, events: I) -> &mut Self
+    pub fn add_presence_bulk<I>(&self, events: I) -> &Self
     where
         I: IntoIterator<Item = Raw<PresenceEvent>>,
     {
-        self.presence.extend(events);
+        self.lock().presence.extend(events);
         self
     }
 
     /// Add global account data.
-    pub fn add_global_account_data_event(
-        &mut self,
-        event: GlobalAccountDataTestEvent,
-    ) -> &mut Self {
+    pub fn add_global_account_data_event(&self, event: GlobalAccountDataTestEvent) -> &Self {
         let val = match event {
             GlobalAccountDataTestEvent::Direct => test_json::DIRECT.to_owned(),
             GlobalAccountDataTestEvent::PushRules => test_json::PUSH_RULES.to_owned(),
@@ -159,16 +167,16 @@ impl SyncResponseBuilder {
             GlobalAccountDataTestEvent::Custom(json) => json,
         };
 
-        self.account_data.push(from_json_value(val).unwrap());
+        self.lock().account_data.push(from_json_value(val).unwrap());
         self
     }
 
     /// Add global account data in bulk.
-    pub fn add_global_account_data_bulk<I>(&mut self, events: I) -> &mut Self
+    pub fn add_global_account_data_bulk<I>(&self, events: I) -> &Self
     where
         I: IntoIterator<Item = Raw<AnyGlobalAccountDataEvent>>,
     {
-        self.account_data.extend(events);
+        self.lock().account_data.extend(events);
         self
     }
 
@@ -182,9 +190,10 @@ impl SyncResponseBuilder {
     /// [build_sync_response()](#method.build_sync_response), use
     /// [build_sync_response()](#method.build_sync_response) if you need a typed
     /// response.
-    pub fn build_json_sync_response(&mut self) -> JsonValue {
-        self.batch_counter += 1;
-        let next_batch = self.generate_sync_token();
+    pub fn build_json_sync_response(&self) -> JsonValue {
+        let mut inner = self.lock();
+        inner.batch_counter += 1;
+        let next_batch = inner.generate_sync_token();
 
         let body = json! {
             {
@@ -195,25 +204,25 @@ impl SyncResponseBuilder {
                     "left": [],
                 },
                 "rooms": {
-                    "invite": self.invited_rooms,
-                    "join": self.joined_rooms,
-                    "leave": self.left_rooms,
+                    "invite": inner.invited_rooms,
+                    "join": inner.joined_rooms,
+                    "leave": inner.left_rooms,
                 },
                 "to_device": {
                     "events": []
                 },
                 "presence": {
-                    "events": self.presence,
+                    "events": inner.presence,
                 },
                 "account_data": {
-                    "events": self.account_data,
+                    "events": inner.account_data,
                 },
             }
         };
 
         // Clear state so that the next sync response will be empty if nothing
         // was added.
-        self.clear();
+        inner.clear();
 
         body
     }
@@ -227,7 +236,7 @@ impl SyncResponseBuilder {
     /// [build_json_sync_response()](#method.build_json_sync_response), use
     /// [build_json_sync_response()](#method.build_json_sync_response) if you
     /// need an untyped response.
-    pub fn build_sync_response(&mut self) -> SyncResponse {
+    pub fn build_sync_response(&self) -> SyncResponse {
         let body = self.build_json_sync_response();
 
         let response = Response::builder().body(serde_json::to_vec(&body).unwrap()).unwrap();
@@ -235,11 +244,21 @@ impl SyncResponseBuilder {
         SyncResponse::try_from_http_response(response).unwrap()
     }
 
+    pub fn clear(&self) {
+        self.lock().clear();
+    }
+
+    fn lock(&self) -> MutexGuard<'_, SyncResponseBuilderInner> {
+        self.inner.lock().unwrap()
+    }
+}
+
+impl SyncResponseBuilderInner {
     fn generate_sync_token(&self) -> String {
         format!("t392-516_47314_0_7_1_1_1_11444_{}", self.batch_counter)
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.account_data.clear();
         self.invited_rooms.clear();
         self.joined_rooms.clear();

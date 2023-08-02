@@ -1318,7 +1318,7 @@ mod tests {
 
         let client = logged_in_client(user_id).await;
 
-        let mut ev_builder = SyncResponseBuilder::new();
+        let ev_builder = SyncResponseBuilder::new();
 
         let response = ev_builder
             .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(
@@ -1492,7 +1492,7 @@ mod tests {
         event_id: &str,
         user_id: &UserId,
     ) -> Room {
-        let mut ev_builder = SyncResponseBuilder::new();
+        let ev_builder = SyncResponseBuilder::new();
         let response = ev_builder
             .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
                 TimelineTestEvent::Custom(json!({
