@@ -230,37 +230,30 @@ impl Room {
         &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
-        let timeline = self.timeline.clone();
-        let room = self.inner.clone();
-        RUNTIME
-            .spawn(async move {
-                let timeline = timeline
-                    .write()
-                    .await
-                    .get_or_insert_with(|| {
-                        let timeline = RUNTIME.block_on(room.timeline());
-                        Arc::new(timeline)
-                    })
-                    .clone();
-
-                let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
-                let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
-                    pin_mut!(timeline_stream);
-
-                    while let Some(diffs) = timeline_stream.next().await {
-                        listener.on_update(
-                            diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect(),
-                        );
-                    }
-                }));
-
-                RoomTimelineListenerResult {
-                    items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-                    items_stream: Arc::new(timeline_stream),
-                }
-            })
+        let timeline = self
+            .timeline
+            .write()
             .await
-            .unwrap()
+            .get_or_insert_with(|| {
+                let timeline = RUNTIME.block_on(self.inner.timeline());
+                Arc::new(timeline)
+            })
+            .clone();
+
+        let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
+        let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(timeline_stream);
+
+            while let Some(diffs) = timeline_stream.next().await {
+                listener
+                    .on_update(diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect());
+            }
+        }));
+
+        RoomTimelineListenerResult {
+            items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
+            items_stream: Arc::new(timeline_stream),
+        }
     }
 
     pub fn subscribe_to_back_pagination_status(
@@ -889,27 +882,20 @@ impl Room {
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
-        let timeline = self.timeline.clone();
-        RUNTIME
-            .spawn(async move {
-                let timeline_guard = timeline.read().await;
-                let timeline = timeline_guard.as_ref().ok_or(RoomError::TimelineUnavailable)?;
+        let timeline = self.timeline.read().await.clone().ok_or(RoomError::TimelineUnavailable)?;
 
-                let request = timeline.send_attachment(url, mime_type, attachment_config);
-                if let Some(progress_watcher) = progress_watcher {
-                    let mut subscriber = request.subscribe_to_send_progress();
-                    RUNTIME.spawn(async move {
-                        while let Some(progress) = subscriber.next().await {
-                            progress_watcher.transmission_progress(progress.into());
-                        }
-                    });
+        let request = timeline.send_attachment(url, mime_type, attachment_config);
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_send_progress();
+            RUNTIME.spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
                 }
+            });
+        }
 
-                request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-                Ok(())
-            })
-            .await
-            .unwrap()
+        request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+        Ok(())
     }
 }
 
