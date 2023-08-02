@@ -1,13 +1,9 @@
-use crate::widget_api::{
-    capabilities::SendEventRequest,
-    messages::from_widget::{SendEventResponse, SendToDeviceRequest},
+use crate::widget_api::messages::from_widget::{
+    ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse, SendToDeviceRequest,
 };
 
 use super::{
-    super::{
-        capabilities::ReadEventRequest,
-        messages::{openid, MatrixEvent, SupportedVersions},
-    },
+    super::messages::{openid, SupportedVersions},
     Request,
 };
 
@@ -16,7 +12,7 @@ pub enum Message {
     GetSupportedApiVersion(Request<(), SupportedVersions>),
     ContentLoaded(Request<(), ()>),
     GetOpenID(Request<openid::Request, openid::State>),
-    ReadEvents(Request<ReadEventRequest, Vec<MatrixEvent>>),
+    ReadEvents(Request<ReadEventRequest, ReadEventResponse>),
     SendEvent(Request<SendEventRequest, SendEventResponse>),
     SendToDeviceRequest(Request<SendToDeviceRequest, ()>),
 }

@@ -12,10 +12,10 @@ pub use self::{
     request::Request,
 };
 use super::{
-    capabilities::{Capabilities, ReadEventRequest, SendEventRequest},
+    capabilities::Capabilities,
     messages::{
         capabilities::Options as CapabilitiesReq,
-        from_widget::{SendEventResponse, SendToDeviceRequest},
+        from_widget::{SendEventResponse, SendToDeviceRequest, SendEventRequest, ReadEventRequest, ReadEventResponse},
         MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
     },
 };
@@ -102,9 +102,9 @@ impl<T: Driver> MessageHandler<T> {
     async fn read_events(
         &mut self,
         req: &ReadEventRequest,
-    ) -> StdResult<Vec<MatrixEvent>, &'static str> {
+    ) -> StdResult<ReadEventResponse, &'static str> {
         self.capabilities()?
-            .event_reader
+            .room_event_reader
             .as_mut()
             .ok_or("No permissions to read the events")?
             .read(req.clone())
@@ -117,10 +117,10 @@ impl<T: Driver> MessageHandler<T> {
         req: &SendEventRequest,
     ) -> StdResult<SendEventResponse, &'static str> {
         self.capabilities()?
-            .event_writer
+            .room_event_sender
             .as_mut()
             .ok_or("No permissions to write the events")?
-            .write(req.clone())
+            .send(req.clone())
             .await
             .map_err(|_| "Failed to write events")
     }
@@ -136,8 +136,6 @@ impl<T: Driver> MessageHandler<T> {
     }
 
     fn capabilities(&mut self) -> StdResult<&mut Capabilities, &'static str> {
-        self.capabilities
-            .as_mut()
-            .ok_or("Capabilities have not been negotiated")
+        self.capabilities.as_mut().ok_or("Capabilities have not been negotiated")
     }
 }
