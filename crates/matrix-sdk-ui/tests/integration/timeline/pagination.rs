@@ -44,10 +44,10 @@ async fn back_pagination() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -144,8 +144,8 @@ async fn back_pagination_highlighted() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(room_id)
@@ -153,7 +153,7 @@ async fn back_pagination_highlighted() {
                 .add_state_event(StateTestEvent::PowerLevels),
         );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

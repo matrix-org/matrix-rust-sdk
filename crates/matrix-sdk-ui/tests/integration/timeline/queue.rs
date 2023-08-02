@@ -37,10 +37,10 @@ async fn message_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -109,10 +109,10 @@ async fn retry_order() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

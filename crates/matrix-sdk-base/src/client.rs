@@ -1318,9 +1318,9 @@ mod tests {
 
         let client = logged_in_client(user_id).await;
 
-        let ev_builder = SyncResponseBuilder::new();
+        let sync_builder = SyncResponseBuilder::new();
 
-        let response = ev_builder
+        let response = sync_builder
             .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(
                 TimelineTestEvent::Custom(json!({
                     "content": {
@@ -1338,7 +1338,7 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
-        let response = ev_builder
+        let response = sync_builder
             .add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
                 StrippedStateTestEvent::Custom(json!({
                     "content": {
@@ -1492,8 +1492,8 @@ mod tests {
         event_id: &str,
         user_id: &UserId,
     ) -> Room {
-        let ev_builder = SyncResponseBuilder::new();
-        let response = ev_builder
+        let sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
             .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
                 TimelineTestEvent::Custom(json!({
                     "content": {

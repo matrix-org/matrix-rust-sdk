@@ -37,14 +37,14 @@ async fn test_notification_client_with_context() {
         "type": "m.room.message",
     });
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id.clone())
             .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),
     );
 
     // First, mock a sync that contains a text message.
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

@@ -31,10 +31,10 @@ async fn batched() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -48,14 +48,14 @@ async fn batched() {
         assert_eq!(next_batch.len(), 4);
     });
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(TimelineTestEvent::MessageText)
             .add_timeline_event(TimelineTestEvent::Member)
             .add_timeline_event(TimelineTestEvent::MessageNotice),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     tokio::time::timeout(Duration::from_millis(500), hdl).await.unwrap().unwrap();
@@ -67,10 +67,10 @@ async fn event_filter() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -79,7 +79,7 @@ async fn event_filter() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
             "content": {
                 "body": "hello",
@@ -92,7 +92,7 @@ async fn event_filter() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -115,7 +115,7 @@ async fn event_filter() {
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(TimelineTestEvent::Custom(json!({
                 "content": {
@@ -149,7 +149,7 @@ async fn event_filter() {
             }))),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 

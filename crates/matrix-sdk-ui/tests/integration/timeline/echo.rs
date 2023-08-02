@@ -42,10 +42,10 @@ async fn echo() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -93,7 +93,7 @@ async fn echo() {
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
 
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
             "content": {
                 "body": "Hello, World!",
@@ -107,7 +107,7 @@ async fn echo() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -139,10 +139,10 @@ async fn retry_failed() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -194,10 +194,10 @@ async fn dedup_by_event_id_late() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -230,7 +230,7 @@ async fn dedup_by_event_id_late() {
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
             "content": {
                 "body": "Hello, World!",
@@ -244,7 +244,7 @@ async fn dedup_by_event_id_late() {
         })),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 0, .. }); // day divider
@@ -264,10 +264,10 @@ async fn cancel_failed() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
