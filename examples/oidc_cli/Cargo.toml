@@ -1,0 +1,27 @@
+[package]
+name = "example-oidc-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "example-oidc-cli"
+test = false
+
+[dependencies]
+anyhow = "1"
+dirs = "4.0.0"
+futures-util = { version = "0.3.21", default-features = false }
+http = { workspace = true }
+hyper = { version = "0.14.20", features = ["http1", "http2", "server"]}
+rand = "0.8.5"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.4.13", features = ["make"] }
+tracing-subscriber = "0.3.15"
+url = "2.2.2"
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+features = ["experimental-oidc"]

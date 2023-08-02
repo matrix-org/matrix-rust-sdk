@@ -561,7 +561,7 @@ impl MatrixAuth {
     }
 
     /// Set the current session tokens
-    fn set_session_tokens(&self, tokens: SessionTokens) {
+    pub(crate) fn set_session_tokens(&self, tokens: SessionTokens) {
         if let Some(auth_data) = self.client.inner.auth_data.get() {
             let Some(data) = auth_data.as_matrix() else {
                 panic!("Cannot call native Matrix authentication API after logging in with another API");

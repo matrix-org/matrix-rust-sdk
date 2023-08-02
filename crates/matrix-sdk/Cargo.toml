@@ -42,6 +42,13 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
+experimental-oidc = [
+    "dep:mas-oidc-client",
+    "dep:tower",
+    "ruma/unstable-msc2967",
+    "dep:rand",
+    "dep:chrono",
+]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "reqwest/gzip",
@@ -58,6 +65,7 @@ async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
+chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
@@ -105,6 +113,11 @@ features = [
     "dds",
     "farbfeld",
 ]
+optional = true
+
+[dependencies.mas-oidc-client]
+git = "https://github.com/matrix-org/matrix-authentication-service"
+rev = "d6130176b526f9e490ba6bfd2949694ddd6cc665"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
