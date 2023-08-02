@@ -1670,7 +1670,7 @@ mod tests {
                     device_one_time_keys_count: BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, uint!(42))])
                 }),
                 to_device: Some(assign!(v4::ToDevice::default(), {
-                    next_batch: "to-device-token".to_string()
+                    next_batch: "to-device-token".to_owned(),
                 })),
             })
         });

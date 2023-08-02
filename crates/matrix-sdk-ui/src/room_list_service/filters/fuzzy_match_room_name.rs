@@ -102,7 +102,7 @@ mod tests {
         let matcher = matcher.with_pattern("ubété");
 
         // First, assert that the pattern has been normalized.
-        assert_eq!(matcher.pattern, Some("ubete".to_string()));
+        assert_eq!(matcher.pattern, Some("ubete".to_owned()));
 
         // Second, assert that the subject is normalized too.
         assert!(matcher.fuzzy_match("un bel été"));
