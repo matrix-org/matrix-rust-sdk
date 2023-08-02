@@ -227,17 +227,18 @@ impl Room {
     }
 
     pub async fn add_timeline_listener(
-        self: Arc<Self>,
+        &self,
         listener: Box<dyn TimelineListener>,
     ) -> RoomTimelineListenerResult {
+        let timeline = self.timeline.clone();
+        let room = self.inner.clone();
         RUNTIME
             .spawn(async move {
-                let timeline = self
-                    .timeline
+                let timeline = timeline
                     .write()
                     .await
                     .get_or_insert_with(|| {
-                        let timeline = RUNTIME.block_on(self.inner.timeline());
+                        let timeline = RUNTIME.block_on(room.timeline());
                         Arc::new(timeline)
                     })
                     .clone();
@@ -806,85 +807,50 @@ impl Room {
         })
     }
 
-    pub async fn can_user_redact(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_redact(&user_id).await?)
-            })
-            .await
-            .unwrap()
+    pub async fn can_user_redact(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_redact(&user_id).await?)
     }
 
-    pub async fn can_user_ban(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_ban(&user_id).await?)
-            })
-            .await
-            .unwrap()
+    pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_ban(&user_id).await?)
     }
 
-    pub async fn can_user_invite(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_invite(&user_id).await?)
-            })
-            .await
-            .unwrap()
+    pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_invite(&user_id).await?)
     }
 
-    pub async fn can_user_kick(self: Arc<Self>, user_id: String) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_kick(&user_id).await?)
-            })
-            .await
-            .unwrap()
+    pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_kick(&user_id).await?)
     }
 
     pub async fn can_user_send_state(
-        self: Arc<Self>,
+        &self,
         user_id: String,
         state_event: StateEventType,
     ) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
-            })
-            .await
-            .unwrap()
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
     }
 
     pub async fn can_user_send_message(
-        self: Arc<Self>,
+        &self,
         user_id: String,
         message: MessageLikeEventType,
     ) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
-            })
-            .await
-            .unwrap()
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
     }
 
     pub async fn can_user_trigger_room_notification(
-        self: Arc<Self>,
+        &self,
         user_id: String,
     ) -> Result<bool, ClientError> {
-        RUNTIME
-            .spawn(async move {
-                let user_id = UserId::parse(&user_id)?;
-                Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
-            })
-            .await
-            .unwrap()
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
     }
 
     pub fn own_user_id(&self) -> String {
@@ -949,25 +915,23 @@ impl Room {
 
 #[derive(uniffi::Object)]
 pub struct SendAttachmentJoinHandle {
-    join_hdl: Mutex<JoinHandle<Result<(), RoomError>>>,
+    join_hdl: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
     abort_hdl: AbortHandle,
 }
 
 impl SendAttachmentJoinHandle {
     fn new(join_hdl: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
         let abort_hdl = join_hdl.abort_handle();
-        let join_hdl = Mutex::new(join_hdl);
+        let join_hdl = Arc::new(Mutex::new(join_hdl));
         Arc::new(Self { join_hdl, abort_hdl })
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SendAttachmentJoinHandle {
-    pub async fn join(self: Arc<Self>) -> Result<(), RoomError> {
-        RUNTIME
-            .spawn(async move { (&mut *self.join_hdl.lock().await).await.unwrap() })
-            .await
-            .unwrap()
+    pub async fn join(&self) -> Result<(), RoomError> {
+        let join_hdl = self.join_hdl.clone();
+        RUNTIME.spawn(async move { (&mut *join_hdl.lock().await).await.unwrap() }).await.unwrap()
     }
 
     pub fn cancel(&self) {

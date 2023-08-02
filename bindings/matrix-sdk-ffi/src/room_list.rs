@@ -93,36 +93,21 @@ impl RoomListService {
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
-        RUNTIME
-            .spawn(async move {
-                Ok(Arc::new(RoomList {
-                    room_list_service: self.clone(),
-                    inner: Arc::new(self.inner.all_rooms().await.map_err(RoomListError::from)?),
-                }))
-            })
-            .await
-            .unwrap()
+        Ok(Arc::new(RoomList {
+            room_list_service: self.clone(),
+            inner: Arc::new(self.inner.all_rooms().await.map_err(RoomListError::from)?),
+        }))
     }
 
     async fn invites(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
-        RUNTIME
-            .spawn(async move {
-                Ok(Arc::new(RoomList {
-                    room_list_service: self.clone(),
-                    inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
-                }))
-            })
-            .await
-            .unwrap()
+        Ok(Arc::new(RoomList {
+            room_list_service: self.clone(),
+            inner: Arc::new(self.inner.invites().await.map_err(RoomListError::from)?),
+        }))
     }
 
-    async fn apply_input(self: Arc<Self>, input: RoomListInput) -> Result<(), RoomListError> {
-        RUNTIME
-            .spawn(async move {
-                self.inner.apply_input(input.into()).await.map(|_| ()).map_err(Into::into)
-            })
-            .await
-            .unwrap()
+    async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
+        self.inner.apply_input(input.into()).await.map(|_| ()).map_err(Into::into)
     }
 }
 
