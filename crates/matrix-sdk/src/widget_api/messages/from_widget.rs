@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::widget_api::messages::{
-    MessageBody, MatrixEvent, OpenIdState, SupportedVersions, ReadRelationsDirection,
-};
+use super::{openid, MatrixEvent, MessageBody, ReadRelationsDirection, SupportedVersions};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "action")]
@@ -14,7 +12,7 @@ pub enum FromWidgetMessage {
     #[serde(rename = "content_loaded")]
     ContentLoaded(MessageBody<(), ()>),
     #[serde(rename = "get_openid")]
-    GetOpenId(MessageBody<(), GetOpenIdResponse>),
+    GetOpenId(MessageBody<(), openid::State>),
     #[serde(rename = "send_to_device")]
     SendToDevice(MessageBody<SendToDeviceRequest, ()>),
     #[serde(rename = "send_events")]
@@ -23,17 +21,6 @@ pub enum FromWidgetMessage {
     ReadEvent(MessageBody<ReadEventRequest, ReadEventResponse>),
     #[serde(rename = "org.matrix.msc3869.read_relations")]
     ReadRelations(MessageBody<ReadEventRequest, ReadEventResponse>),
-}
-
-// MSC1960
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GetOpenIdResponse {
-    state: OpenIdState, //OpenIDRequestState;
-    access_token: Option<String>,
-    expires_in: Option<i32>,
-    matrix_server_name: Option<String>,
-    token_type: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

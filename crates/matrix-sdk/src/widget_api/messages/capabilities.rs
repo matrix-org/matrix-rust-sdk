@@ -1,6 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-
 #[derive(Debug, Default)]
 pub struct EventFilter {
     event_type: String,

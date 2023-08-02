@@ -1,23 +1,25 @@
-use async_trait::async_trait;
+use std::result::Result as StdResult;
 
+mod driver;
 mod incoming;
 mod outgoing;
 mod request;
 
-pub use self::{incoming::Message as Incoming, outgoing::Message as Outgoing, request::Request};
+pub use self::{
+    driver::{Driver, OpenIDState},
+    incoming::Message as Incoming,
+    outgoing::Message as Outgoing,
+    request::Request,
+};
 use super::{
-    capabilities::Capabilities,
+    capabilities::{Capabilities, ReadEventRequest, SendEventRequest},
     messages::{
-        capabilities::Options as CapabilitiesReq, SupportedVersions, SUPPORTED_API_VERSIONS,
+        capabilities::Options as CapabilitiesReq,
+        from_widget::{SendEventResponse, SendToDeviceRequest},
+        MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
     },
 };
 pub use super::{Error, Result};
-
-#[async_trait]
-pub trait Driver {
-    async fn initialise(&mut self, req: CapabilitiesReq) -> Result<Capabilities>;
-    async fn send(&mut self, message: Outgoing) -> Result<()>;
-}
 
 #[allow(missing_debug_implementations)]
 pub struct MessageHandler<T> {
@@ -49,6 +51,33 @@ impl<T: Driver> MessageHandler<T> {
             Incoming::GetSupportedApiVersion(r) => {
                 r.reply(Ok(SupportedVersions { versions: SUPPORTED_API_VERSIONS.to_vec() }))?;
             }
+
+            Incoming::GetOpenID(r) => {
+                let state = self.driver.get_openid(r.clone()).await;
+                r.reply(Ok((&state).into()))?;
+
+                if let OpenIDState::Pending(resolution) = state {
+                    let resolved = resolution.await.map_err(|_| Error::WidgetDied)?;
+                    let (req, resp) = Request::new(resolved.into());
+                    self.driver.send(Outgoing::OpenIDUpdated(req)).await?;
+                    resp.recv().await?;
+                }
+            }
+
+            Incoming::ReadEvents(r) => {
+                let response = self.read_events(&r).await;
+                r.reply(response)?;
+            }
+
+            Incoming::SendEvent(r) => {
+                let response = self.send_event(&r).await;
+                r.reply(response)?;
+            }
+
+            Incoming::SendToDeviceRequest(r) => {
+                let response = self.send_to_device(&r).await;
+                r.reply(response)?;
+            }
         }
 
         Ok(())
@@ -68,5 +97,47 @@ impl<T: Driver> MessageHandler<T> {
         resp.recv().await?;
 
         Ok(())
+    }
+
+    async fn read_events(
+        &mut self,
+        req: &ReadEventRequest,
+    ) -> StdResult<Vec<MatrixEvent>, &'static str> {
+        self.capabilities()?
+            .event_reader
+            .as_mut()
+            .ok_or("No permissions to read the events")?
+            .read(req.clone())
+            .await
+            .map_err(|_| "Failed to read events")
+    }
+
+    async fn send_event(
+        &mut self,
+        req: &SendEventRequest,
+    ) -> StdResult<SendEventResponse, &'static str> {
+        self.capabilities()?
+            .event_writer
+            .as_mut()
+            .ok_or("No permissions to write the events")?
+            .write(req.clone())
+            .await
+            .map_err(|_| "Failed to write events")
+    }
+
+    async fn send_to_device(&mut self, req: &SendToDeviceRequest) -> StdResult<(), &'static str> {
+        self.capabilities()?
+            .to_device_sender
+            .as_mut()
+            .ok_or("No permissions to send to device messages")?
+            .send(req.clone())
+            .await
+            .map_err(|_| "Failed to write events")
+    }
+
+    fn capabilities(&mut self) -> StdResult<&mut Capabilities, &'static str> {
+        self.capabilities
+            .as_mut()
+            .ok_or("Capabilities have not been negotiated")
     }
 }

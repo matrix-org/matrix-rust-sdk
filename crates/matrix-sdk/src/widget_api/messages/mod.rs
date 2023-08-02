@@ -1,9 +1,10 @@
+use self::{from_widget::FromWidgetMessage, to_widget::ToWidgetMessage};
 use serde::{Deserialize, Serialize};
-use {from_widget::FromWidgetMessage, to_widget::ToWidgetMessage};
 
-pub mod from_widget;
-pub mod to_widget;
 pub mod capabilities;
+pub mod from_widget;
+pub mod openid;
+pub mod to_widget;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "api")]
@@ -92,16 +93,6 @@ pub enum ApiVersion {
     MSC3846,
     #[serde(rename = "org.matrix.msc3869")] // Read event relations with the Widget API
     MSC3869,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum OpenIdState {
-    #[serde(rename = "allowed")]
-    Allowed,
-    #[serde(rename = "blocked")]
-    Blocked,
-    #[serde(rename = "request")]
-    PendingUserConfirmation,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

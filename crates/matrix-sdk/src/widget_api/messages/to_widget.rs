@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::widget_api::messages::{MessageBody, OpenIdState, MatrixEvent, self};
-
+use super::{openid, capabilities::Options, MatrixEvent, MessageBody};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action")]
@@ -11,26 +10,16 @@ pub enum ToWidgetMessage {
     #[serde(rename = "notify_capabilities")]
     CapabilitiesUpdated(MessageBody<CapabilitiesUpdatedRequest, ()>),
     #[serde(rename = "openid_credentials")]
-    OpenIdCredentials(MessageBody<OpenIdCredentialsRequest, ()>),
+    OpenIdCredentials(MessageBody<openid::State, ()>),
     #[serde(rename = "sent_to_device")]
     SendToDevice(MessageBody<SendToDeviceRequest, ()>),
     #[serde(rename = "send_event")]
-    SendEvent(MessageBody<MatrixEvent, ()>)
+    SendEvent(MessageBody<MatrixEvent, ()>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SendMeCapabilitiesResponse {
-    pub capabilities: messages::capabilities::Options,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OpenIdCredentialsRequest {
-    state: OpenIdState, //OpenIDRequestState;
-    original_request_id: String,
-    access_token: Option<String>,
-    expires_in: Option<i32>,
-    matrix_server_name: Option<String>,
-    token_type: Option<String>,
+    pub capabilities: Options,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,6 +33,5 @@ pub struct SendToDeviceRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CapabilitiesUpdatedRequest {
     requested: Vec<String>,
-    approved: Vec<String>
+    approved: Vec<String>,
 }
-
