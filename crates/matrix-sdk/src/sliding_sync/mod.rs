@@ -889,7 +889,7 @@ fn compute_limited(
             if num_known_events != known_events.len() {
                 trace!(
                     "{} local timeline events had no IDs",
-                    known_events.len() - num_known_events
+                    num_known_events - known_events.len()
                 );
             }
 
