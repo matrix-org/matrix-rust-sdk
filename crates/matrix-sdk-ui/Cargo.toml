@@ -48,14 +48,13 @@ anyhow = { workspace = true }
 assert-json-diff = "2.0"
 assert_matches = { workspace = true }
 async-channel = "1.9.0"
-axum = { version = "0.6.19", default-features = false, features = ["json", "tokio", "tracing"] }
-axum-extra = { version = "0.7.5", features = ["erased-json"] }
+axum = { workspace = true, features = ["tokio"] }
+axum-extra = { workspace = true, features = ["erased-json"] }
 ctor = { workspace = true }
 eyeball-im-util = { workspace = true }
 matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = "0.1.0"
-tower-http = { version = "0.4.3", features = ["trace"] }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 wiremock = "0.5.13"
 

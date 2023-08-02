@@ -12,9 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::{Arc, Mutex},
+};
 
-use axum::{http::StatusCode, routing::get, Json};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::get,
+    Json,
+};
 use axum_extra::response::ErasedJson;
 use matrix_sdk::{
     config::RequestConfig,
@@ -25,12 +33,10 @@ use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{test_json, SyncResponseBuilder};
 use ruma::{api::MatrixVersion, device_id, user_id};
 use tokio::spawn;
-use tower_http::trace::TraceLayer;
 
 pub fn test_client_builder(routes: axum::Router) -> ClientBuilder {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let server = axum::Server::bind(&addr)
-        .serve(routes.layer(TraceLayer::new_for_http()).into_make_service());
+    let server = axum::Server::bind(&addr).serve(routes.into_make_service());
 
     let client_builder = Client::builder()
         .homeserver_url(format!("http://{}", server.local_addr()))
@@ -75,9 +81,9 @@ impl<S: Clone + Send + Sync + 'static> RouterExt for axum::Router<S> {
         self.route(
             "/_matrix/client/v3/rooms/:room_id/state/m.room.encryption/",
             if is_encrypted {
-                get(|| async { ErasedJson::new(&*test_json::sync_events::ENCRYPTION_CONTENT) })
+                get(ErasedJson::new(&*test_json::sync_events::ENCRYPTION_CONTENT))
             } else {
-                get(|| async { (StatusCode::NOT_FOUND, ErasedJson::new(&*test_json::NOT_FOUND)) })
+                get((StatusCode::NOT_FOUND, ErasedJson::new(&*test_json::NOT_FOUND)))
             },
         )
     }
@@ -85,7 +91,30 @@ impl<S: Clone + Send + Sync + 'static> RouterExt for axum::Router<S> {
     fn mock_sync_responses(self, sync_builder: SyncResponseBuilder) -> Self {
         self.route(
             "/_matrix/client/v3/sync",
-            get(|| async move { Json(sync_builder.build_json_sync_response()) }),
+            get(move || async move { Json(sync_builder.build_json_sync_response()) }),
         )
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ResponseVar {
+    inner: Arc<Mutex<Option<Response>>>,
+}
+
+impl ResponseVar {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&self, r: impl IntoResponse) {
+        *self.inner.lock().unwrap() = Some(r.into_response());
+    }
+}
+
+impl IntoResponse for ResponseVar {
+    fn into_response(self) -> Response {
+        self.inner.lock().unwrap().take().unwrap_or_else(|| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "ResponseVar not set").into_response()
+        })
     }
 }

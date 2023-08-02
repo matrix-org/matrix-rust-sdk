@@ -12,16 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
-use axum::{http::StatusCode, response::IntoResponse, routing::put, Json};
+use axum::{routing::put, Json};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
@@ -37,7 +31,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::assert_next_matches;
 
-use crate::axum::{logged_in_client, RouterExt};
+use crate::axum::{logged_in_client, ResponseVar, RouterExt};
 
 #[async_test]
 async fn echo() {
@@ -48,7 +42,7 @@ async fn echo() {
         axum::Router::new()
             .route(
                 "/_matrix/client/v3/rooms/:room_id/send/*rest",
-                put(|| async { Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })) }),
+                put(Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" }))),
             )
             .mock_encryption_state(false)
             .mock_sync_responses(sync_builder.clone()),
@@ -134,22 +128,10 @@ async fn retry_failed() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let num_requests = Arc::new(AtomicU8::new(0));
+    let send_response_var = ResponseVar::new();
     let client = logged_in_client(
         axum::Router::new()
-            .route(
-                "/_matrix/client/v3/rooms/:room_id/send/*rest",
-                put(move || async move {
-                    if num_requests.fetch_add(1, Ordering::AcqRel) < 1 {
-                        // The first request fails
-                        StatusCode::BAD_REQUEST.into_response()
-                    } else {
-                        // Subsequent requests succeed
-                        Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })).into_response()
-                    }
-                }),
-            )
+            .route("/_matrix/client/v3/rooms/:room_id/send/*rest", put(send_response_var.clone()))
             .mock_encryption_state(false)
             .mock_sync_responses(sync_builder.clone()),
     )
@@ -172,11 +154,13 @@ async fn retry_failed() {
         assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 
-    // Sending fails the first time
+    // Sending fails the first time, response var not set
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 0, value }) => {
         assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
     });
 
+    // Set response var and retry
+    send_response_var.set(Json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })));
     timeline.retry_send(txn_id).await.unwrap();
 
     // After mocking the endpoint and retrying, it first transitions back out of

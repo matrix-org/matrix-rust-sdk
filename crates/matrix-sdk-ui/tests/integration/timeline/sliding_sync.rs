@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use assert_matches::assert_matches;
+use axum::{routing::post, Json};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
@@ -27,26 +28,17 @@ use matrix_sdk_ui::timeline::{
 };
 use ruma::{room_id, RoomId};
 use serde_json::json;
-use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-use crate::logged_in_client;
+use crate::axum::{logged_in_client, ResponseVar};
 
 macro_rules! receive_response {
     (
-        [$server:ident, $sliding_sync_stream:ident]
+        [$response_var:ident, $sliding_sync_stream:ident]
         $( $json:tt )+
     ) => {
         {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(ResponseTemplate::new(200).set_body_json(
-                    json!( $( $json )+ )
-                ))
-                .mount_as_scoped(&$server)
-                .await;
-
-            let next = $sliding_sync_stream.next().await.context("`sync` trip")??;
-
-            next
+            $response_var.set(Json(json!($( $json )+)));
+            $sliding_sync_stream.next().await.context("`sync` trip")??
         }
     };
 }
@@ -198,8 +190,15 @@ macro_rules! assert_timeline_stream {
 
 pub(crate) use assert_timeline_stream;
 
-async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
-    let (client, server) = logged_in_client().await;
+async fn new_sliding_sync(
+    lists: Vec<SlidingSyncListBuilder>,
+) -> Result<(ResponseVar, SlidingSync)> {
+    let response_var = ResponseVar::new();
+    let client = logged_in_client(
+        axum::Router::new()
+            .route("/_matrix/client/unstable/org.matrix.msc3575/sync", post(response_var.clone())),
+    )
+    .await;
 
     let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 
@@ -209,18 +208,18 @@ async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockSer
 
     let sliding_sync = sliding_sync_builder.build().await?;
 
-    Ok((server, sliding_sync))
+    Ok((response_var, sliding_sync))
 }
 
 async fn create_one_room(
-    server: &MockServer,
+    response_var: &ResponseVar,
     sliding_sync: &SlidingSync,
-    stream: &mut Pin<&mut impl Stream<Item = matrix_sdk::Result<UpdateSummary>>>,
+    mut stream: impl Stream<Item = matrix_sdk::Result<UpdateSummary>> + Unpin,
     room_id: &RoomId,
     room_name: String,
 ) -> Result<()> {
     let update = receive_response!(
-        [server, stream]
+        [response_var, stream]
         {
             "pos": "foo",
             "lists": {},
@@ -258,18 +257,9 @@ async fn timeline(
         .await)
 }
 
-struct SlidingSyncMatcher;
-
-impl Match for SlidingSyncMatcher {
-    fn matches(&self, request: &Request) -> bool {
-        request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-            && request.method == Method::Post
-    }
-}
-
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
-    let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+    let (response_var, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
         .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
@@ -278,7 +268,8 @@ async fn test_timeline_basic() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&response_var, &sliding_sync, &mut stream, room_id, "Room Name".to_owned())
+        .await?;
 
     let (timeline_items, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
     assert!(timeline_items.is_empty());
@@ -286,7 +277,7 @@ async fn test_timeline_basic() -> Result<()> {
     // Receiving a bunch of events.
     {
         receive_response! {
-            [server, stream]
+            [response_var, stream]
             {
                 "pos": "1",
                 "lists": {},
@@ -315,7 +306,7 @@ async fn test_timeline_basic() -> Result<()> {
 
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
-    let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+    let (response_var, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
         .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
     .await?;
 
@@ -324,14 +315,15 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&response_var, &sliding_sync, &mut stream, room_id, "Room Name".to_owned())
+        .await?;
 
     let (_, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
 
     // Receiving events.
     {
         receive_response! {
-            [server, stream]
+            [response_var, stream]
             {
                 "pos": "1",
                 "lists": {},
@@ -361,7 +353,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
     // Receiving new events, where the first has already been received.
     {
         receive_response! {
-            [server, stream]
+            [response_var, stream]
             {
                 "pos": "3",
                 "lists": {},

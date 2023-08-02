@@ -12,13 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::time::Duration;
 
 use assert_matches::assert_matches;
 use axum::{routing::get, Json};
@@ -40,33 +34,19 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_eq, assert_next_matches};
 
-use crate::axum::{logged_in_client, RouterExt};
+use crate::axum::{logged_in_client, ResponseVar, RouterExt};
 
 #[async_test]
 async fn back_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let num_requests = Arc::new(AtomicU8::new(0));
+    let get_messages_response_var = ResponseVar::new();
     let client = logged_in_client(
         axum::Router::new()
             .route(
                 "/_matrix/client/v3/rooms/:room_id/messages",
-                get(move || async move {
-                    match num_requests.fetch_add(1, Ordering::AcqRel) {
-                        // First request
-                        0 => ErasedJson::new(&*test_json::ROOM_MESSAGES_BATCH_1),
-                        // Second request
-                        1 => ErasedJson::new(json!( {
-                            // Usually there would be a few events here, but we just want to test
-                            // that the timeline start item is added when there is no end token
-                            "chunk": [],
-                            "start": "t47409-4357353_219380_26003_2269"
-                        })),
-                        _ => unreachable!(),
-                    }
-                }),
+                get(get_messages_response_var.clone()),
             )
             .mock_sync_responses(sync_builder.clone()),
     )
@@ -76,11 +56,12 @@ async fn back_pagination() {
     client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = room.timeline().await;
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let mut back_pagination_status = timeline.back_pagination_status();
 
     let paginate = async {
+        get_messages_response_var.set(ErasedJson::new(&*test_json::ROOM_MESSAGES_BATCH_1));
         timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
     };
     let observe_paginating = async {
@@ -134,6 +115,12 @@ async fn back_pagination() {
     assert_eq!(content.name.as_ref().unwrap(), "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
+    get_messages_response_var.set(Json(json!( {
+        // Usually there would be a few events here, but we just want to test
+        // that the timeline start item is added when there is no end token
+        "chunk": [],
+        "start": "t47409-4357353_219380_26003_2269"
+    })));
     timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
     assert_next_eq!(back_pagination_status, BackPaginationStatus::TimelineStartReached);
 }
@@ -147,10 +134,9 @@ async fn back_pagination_highlighted() {
         axum::Router::new()
             .route(
                 "/_matrix/client/v3/rooms/:room_id/messages",
-                get(move || async move {
-                    Json(json!({
-                        "chunk": [
-                          {
+                get(Json(json!({
+                    "chunk": [
+                        {
                             "content": {
                                 "body": "hello",
                                 "msgtype": "m.text",
@@ -160,8 +146,8 @@ async fn back_pagination_highlighted() {
                             "sender": "@example:localhost",
                             "type": "m.room.message",
                             "room_id": room_id,
-                          },
-                          {
+                        },
+                        {
                             "content": {
                                 "body": "This room has been replaced",
                                 "replacement_room": "!newroom:localhost",
@@ -172,12 +158,11 @@ async fn back_pagination_highlighted() {
                             "state_key": "",
                             "type": "m.room.tombstone",
                             "room_id": room_id,
-                          },
-                        ],
-                        "end": "t47409-4357353_219380_26003_2269",
-                        "start": "t392-516_47314_0_7_1_1_1_11444_1"
-                    }))
-                }),
+                        },
+                    ],
+                    "end": "t47409-4357353_219380_26003_2269",
+                    "start": "t392-516_47314_0_7_1_1_1_11444_1"
+                }))),
             )
             .mock_sync_responses(sync_builder.clone()),
     )
@@ -193,7 +178,7 @@ async fn back_pagination_highlighted() {
     client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await);
+    let timeline = room.timeline().await;
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();

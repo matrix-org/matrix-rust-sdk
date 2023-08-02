@@ -12,13 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::time::Duration;
 
 use assert_matches::assert_matches;
 use axum::{http::StatusCode, routing::get, Json};
@@ -43,7 +37,7 @@ mod subscribe;
 
 pub(crate) mod sliding_sync;
 
-use crate::axum::{logged_in_client, RouterExt};
+use crate::axum::{logged_in_client, ResponseVar, RouterExt};
 
 #[async_test]
 async fn edit() {
@@ -368,40 +362,12 @@ async fn in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let num_requests = Arc::new(AtomicU8::new(0));
+    let get_event_response_var = ResponseVar::new();
     let client = logged_in_client(
         axum::Router::new()
             .route(
                 "/_matrix/client/v3/rooms/:room_id/event/:event_id",
-                get(move || async move {
-                    match num_requests.fetch_add(1, Ordering::AcqRel) {
-                        // First request
-                        0 => (
-                            StatusCode::NOT_FOUND,
-                            Json(json!({
-                                "errcode": "M_NOT_FOUND",
-                                "error": "Event not found.",
-                            })),
-                        ),
-                        // Second request
-                        1 => (
-                            StatusCode::OK,
-                            Json(json!({
-                                "content": {
-                                    "body": "Alice is gonna arrive soon",
-                                    "msgtype": "m.text",
-                                },
-                                "room_id": room_id,
-                                "event_id": "$event0",
-                                "origin_server_ts": 152024004,
-                                "sender": "@admin:example.org",
-                                "type": "m.room.message",
-                            })),
-                        ),
-                        _ => unreachable!(),
-                    }
-                }),
+                get(get_event_response_var.clone()),
             )
             .mock_sync_responses(sync_builder.clone()),
     )
@@ -494,6 +460,14 @@ async fn in_reply_to_details() {
     assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
+    get_event_response_var.set((
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Event not found.",
+        })),
+    ));
+
     // Fetch details remotely if we can't find them locally.
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
 
@@ -504,6 +478,18 @@ async fn in_reply_to_details() {
     let third = assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 3, value }) => value);
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
+
+    get_event_response_var.set(Json(json!({
+        "content": {
+            "body": "Alice is gonna arrive soon",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": "$event0",
+        "origin_server_ts": 152024004,
+        "sender": "@admin:example.org",
+        "type": "m.room.message",
+    })));
 
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
 
