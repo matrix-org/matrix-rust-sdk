@@ -414,11 +414,10 @@ mod tests {
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
-    use wiremock::MockServer;
 
     use super::*;
 
-    async fn new_client() -> (Client, MockServer) {
+    async fn new_client() -> Client {
         let session = Session {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
@@ -427,28 +426,26 @@ mod tests {
             tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
-        let server = MockServer::start().await;
         let client = Client::builder()
-            .homeserver_url(server.uri())
+            .homeserver_url("https://dummy.localhost")
             .server_versions([MatrixVersion::V1_0])
             .request_config(RequestConfig::new().disable_retry())
             .build()
             .await
             .unwrap();
         client.restore_session(session).await.unwrap();
-
-        (client, server)
+        client
     }
 
     pub(super) async fn new_room_list() -> Result<RoomListService, Error> {
-        let (client, _) = new_client().await;
+        let client = new_client().await;
 
         RoomListService::new(client).await
     }
 
     #[async_test]
     async fn test_sliding_sync_proxy_url() -> Result<(), Error> {
-        let (client, _) = new_client().await;
+        let client = new_client().await;
 
         {
             let room_list = RoomListService::new(client.clone()).await?;
@@ -489,7 +486,7 @@ mod tests {
 
     #[async_test]
     async fn test_no_to_device_and_e2ee_if_not_explicitly_set() -> Result<(), Error> {
-        let (client, _) = new_client().await;
+        let client = new_client().await;
 
         let no_encryption = RoomListService::new(client.clone()).await?;
         let extensions = no_encryption.sliding_sync.extensions_config();
