@@ -12,9 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
+use axum::{routing::get, Json};
+use axum_extra::response::ErasedJson;
 use eyeball_im::VectorDiff;
 use futures_util::future::join;
 use matrix_sdk::config::SyncSettings;
@@ -31,43 +39,49 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::{assert_next_eq, assert_next_matches};
-use wiremock::{
-    matchers::{header, method, path_regex},
-    Mock, ResponseTemplate,
-};
 
-use crate::{logged_in_client, mock_sync};
+use crate::axum::{logged_in_client, RouterExt};
 
 #[async_test]
 async fn back_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
+    let sync_builder = SyncResponseBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let num_requests = Arc::new(AtomicU8::new(0));
+    let client = logged_in_client(
+        axum::Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/:room_id/messages",
+                get(move || async move {
+                    match num_requests.fetch_add(1, Ordering::AcqRel) {
+                        // First request
+                        0 => ErasedJson::new(&*test_json::ROOM_MESSAGES_BATCH_1),
+                        // Second request
+                        1 => ErasedJson::new(json!( {
+                            // Usually there would be a few events here, but we just want to test
+                            // that the timeline start item is added when there is no end token
+                            "chunk": [],
+                            "start": "t47409-4357353_219380_26003_2269"
+                        })),
+                        _ => unreachable!(),
+                    }
+                }),
+            )
+            .mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let mut back_pagination_status = timeline.back_pagination_status();
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_MESSAGES_BATCH_1))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
-
     let paginate = async {
         timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
-        server.reset().await;
     };
     let observe_paginating = async {
         assert_eq!(back_pagination_status.next().await, Some(BackPaginationStatus::Paginating));
@@ -120,20 +134,6 @@ async fn back_pagination() {
     assert_eq!(content.name.as_ref().unwrap(), "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            // Usually there would be a few events here, but we just want to test
-            // that the timeline start item is added when there is no end token
-            "chunk": [],
-            "start": "t47409-4357353_219380_26003_2269"
-        })))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
-
     timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
     assert_next_eq!(back_pagination_status, BackPaginationStatus::TimelineStartReached);
 }
@@ -141,10 +141,48 @@ async fn back_pagination() {
 #[async_test]
 async fn back_pagination_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let sync_builder = SyncResponseBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let client = logged_in_client(
+        axum::Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/:room_id/messages",
+                get(move || async move {
+                    Json(json!({
+                        "chunk": [
+                          {
+                            "content": {
+                                "body": "hello",
+                                "msgtype": "m.text",
+                            },
+                            "event_id": "$msda7m0df9E9op3",
+                            "origin_server_ts": 152037280,
+                            "sender": "@example:localhost",
+                            "type": "m.room.message",
+                            "room_id": room_id,
+                          },
+                          {
+                            "content": {
+                                "body": "This room has been replaced",
+                                "replacement_room": "!newroom:localhost",
+                            },
+                            "event_id": "$foun39djjod0f",
+                            "origin_server_ts": 152039280,
+                            "sender": "@bob:localhost",
+                            "state_key": "",
+                            "type": "m.room.tombstone",
+                            "room_id": room_id,
+                          },
+                        ],
+                        "end": "t47409-4357353_219380_26003_2269",
+                        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+                    }))
+                }),
+            )
+            .mock_sync_responses(sync_builder.clone()),
+    )
+    .await;
+
     sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
@@ -152,55 +190,13 @@ async fn back_pagination_highlighted() {
                 .add_state_event(StateTestEvent::Member)
                 .add_state_event(StateTestEvent::PowerLevels),
         );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let response_json = json!({
-        "chunk": [
-          {
-            "content": {
-                "body": "hello",
-                "msgtype": "m.text",
-            },
-            "event_id": "$msda7m0df9E9op3",
-            "origin_server_ts": 152037280,
-            "sender": "@example:localhost",
-            "type": "m.room.message",
-            "room_id": room_id,
-          },
-          {
-            "content": {
-                "body": "This room has been replaced",
-                "replacement_room": "!newroom:localhost",
-            },
-            "event_id": "$foun39djjod0f",
-            "origin_server_ts": 152039280,
-            "sender": "@bob:localhost",
-            "state_key": "",
-            "type": "m.room.tombstone",
-            "room_id": room_id,
-          },
-        ],
-        "end": "t47409-4357353_219380_26003_2269",
-        "start": "t392-516_47314_0_7_1_1_1_11444_1"
-    });
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
-
     timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
-    server.reset().await;
 
     let day_divider = assert_next_matches!(
         timeline_stream,

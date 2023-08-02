@@ -23,20 +23,18 @@ use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
 use ruma::{event_id, events::room::message::MessageType, room_id};
 use serde_json::json;
 
-use crate::{logged_in_client, mock_sync};
+use crate::axum::{logged_in_client, RouterExt};
 
 #[async_test]
 async fn batched() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let client =
+        logged_in_client(axum::Router::new().mock_sync_responses(sync_builder.clone())).await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_| true).build().await;
@@ -54,9 +52,7 @@ async fn batched() {
             .add_timeline_event(TimelineTestEvent::Member)
             .add_timeline_event(TimelineTestEvent::MessageNotice),
     );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     tokio::time::timeout(Duration::from_millis(500), hdl).await.unwrap().unwrap();
 }
@@ -64,15 +60,13 @@ async fn batched() {
 #[async_test]
 async fn event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
     let sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let client =
+        logged_in_client(axum::Router::new().mock_sync_responses(sync_builder.clone())).await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_| true).build().await;
@@ -91,10 +85,7 @@ async fn event_filter() {
             "type": "m.room.message",
         })),
     ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let _day_divider = assert_matches!(
         timeline_stream.next().await,
@@ -148,10 +139,7 @@ async fn event_filter() {
                 "type": "m.room.message",
             }))),
     );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
 
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let second_event = second.as_event().unwrap();
