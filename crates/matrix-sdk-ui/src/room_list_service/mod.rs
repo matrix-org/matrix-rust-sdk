@@ -330,7 +330,7 @@ impl RoomListService {
         Ok(room)
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }

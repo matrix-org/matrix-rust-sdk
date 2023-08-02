@@ -19,7 +19,7 @@ eyeball-im = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["testing"] }
-matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui", features = ["testing"] }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 once_cell = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

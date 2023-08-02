@@ -287,12 +287,6 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the current list of timeline items. Do not use this in production!
-    #[cfg(feature = "testing")]
-    pub async fn items(&self) -> Vector<Arc<TimelineItem>> {
-        self.inner.items().await
-    }
-
     /// Get the latest of the timeline's event items.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.inner.items().await.last()?.as_event().cloned()
@@ -319,16 +313,6 @@ impl Timeline {
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         let (items, stream) = self.inner.subscribe_batched().await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
-        (items, stream)
-    }
-
-    #[cfg(feature = "testing")]
-    pub async fn subscribe_filter_map<U: Clone>(
-        &self,
-        f: impl Fn(Arc<TimelineItem>) -> Option<U>,
-    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
-        let (items, stream) = self.inner.subscribe_filter_map(f).await;
         let stream = TimelineStream::new(stream, self.drop_handle.clone());
         (items, stream)
     }
@@ -657,6 +641,23 @@ impl Timeline {
         }
 
         self.room().send_multiple_receipts(receipts).await
+    }
+}
+
+/// Test helpers, likely not very useful in production.
+impl Timeline {
+    /// Get the current list of timeline items.
+    pub async fn items(&self) -> Vector<Arc<TimelineItem>> {
+        self.inner.items().await
+    }
+
+    pub async fn subscribe_filter_map<U: Clone>(
+        &self,
+        f: impl Fn(Arc<TimelineItem>) -> Option<U>,
+    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
+        let (items, stream) = self.inner.subscribe_filter_map(f).await;
+        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        (items, stream)
     }
 }
 
