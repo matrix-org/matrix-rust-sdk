@@ -645,6 +645,7 @@ impl Timeline {
 }
 
 /// Test helpers, likely not very useful in production.
+#[doc(hidden)]
 impl Timeline {
     /// Get the current list of timeline items.
     pub async fn items(&self) -> Vector<Arc<TimelineItem>> {
