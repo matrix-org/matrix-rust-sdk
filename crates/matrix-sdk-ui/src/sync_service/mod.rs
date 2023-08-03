@@ -13,51 +13,89 @@
 // limitations under the License.
 
 //! Unified API for both the Room List API and the Encryption Sync API, that
-//! takes care of all the underlying details. This is an opiniated way to run
-//! both APIs, with high-level callbacks that should be called in reaction to
-//! user actions and/or system events.
+//! takes care of all the underlying details.
+//!
+//! This is an opiniated way to run both APIs, with high-level callbacks that
+//! should be called in reaction to user actions and/or system events.
+//!
+//! The room list sync will signal errors via its
+//! [`state`](RoomListService::state) that the user
+//! MUST observe. Whenever an error/termination is observed, the user MUST call
+//! [`SyncService::start()`] again to restart the room list sync.
+//!
+//! The encryption sync is handled separately, and it is the responsibility of
+//! the `SyncService` to manage its errors. Hence, no specific actions are
+//! required from the user if the encryption sync runs into errors, as it is
+//! automatically restarted (unless the user explicitly asked to
+//! [`SyncService::pause()`]).
+//!
+//! This service can be in one of three states:
+//!
+//! - idle: neither the encryption sync nor the room list sync are
+//! running. Nothing is happening until the user asks to do something. That's
+//! the initial state. Calling [`SyncService::start()`] will lead to the next
+//! state. Calling [`SyncService::pause()`] is a no-op.
+//! - both syncs running: both the encryption sync and the room list sync are
+//!   running at the same
+//! time. Calling
+//! [`SyncService::start()`] is a no-op. Calling [`SyncService::pause()`] will
+//! get back to the first state. If the room list sync
+//! runs into an error, it stops, and the sync service runs into the third
+//! state:
+//! - only the encryption sync is running: in that state, the room list sync
+//!   isn't running. Calling
+//! [`SyncService::start()`] will lead to the second state, while
+//! [`SyncService::pause()`] will lead to the first state.
 
 use std::sync::{Arc, Mutex};
 
-use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
 use thiserror::Error;
 use tokio::task::{spawn, JoinHandle};
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     encryption_sync::{self, EncryptionSync, WithLocking},
     room_list_service::{self, RoomListService},
 };
 
-/// Current state of the application.
-///
-/// This is a high-level state indicating what's the status of the underlying
-/// syncs. The application starts in `Running` mode, and then hits a terminal
-/// state `Terminated` (if it gracefully exited) or `Error` (in case any of the
-/// underlying syncs ran into an error).
-///
-/// It is the responsibility of the caller to restart the application using the
-/// [`SyncService::start`] method, in case it terminated, gracefully or not.
-///
-/// This can be observed with [`SyncService::state`].
-#[derive(Clone, Debug, PartialEq)]
-pub enum SyncServiceState {
-    /// The service hasn't ever been started yet.
-    Idle,
-    /// The underlying syncs are properly running in the background.
-    Running,
-    /// Any of the underlying syncs has terminated gracefully (i.e. be stopped).
-    Terminated,
-    /// Any of the underlying syncs has ran into an error.
-    Error,
+// Trick: use an internal module for the state, so we get to make it public for
+// testing purposes only by having a single `pub use` statement guarded by a cfg
+// line.
+mod internals {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum State {
+        Idle,
+        OnlyEncryptionSync,
+        BothRunning,
+    }
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub use internals::*;
+#[cfg(not(any(test, feature = "testing")))]
+use internals::*;
+
 pub struct SyncService {
+    /// Room list service used to synchronize the rooms state.
     room_list_service: Arc<RoomListService>,
+
+    /// Encryption sync taking care of e2ee events.
     encryption_sync: Option<Arc<EncryptionSync>>,
-    task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    state_observer: SharedObservable<SyncServiceState>,
+
+    /// What's the state of this sync service?
+    ///
+    /// This is using a mutex that's acquired for the entirety of the
+    /// [`Self::start`] and [`Self::pause`] methods' bodies, so as to avoid
+    /// race conditions when these functions are called multiple times.
+    state: Arc<Mutex<State>>,
+
+    /// Task running the room list service.
+    room_list_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+
+    /// Task running the encryption sync.
+    encryption_sync_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl SyncService {
@@ -72,13 +110,6 @@ impl SyncService {
         self.room_list_service.clone()
     }
 
-    /// Observe the current state of the application.
-    ///
-    /// See also [`SyncServiceState`].
-    pub fn state(&self) -> Subscriber<SyncServiceState> {
-        self.state_observer.subscribe()
-    }
-
     /// Start (or restart) the underlying sliding syncs.
     ///
     /// This can be called multiple times safely:
@@ -86,95 +117,73 @@ impl SyncService {
     /// - if the stream has been aborted before, it will be properly cleaned up
     ///   and restarted.
     pub async fn start(&self) -> Result<(), Error> {
-        let room_list = self.room_list_service.clone();
-        let encryption_sync = self.encryption_sync.clone();
-        let state_observer = self.state_observer.clone();
+        let mut state = self.state.lock().unwrap();
 
-        let mut task_handle_lock = self.task_handle.lock().unwrap();
-
-        // It's important that the state be modified only after taking the lock, since
-        // the compare-and-swap sequence below isn't atomic.
-
-        // Only start the stream if it was stopped.
-        match self.state_observer.get() {
-            SyncServiceState::Running => return Ok(()),
-            SyncServiceState::Idle | SyncServiceState::Terminated | SyncServiceState::Error => {}
+        // Only (re)start the tasks if any was stopped.
+        if matches!(*state, State::BothRunning) {
+            // It was already true, so we can skip the restart.
+            return Ok(());
         }
 
-        // No fallible calls after this line are authorized.
-        self.state_observer.set(SyncServiceState::Running);
+        trace!("starting sync service");
 
-        // If there was a task running already with the streams, stop it gently. In the
-        // case it was already terminated, that's fine as it won't cause any
-        // harm to abort it.
-        if let Some(task) = task_handle_lock.take() {
+        // First, take care of the room list.
+
+        let mut room_list_task_guard = self.room_list_task.lock().unwrap();
+
+        if let Some(task) = room_list_task_guard.take() {
+            warn!("active room list service task when start()ing sync service");
             task.abort();
-            drop(task);
+            // task is dropped here.
         }
 
-        *task_handle_lock = Some(spawn(async move {
-            let room_list_stream = room_list.sync();
+        let room_list_task = self.room_list_service.clone();
+        let state_task = self.state.clone();
 
+        *room_list_task_guard = Some(spawn(async move {
+            let room_list_stream = room_list_task.sync();
             pin_mut!(room_list_stream);
-
-            if let Some(encryption_sync) = encryption_sync {
-                let encryption_sync_stream = encryption_sync.sync();
-
-                pin_mut!(encryption_sync_stream);
-
-                // Note: any error on one of the two syncs will cause the overall stream to
-                // error and the loop to terminate.
-
-                loop {
-                    tokio::select! {
-                        encryption_sync_result = encryption_sync_stream.next() => {
-                            if let Some(encryption_sync_result) = encryption_sync_result {
-                                if let Err(err) = encryption_sync_result {
-                                    tracing::error!("Encryption sync returned an error: {err:#}");
-                                    state_observer.set(SyncServiceState::Error);
-                                    break;
-                                }
-                            } else {
-                                state_observer.set(SyncServiceState::Terminated);
-                                break;
-                            }
-                        }
-
-                        room_list_result = room_list_stream.next() => {
-                            if let Some(room_list_result) = room_list_result {
-                                if let Err(err) = room_list_result {
-                                    tracing::error!("Room list sync returned an error: {err:#}");
-                                    state_observer.set(SyncServiceState::Error);
-                                    break;
-                                }
-                            } else {
-                                state_observer.set(SyncServiceState::Terminated);
-                                break;
-                            }
-                        }
-                    }
-                }
-            } else {
-                loop {
-                    match room_list_stream.next().await {
-                        Some(Ok(())) => {
-                            // Carry on.
-                        }
-                        Some(Err(err)) => {
-                            tracing::error!(
-                                "Error while processing app (room list) state: {err:#}"
-                            );
-                            state_observer.set(SyncServiceState::Error);
-                            break;
-                        }
-                        None => {
-                            state_observer.set(SyncServiceState::Terminated);
-                            break;
-                        }
-                    }
+            while let Some(res) = room_list_stream.next().await {
+                if let Err(err) = res {
+                    error!("Error while processing room list (sync service): {err:#}");
+                    break;
                 }
             }
+            // Put the whole sync service in the not-running state, so that subsequent
+            // calls to `start()` will restart the room list service.
+            *state_task.lock().unwrap() = State::OnlyEncryptionSync;
         }));
+
+        drop(room_list_task_guard);
+
+        if let Some(encryption_sync) = self.encryption_sync.clone() {
+            // Then, only restart the encryption sync if it was explicitly not running
+            // before.
+            let mut task_guard = self.encryption_sync_task.lock().unwrap();
+            if task_guard.is_none() {
+                *task_guard = Some(spawn(async move {
+                    loop {
+                        // The encryption sync automatically restarts in case of errors, unless it
+                        // is explicitly paused.
+                        let encryption_sync_stream = encryption_sync.sync();
+
+                        pin_mut!(encryption_sync_stream);
+
+                        while let Some(res) = encryption_sync_stream.next().await {
+                            if let Err(err) = res {
+                                // Errors may include "real" errors, but also benign M_UNKNOWN_POS
+                                // errors, so just log at the debug level since the latter will
+                                // likely be more frequent.
+                                debug!("Error while processing encryption sync (sync service): {err}. Restarting…");
+                                break;
+                            }
+                        }
+                    }
+                }));
+            }
+        }
+
+        *state = State::BothRunning;
 
         Ok(())
     }
@@ -185,11 +194,65 @@ impl SyncService {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     pub fn pause(&self) -> Result<(), Error> {
-        self.room_list_service.stop_sync()?;
-        if let Some(ref encryption_sync) = self.encryption_sync {
-            encryption_sync.stop()?;
+        let mut state = self.state.lock().unwrap();
+
+        trace!("pausing sync service");
+
+        // First, request to stop the two underlying syncs; we'll look at the results
+        // later, so that we're in a clean state independently of the request to
+        // stop.
+
+        let stop_room_list_result = match *state {
+            State::Idle => {
+                // No need to pause if we were not running.
+                return Ok(());
+            }
+
+            State::BothRunning => {
+                // Stop the room list sync.
+                self.room_list_service.stop_sync()
+            }
+
+            State::OnlyEncryptionSync => Ok(()),
+        };
+
+        let stop_encryption_sync_result = if let Some(ref encryption_sync) = self.encryption_sync {
+            encryption_sync.stop()
+        } else {
+            Ok(())
+        };
+
+        // Clean up both tasks: abort and drop both.
+
+        {
+            let mut room_list_task_guard = self.room_list_task.lock().unwrap();
+            if let Some(task) = room_list_task_guard.take() {
+                task.abort();
+            }
         }
+
+        {
+            let mut encryption_task_guard = self.encryption_sync_task.lock().unwrap();
+            if let Some(task) = encryption_task_guard.take() {
+                task.abort();
+            }
+        }
+
+        *state = State::Idle;
+
+        // Now that we've updated the internal state, possibly report stop errors.
+        stop_room_list_result?;
+        stop_encryption_sync_result?;
+
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl SyncService {
+    /// Is the sync service running?
+    pub fn state(&self) -> State {
+        *self.state.lock().unwrap()
     }
 }
 
@@ -272,8 +335,9 @@ impl SyncServiceBuilder {
         Ok(SyncService {
             room_list_service: Arc::new(room_list),
             encryption_sync,
-            state_observer: SharedObservable::new(SyncServiceState::Idle),
-            task_handle: Default::default(),
+            encryption_sync_task: Arc::new(Mutex::new(None)),
+            room_list_task: Arc::new(Mutex::new(None)),
+            state: Arc::new(Mutex::new(State::Idle)),
         })
     }
 }

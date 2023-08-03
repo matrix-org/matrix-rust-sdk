@@ -12,43 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::sync::Arc;
 
-use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
 use matrix_sdk_ui::sync_service::{
     SyncService as MatrixSyncService, SyncServiceBuilder as MatrixSyncServiceBuilder,
-    SyncServiceState as MatrixSyncServiceState,
 };
 
-use crate::{
-    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    task_handle::TaskHandle, RUNTIME,
-};
-
-#[derive(uniffi::Enum)]
-pub enum SyncServiceState {
-    Idle,
-    Running,
-    Terminated,
-    Error,
-}
-
-impl From<MatrixSyncServiceState> for SyncServiceState {
-    fn from(value: MatrixSyncServiceState) -> Self {
-        match value {
-            MatrixSyncServiceState::Idle => Self::Idle,
-            MatrixSyncServiceState::Running => Self::Running,
-            MatrixSyncServiceState::Terminated => Self::Terminated,
-            MatrixSyncServiceState::Error => Self::Error,
-        }
-    }
-}
-
-#[uniffi::export(callback_interface)]
-pub trait SyncServiceStateObserver: Send + Sync + Debug {
-    fn on_update(&self, state: SyncServiceState);
-}
+use crate::{error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService};
 
 #[derive(uniffi::Object)]
 pub struct SyncService {
@@ -59,22 +30,6 @@ pub struct SyncService {
 impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
-    }
-
-    pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
-
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            pin_mut!(state_stream);
-
-            while let Some(state) = state_stream.next().await {
-                listener.on_update(state.into());
-            }
-        })))
-    }
-
-    pub fn current_state(&self) -> SyncServiceState {
-        self.inner.state().get().into()
     }
 
     pub async fn start(&self) -> Result<(), ClientError> {
