@@ -457,13 +457,12 @@ impl MatrixAuth {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
                 return Err(RefreshTokenError::RefreshTokenRequired);
             };
+            let Some(refresh_token) = session_tokens.refresh_token.clone() else {
+                *guard = Err(RefreshTokenError::RefreshTokenRequired);
+                return Err(RefreshTokenError::RefreshTokenRequired);
+            };
 
-            let refresh_token = session_tokens
-                .refresh_token
-                .clone()
-                .ok_or(RefreshTokenError::RefreshTokenRequired)?;
             let request = refresh_token::v3::Request::new(refresh_token);
-
             let res = client.send_inner(request, None, None, Default::default()).await;
 
             match res {
