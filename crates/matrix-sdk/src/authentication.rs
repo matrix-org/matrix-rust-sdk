@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use matrix_sdk_base::SessionMeta;
-use serde::{Deserialize, Serialize};
 
 use crate::matrix_auth::{self, MatrixAuth, MatrixAuthData};
 
@@ -26,7 +25,7 @@ pub enum AuthApi {
 }
 
 /// A user session using one of the available authentication APIs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum AuthSession {
     /// A session using the native Matrix authentication API.
