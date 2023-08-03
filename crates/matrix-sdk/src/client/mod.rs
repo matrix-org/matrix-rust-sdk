@@ -1987,13 +1987,9 @@ impl Client {
             )),
         };
 
-        // Now inherit the session without restarting the crypto machine.
+        // Copy the parent's session into the child.
         if let Some(session) = self.session() {
-            match session {
-                AuthSession::Matrix(s) => {
-                    client.matrix_auth().inherit_session(s).await?;
-                }
-            }
+            client.restore_session(session).await?;
         }
 
         Ok(client)
