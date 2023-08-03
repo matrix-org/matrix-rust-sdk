@@ -5325,7 +5325,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "uniffi"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "camino",
@@ -5346,7 +5346,7 @@ dependencies = [
 [[package]]
 name = "uniffi_bindgen"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "askama",
@@ -5370,7 +5370,7 @@ dependencies = [
 [[package]]
 name = "uniffi_build"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "camino",
@@ -5380,7 +5380,7 @@ dependencies = [
 [[package]]
 name = "uniffi_checksum_derive"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "quote",
  "syn 2.0.28",
@@ -5389,7 +5389,7 @@ dependencies = [
 [[package]]
 name = "uniffi_core"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "async-compat",
@@ -5405,7 +5405,7 @@ dependencies = [
 [[package]]
 name = "uniffi_macros"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "bincode",
  "camino",
@@ -5423,7 +5423,7 @@ dependencies = [
 [[package]]
 name = "uniffi_meta"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5435,7 +5435,7 @@ dependencies = [
 [[package]]
 name = "uniffi_testing"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "camino",
@@ -5449,7 +5449,7 @@ dependencies = [
 [[package]]
 name = "uniffi_udl"
 version = "0.24.1"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "anyhow",
  "uniffi_meta",
@@ -5760,7 +5760,7 @@ dependencies = [
 [[package]]
 name = "weedle2"
 version = "4.0.0"
-source = "git+https://github.com/Hywan/uniffi-rs?rev=6d32d7657294d8c8ebb00139cfe55ff90fb093dc#6d32d7657294d8c8ebb00139cfe55ff90fb093dc"
+source = "git+https://github.com/Hywan/uniffi-rs?rev=25dc7e55373f6cda2054453f133f2319c69cd58c#25dc7e55373f6cda2054453f133f2319c69cd58c"
 dependencies = [
  "nom",
 ]
