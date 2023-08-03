@@ -798,20 +798,8 @@ impl MatrixAuth {
     #[instrument(skip_all)]
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         debug!("Restoring Matrix auth session");
-
         self.set_session(session).await?;
-
         debug!("Done restoring Matrix auth session");
-
-        Ok(())
-    }
-
-    /// Same as [`Self::restore_session`], but doesn't regenerate the Olm
-    /// machine automatically.
-    pub(crate) async fn inherit_session(&self, session: Session) -> Result<()> {
-        debug!("Inheriting Matrix auth session");
-        self.set_session(session).await?;
-        debug!("Done inheriting Matrix auth session");
         Ok(())
     }
 
