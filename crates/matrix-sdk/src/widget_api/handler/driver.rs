@@ -9,11 +9,11 @@ use super::{
     Outgoing, Result,
 };
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Driver {
-    async fn initialise(&mut self, req: CapabilitiesReq) -> Result<Capabilities>;
-    async fn send(&mut self, message: Outgoing) -> Result<()>;
-    async fn get_openid(&mut self, req: openid::Request) -> OpenIDState;
+    fn initialise(&self, req: CapabilitiesReq) -> Result<Capabilities>;
+    async fn send(&self, message: Outgoing) -> Result<()>;
+    async fn get_openid(&self, req: openid::Request) -> OpenIDState;
 }
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub enum OpenIDState {
     Pending(Receiver<OpenIDResult>),
 }
 
-pub type OpenIDResult = Option<openid::Response>;
+pub type OpenIDResult = Result<openid::Response>;
 
 impl<'t> From<&'t OpenIDState> for openid::State {
     fn from(state: &'t OpenIDState) -> Self {
@@ -36,8 +36,8 @@ impl<'t> From<&'t OpenIDState> for openid::State {
 impl From<OpenIDResult> for openid::State {
     fn from(result: OpenIDResult) -> Self {
         match result {
-            Some(response) => openid::State::Allowed(response),
-            None => openid::State::Blocked,
+            Ok(response) => openid::State::Allowed(response),
+            Err(_) => openid::State::Blocked,
         }
     }
 }

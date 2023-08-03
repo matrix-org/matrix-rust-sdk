@@ -5,5 +5,6 @@ pub mod capabilities;
 pub mod error;
 pub mod handler;
 pub mod messages;
+pub mod driver;
 
 pub use self::error::{Error, Result};

@@ -88,7 +88,7 @@ impl<T: Driver> MessageHandler<T> {
         self.driver.send(Outgoing::SendMeCapabilities(req)).await?;
         let options = resp.recv().await?;
 
-        let capabilities = self.driver.initialise(options).await?;
+        let capabilities = self.driver.initialise(options)?;
         self.capabilities = Some(capabilities);
 
         let approved: CapabilitiesReq = self.capabilities.as_ref().unwrap().into();
