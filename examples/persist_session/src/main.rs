@@ -5,11 +5,12 @@ use std::{
 
 use matrix_sdk::{
     config::SyncSettings,
+    matrix_auth::Session,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    AuthSession, Client, Error, LoopCtrl, Room, RoomState,
+    Client, Error, LoopCtrl, Room, RoomState,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ struct FullSession {
     client_session: ClientSession,
 
     /// The Matrix user session.
-    user_session: AuthSession,
+    user_session: Session,
 
     /// The latest sync token.
     ///
@@ -95,7 +96,7 @@ async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<
         .build()
         .await?;
 
-    println!("Restoring session for {}…", user_session.meta().user_id);
+    println!("Restoring session for {}…", user_session.meta.user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
@@ -108,6 +109,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
     println!("No previous session found, logging in…");
 
     let (client, client_session) = build_client(data_dir).await?;
+    let matrix_auth = client.matrix_auth();
 
     loop {
         print!("\nUsername: ");
@@ -122,8 +124,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
         io::stdin().read_line(&mut password).expect("Unable to read user input");
         password = password.trim().to_owned();
 
-        match client
-            .matrix_auth()
+        match matrix_auth
             .login_username(&username, &password)
             .initial_device_display_name("persist-session client")
             .await
@@ -143,7 +144,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
     // This is not very secure, for simplicity. If the system provides a way of
     // storing secrets securely, it should be used instead.
     // Note that we could also build the user session from the login response.
-    let user_session = client.session().expect("A logged-in client should have a session");
+    let user_session = matrix_auth.session().expect("A logged-in client should have a session");
     let serialized_session =
         serde_json::to_string(&FullSession { client_session, user_session, sync_token: None })?;
     fs::write(session_file, serialized_session).await?;
