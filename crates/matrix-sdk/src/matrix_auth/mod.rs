@@ -44,7 +44,7 @@ use crate::{
     authentication::AuthData,
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    Client, Error, RefreshTokenError, Result, RumaApiError,
+    Client, Error, RefreshTokenError, Result,
 };
 
 mod login_builder;
@@ -446,14 +446,16 @@ impl MatrixAuth {
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
-    pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
+    pub async fn refresh_access_token(
+        &self,
+    ) -> Result<Option<refresh_token::v3::Response>, RefreshTokenError> {
         let client = &self.client;
         let lock = client.inner.refresh_token_lock.try_lock();
 
         if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
                 *guard = Err(RefreshTokenError::RefreshTokenRequired);
-                return Err(RefreshTokenError::RefreshTokenRequired.into());
+                return Err(RefreshTokenError::RefreshTokenRequired);
             };
 
             let refresh_token = session_tokens
@@ -477,20 +479,16 @@ impl MatrixAuth {
                     Ok(Some(res))
                 }
                 Err(error) => {
-                    *guard = match error.as_ruma_api_error() {
-                        Some(RumaApiError::ClientApi(api_error)) => {
-                            Err(RefreshTokenError::ClientApi(api_error.to_owned()))
-                        }
-                        _ => Err(RefreshTokenError::UnableToRefreshToken),
-                    };
+                    let error = RefreshTokenError::MatrixAuth(error.into());
+                    *guard = Err(error.clone());
 
                     Err(error)
                 }
             }
         } else {
-            match *client.inner.refresh_token_lock.lock().await {
+            match client.inner.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(None),
-                Err(_) => Err(RefreshTokenError::UnableToRefreshToken.into()),
+                Err(error) => Err(error.clone()),
             }
         }
     }

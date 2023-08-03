@@ -76,13 +76,13 @@ where
                     res.as_ref().map_err(HttpError::client_api_error_kind)
                 {
                     if let Err(refresh_error) = client.refresh_access_token().await {
-                        match &refresh_error {
-                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                        match refresh_error {
+                            RefreshTokenError::RefreshTokenRequired => {
                                 // Refreshing access tokens is not supported by
                                 // this `Session`, ignore.
                             }
                             _ => {
-                                return Err(refresh_error);
+                                return Err(refresh_error.into());
                             }
                         }
                     } else {

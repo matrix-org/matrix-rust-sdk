@@ -14,7 +14,7 @@
 
 //! Error conditions.
 
-use std::io::Error as IoError;
+use std::{io::Error as IoError, sync::Arc};
 
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
@@ -416,18 +416,13 @@ pub enum ImageError {
 /// [handling refresh tokens]: crate::ClientBuilder::handle_refresh_tokens()
 #[derive(Debug, Error, Clone)]
 pub enum RefreshTokenError {
-    /// The Matrix endpoint returned an error.
-    #[error(transparent)]
-    ClientApi(#[from] ruma::api::client::Error),
-
     /// Tried to send a refresh token request without a refresh token.
     #[error("missing refresh token")]
     RefreshTokenRequired,
 
-    /// There was an ongoing refresh token call that failed and the error could
-    /// not be forwarded.
-    #[error("the access token could not be refreshed")]
-    UnableToRefreshToken,
+    /// An error occurred interacting with the native Matrix authentication API.
+    #[error(transparent)]
+    MatrixAuth(Arc<HttpError>),
 }
 
 /// Errors that can occur when manipulating push notification settings.
