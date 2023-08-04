@@ -36,6 +36,12 @@ pub enum Response<Resp> {
     Response(Resp),
 }
 
+impl<T> Response<T> {
+    pub fn error(message: String) -> Self {
+        Response::Error(WidgetError { error: WidgetErrorMessage { message } })
+    }
+}
+
 impl<Resp> Into<Result<Resp, WidgetError>> for Response<Resp> {
     fn into(self) -> Result<Resp, WidgetError> {
         match self {

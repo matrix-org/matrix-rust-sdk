@@ -8,4 +8,6 @@ pub enum Error {
     WidgetDied,
     #[error("Widget error: {0}")]
     WidgetError(String),
+    #[error("Invalid JSON")]
+    InvalidJSON,
 }

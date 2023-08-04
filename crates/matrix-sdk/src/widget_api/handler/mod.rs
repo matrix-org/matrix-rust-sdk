@@ -12,10 +12,10 @@ pub use self::{
     request::Request,
 };
 use super::{
-    capabilities::{Capabilities, ReadEventRequest, SendEventRequest},
+    capabilities::{Capabilities, ReadEventRequest},
     messages::{
         capabilities::Options as CapabilitiesReq,
-        from_widget::{SendEventResponse, SendToDeviceRequest},
+        from_widget::{SendEventResponse, SendEventRequest, SendToDeviceRequest},
         MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
     },
 };

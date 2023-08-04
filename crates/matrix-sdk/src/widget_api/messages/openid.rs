@@ -12,7 +12,7 @@ pub enum State {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    id: String,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

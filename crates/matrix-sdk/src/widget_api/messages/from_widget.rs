@@ -47,14 +47,14 @@ pub struct SendEventResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventRequest {
     #[serde(rename = "type")]
-    message_type: String,
-    state_key: String,
-    limit: u32,
+    pub message_type: String,
+    pub state_key: String,
+    pub limit: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventResponse {
-    events: Vec<MatrixEvent>,
+    pub events: Vec<MatrixEvent>,
 }
 
 // MSC3869

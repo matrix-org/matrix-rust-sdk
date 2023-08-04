@@ -33,7 +33,7 @@ impl<Req, Resp> Deref for Request<Req, Resp> {
 
 #[allow(missing_debug_implementations)]
 pub struct ResponseReceiver<T> {
-    receiver: Receiver<Response<T>>,
+    pub receiver: Receiver<Response<T>>,
 }
 
 impl<T> ResponseReceiver<T> {

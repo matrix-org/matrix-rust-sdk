@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use super::{
     messages::{
         capabilities::{EventFilter, Options},
-        MatrixEvent, from_widget::{SendEventResponse, SendToDeviceRequest},
+        MatrixEvent, from_widget::{SendEventResponse, SendToDeviceRequest, SendEventRequest, ReadEventRequest as RawReadEventRequest},
     },
     Result,
 };
@@ -28,16 +28,26 @@ pub struct ReadEventRequest {
     pub description: EventDescription,
 }
 
+impl From<RawReadEventRequest> for ReadEventRequest {
+    fn from(req: RawReadEventRequest) -> Self {
+        Self {
+            limit: req.limit,
+            description: EventDescription {
+                event_type: req.message_type,
+                kind: if req.state_key.is_empty() {
+                    EventKind::Timeline
+                } else {
+                    EventKind::State { key: req.state_key }
+                },
+            },
+        }
+    }
+}
+
 #[async_trait]
 pub trait EventWriter {
     async fn write(&mut self, req: SendEventRequest) -> Result<SendEventResponse>;
     fn filter(&self) -> Vec<EventFilter>;
-}
-
-#[derive(Debug, Clone)]
-pub struct SendEventRequest {
-    pub body: MatrixEvent,
-    pub description: EventDescription,
 }
 
 #[async_trait]
