@@ -88,6 +88,11 @@ impl NotificationClient {
     /// This will first try to get the notification using a short-lived sliding
     /// sync, and if the sliding-sync can't find the event, then it'll use a
     /// `/context` query to find the event with associated member information.
+    ///
+    /// An error result means that we couldn't resolve the notification; in that
+    /// case, a dummy notification may be displayed instead. A `None` result
+    /// means the notification has been filtered out by the user's push
+    /// rules.
     pub async fn get_notification(
         &self,
         room_id: &RoomId,
@@ -495,6 +500,7 @@ impl NotificationEvent {
 }
 
 /// A notification with its full content.
+#[derive(Debug)]
 pub struct NotificationItem {
     /// Underlying Ruma event.
     pub event: NotificationEvent,
