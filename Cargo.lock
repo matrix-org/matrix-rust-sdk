@@ -3165,6 +3165,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "stream_assert",
+ "subtle",
  "thiserror",
  "tokio",
  "tokio-stream",

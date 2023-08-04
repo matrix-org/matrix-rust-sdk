@@ -17,6 +17,7 @@ use aes::{
     Aes256,
 };
 use ctr::Ctr128BE;
+use hkdf::Hkdf;
 use hmac::{
     digest::{FixedOutput, MacError},
     Hmac, Mac as _,
@@ -48,6 +49,25 @@ impl HmacSha256Mac {
     pub(crate) fn as_bytes(&self) -> &[u8; MAC_SIZE] {
         &self.0
     }
+
+    /// Return the underlying array of bytes of the authentication tag.
+    pub(crate) fn into_bytes(self) -> [u8; MAC_SIZE] {
+        self.0
+    }
+
+    /// Try to create a [`HmacSha256Mac`] from a slice of bytes.
+    ///
+    /// Returns `None` if the length of the byte slice isn't 32 bytes.
+    pub(crate) fn from_slice(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != MAC_SIZE {
+            None
+        } else {
+            let mut mac = [0u8; MAC_SIZE];
+            mac.copy_from_slice(bytes);
+
+            Some(HmacSha256Mac(mac))
+        }
+    }
 }
 
 /// Keys used for our combination of AES-CTR-256 and HMAC-SHA-256.
@@ -74,6 +94,31 @@ impl AesHmacSha2Key {
     /// "Key export" part of the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.8/client-server-api/#key-exports
+    const ZERO_SALT: &[u8; 32] = &[0u8; 32];
+
+    /// Create a per-secret specific [`AesHmacSha2Key`] from the secret storage
+    /// key.
+    ///
+    /// The secret storage key will be expanded as described in the [spec].
+    ///
+    /// [spec]: https://spec.matrix.org/v1.8/client-server-api/#msecret_storagev1aes-hmac-sha2
+    pub(crate) fn from_secret_storage_key(
+        secret_storage_key: &[u8; KEY_SIZE],
+        secret_name: &str,
+    ) -> Self {
+        let mut expanded_keys = [0u8; KEY_SIZE * 2];
+        let hkdf: Hkdf<Sha256> = Hkdf::new(Some(Self::ZERO_SALT), secret_storage_key);
+
+        hkdf.expand(secret_name.as_bytes(), &mut expanded_keys)
+            .expect("We should be able to expand 64 bytes of output key material.");
+
+        let (aes_key, mac_key) = Self::split_keys(&expanded_keys);
+
+        expanded_keys.zeroize();
+
+        Self { aes_key, mac_key }
+    }
+
     pub(crate) fn from_passphrase(
         passphrase: &str,
         pbkdf_rounds: u32,
@@ -99,16 +144,37 @@ impl AesHmacSha2Key {
     ///
     /// ⚠️  This method is a low-level cryptographic primitive.
     ///
-    /// The method does not provide authenticity. You *must* call the
+    /// This method does not provide authenticity. You *must* call the
     /// [`AesHmacSha2Key::create_mac_tag()`] method after the encryption step to
     /// create a authentication tag.
-    pub(crate) fn encrypt(&self, mut plaintext: Vec<u8>) -> (Vec<u8>, [u8; IV_SIZE]) {
+    pub(crate) fn encrypt(&self, plaintext: Vec<u8>) -> (Vec<u8>, [u8; IV_SIZE]) {
         let initialization_vector = Self::generate_iv();
+        let ciphertext = self.encrypt_with_iv(plaintext, &initialization_vector);
+
+        (ciphertext, initialization_vector)
+    }
+
+    /// Encrypt the given plaintext using the specified initialization vector
+    /// and return the ciphertext.
+    ///
+    /// ⚠️  This method is a low-level cryptographic primitive.
+    ///
+    /// You *must* ensure that the initialization vector is unique across all
+    /// calls to this method for a given key.
+    ///
+    /// This method does not provide authenticity. You *must* call the
+    /// [`AesHmacSha2Key::create_mac_tag()`] method after the encryption step to
+    /// create a authentication tag.
+    pub(crate) fn encrypt_with_iv(
+        &self,
+        mut plaintext: Vec<u8>,
+        initialization_vector: &[u8; IV_SIZE],
+    ) -> Vec<u8> {
         let mut cipher =
-            Aes256Ctr::new(self.aes_key(), Aes256Iv::from_slice(&initialization_vector));
+            Aes256Ctr::new(self.aes_key(), Aes256Iv::from_slice(initialization_vector));
         cipher.apply_keystream(&mut plaintext);
 
-        (plaintext, initialization_vector)
+        plaintext
     }
 
     /// Create an authentication tag for the given ciphertext.
@@ -155,14 +221,10 @@ impl AesHmacSha2Key {
     /// verify the authentication tag.
     pub(crate) fn decrypt(
         &self,
-        mut ciphertext: Vec<u8>,
+        ciphertext: Vec<u8>,
         initialization_vector: &[u8; IV_SIZE],
     ) -> Vec<u8> {
-        let initialization_vector = Aes256Iv::from_slice(initialization_vector.as_slice());
-        let mut cipher = Aes256Ctr::new(self.aes_key(), initialization_vector);
-        cipher.apply_keystream(&mut ciphertext);
-
-        ciphertext
+        self.encrypt_with_iv(ciphertext, initialization_vector)
     }
 
     fn split_keys(
@@ -238,5 +300,20 @@ mod test {
             decrypted,
             "An encryption roundtrip should produce the same plaintext"
         );
+    }
+
+    #[test]
+    fn mac_decoding() {
+        let invalid_mac = [0u8; 10];
+
+        assert!(
+            HmacSha256Mac::from_slice(&invalid_mac).is_none(),
+            "We should return an error if the MAC is too short"
+        );
+
+        let mac = [0u8; 32];
+
+        HmacSha256Mac::from_slice(&mac)
+            .expect("We should be able to create a MAC from a 32 byte long slice");
     }
 }

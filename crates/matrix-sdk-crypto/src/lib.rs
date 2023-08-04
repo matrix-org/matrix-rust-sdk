@@ -27,6 +27,7 @@ mod identities;
 mod machine;
 pub mod olm;
 pub mod requests;
+pub mod secret_storage;
 mod session_manager;
 pub mod store;
 pub mod types;
