@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct EventFilter {
     event_type: String,
     msgtype: Option<String>,
@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for EventFilter {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Options {
     pub screenshot: bool,
 

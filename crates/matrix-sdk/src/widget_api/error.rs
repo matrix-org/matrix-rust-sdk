@@ -10,4 +10,6 @@ pub enum Error {
     WidgetError(String),
     #[error("Invalid JSON")]
     InvalidJSON,
+    #[error("Unexpected response")]
+    UnexpectedResponse,
 }

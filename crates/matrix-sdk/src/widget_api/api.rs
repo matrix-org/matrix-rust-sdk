@@ -1,9 +1,13 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use async_trait::async_trait;
 use serde_json::from_str as from_json;
-use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
+use tokio::sync::{mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender}, oneshot};
+use uuid::Uuid;
 
 use super::{
-    handler::{Driver, Incoming, MessageHandler, Request},
+    handler::{Driver, Incoming, MessageHandler, Request, OutgoingMessage},
     messages::{
         from_widget::{
             FromWidgetMessage as FromWidgetAction, ReadEventRequest, SendEventRequest,
@@ -47,7 +51,9 @@ macro_rules! handle_incoming {
         match $action {
             $(
                 FromWidgetAction::$req_type(mut $msg) => {
-                    $msg.response.as_ref().ok_or(Error::InvalidJSON)?;
+                    if $msg.response.is_some() {
+                        return Err(Error::InvalidJSON);
+                    }
 
                     let (req, resp) = Request::new($req_expr);
                     $handler.handle(Incoming::$incoming_type(req)).await?;
@@ -66,16 +72,33 @@ macro_rules! handle_incoming {
     }
 }
 
+async fn send<T: OutgoingMessage>(
+    msg: T,
+    sink: Sender<ToWidgetAction>,
+    widget_id: String,
+    map: Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>,
+) -> Result<T::Response> {
+    let id = Uuid::new_v4();
+    let raw = msg.into_message(Header { request_id: id.to_string(), widget_id });
+    sink.send(raw).map_err(|_| Error::WidgetDied)?;
+
+    let (tx, rx) = oneshot::channel();
+    map.lock().unwrap().insert(id.to_string(), tx);
+    Ok(T::extract_response(rx.await.map_err(|_| Error::WidgetDied)?)?)
+}
+
 async fn process<T: Driver>(
     raw: String,
     mut handler: MessageHandler<T>,
     outgoing: Sender<WidgetMessage>,
+    map: Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>,
 ) -> Result<()> {
     let decoded: WidgetMessage = from_json(&raw).map_err(|_| Error::InvalidJSON)?;
 
     match decoded {
         WidgetMessage::ToWidget(to_widget) => {
-            todo!()
+            let pending = map.lock().unwrap().remove(to_widget.id()).ok_or(Error::UnexpectedResponse)?;
+            pending.send(to_widget).map_err(|_| Error::WidgetDied).expect("Handler died");
         }
 
         WidgetMessage::FromWidget(from_widget) => {

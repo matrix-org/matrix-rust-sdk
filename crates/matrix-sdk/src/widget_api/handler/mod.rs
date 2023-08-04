@@ -8,7 +8,7 @@ mod request;
 pub use self::{
     driver::{Driver, OpenIDState},
     incoming::Message as Incoming,
-    outgoing::Message as Outgoing,
+    outgoing::OutgoingMessage,
     request::Request,
 };
 use super::{
@@ -58,9 +58,7 @@ impl<T: Driver> MessageHandler<T> {
 
                 if let OpenIDState::Pending(resolution) = state {
                     let resolved = resolution.await.map_err(|_| Error::WidgetDied)?;
-                    let (req, resp) = Request::new(resolved.into());
-                    self.driver.send(Outgoing::OpenIDUpdated(req)).await?;
-                    resp.recv().await?;
+                    self.driver.send(outgoing::OpenIDUpdated(resolved.into())).await?;
                 }
             }
 
@@ -84,17 +82,13 @@ impl<T: Driver> MessageHandler<T> {
     }
 
     async fn initialise(&mut self) -> Result<()> {
-        let (req, resp) = Request::new(());
-        self.driver.send(Outgoing::SendMeCapabilities(req)).await?;
-        let options = resp.recv().await?;
+        let requested = self.driver.send(outgoing::SendMeCapabilities).await?;
 
-        let capabilities = self.driver.initialise(options).await?;
+        let capabilities = self.driver.initialise(requested.clone()).await?;
         self.capabilities = Some(capabilities);
 
         let approved: CapabilitiesReq = self.capabilities.as_ref().unwrap().into();
-        let (req, resp) = Request::new(approved);
-        self.driver.send(Outgoing::CapabilitiesUpdated(req)).await?;
-        resp.recv().await?;
+        self.driver.send(outgoing::CapabilitiesUpdated { requested, approved }).await?;
 
         Ok(())
     }
