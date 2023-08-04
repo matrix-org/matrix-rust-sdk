@@ -98,10 +98,12 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
-        if let Some(found) = self.get_notification_with_sliding_sync(room_id, event_id).await? {
-            Ok(Some(found))
-        } else {
-            self.get_notification_with_context(room_id, event_id).await
+        match self.get_notification_with_sliding_sync(room_id, event_id).await? {
+            NotificationStatus::Event(event) => Ok(Some(event)),
+            NotificationStatus::EventFilteredOut => Ok(None),
+            NotificationStatus::EventNotFound => {
+                self.get_notification_with_context(room_id, event_id).await
+            }
         }
     }
 
@@ -320,21 +322,11 @@ impl NotificationClient {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
+    ) -> Result<NotificationStatus, Error> {
         tracing::info!("fetching notification event with a sliding sync");
 
-        let mut raw_event = match self.try_sliding_sync(room_id, event_id).await {
-            Ok(Some(raw_event)) => raw_event,
-
-            Ok(None) => {
-                tracing::debug!("notification sync hasn't found the event");
-                return Ok(None);
-            }
-
-            Err(err) => {
-                tracing::warn!("notification sync has run into an error: {err:#}");
-                return Ok(None);
-            }
+        let Some(mut raw_event) = self.try_sliding_sync(room_id, event_id).await? else {
+            return Ok(NotificationStatus::EventNotFound);
         };
 
         // At this point it should have been added by the sync, if it's not, give up.
@@ -360,11 +352,11 @@ impl NotificationClient {
 
         if let Some(push_actions) = &push_actions {
             if self.filter_by_push_rules && !push_actions.iter().any(|a| a.should_notify()) {
-                return Ok(None);
+                return Ok(NotificationStatus::EventFilteredOut);
             }
         }
 
-        Ok(Some(
+        Ok(NotificationStatus::Event(
             NotificationItem::new(&room, &raw_event, push_actions.as_deref(), Vec::new()).await?,
         ))
     }
@@ -376,6 +368,11 @@ impl NotificationClient {
     /// notification should already be there. In particular, the room containing
     /// the event MUST be known (via a sliding sync for invites, or another
     /// sliding sync).
+    ///
+    /// An error result means that we couldn't resolve the notification; in that
+    /// case, a dummy notification may be displayed instead. A `None` result
+    /// means the notification has been filtered out by the user's push
+    /// rules.
     pub async fn get_notification_with_context(
         &self,
         room_id: &RoomId,
@@ -416,6 +413,12 @@ impl NotificationClient {
             .await?,
         ))
     }
+}
+
+pub enum NotificationStatus {
+    Event(NotificationItem),
+    EventNotFound,
+    EventFilteredOut,
 }
 
 /// Builder for a `NotificationClient`.
