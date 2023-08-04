@@ -17,7 +17,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
 use matrix_sdk_ui::notification_client::{
-    Error, NotificationClient, NotificationEvent, NotificationItem,
+    Error, NotificationClient, NotificationEvent, NotificationItem, NotificationStatus,
 };
 use tracing::warn;
 
@@ -76,10 +76,11 @@ async fn test_notification() -> Result<()> {
 
         // Try with sliding sync first.
         let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
-        let notification = notification_client
-            .get_notification_with_sliding_sync(&room_id, &event_id)
-            .await?
-            .expect("missing notification for the invite");
+        let NotificationStatus::Event(notification) =
+            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
+        else {
+            panic!("event not found");
+        };
 
         warn!("sliding_sync: checking invite notification");
 
@@ -190,10 +191,11 @@ async fn test_notification() -> Result<()> {
     };
 
     let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
-    let notification = notification_client
-        .get_notification_with_sliding_sync(&room_id, &event_id)
-        .await?
-        .expect("missing notification for the message");
+    let NotificationStatus::Event(notification) =
+        notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
+    else {
+        panic!("event not found");
+    };
     check_notification(true, notification);
 
     let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
