@@ -503,7 +503,8 @@ impl Room {
             if let Some(name) = &inner.name() {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
-            } else if let Some(alias) = inner.canonical_alias() {
+            }
+            if let Some(alias) = inner.canonical_alias() {
                 let alias = alias.alias().trim();
                 return Ok(DisplayName::Aliased(alias.to_owned()));
             }
