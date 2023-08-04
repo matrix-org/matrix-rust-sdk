@@ -76,11 +76,10 @@ async fn test_notification() -> Result<()> {
 
         // Try with sliding sync first.
         let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
-        let NotificationStatus::Event(notification) =
-            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
-        else {
-            panic!("event not found");
-        };
+        let notification = assert_matches!(
+            notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
+            NotificationStatus::Event(event) => event
+        );
 
         warn!("sliding_sync: checking invite notification");
 
@@ -191,11 +190,10 @@ async fn test_notification() -> Result<()> {
     };
 
     let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
-    let NotificationStatus::Event(notification) =
-        notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
-    else {
-        panic!("event not found");
-    };
+    let notification = assert_matches!(
+        notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
+        NotificationStatus::Event(item) => item
+    );
     check_notification(true, notification);
 
     let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
