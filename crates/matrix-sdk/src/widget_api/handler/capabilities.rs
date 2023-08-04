@@ -23,13 +23,13 @@ pub struct Capabilities {
     filter_send_state_event: Vec<EventFilter>,
     filter_read_state_event: Vec<EventFilter>,
 
-    pub room_event_listener: Option<Receiver<MatrixEvent>>,
-    pub state_event_listener: Option<Receiver<MatrixEvent>>,
+    // Room and state events use the same sender, reader, listener
+    // on the rust-sdk side room and state events dont make a difference for the transport. 
+    // It is the widgets responsibility to differenciate and react to them accordingly.
+    pub event_listener: Option<Receiver<MatrixEvent>>,
 
-    pub room_event_reader: Option<Box<dyn EventReader>>,
-    pub room_event_sender: Option<Box<dyn EventSender>>,
-    pub state_event_reader: Option<Box<dyn EventReader>>,
-    pub state_event_sender: Option<Box<dyn EventSender>>,
+    pub event_reader: Option<Box<dyn EventReader>>,
+    pub event_sender: Option<Box<dyn EventSender>>,
 
     pub to_device_sender: Option<Box<dyn ToDeviceSender>>,
 }

@@ -106,7 +106,7 @@ impl<T: Driver> MessageHandler<T> {
         req: &ReadEventRequest,
     ) -> StdResult<ReadEventResponse, &'static str> {
         self.capabilities()?
-            .room_event_reader
+            .event_reader
             .as_mut()
             .ok_or("No permissions to read the events")?
             .read(req.clone())
@@ -119,7 +119,7 @@ impl<T: Driver> MessageHandler<T> {
         req: &SendEventRequest,
     ) -> StdResult<SendEventResponse, &'static str> {
         self.capabilities()?
-            .room_event_sender
+            .event_sender
             .as_mut()
             .ok_or("No permissions to write the events")?
             .send(req.clone())
