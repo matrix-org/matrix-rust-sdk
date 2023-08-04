@@ -415,6 +415,7 @@ impl NotificationClient {
     }
 }
 
+#[derive(Debug)]
 pub enum NotificationStatus {
     Event(NotificationItem),
     EventNotFound,
