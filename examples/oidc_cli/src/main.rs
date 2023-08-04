@@ -26,7 +26,6 @@ use http::{Method, StatusCode};
 use hyper::{server::conn::AddrIncoming, service::service_fn, Body, Server};
 use matrix_sdk::{
     config::SyncSettings,
-    matrix_auth::Session,
     oidc::{
         types::{
             client_credentials::ClientCredentials,
@@ -36,10 +35,14 @@ use matrix_sdk::{
             requests::GrantType,
             scope::{Scope, ScopeToken},
         },
-        AuthorizationError, AuthorizationResponse,
+        AuthorizationCode, AuthorizationResponse, FullSession, OidcAuthorizationData,
+        RegisteredClientData, UserSession,
     },
     room::Room,
-    ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
+    ruma::{
+        api::client::discovery::discover_homeserver::AuthenticationServerInfo,
+        events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
+    },
     Client, ClientBuildError, Result, RoomState, ServerName,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -68,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // The folder containing this example's data.
-    let data_dir = dirs::data_dir().expect("no data_dir directory found").join("oidc_cli");
+    let data_dir =
+        dirs::data_dir().expect("no data_dir directory found").join("matrix_sdk/oidc_cli");
     // The file where the session is persisted.
     let session_file = data_dir.join("session.json");
 
@@ -86,6 +90,7 @@ fn help() {
     println!("Usage: [command] [args…]\n");
     println!("Commands:");
     println!("  whoami                 Get information about this session");
+    println!("  account                Get the URL to manage this account");
     println!("  watch                  Watch new incoming messages until an error occurs");
     println!("  authorize [scope…]     Authorize the given scope");
     println!("  refresh                Refresh the access token");
@@ -109,25 +114,22 @@ struct ClientSession {
 
 /// The data needed to restore an OpenID Connect session.
 #[derive(Debug, Serialize, Deserialize)]
-struct OidcSession {
-    /// The URL of the OIDC Provider.
-    issuer: String,
-
+struct Credentials {
     /// The client ID obtained after registration.
     client_id: String,
 }
 
 /// The full session to persist.
 #[derive(Debug, Serialize, Deserialize)]
-struct FullSession {
+struct StoredSession {
     /// The data to re-build the client.
     client_session: ClientSession,
 
-    /// The Matrix user session.
-    user_session: Session,
+    /// The OIDC user session.
+    user_session: UserSession,
 
-    /// The OpenID Connect session.
-    oidc_session: OidcSession,
+    /// The OIDC client credentials.
+    client_credentials: Credentials,
 }
 
 /// An OpenID Connect CLI.
@@ -148,10 +150,10 @@ impl OidcCli {
     async fn new(data_dir: &Path, session_file: PathBuf) -> anyhow::Result<Self> {
         println!("No previous session found, logging in…");
 
-        let (client, client_session, issuer) = build_client(data_dir).await?;
+        let (client, client_session, issuer_info) = build_client(data_dir).await?;
         let cli = Self { client, restored: false, session_file };
 
-        let client_id = cli.register_client().await?;
+        let client_id = cli.register_client(issuer_info).await?;
         cli.login().await?;
 
         // Persist the session to reuse it later.
@@ -159,16 +161,20 @@ impl OidcCli {
         // storing secrets securely, it should be used instead.
         // Note that we could also build the user session from the login response.
         let user_session =
-            cli.client.matrix_auth().session().expect("A logged-in client should have a session");
+            cli.client.oidc().user_session().expect("A logged-in client should have a session");
 
-        // Usually the client metadata should also change according to the provider so
-        // it should be persisted too, here we use some basic metadata.
-        // Also the registration data should be persisted separately than the user and
-        // client sessions, to be reused for other sessions.
-        let oidc_session = OidcSession { issuer, client_id };
+        // The client registration data should be persisted separately than the user
+        // session, to be reused for other sessions or user accounts with the same
+        // issuer.
+        // Also, client metadata should be persisted as it might change dependending on
+        // the provider metadata.
+        let client_credentials = Credentials { client_id };
 
-        let serialized_session =
-            serde_json::to_string(&FullSession { client_session, user_session, oidc_session })?;
+        let serialized_session = serde_json::to_string(&StoredSession {
+            client_session,
+            user_session,
+            client_credentials,
+        })?;
         fs::write(&cli.session_file, serialized_session).await?;
 
         println!("Session persisted in {}", cli.session_file.to_string_lossy());
@@ -179,10 +185,13 @@ impl OidcCli {
     /// Register the OIDC client with the provider.
     ///
     /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self) -> anyhow::Result<String> {
+    async fn register_client(
+        &self,
+        issuer_info: AuthenticationServerInfo,
+    ) -> anyhow::Result<String> {
         let oidc = self.client.oidc();
 
-        let provider_metadata = oidc.provider_metadata().await?;
+        let provider_metadata = oidc.given_provider_metadata(&issuer_info.issuer).await?;
 
         if provider_metadata.registration_endpoint.is_none() {
             // This would require to register with the provider manually, which
@@ -193,11 +202,16 @@ impl OidcCli {
             );
         }
 
-        let client_metadata = client_metadata();
-        let res = oidc.register_client(client_metadata.clone(), None).await?;
+        let metadata = client_metadata();
+        let res = oidc.register_client(&issuer_info.issuer, metadata.clone()).await?;
 
-        let client_credentials = ClientCredentials::None { client_id: res.client_id.clone() };
-        oidc.set_registered_client_data(client_metadata, client_credentials, None).await;
+        let client_data = RegisteredClientData {
+            // The format of the credentials changes according to the client metadata that was sent.
+            // Public clients only get a client ID.
+            credentials: ClientCredentials::None { client_id: res.client_id.clone() },
+            metadata,
+        };
+        oidc.restore_registered_client(issuer_info, client_data).await;
 
         println!("\nRegistered successfully");
 
@@ -206,6 +220,8 @@ impl OidcCli {
 
     /// Login via the OIDC Authorization Code flow.
     async fn login(&self) -> anyhow::Result<()> {
+        let oidc = self.client.oidc();
+
         // We create a loop here so the user can retry if an error happens.
         loop {
             // Here we spawn a server to listen on the loopback interface. Another option
@@ -213,33 +229,35 @@ impl OidcCli {
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, data_rx, signal_tx) = spawn_local_server().await?;
 
-            let authorization_data = self
-                .client
-                .oidc()
-                .login()
-                .url_for_login_with_authorization_code(&redirect_uri)
-                .await?;
+            let OidcAuthorizationData { url, state } =
+                oidc.login(redirect_uri, None)?.build().await?;
 
-            let authorization_response =
-                use_auth_url(authorization_data.url, authorization_data.state, data_rx, signal_tx)
-                    .await?;
+            let authorization_code = match use_auth_url(&url, &state, data_rx, signal_tx).await {
+                Ok(code) => code,
+                Err(err) => {
+                    oidc.abort_authorization(&state).await;
+                    return Err(err);
+                }
+            };
 
-            let res = self
-                .client
-                .oidc()
-                .login()
-                .finish_login_with_authorization_code(authorization_response)
-                .await;
+            let res = oidc.finish_authorization(authorization_code).await;
 
-            match res {
-                Ok(_) => {
+            if let Err(err) = res {
+                println!("Error: failed to login: {err}");
+                println!("Please try again.\n");
+                continue;
+            }
+
+            match oidc.finish_login().await {
+                Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");
                     break;
                 }
                 Err(err) => {
-                    println!("Error: failed to login: {err}");
-                    println!("Please try again.\n")
+                    println!("Error: failed to finish login: {err}");
+                    println!("Please try again.\n");
+                    continue;
                 }
             }
         }
@@ -253,7 +271,7 @@ impl OidcCli {
 
         // The session was serialized as JSON in a file.
         let serialized_session = fs::read_to_string(&session_file).await?;
-        let FullSession { client_session, user_session, oidc_session } =
+        let StoredSession { client_session, user_session, client_credentials } =
             serde_json::from_str(&serialized_session)?;
 
         // Build the client with the previous settings from the session.
@@ -265,19 +283,15 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
+        let session = FullSession {
+            client: RegisteredClientData {
+                credentials: ClientCredentials::None { client_id: client_credentials.client_id },
+                metadata: client_metadata(),
+            },
+            user: user_session,
+        };
         // Restore the Matrix user session.
-        client.restore_session(user_session).await?;
-
-        // Restore the OIDC session.
-        let OidcSession { issuer, client_id } = oidc_session;
-        client
-            .oidc()
-            .set_registered_client_data(
-                client_metadata(),
-                ClientCredentials::None { client_id },
-                Some(issuer),
-            )
-            .await;
+        client.restore_session(session).await?;
 
         Ok(Self { client, restored: true, session_file })
     }
@@ -300,6 +314,9 @@ impl OidcCli {
             match cmd {
                 Some("whoami") => {
                     self.whoami().await;
+                }
+                Some("account") => {
+                    self.account();
                 }
                 Some("watch") => {
                     self.watch().await?;
@@ -342,16 +359,29 @@ impl OidcCli {
     /// Get information about this session.
     async fn whoami(&self) {
         let client = &self.client;
+        let oidc = client.oidc();
 
         let user_id = client.user_id().expect("A logged in client has a user ID");
         let device_id = client.device_id().expect("A logged in client has a device ID");
         let homeserver = client.homeserver().await;
-        let issuer = client.oidc().issuer().await.expect("A logged in OIDC client has an issuer");
+        let issuer = oidc.issuer().expect("A logged in OIDC client has an issuer");
 
         println!("\nUser ID: {user_id}");
         println!("Device ID: {device_id}");
         println!("Homeserver URL: {homeserver}");
-        println!("OpenID Connect provider URL: {issuer}");
+        println!("OpenID Connect provider: {issuer}");
+    }
+
+    /// Get the account management URL.
+    fn account(&self) {
+        match self.client.oidc().account_management_url() {
+            Ok(Some(url)) => {
+                println!("\nTo manage your account, visit: {url}");
+            }
+            _ => {
+                println!("\nThis homeserver does not provide the URL to manage your account")
+            }
+        }
     }
 
     /// Watch incoming messages.
@@ -386,10 +416,10 @@ impl OidcCli {
     /// token) has changed.
     async fn update_stored_session(&self) -> anyhow::Result<()> {
         let serialized_session = fs::read_to_string(&self.session_file).await?;
-        let mut session = serde_json::from_str::<FullSession>(&serialized_session)?;
+        let mut session = serde_json::from_str::<StoredSession>(&serialized_session)?;
 
         let user_session =
-            self.client.matrix_auth().session().expect("A logged in client has a session");
+            self.client.oidc().user_session().expect("A logged in client has a session");
         session.user_session = user_session;
 
         let serialized_session = serde_json::to_string(&session)?;
@@ -411,14 +441,18 @@ impl OidcCli {
             .map(|s| ScopeToken::from_str(s).map_err(|_| anyhow!("invalid scope {s}")))
             .collect::<Result<Scope, _>>()?;
 
-        let authorization_data =
-            oidc.url_for_scope_with_authorization_code(&scope, &redirect_uri).await?;
+        let OidcAuthorizationData { url, state } =
+            oidc.authorize_scope(scope, redirect_uri).build().await?;
 
-        let authorization_response =
-            use_auth_url(authorization_data.url, authorization_data.state, data_rx, signal_tx)
-                .await?;
+        let authorization_code = match use_auth_url(&url, &state, data_rx, signal_tx).await {
+            Ok(code) => code,
+            Err(err) => {
+                oidc.abort_authorization(&state).await;
+                return Err(err);
+            }
+        };
 
-        oidc.finish_authorization_with_authorization_code(authorization_response).await?;
+        oidc.finish_authorization(authorization_code).await?;
 
         // Now we refresh the stored session to always have the latest tokens.
         self.update_stored_session().await?;
@@ -460,7 +494,9 @@ impl OidcCli {
 ///
 /// Returns the client, the data required to restore the client, and the OIDC
 /// issuer advertised by the homeserver.
-async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession, String)> {
+async fn build_client(
+    data_dir: &Path,
+) -> anyhow::Result<(Client, ClientSession, AuthenticationServerInfo)> {
     let db_path = data_dir.join("db");
 
     // Generate a random passphrase.
@@ -490,9 +526,9 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
             // We need to use server autodiscovery to get the authentication issuer advertised by
             // the homeserver.
             .server_name(&server_name)
-            // We use the sled store, which is enabled by default. This is the crucial part to
+            // We use the sqlite store, which is available by default. This is the crucial part to
             // persist the encryption setup.
-            // Note that other store backends are available and you an even implement your own.
+            // Note that other store backends are available and you can even implement your own.
             .sqlite_store(&db_path, Some(&passphrase))
             .build()
             .await
@@ -501,12 +537,15 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
                 // Check if the homeserver advertises an OIDC Provider with auto-discovery.
                 // This can be bypassed by providing the issuer manually, but it should be the
                 // most common case for public homeservers.
-                if let Some(issuer) = client.authentication_server_info().map(|i| i.issuer.clone())
-                {
-                    println!("Found issuer: {issuer}");
+                if let Some(issuer_info) = client.authentication_server_info().cloned() {
+                    println!("Found issuer: {}", issuer_info.issuer);
 
                     let homeserver = client.homeserver().await.to_string();
-                    return Ok((client, ClientSession { homeserver, db_path, passphrase }, issuer));
+                    return Ok((
+                        client,
+                        ClientSession { homeserver, db_path, passphrase },
+                        issuer_info,
+                    ));
                 }
                 println!("This homeserver doesn't advertise an authentication issuer.");
                 println!("Please try again\n");
@@ -530,6 +569,11 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
 }
 
 /// Generate the OIDC client metadata.
+///
+/// For simplicity, we use most of the default values here, but usually this
+/// should be adapted to the provider metadata to make interactions as secure as
+/// possible, for example by using the most secure signing algorithms supported
+/// by the provider.
 fn client_metadata() -> VerifiedClientMetadata {
     let redirect_uri = Url::parse("http://127.0.0.1").expect("Couldn't parse redirect URI");
     let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
@@ -567,22 +611,21 @@ fn client_metadata() -> VerifiedClientMetadata {
 ///
 /// Returns the code to obtain the access token.
 async fn use_auth_url(
-    url: Url,
-    state: String,
+    url: &Url,
+    state: &str,
     data_rx: oneshot::Receiver<String>,
     signal_tx: oneshot::Sender<()>,
-) -> anyhow::Result<AuthorizationResponse> {
+) -> anyhow::Result<AuthorizationCode> {
     println!("\nPlease authenticate yourself at: {url}\n");
     println!("Then proceed to the authorization.\n");
 
     let response_query = data_rx.await?;
     signal_tx.send(()).expect("Receiver is still alive");
 
-    let response = match AuthorizationResponse::parse_query(&response_query) {
-        Ok(res) => res,
-        Err(_) => {
-            // If the authorization didn't work, we should have gotten an error instead.
-            let err = AuthorizationError::parse_query(&response_query)?.error;
+    let code = match AuthorizationResponse::parse_query(&response_query)? {
+        AuthorizationResponse::Success(code) => code,
+        AuthorizationResponse::Error(err) => {
+            let err = err.error;
             return Err(anyhow!("{}: {:?}", err.error, err.error_description));
         }
     };
@@ -591,11 +634,11 @@ async fn use_auth_url(
     // wrong, it is an error. Some clients might want to allow several
     // authorizations at once, in which case the state string can be used to
     // identify the session that was authorized.
-    if response.state != state {
+    if code.state != state {
         bail!("State strings don't match")
     }
 
-    Ok(response)
+    Ok(code)
 }
 
 /// Spawn a local server to listen on redirects at the end of the authorization
