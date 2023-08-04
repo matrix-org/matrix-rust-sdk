@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::widget_api::{
     messages::{
-        capabilities::Options,
+        capabilities::{EventFilter, Options},
         from_widget::{
             ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
             SendToDeviceRequest,
@@ -18,7 +18,10 @@ use crate::widget_api::{
 pub struct Capabilities {
     // The options are a private member,
     // they contain the type filters for the listeners.
-    options: Options,
+    filter_send_room_event: Vec<EventFilter>,
+    filter_read_room_event: Vec<EventFilter>,
+    filter_send_state_event: Vec<EventFilter>,
+    filter_read_state_event: Vec<EventFilter>,
 
     pub room_event_listener: Option<Receiver<MatrixEvent>>,
     pub state_event_listener: Option<Receiver<MatrixEvent>>,
@@ -48,6 +51,19 @@ pub trait ToDeviceSender {
 
 impl<'t> From<&'t Capabilities> for Options {
     fn from(capabilities: &'t Capabilities) -> Self {
-        capabilities.options.clone()
+        Options {
+            screenshot: false,
+
+            // room events
+            send_room_event: capabilities.filter_send_room_event.clone(),
+            read_room_event: capabilities.filter_read_room_event.clone(),
+            // state events
+            send_state_event: capabilities.filter_send_state_event.clone(),
+            read_state_event: capabilities.filter_read_state_event.clone(),
+
+            always_on_screen: false, // "m.always_on_screen",
+
+            requires_client: false,
+        }
     }
 }

@@ -5,11 +5,11 @@ pub struct Options {
     pub screenshot: bool,
 
     // room events
-    pub send_room_event: Option<Vec<EventFilter>>,
-    pub read_room_event: Option<Vec<EventFilter>>,
+    pub send_room_event: Vec<EventFilter>,
+    pub read_room_event: Vec<EventFilter>,
     // state events
-    pub send_state_event: Option<Vec<EventFilter>>,
-    pub read_state_event: Option<Vec<EventFilter>>,
+    pub send_state_event: Vec<EventFilter>,
+    pub read_state_event: Vec<EventFilter>,
 
     pub always_on_screen: bool, // "m.always_on_screen",
 
@@ -35,31 +35,26 @@ impl Serialize for Options {
             capability_list.push("io.element.requires_client".to_owned());
         }
 
-        if let Some(ev_filter) = &self.send_room_event {
-            for event_type in ev_filter {
-                let filter = serde_json::to_string(&event_type).unwrap();
-                capability_list.push(format!("org.matrix.msc2762.m.send.event{}", filter));
-            }
+        for event_type in &self.send_room_event {
+            let filter = serde_json::to_string(event_type).unwrap();
+            capability_list.push(format!("org.matrix.msc2762.m.send.event{}", filter));
         }
-        if let Some(ev_filter) = &self.read_room_event {
-            for event_type in ev_filter {
-                let filter = serde_json::to_string(&event_type).unwrap();
-                capability_list.push(format!("org.matrix.msc2762.m.receive.event{}", filter));
-            }
-        }
-        if let Some(ev_filter) = &self.send_state_event {
-            for event_type in ev_filter {
-                let filter = serde_json::to_string(&event_type).unwrap();
 
-                capability_list.push(format!("org.matrix.msc2762.m.send.state_event{}", filter));
-            }
+        for event_type in &self.read_room_event {
+            let filter = serde_json::to_string(event_type).unwrap();
+            capability_list.push(format!("org.matrix.msc2762.m.receive.event{}", filter));
         }
-        if let Some(ev_filter) = &self.read_state_event {
-            for event_type in ev_filter {
-                let filter = serde_json::to_string(&event_type).unwrap();
-                capability_list.push(format!("org.matrix.msc2762.m.receive.state_event{}", filter));
-            }
+
+        for event_type in &self.send_state_event {
+            let filter = serde_json::to_string(event_type).unwrap();
+            capability_list.push(format!("org.matrix.msc2762.m.send.state_event{}", filter));
         }
+
+        for event_type in &self.read_state_event {
+            let filter = serde_json::to_string(event_type).unwrap();
+            capability_list.push(format!("org.matrix.msc2762.m.receive.state_event{}", filter));
+        }
+
         capability_list.serialize(serializer)
     }
 }
@@ -71,10 +66,6 @@ impl<'de> Deserialize<'de> for Options {
         let capability_list = Vec::<String>::deserialize(deserializer)?;
         let mut capbilities = Options::default();
 
-        let mut send_room_event: Vec<EventFilter> = vec![];
-        let mut receive_room_event: Vec<EventFilter> = vec![];
-        let mut send_state_event: Vec<EventFilter> = vec![];
-        let mut receive_state_event: Vec<EventFilter> = vec![];
         for capability in capability_list {
             if capability == "m.capability.screenshot" {
                 capbilities.screenshot = true;
@@ -88,36 +79,29 @@ impl<'de> Deserialize<'de> for Options {
             if capability.starts_with("org.matrix.msc2762.m.send.event") {
                 let cap_split: Vec<&str> = capability.split(":").collect();
                 if cap_split.len() > 1 {
-                    send_room_event.push(serde_json::from_str(cap_split[1]).unwrap());
+                    capbilities.send_room_event.push(serde_json::from_str(cap_split[1]).unwrap());
                 }
             }
             if capability.starts_with("org.matrix.msc2762.m.receive.event") {
                 let cap_split: Vec<&str> = capability.split(":").collect();
                 if cap_split.len() > 1 {
-                    receive_room_event.push(serde_json::from_str(cap_split[1]).unwrap());
+                    capbilities.read_room_event.push(serde_json::from_str(cap_split[1]).unwrap());
                 }
             }
             if capability.starts_with("org.matrix.msc2762.m.send.state_event") {
                 let cap_split: Vec<&str> = capability.split(":").collect();
                 if cap_split.len() > 1 {
-                    send_state_event.push(serde_json::from_str(cap_split[1]).unwrap());
+                    capbilities.send_state_event.push(serde_json::from_str(cap_split[1]).unwrap());
                 }
             }
             if capability.starts_with("org.matrix.msc2762.m.receive.state_event") {
                 let cap_split: Vec<&str> = capability.split(":").collect();
                 if cap_split.len() > 1 {
-                    receive_state_event.push(serde_json::from_str(cap_split[1]).unwrap());
+                    capbilities.read_state_event.push(serde_json::from_str(cap_split[1]).unwrap());
                 }
             }
         }
-        capbilities.send_state_event =
-            if send_state_event.len() > 0 { Some(send_state_event) } else { None };
-        capbilities.read_state_event =
-            if receive_state_event.len() > 0 { Some(receive_state_event) } else { None };
-        capbilities.read_room_event =
-            if receive_room_event.len() > 0 { Some(receive_room_event) } else { None };
-        capbilities.send_room_event =
-            if send_room_event.len() > 0 { Some(send_room_event) } else { None };
+
         Ok(capbilities)
     }
 }
