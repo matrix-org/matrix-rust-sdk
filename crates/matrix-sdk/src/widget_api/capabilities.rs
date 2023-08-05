@@ -17,7 +17,7 @@ pub struct Capabilities {
 }
 
 #[async_trait]
-pub trait EventReader {
+pub trait EventReader: Send {
     async fn read(&mut self, req: ReadEventRequest) -> Result<Vec<MatrixEvent>>;
     fn filter(&self) -> Vec<EventFilter>;
 }
@@ -45,13 +45,13 @@ impl From<RawReadEventRequest> for ReadEventRequest {
 }
 
 #[async_trait]
-pub trait EventWriter {
+pub trait EventWriter: Send {
     async fn write(&mut self, req: SendEventRequest) -> Result<SendEventResponse>;
     fn filter(&self) -> Vec<EventFilter>;
 }
 
 #[async_trait]
-pub trait ToDeviceSender {
+pub trait ToDeviceSender: Send {
     async fn send(&mut self, req: SendToDeviceRequest) -> Result<()>;
 }
 

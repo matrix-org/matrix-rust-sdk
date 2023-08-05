@@ -2,7 +2,7 @@ use crate::widget_api::messages::{capabilities::Options, openid::State as OpenID
 
 use super::{Result, Error};
 
-pub trait OutgoingMessage: Sized {
+pub trait OutgoingMessage: Sized + Send + Sync + 'static {
     type Response;
 
     fn into_message(self, header: Header) -> ToWidgetMessage;
@@ -56,7 +56,7 @@ impl OutgoingMessage for CapabilitiesUpdated {
 
     fn extract_response(msg: ToWidgetMessage) -> Result<Self::Response> {
         match msg {
-            ToWidgetMessage::CapabilitiesUpdated(MessageBody { header, request, response }) => {
+            ToWidgetMessage::CapabilitiesUpdated(MessageBody { response, .. }) => {
                 match response.ok_or(Error::InvalidJSON)? {
                     Response::Response(r) => Ok(r),
                     Response::Error(e) => Err(Error::WidgetError(e.error.message)),
@@ -82,7 +82,7 @@ impl OutgoingMessage for OpenIDUpdated {
 
     fn extract_response(msg: ToWidgetMessage) -> Result<Self::Response> {
         match msg {
-            ToWidgetMessage::OpenIdCredentials(MessageBody { header, request, response }) => {
+            ToWidgetMessage::OpenIdCredentials(MessageBody { response, .. }) => {
                 match response.ok_or(Error::InvalidJSON)? {
                     Response::Response(r) => Ok(r),
                     Response::Error(e) => Err(Error::WidgetError(e.error.message)),

@@ -11,9 +11,9 @@ use super::{
 
 #[async_trait]
 pub trait Driver {
-    async fn initialise(&mut self, req: CapabilitiesReq) -> Result<Capabilities>;
-    async fn send<T: OutgoingMessage>(&mut self, message: T) -> Result<T::Response>;
-    async fn get_openid(&mut self, req: openid::Request) -> OpenIDState;
+    async fn initialise(&self, req: CapabilitiesReq) -> Result<Capabilities>;
+    async fn send<T: OutgoingMessage>(&self, message: T) -> Result<T::Response>;
+    async fn get_openid(&self, req: openid::Request) -> OpenIDState;
 }
 
 #[derive(Debug)]

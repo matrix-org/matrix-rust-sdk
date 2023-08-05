@@ -15,6 +15,18 @@ pub enum Message {
     ToWidget(ToWidgetMessage),
 }
 
+impl From<FromWidgetMessage> for Message {
+    fn from(msg: FromWidgetMessage) -> Self {
+        Message::FromWidget(msg)
+    }
+}
+
+impl From<ToWidgetMessage> for Message {
+    fn from(msg: ToWidgetMessage) -> Self {
+        Message::ToWidget(msg)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Header {
     pub request_id: String,
