@@ -1,13 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_core::future::BoxFuture;
 use opentelemetry::{
-    sdk::{
-        trace::{BatchMessage, TraceRuntime, Tracer},
-        util::tokio_interval_stream,
-        Resource,
-    },
+    sdk::{runtime::RuntimeChannel, trace::Tracer, util::tokio_interval_stream, Resource},
     KeyValue,
 };
 use opentelemetry_otlp::{Protocol, WithExportConfig};
@@ -42,9 +38,9 @@ impl opentelemetry::runtime::Runtime for TracingRuntime {
     }
 }
 
-impl TraceRuntime for TracingRuntime {
-    type Receiver = tokio_stream::wrappers::ReceiverStream<BatchMessage>;
-    type Sender = tokio::sync::mpsc::Sender<BatchMessage>;
+impl<T: Debug + Send> RuntimeChannel<T> for TracingRuntime {
+    type Receiver = tokio_stream::wrappers::ReceiverStream<T>;
+    type Sender = tokio::sync::mpsc::Sender<T>;
 
     fn batch_message_channel(&self, capacity: usize) -> (Self::Sender, Self::Receiver) {
         let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
