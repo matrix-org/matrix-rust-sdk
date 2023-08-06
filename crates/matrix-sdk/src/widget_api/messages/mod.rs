@@ -1,5 +1,7 @@
-use self::{from_widget::FromWidgetMessage, to_widget::ToWidgetMessage};
 use serde::{Deserialize, Serialize};
+
+use self::{from_widget::FromWidgetMessage, to_widget::ToWidgetMessage};
+use super::Error;
 
 pub mod capabilities;
 pub mod from_widget;
@@ -41,6 +43,19 @@ pub struct MessageBody<Req, Resp> {
     pub response: Option<Response<Resp>>,
 }
 
+impl<Req, Resp> MessageBody<Req, Resp> {
+    pub fn request(header: Header, request: Req) -> Self {
+        Self { header, request, response: None }
+    }
+
+    pub fn response(self) -> Result<Resp, Error> {
+        match self.response.ok_or(Error::InvalidJSON)? {
+            Response::Response(r) => Ok(r),
+            Response::Error(e) => Err(Error::WidgetError(e.error.message)),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Response<Resp> {
@@ -63,7 +78,6 @@ impl<Resp> Into<Result<Resp, WidgetError>> for Response<Resp> {
     }
 }
 
-// Shared types for the message body
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WidgetError {
     pub error: WidgetErrorMessage,
@@ -102,8 +116,7 @@ pub enum ApiVersion {
     MSC2931,
     #[serde(rename = "org.matrix.msc2974")] // Widgets: Capabilities re-exchange
     MSC2974,
-    #[serde(rename = "org.matrix.msc2876")]
-    // Allowing widgets to read events in a room (Closed/Deprecated)
+    #[serde(rename = "org.matrix.msc2876")] // Allowing widgets to read events in a room (Closed/Deprecated)
     MSC2876,
     #[serde(rename = "org.matrix.msc3819")] // Allowing widgets to send/receive to-device messages
     MSC3819,

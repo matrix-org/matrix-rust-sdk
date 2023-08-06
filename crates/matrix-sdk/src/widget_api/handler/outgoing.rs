@@ -1,6 +1,11 @@
-use crate::widget_api::messages::{capabilities::Options, openid::State as OpenIDState, to_widget::{ToWidgetMessage, CapabilitiesUpdatedRequest}, MessageBody, Header, Response};
+use crate::widget_api::messages::{
+    capabilities::Options,
+    openid::State as OpenIDState,
+    to_widget::{CapabilitiesUpdatedRequest, ToWidgetMessage},
+    Header, MessageBody,
+};
 
-use super::{Result, Error};
+use super::{Error, Result};
 
 pub trait OutgoingMessage: Sized + Send + Sync + 'static {
     type Response;
@@ -10,84 +15,48 @@ pub trait OutgoingMessage: Sized + Send + Sync + 'static {
 }
 
 pub struct SendMeCapabilities;
-
 impl OutgoingMessage for SendMeCapabilities {
     type Response = Options;
 
     fn into_message(self, header: Header) -> ToWidgetMessage {
-        ToWidgetMessage::SendMeCapabilities(MessageBody {
-            header,
-            request: (),
-            response: None,
-        })
+        ToWidgetMessage::SendMeCapabilities(MessageBody::request(header, ()))
     }
 
     fn extract_response(msg: ToWidgetMessage) -> Result<Self::Response> {
         match msg {
-            ToWidgetMessage::SendMeCapabilities(MessageBody { response, .. }) => {
-                match response.ok_or(Error::InvalidJSON)? {
-                    Response::Response(r) => Ok(r.capabilities),
-                    Response::Error(e) => Err(Error::WidgetError(e.error.message)),
-                }
-            }
+            ToWidgetMessage::SendMeCapabilities(body) => Ok(body.response()?.capabilities),
             _ => Err(Error::UnexpectedResponse),
         }
     }
 }
 
-pub struct CapabilitiesUpdated {
-    pub requested: Options,
-    pub approved: Options,
-}
-
+pub struct CapabilitiesUpdated(pub CapabilitiesUpdatedRequest);
 impl OutgoingMessage for CapabilitiesUpdated {
     type Response = ();
 
     fn into_message(self, header: Header) -> ToWidgetMessage {
-        ToWidgetMessage::CapabilitiesUpdated(MessageBody {
-            header,
-            request: CapabilitiesUpdatedRequest {
-                requested: self.requested,
-                approved: self.approved,
-            },
-            response: None,
-        })
+        ToWidgetMessage::CapabilitiesUpdated(MessageBody::request(header, self.0))
     }
 
     fn extract_response(msg: ToWidgetMessage) -> Result<Self::Response> {
         match msg {
-            ToWidgetMessage::CapabilitiesUpdated(MessageBody { response, .. }) => {
-                match response.ok_or(Error::InvalidJSON)? {
-                    Response::Response(r) => Ok(r),
-                    Response::Error(e) => Err(Error::WidgetError(e.error.message)),
-                }
-            }
+            ToWidgetMessage::CapabilitiesUpdated(body) => Ok(body.response()?),
             _ => Err(Error::UnexpectedResponse),
         }
     }
 }
 
 pub struct OpenIDUpdated(pub OpenIDState);
-
 impl OutgoingMessage for OpenIDUpdated {
     type Response = ();
 
     fn into_message(self, header: Header) -> ToWidgetMessage {
-        ToWidgetMessage::OpenIdCredentials(MessageBody {
-            header,
-            request: self.0,
-            response: None,
-        })
+        ToWidgetMessage::OpenIdCredentials(MessageBody::request(header, self.0))
     }
 
     fn extract_response(msg: ToWidgetMessage) -> Result<Self::Response> {
         match msg {
-            ToWidgetMessage::OpenIdCredentials(MessageBody { response, .. }) => {
-                match response.ok_or(Error::InvalidJSON)? {
-                    Response::Response(r) => Ok(r),
-                    Response::Error(e) => Err(Error::WidgetError(e.error.message)),
-                }
-            }
+            ToWidgetMessage::OpenIdCredentials(body) => Ok(body.response()?),
             _ => Err(Error::UnexpectedResponse),
         }
     }

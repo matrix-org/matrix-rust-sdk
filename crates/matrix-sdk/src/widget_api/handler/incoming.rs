@@ -1,4 +1,6 @@
-use crate::widget_api::messages::from_widget::{SendEventResponse, SendEventRequest, SendToDeviceRequest};
+use crate::widget_api::messages::from_widget::{
+    SendEventRequest, SendEventResponse, SendToDeviceRequest,
+};
 
 use super::{
     super::{

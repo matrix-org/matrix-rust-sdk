@@ -3,7 +3,11 @@ use async_trait::async_trait;
 use super::{
     messages::{
         capabilities::{EventFilter, Options},
-        MatrixEvent, from_widget::{SendEventResponse, SendToDeviceRequest, SendEventRequest, ReadEventRequest as RawReadEventRequest},
+        from_widget::{
+            ReadEventRequest as RawReadEventRequest, SendEventRequest, SendEventResponse,
+            SendToDeviceRequest,
+        },
+        MatrixEvent,
     },
     Result,
 };

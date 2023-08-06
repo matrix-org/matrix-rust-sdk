@@ -15,7 +15,8 @@ use super::{
     capabilities::{Capabilities, ReadEventRequest},
     messages::{
         capabilities::Options as CapabilitiesReq,
-        from_widget::{SendEventResponse, SendEventRequest, SendToDeviceRequest},
+        from_widget::{SendEventRequest, SendEventResponse, SendToDeviceRequest},
+        to_widget::CapabilitiesUpdatedRequest as CapabilitiesUpdated,
         MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
     },
 };
@@ -88,7 +89,9 @@ impl<T: Driver> MessageHandler<T> {
         self.capabilities = Some(capabilities);
 
         let approved: CapabilitiesReq = self.capabilities.as_ref().unwrap().into();
-        self.driver.send(outgoing::CapabilitiesUpdated { requested, approved }).await?;
+        self.driver
+            .send(outgoing::CapabilitiesUpdated(CapabilitiesUpdated { requested, approved }))
+            .await?;
 
         Ok(())
     }
@@ -130,8 +133,6 @@ impl<T: Driver> MessageHandler<T> {
     }
 
     fn capabilities(&mut self) -> StdResult<&mut Capabilities, &'static str> {
-        self.capabilities
-            .as_mut()
-            .ok_or("Capabilities have not been negotiated")
+        self.capabilities.as_mut().ok_or("Capabilities have not been negotiated")
     }
 }

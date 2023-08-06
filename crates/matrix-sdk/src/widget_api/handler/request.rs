@@ -13,9 +13,9 @@ pub struct Request<Req, Resp> {
 }
 
 impl<C, R> Request<C, R> {
-    pub fn new(content: C) -> (Self, ResponseReceiver<R>) {
+    pub fn new(content: C) -> (Self, Receiver<Response<R>>) {
         let (reply, receiver) = tokio::sync::oneshot::channel();
-        (Self { content, reply }, ResponseReceiver { receiver })
+        (Self { content, reply }, receiver)
     }
 
     pub fn reply(self, response: Response<R>) -> Result<()> {
@@ -28,19 +28,5 @@ impl<Req, Resp> Deref for Request<Req, Resp> {
 
     fn deref(&self) -> &Self::Target {
         &self.content
-    }
-}
-
-#[allow(missing_debug_implementations)]
-pub struct ResponseReceiver<T> {
-    pub receiver: Receiver<Response<T>>,
-}
-
-impl<T> ResponseReceiver<T> {
-    pub async fn recv(self) -> Result<T> {
-        self.receiver
-            .await
-            .map_err(|_| Error::WidgetDied)?
-            .map_err(|e| Error::WidgetError(e.to_string()))
     }
 }

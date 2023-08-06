@@ -12,4 +12,6 @@ pub enum Error {
     InvalidJSON,
     #[error("Unexpected response")]
     UnexpectedResponse,
+    #[error("Handler did not send a reply")]
+    NoReply,
 }
