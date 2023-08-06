@@ -5,14 +5,13 @@ use uuid::Uuid;
 use super::{
     super::{
         capabilities::Capabilities,
-        handler::{Driver as HandlerDriver, OpenIDState, OutgoingMessage},
+        handler::{Driver as HandlerDriver, WidgetClient, OpenIDState, OutgoingMessage},
         messages::{
             capabilities::Options, openid::Request as OpenIDRequest, to_widget::ToWidgetMessage,
             Header,
         },
         Error,
     },
-    widget::Api as WidgetApi,
     PendingResponses, Result,
 };
 
@@ -35,7 +34,7 @@ impl<T> Driver<T> {
 }
 
 #[async_trait]
-impl<T: WidgetApi> HandlerDriver for Driver<T> {
+impl<T: WidgetClient> WidgetClient for Driver<T> {
     async fn initialise(&self, req: Options) -> Result<Capabilities> {
         self.api.initialise(req).await
     }
@@ -43,7 +42,10 @@ impl<T: WidgetApi> HandlerDriver for Driver<T> {
     async fn get_openid(&self, req: OpenIDRequest) -> OpenIDState {
         self.api.get_openid(req).await
     }
+}
 
+#[async_trait]
+impl<T: WidgetClient> HandlerDriver for Driver<T> {
     async fn send<M: OutgoingMessage>(&self, msg: M) -> Result<M::Response> {
         let id = Uuid::new_v4();
         let request_id = id.to_string();

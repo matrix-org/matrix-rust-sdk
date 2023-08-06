@@ -9,7 +9,7 @@ use tokio::sync::{
 
 use self::driver::Driver;
 use super::{
-    handler::{Driver as HandlerDriver, Incoming, MessageHandler, Request},
+    handler::{Driver as HandlerDriver, WidgetClient, Incoming, MessageHandler, Request},
     messages::{
         from_widget::{FromWidgetMessage as FromWidgetAction, ReadEventResponse},
         openid::Request as OpenIDRequest,
@@ -27,7 +27,7 @@ mod widget;
 pub type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>;
 
 // Runs client widget API handler with a given widget. Returns once the widget is closed.
-pub async fn run<T: widget::Api>(mut widget: widget::Widget<T>) -> Result<()> {
+pub async fn run<T: WidgetClient>(mut widget: widget::Widget<T>) -> Result<()> {
     // State: a map of outgoing requests that are waiting response from a widget.
     let state: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
 
