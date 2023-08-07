@@ -13,7 +13,9 @@ use opentelemetry::{
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use tokio::runtime::Handle;
 use tracing_core::Subscriber;
-use tracing_subscriber::{fmt, prelude::*, registry::LookupSpan, EnvFilter, Layer};
+use tracing_subscriber::{
+    fmt, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, EnvFilter, Layer,
+};
 
 use crate::RUNTIME;
 
@@ -92,48 +94,37 @@ pub fn log_panics() {
     log_panics::init();
 }
 
-fn stdout_layer<S>() -> impl Layer<S>
+fn text_layers<S>(config: TracingConfiguration) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    #[cfg(not(target_os = "android"))]
-    return fmt::layer()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(!cfg!(target_os = "ios"))
-        .with_writer(std::io::stderr);
+    fn fmt_layer<S>() -> fmt::Layer<S> {
+        fmt::layer()
+            .with_file(true)
+            .with_line_number(true)
+            .with_ansi(cfg!(not(any(target_os = "android", target_os = "ios"))))
+    }
+
+    let common_layers = Layer::and_then(
+        config.write_to_stdout.then(|| fmt_layer().with_writer(std::io::stderr)),
+        config.write_to_files.map(|c| {
+            fmt_layer().with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix))
+        }),
+    );
 
     #[cfg(target_os = "android")]
-    return fmt::layer::<S>()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(false)
-        .with_level(false)
-        .without_time()
-        .with_writer(paranoid_android::AndroidLogMakeWriter::new(
-            "org.matrix.rust.sdk".to_owned(),
-        ));
-}
+    return common_layers.and_then(
+        fmt_layer()
+            // Level and time are already captured by logcat separately
+            .with_level(false)
+            .without_time()
+            .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+                "org.matrix.rust.sdk".to_owned(),
+            )),
+    );
 
-fn file_layer<S>(config: TracingFileConfiguration) -> impl Layer<S>
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
     #[cfg(not(target_os = "android"))]
-    return fmt::layer()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(!cfg!(target_os = "ios"))
-        .with_writer(tracing_appender::rolling::hourly(config.path, config.file_prefix));
-
-    #[cfg(target_os = "android")]
-    return fmt::layer::<S>()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(false)
-        .with_level(false)
-        .without_time()
-        .with_writer(tracing_appender::rolling::hourly(config.path, config.file_prefix));
+    return common_layers;
 }
 
 #[derive(uniffi::Record)]
@@ -145,7 +136,7 @@ pub struct TracingFileConfiguration {
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
     filter: String,
-    write_to_stdout_or_logcat: bool,
+    write_to_stdout: bool,
     write_to_files: Option<TracingFileConfiguration>,
 }
 
@@ -154,14 +145,9 @@ pub fn setup_tracing(config: TracingConfiguration) {
     #[cfg(target_os = "android")]
     log_panics();
 
-    let stdout_layer = if config.write_to_stdout_or_logcat { Some(stdout_layer()) } else { None };
-
-    let file_layer = config.write_to_files.map(file_layer);
-
     tracing_subscriber::registry()
-        .with(EnvFilter::new(config.filter))
-        .with(stdout_layer)
-        .with(file_layer)
+        .with(EnvFilter::new(&config.filter))
+        .with(text_layers(config))
         .init();
 }
 
@@ -181,8 +167,13 @@ pub fn setup_otlp_tracing(
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new(filter))
-        .with(stdout_layer())
+        .with(EnvFilter::new(&filter))
+        // TODO: Change fn to have OtlpTracingConfiguration param, allow configuring files?
+        .with(text_layers(TracingConfiguration {
+            filter,
+            write_to_stdout: true,
+            write_to_files: None,
+        }))
         .with(otlp_layer)
         .init();
 }
