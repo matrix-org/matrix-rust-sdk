@@ -330,6 +330,10 @@ impl RoomListService {
         Ok(room)
     }
 
+    pub(crate) async fn expire_session(&self) {
+        self.sliding_sync.expire_session().await;
+    }
+
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync

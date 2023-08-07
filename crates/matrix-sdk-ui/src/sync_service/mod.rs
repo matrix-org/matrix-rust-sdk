@@ -129,6 +129,8 @@ impl SyncService {
 
         // First, take care of the room list.
 
+        let (sender, mut receiver) = tokio::sync::broadcast::channel(16);
+
         let mut room_list_task_guard = self.room_list_task.lock().unwrap();
 
         if let Some(task) = room_list_task_guard.take() {
@@ -143,15 +145,43 @@ impl SyncService {
         *room_list_task_guard = Some(spawn(async move {
             let room_list_stream = room_list_task.sync();
             pin_mut!(room_list_stream);
-            while let Some(res) = room_list_stream.next().await {
-                if let Err(err) = res {
-                    error!("Error while processing room list (sync service): {err:#}");
-                    break;
+
+            loop {
+                tokio::select! {
+                    biased;
+
+                    internal_message = receiver.recv() => {
+                        if let Err(err) = internal_message {
+                            warn!("Sync service broadcast channel error when receiving (room list): {err:#}");
+                        }
+                        room_list_task.expire_session().await;
+                        break;
+                    }
+
+                    res = room_list_stream.next() => {
+                        match res {
+                            Some(Ok(())) => {
+                                // Carry on.
+                            }
+                            Some(Err(err)) => {
+                                if let room_list_service::Error::SlidingSync(err) = &err {
+                                    if err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos) {
+                                        if let Err(err) = sender.send(()) {
+                                            warn!("Sync service broadcast channel when writing (room list): {err:#}");
+                                        }
+                                    }
+                                }
+                                error!("Error while processing room list (sync service): {err:#}");
+                                break;
+                            }
+                            None => {
+                                // The stream has ended.
+                                break;
+                            }
+                        }
+                    }
                 }
             }
-            // Put the whole sync service in the not-running state, so that subsequent
-            // calls to `start()` will restart the room list service.
-            *state_task.lock().unwrap() = State::OnlyEncryptionSync;
         }));
 
         drop(room_list_task_guard);

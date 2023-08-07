@@ -668,17 +668,7 @@ impl SlidingSync {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
                                     sync_span.in_scope(|| async {
-                                        info!("Session expired; resetting `pos` and sticky parameters");
-
-                                        {
-                                            let mut position_lock = self.inner.position.write().unwrap();
-                                            position_lock.pos = None;
-                                        }
-
-                                        // Force invalidation of all the sticky parameters.
-                                        let _ = self.inner.sticky.write().unwrap().data_mut();
-
-                                        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
+                                        self.expire_session().await;
                                     }).await;
                                 }
 
@@ -694,6 +684,28 @@ impl SlidingSync {
 
             debug!("Sync stream has exited.");
         }
+    }
+
+    /// Force expire a sliding sync session.
+    ///
+    /// This will invalidate the current position (`pos` in the SS
+    /// request/response body), as well as all the sticky parameters. This
+    /// should only be used when it's clear that this session was about to
+    /// expire anyways, and should be used only in very specific cases (e.g.
+    /// multiple sliding syncs being run in parallel, and one of them has
+    /// expired).
+    pub async fn expire_session(&self) {
+        info!("Session expired; resetting `pos` and sticky parameters");
+
+        {
+            let mut position_lock = self.inner.position.write().unwrap();
+            position_lock.pos = None;
+        }
+
+        // Force invalidation of all the sticky parameters.
+        let _ = self.inner.sticky.write().unwrap().data_mut();
+
+        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
     }
 
     /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
