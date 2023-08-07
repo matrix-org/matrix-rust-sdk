@@ -92,34 +92,48 @@ pub fn log_panics() {
     log_panics::init();
 }
 
-fn fmt_layer<S>() -> fmt::Layer<S>
+fn stdout_layer<S>() -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     #[cfg(not(target_os = "android"))]
-    return fmt::layer().with_file(true).with_line_number(true).with_ansi(!cfg!(target_os = "ios"));
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(!cfg!(target_os = "ios"))
+        .with_writer(std::io::stderr);
 
     #[cfg(target_os = "android")]
     return fmt::layer::<S>()
         .with_file(true)
         .with_line_number(true)
         .with_ansi(false)
-        .with_level(false);
-    //.without_time(); // FIXME this changes the 3rd generic of the returned value, making it hell
-    // for callers
+        .with_level(false)
+        .without_time()
+        .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+            "org.matrix.rust.sdk".to_owned(),
+        ));
 }
 
-fn stdout_layer<S>() -> impl Layer<S>
+fn file_layer<S>(config: TracingFileConfiguration) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     #[cfg(not(target_os = "android"))]
-    return fmt_layer().with_writer(std::io::stderr);
+    return fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(!cfg!(target_os = "ios"))
+        .with_writer(tracing_appender::rolling::hourly(config.path, config.file_prefix));
 
     #[cfg(target_os = "android")]
-    return fmt_layer().with_writer(paranoid_android::AndroidLogMakeWriter::new(
-        "org.matrix.rust.sdk".to_owned(),
-    ));
+    return fmt::layer::<S>()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false)
+        .with_level(false)
+        .without_time()
+        .with_writer(tracing_appender::rolling::hourly(config.path, config.file_prefix));
 }
 
 #[derive(uniffi::Record)]
@@ -142,9 +156,7 @@ pub fn setup_tracing(config: TracingConfiguration) {
 
     let stdout_layer = if config.write_to_stdout_or_logcat { Some(stdout_layer()) } else { None };
 
-    let file_layer = config.write_to_files.map(|config| {
-        fmt_layer().with_writer(tracing_appender::rolling::hourly(config.path, config.file_prefix))
-    });
+    let file_layer = config.write_to_files.map(file_layer);
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(config.filter))
@@ -170,7 +182,7 @@ pub fn setup_otlp_tracing(
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(filter))
-        .with(fmt_layer())
+        .with(stdout_layer())
         .with(otlp_layer)
         .init();
 }
