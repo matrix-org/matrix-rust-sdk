@@ -539,10 +539,8 @@ mod tests {
                 assert_eq!(rule_id, PredefinedUnderrideRuleId::Message.as_str());
                 assert_eq!(actions.len(), 2);
                 assert_matches!(&actions[0], Action::Notify);
-                assert_matches!(&actions[1], Action::SetTweak(tweak) => {
-                    assert_matches!(tweak, Tweak::Sound(sound) => {
-                        assert_eq!(sound, "default");
-                    });
+                assert_matches!(&actions[1], Action::SetTweak(Tweak::Sound(sound)) => {
+                    assert_eq!(sound, "default");
                 });
             }
         );

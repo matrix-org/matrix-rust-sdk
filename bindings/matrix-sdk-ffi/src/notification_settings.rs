@@ -158,7 +158,7 @@ impl NotificationSettings {
         // If the user has not defined a notification mode, return the default one for
         // this room
         let mode = notification_settings
-            .get_default_room_notification_mode(is_encrypted, active_members_count)
+            .get_default_room_notification_mode(is_encrypted.into(), active_members_count)
             .await;
         Ok(RoomNotificationSettings::new(mode.into(), true))
     }
@@ -193,7 +193,7 @@ impl NotificationSettings {
     ) -> RoomNotificationMode {
         let notification_settings = self.sdk_notification_settings.read().await;
         let mode = notification_settings
-            .get_default_room_notification_mode(is_encrypted, active_members_count)
+            .get_default_room_notification_mode(is_encrypted.into(), active_members_count)
             .await;
         mode.into()
     }
@@ -213,7 +213,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
-            .set_default_room_notification_mode(encrypted, one_to_one, mode.into())
+            .set_default_room_notification_mode(encrypted.into(), one_to_one.into(), mode.into())
             .await?;
         Ok(())
     }
@@ -325,7 +325,7 @@ impl NotificationSettings {
         let parsed_room_idom_id = RoomId::parse(&room_id)
             .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
         notification_settings
-            .unmute_room(&parsed_room_idom_id, is_encrypted, members_count)
+            .unmute_room(&parsed_room_idom_id, is_encrypted.into(), members_count)
             .await?;
         Ok(())
     }
