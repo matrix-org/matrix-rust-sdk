@@ -95,21 +95,21 @@ pub enum ApiVersion {
     MSC3869,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MatrixEvent {
     #[serde(rename = "type")]
-    event_type: String,
-    sender: String,
-    event_id: String,
-    room_id: String,
-    state_key: Option<String>,
-    origin_server_ts: u32,
-    content: serde_json::Value,
-    unsigned: Unsigned,
+    pub event_type: String,
+    pub sender: String,
+    pub event_id: String,
+    pub room_id: String,
+    pub state_key: Option<String>,
+    pub origin_server_ts: u32,
+    pub content: serde_json::Value,
+    pub unsigned: Unsigned,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Unsigned {
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Unsigned {
     age: u32,
 }
 

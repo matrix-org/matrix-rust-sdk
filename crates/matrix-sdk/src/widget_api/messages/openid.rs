@@ -12,19 +12,19 @@ pub enum State {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    id: String,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
     #[serde(rename = "original_request_id")]
-    id: String,
+    pub id: String,
     #[serde(rename = "access_token")]
-    token: String,
+    pub token: String,
     #[serde(rename = "expires_in")]
-    expires_in_seconds: usize,
+    pub expires_in_seconds: usize,
     #[serde(rename = "matrix_server_name")]
-    server: String,
+    pub server: String,
     #[serde(rename = "token_type")]
-    kind: String,
+    pub kind: String,
 }

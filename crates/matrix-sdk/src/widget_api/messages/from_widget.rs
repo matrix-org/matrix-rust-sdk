@@ -34,27 +34,27 @@ pub struct SendToDeviceRequest {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SendEventRequest {
     #[serde(rename = "type")]
-    message_type: String,
-    state_key: Option<String>,
-    content: serde_json::Value,
+    pub message_type: String,
+    pub state_key: Option<String>,
+    pub content: serde_json::Value,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SendEventResponse {
-    room_id: String,
-    event_id: String,
+    pub room_id: String,
+    pub event_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventRequest {
     #[serde(rename = "type")]
-    message_type: String,
-    state_key: Option<String>,
-    limit: u32,
+    pub message_type: String,
+    pub state_key: Option<String>,
+    pub limit: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventResponse {
-    events: Vec<MatrixEvent>,
+    pub events: Vec<MatrixEvent>,
 }
 
 // MSC3869

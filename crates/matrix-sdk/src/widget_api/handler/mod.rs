@@ -7,21 +7,18 @@ mod outgoing;
 mod request;
 
 pub use self::{
-    driver::{Driver, OpenIDState},
+    capabilities::{Capabilities, EventReader, EventSender},
+    driver::{Driver, OpenIDResult, OpenIDState},
     incoming::Message as Incoming,
     outgoing::Message as Outgoing,
     request::Request,
 };
 use super::messages::{
     capabilities::Options as CapabilitiesReq,
-    from_widget::{
-        ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
-        SendToDeviceRequest,
-    },
+    from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
     SupportedVersions, SUPPORTED_API_VERSIONS,
 };
 pub use super::{Error, Result};
-use capabilities::Capabilities;
 
 #[allow(missing_debug_implementations)]
 pub struct MessageHandler<T> {
@@ -77,8 +74,8 @@ impl<T: Driver> MessageHandler<T> {
             }
 
             Incoming::SendToDeviceRequest(r) => {
-                let response = self.send_to_device(&r).await;
-                r.reply(response)?;
+                // let response = self.send_to_device(&r).await;
+                // r.reply(response)?;
             }
         }
 
@@ -127,15 +124,15 @@ impl<T: Driver> MessageHandler<T> {
             .map_err(|_| "Failed to write events")
     }
 
-    async fn send_to_device(&mut self, req: &SendToDeviceRequest) -> StdResult<(), &'static str> {
-        self.capabilities()?
-            .to_device_sender
-            .as_mut()
-            .ok_or("No permissions to send to device messages")?
-            .send(req.clone())
-            .await
-            .map_err(|_| "Failed to write events")
-    }
+    // async fn send_to_device(&mut self, req: &SendToDeviceRequest) -> StdResult<(), &'static str> {
+    //     self.capabilities()?
+    //         .to_device_sender
+    //         .as_mut()
+    //         .ok_or("No permissions to send to device messages")?
+    //         .send(req.clone())
+    //         .await
+    //         .map_err(|_| "Failed to write events")
+    // }
 
     fn capabilities(&mut self) -> StdResult<&mut Capabilities, &'static str> {
         self.capabilities.as_mut().ok_or("Capabilities have not been negotiated")
