@@ -26,7 +26,7 @@ mod widget;
 
 pub type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>;
 
-// Runs client widget API handler with a given widget. Returns once the widget is closed.
+/// Runs client widget API handler with a given widget. Returns once the widget is closed.
 pub async fn run<T: WidgetClient>(mut widget: widget::Widget<T>) -> Result<()> {
     // State: a map of outgoing requests that are waiting response from a widget.
     let state: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
