@@ -2,7 +2,9 @@ use std::{sync::Mutex, time::Duration};
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
-use matrix_sdk_ui::notification_client::{NotificationClient, NotificationEvent};
+use matrix_sdk_ui::notification_client::{
+    NotificationClient, NotificationEvent, NotificationStatus,
+};
 use ruma::{event_id, events::TimelineEventType, room_id, user_id};
 use serde_json::json;
 use wiremock::{
@@ -282,7 +284,9 @@ async fn test_notification_client_sliding_sync() {
     )
     .await;
 
-    let item = item.expect("the notification should be found");
+    let NotificationStatus::Event(item) = item else {
+        panic!("notification not found");
+    };
 
     assert_matches::assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);

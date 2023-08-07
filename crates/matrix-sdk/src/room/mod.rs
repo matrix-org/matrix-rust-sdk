@@ -146,19 +146,18 @@ impl Room {
 
         let prev_room_state = self.inner.state();
 
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
-        let response = self.client.send(request, None).await?;
-        self.client.base_client().room_joined(&response.room_id).await?;
-
-        if prev_room_state == RoomState::Invited {
-            let is_direct_room = self.inner.is_direct().await.unwrap_or_else(|e| {
+        let mark_as_direct = prev_room_state == RoomState::Invited
+            && self.inner.is_direct().await.unwrap_or_else(|e| {
                 warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
                 false
             });
 
-            if is_direct_room {
-                _ = self.set_is_direct(true).await;
-            }
+        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
+        let response = self.client.send(request, None).await?;
+        self.client.base_client().room_joined(&response.room_id).await?;
+
+        if mark_as_direct {
+            self.set_is_direct(true).await?;
         }
 
         Ok(())
