@@ -151,12 +151,20 @@ impl RoomList {
             .map(move |filter_fn| {
                 // FIXME: filter_fn is already boxed, we box it again here
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
-                stream::once(ready(vec![VectorDiff::Reset { values: items }]))
-                    .chain(stream.batch_with(room_list_service_state.clone().map(|_| ())))
+                stream::once(
+                    // Reset the stream with all its items.
+                    ready(vec![VectorDiff::Reset { values: items }]),
+                )
+                .chain(
+                    // Batch the entries stream. Batch is drained every time the
+                    // `room_list_service_state` is changed.
+                    stream.batch_with(room_list_service_state.clone().map(|_| ())),
+                )
             })
             .switch();
 
         let filter = DynamicRoomListFilter::new(tx);
+
         (stream, filter)
     }
 }
