@@ -365,7 +365,7 @@ impl SyncService {
         let sender = self.scheduler_sender.lock().unwrap().clone();
         sender
             .ok_or_else(|| {
-                warn!("scheduler error: missing sender");
+                error!("scheduler error: missing sender");
                 Error::InternalSchedulerError
             })?
             .send(TerminationReport {
@@ -375,19 +375,19 @@ impl SyncService {
             })
             .await
             .map_err(|err| {
-                warn!("scheduler error: when sending termination report: {err}");
+                error!("scheduler error: when sending termination report: {err}");
                 Error::InternalSchedulerError
             })?;
 
         let scheduler_task = self.scheduler_task.lock().unwrap().take();
         scheduler_task
             .ok_or_else(|| {
-                warn!("scheduler error: missing scheduler task");
+                error!("scheduler error: missing scheduler task");
                 Error::InternalSchedulerError
             })?
             .await
             .map_err(|err| {
-                warn!("scheduler error: couldn't finish scheduler task: {err}");
+                error!("scheduler error: couldn't finish scheduler task: {err}");
                 Error::InternalSchedulerError
             })?;
 
