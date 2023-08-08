@@ -12,12 +12,15 @@ use matrix_sdk::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
+            message::TextContentBlock,
+            poll::start::{PollAnswer, PollAnswers, PollContentBlock, PollStartEventContent},
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
                 ForwardThread, LocationMessageEventContent, MessageType, Relation,
                 RoomMessageEvent, RoomMessageEventContent,
             },
+            AnyMessageLikeEventContent,
         },
         EventId, UserId,
     },
@@ -337,6 +340,43 @@ impl Room {
 
         RUNTIME.spawn(async move {
             timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
+        });
+    }
+
+    pub fn create_poll(
+        &self,
+        question: String,
+        answers: Vec<String>,
+        max_selections: u64,
+        txn_id: Option<String>,
+    ) {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                error!("Timeline not set up, can't send the poll");
+                return;
+            }
+        };
+
+        RUNTIME.spawn(async move {
+            // TODO
+            // - fallback text for the question
+            // - random id for options
+            // - remove unwrap
+            // - max selections
+            // - poll kind
+            let question = TextContentBlock::plain(question);
+            let options: Vec<PollAnswer> = answers
+                .iter()
+                .map(|option| PollAnswer::new(String::from("foo"), TextContentBlock::plain(option)))
+                .collect();
+
+            let poll_answers = PollAnswers::try_from(options).unwrap();
+
+            let poll_content_block = PollContentBlock::new(question.clone(), poll_answers);
+            let poll_start_event_content = PollStartEventContent::new(question, poll_content_block);
+            let event_content = AnyMessageLikeEventContent::PollStart(poll_start_event_content);
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
         });
     }
 
