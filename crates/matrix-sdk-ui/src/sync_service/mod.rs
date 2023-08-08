@@ -125,28 +125,27 @@ impl SyncService {
                 return;
             };
 
-            let (stop_encryption, stop_room_list) = match &report.origin {
+            let (stop_room_list, stop_encryption) = match &report.origin {
                 TerminationOrigin::EncryptionSync => (true, false),
                 TerminationOrigin::RoomList => (false, true),
                 TerminationOrigin::Scheduler => (true, true),
             };
 
-            // Put both tasks/services in the same state: both tasks must be aborted, both
-            // syncs must be stopped.
+            // Put both tasks in the same state: abort and drop them.
+            if let Some(task) = room_list_task.lock().unwrap().take() {
+                task.abort();
+            }
+            if let Some(task) = encryption_sync_task.lock().unwrap().take() {
+                task.abort();
+            }
 
+            // Put both sliding syncs in the same state: stop both.
             if stop_room_list {
-                if let Some(task) = room_list_task.lock().unwrap().take() {
-                    task.abort();
-                }
                 if let Err(err) = room_list_service.stop_sync() {
                     warn!("unable to stop room list after encryption sync failed: {err:#}");
                 }
             }
-
             if stop_encryption {
-                if let Some(task) = encryption_sync_task.lock().unwrap().take() {
-                    task.abort();
-                }
                 if let Some(encryption_sync) = &encryption_sync {
                     if let Err(err) = encryption_sync.stop() {
                         warn!("unable to stop encryption sync after room list failed: {err:#}");
@@ -185,13 +184,12 @@ impl SyncService {
             let encryption_sync_stream = encryption_sync.sync();
             pin_mut!(encryption_sync_stream);
 
-            loop {
+            let (is_error, has_expired) = loop {
                 let res = encryption_sync_stream.next().await;
                 match res {
                     Some(Ok(())) => {
                         // Carry on.
                     }
-
                     Some(Err(err)) => {
                         // If the encryption sync error was an expired session, also expire the
                         // room list sync.
@@ -201,37 +199,25 @@ impl SyncService {
                         } else {
                             false
                         };
-
                         error!("Error while processing encryption in sync service: {err:#}");
-                        if let Err(err) = sender
-                            .send(TerminationReport {
-                                is_error: true,
-                                has_expired,
-                                origin: TerminationOrigin::EncryptionSync,
-                            })
-                            .await
-                        {
-                            error!("Error while sending termination report: {err:#}");
-                        }
-
-                        break;
+                        break (true, has_expired);
                     }
-
                     None => {
                         // The stream has ended.
-                        if let Err(err) = sender
-                            .send(TerminationReport {
-                                is_error: false,
-                                has_expired: false,
-                                origin: TerminationOrigin::EncryptionSync,
-                            })
-                            .await
-                        {
-                            error!("Error while sending termination report: {err:#}");
-                        }
-                        break;
+                        break (false, false);
                     }
                 }
+            };
+
+            if let Err(err) = sender
+                .send(TerminationReport {
+                    is_error,
+                    has_expired,
+                    origin: TerminationOrigin::EncryptionSync,
+                })
+                .await
+            {
+                error!("Error while sending termination report: {err:#}");
             }
         }
     }
@@ -243,13 +229,12 @@ impl SyncService {
             let room_list_stream = room_list_service.sync();
             pin_mut!(room_list_stream);
 
-            loop {
+            let (is_error, has_expired) = loop {
                 let res = room_list_stream.next().await;
                 match res {
                     Some(Ok(())) => {
                         // Carry on.
                     }
-
                     Some(Err(err)) => {
                         // If the room list error was an expired session, also expire the
                         // encryption sync.
@@ -259,36 +244,25 @@ impl SyncService {
                         } else {
                             false
                         };
-
                         error!("Error while processing room list in sync service: {err:#}");
-                        if let Err(err) = sender
-                            .send(TerminationReport {
-                                is_error: true,
-                                has_expired,
-                                origin: TerminationOrigin::RoomList,
-                            })
-                            .await
-                        {
-                            error!("Error while sending termination report: {err:#}");
-                        }
-                        break;
+                        break (true, has_expired);
                     }
-
                     None => {
                         // The stream has ended.
-                        if let Err(err) = sender
-                            .send(TerminationReport {
-                                is_error: false,
-                                has_expired: false,
-                                origin: TerminationOrigin::RoomList,
-                            })
-                            .await
-                        {
-                            error!("Error while sending termination report: {err:#}");
-                        }
-                        break;
+                        break (false, false);
                     }
                 }
+            };
+
+            if let Err(err) = sender
+                .send(TerminationReport {
+                    is_error,
+                    has_expired,
+                    origin: TerminationOrigin::RoomList,
+                })
+                .await
+            {
+                error!("Error while sending termination report: {err:#}");
             }
         }
     }
