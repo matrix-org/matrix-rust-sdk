@@ -72,12 +72,12 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert_eq!(sync_service.task_states(), (false, false));
 
     // After starting, the sync service is, well, running.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_next_matches!(state_stream, SyncServiceState::Running);
     assert_eq!(sync_service.task_states(), (true, true));
 
     // Restarting while started doesn't change the current state.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_pending!(state_stream);
     assert_eq!(sync_service.task_states(), (true, true));
 
@@ -138,7 +138,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
     // When restarting and waiting a bit, the server gets new requests, starting at
     // the same position than just before being stopped.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_next_matches!(state_stream, SyncServiceState::Running);
     assert_eq!(sync_service.task_states(), (true, true));
 
@@ -206,7 +206,7 @@ async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
 
     // After starting, the sync service will be running for a very short while, then
     // getting into the error state.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_next_matches!(state_stream, SyncServiceState::Running);
     assert_eq!(sync_service.task_states(), (false, true));
 
@@ -221,7 +221,7 @@ async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
     // restart properly.
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    sync_service.start().await?;
+    sync_service.start().await;
 
     // Wait for the first response to arrive.
     tokio::task::yield_now().await;

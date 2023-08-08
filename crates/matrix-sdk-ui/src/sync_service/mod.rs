@@ -239,7 +239,7 @@ impl SyncService {
     fn spawn_room_list_sync(&self, sender: Sender<TerminationReport>) -> impl Future<Output = ()> {
         let room_list_service = self.room_list_service.clone();
 
-        return async move {
+        async move {
             let room_list_stream = room_list_service.sync();
             pin_mut!(room_list_stream);
 
@@ -290,7 +290,7 @@ impl SyncService {
                     }
                 }
             }
-        };
+        }
     }
 
     /// Start (or restart) the underlying sliding syncs.
@@ -299,13 +299,13 @@ impl SyncService {
     /// - if the stream is still properly running, it won't be restarted.
     /// - if the stream has been aborted before, it will be properly cleaned up
     ///   and restarted.
-    pub async fn start(&self) -> Result<(), Error> {
+    pub async fn start(&self) {
         let _guard = self.modifying_state.lock().await;
 
         // Only (re)start the tasks if any was stopped.
         if matches!(self.state.get(), SyncServiceState::Running) {
             // It was already true, so we can skip the restart.
-            return Ok(());
+            return;
         }
 
         trace!("starting sync service");
@@ -338,8 +338,6 @@ impl SyncService {
         *self.scheduler_task.lock().unwrap() = Some(spawn(self.spawn_scheduler_task(receiver)));
 
         self.state.set(SyncServiceState::Running);
-
-        Ok(())
     }
 
     /// Stop the underlying sliding syncs.
@@ -364,10 +362,8 @@ impl SyncService {
         // later, so that we're in a clean state independently of the request to
         // stop.
 
-        self.scheduler_sender
-            .lock()
-            .unwrap()
-            .as_ref()
+        let sender = self.scheduler_sender.lock().unwrap().clone();
+        sender
             .ok_or_else(|| {
                 warn!("scheduler error: missing sender");
                 Error::InternalSchedulerError
@@ -383,10 +379,17 @@ impl SyncService {
                 Error::InternalSchedulerError
             })?;
 
-        self.scheduler_task.lock().unwrap().take().unwrap().await.map_err(|err| {
-            warn!("scheduler error: couldn't finish scheduler task: {err}");
-            Error::InternalSchedulerError
-        })?;
+        let scheduler_task = self.scheduler_task.lock().unwrap().take();
+        scheduler_task
+            .ok_or_else(|| {
+                warn!("scheduler error: missing scheduler task");
+                Error::InternalSchedulerError
+            })?
+            .await
+            .map_err(|err| {
+                warn!("scheduler error: couldn't finish scheduler task: {err}");
+                Error::InternalSchedulerError
+            })?;
 
         Ok(())
     }

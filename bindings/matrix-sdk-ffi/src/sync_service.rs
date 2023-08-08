@@ -61,9 +61,8 @@ impl SyncService {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
-    pub async fn start(&self) -> Result<(), ClientError> {
-        let start = self.inner.start();
-        Ok(start.await?)
+    pub async fn start(&self) {
+        self.inner.start().await;
     }
 
     pub fn pause(&self) -> Result<(), ClientError> {
