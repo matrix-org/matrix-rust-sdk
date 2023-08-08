@@ -127,9 +127,12 @@ impl SyncService {
 
         trace!("starting sync service");
 
-        // First, take care of the room list.
+        // Set up a sender/receiver pair so that each service can notify the other when it's
+        // expired, avoiding a double restart.
 
         let (sender, mut receiver) = tokio::sync::broadcast::channel(16);
+
+        // First, take care of the room list.
 
         let mut room_list_task_guard = self.room_list_task.lock().unwrap();
 
@@ -140,6 +143,9 @@ impl SyncService {
         }
 
         let room_list_task = self.room_list_service.clone();
+        let sender_clone = sender.clone();
+        let mut receiver_clone = sender.subscribe();
+
         let state_task = self.state.clone();
 
         *room_list_task_guard = Some(spawn(async move {
@@ -150,7 +156,7 @@ impl SyncService {
                 tokio::select! {
                     biased;
 
-                    internal_message = receiver.recv() => {
+                    internal_message = receiver_clone.recv() => {
                         if let Err(err) = internal_message {
                             warn!("Sync service broadcast channel error when receiving (room list): {err:#}");
                         }
@@ -166,7 +172,7 @@ impl SyncService {
                             Some(Err(err)) => {
                                 if let room_list_service::Error::SlidingSync(err) = &err {
                                     if err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos) {
-                                        if let Err(err) = sender.send(()) {
+                                        if let Err(err) = sender_clone.send(()) {
                                             warn!("Sync service broadcast channel when writing (room list): {err:#}");
                                         }
                                     }
@@ -187,30 +193,56 @@ impl SyncService {
         drop(room_list_task_guard);
 
         if let Some(encryption_sync) = self.encryption_sync.clone() {
-            // Then, only restart the encryption sync if it was explicitly not running
-            // before.
             let mut task_guard = self.encryption_sync_task.lock().unwrap();
-            if task_guard.is_none() {
-                *task_guard = Some(spawn(async move {
-                    loop {
-                        // The encryption sync automatically restarts in case of errors, unless it
-                        // is explicitly paused.
-                        let encryption_sync_stream = encryption_sync.sync();
 
-                        pin_mut!(encryption_sync_stream);
+            if let Some(task) = task_guard.take() {
+                warn!("active encryption sync service service task when start()ing sync service");
+                task.abort();
+                // task is dropped here.
+            }
 
-                        while let Some(res) = encryption_sync_stream.next().await {
-                            if let Err(err) = res {
-                                // Errors may include "real" errors, but also benign M_UNKNOWN_POS
-                                // errors, so just log at the debug level since the latter will
-                                // likely be more frequent.
-                                debug!("Error while processing encryption sync (sync service): {err}. Restarting…");
-                                break;
+            *task_guard = Some(spawn(async move {
+                let encryption_sync_stream = encryption_sync.sync();
+
+                pin_mut!(encryption_sync_stream);
+
+                loop {
+                    tokio::select! {
+                        biased;
+
+                        internal_message = receiver.recv() => {
+                            if let Err(err) = internal_message {
+                                warn!("Sync service broadcast channel error when receiving (encryption sync): {err:#}");
+                            }
+                            encryption_sync.expire_session().await;
+                            break;
+                        }
+
+                        res = encryption_sync_stream.next() => {
+                            match res {
+                                Some(Ok(())) => {
+                                    // Carry on.
+                                }
+                                Some(Err(err)) => {
+                                    if let encryption_sync::Error::SlidingSync(err) = &err {
+                                        if err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos) {
+                                            if let Err(err) = sender.send(()) {
+                                                warn!("Sync service broadcast channel when writing (encryption sync): {err:#}");
+                                            }
+                                        }
+                                    }
+                                    error!("Error while processing encryption sync (sync service): {err:#}");
+                                    break;
+                                }
+                                None => {
+                                    // The stream has ended.
+                                    break;
+                                }
                             }
                         }
                     }
-                }));
-            }
+                }
+            }));
         }
 
         *state = State::BothRunning;
