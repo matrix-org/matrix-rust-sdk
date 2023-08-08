@@ -50,6 +50,7 @@
 use std::sync::{Arc, Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
+use futures_core::Future;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
 use thiserror::Error;
@@ -123,6 +124,114 @@ impl SyncService {
         self.state.subscribe()
     }
 
+    fn spawn_encryption_sync(
+        &self,
+        encryption_sync: Arc<EncryptionSync>,
+    ) -> impl Future<Output = ()> {
+        let state_task = self.state.clone();
+        let room_list_service = self.room_list_service.clone();
+        let room_list_task = self.room_list_task.clone();
+
+        return async move {
+            let encryption_sync_stream = encryption_sync.sync();
+            pin_mut!(encryption_sync_stream);
+
+            loop {
+                let res = encryption_sync_stream.next().await;
+                match res {
+                    Some(Ok(())) => {
+                        // Carry on.
+                    }
+
+                    Some(Err(err)) => {
+                        // Cancel and stop the room list.
+                        if let Some(task) = room_list_task.lock().unwrap().take() {
+                            task.abort();
+                        }
+                        if let Err(err) = room_list_service.stop_sync() {
+                            warn!("unable to stop room list after encryption sync failed: {err:#}");
+                        }
+
+                        // If the encryption sync error was an expired session, also expire the
+                        // room list sync.
+                        if let encryption_sync::Error::SlidingSync(err) = &err {
+                            if err.client_api_error_kind()
+                                == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                            {
+                                room_list_service.expire_session().await;
+                            }
+                        }
+
+                        error!("Error while processing encryption in sync service: {err:#}");
+
+                        state_task.set(SyncServiceState::Error);
+                        break;
+                    }
+
+                    None => {
+                        // The stream has ended.
+                        state_task.set(SyncServiceState::Terminated);
+                        break;
+                    }
+                }
+            }
+        };
+    }
+
+    fn spawn_room_list_sync(&self) -> impl Future<Output = ()> {
+        let encryption_sync_task = self.encryption_sync_task.clone();
+        let encryption_sync = self.encryption_sync.clone();
+        let room_list_task = self.room_list_service.clone();
+        let state_task = self.state.clone();
+
+        return async move {
+            let room_list_stream = room_list_task.sync();
+            pin_mut!(room_list_stream);
+
+            loop {
+                let res = room_list_stream.next().await;
+                match res {
+                    Some(Ok(())) => {
+                        // Carry on.
+                    }
+
+                    Some(Err(err)) => {
+                        if let Some(ref encryption_sync) = encryption_sync {
+                            // Cancel and stop the encryption sync.
+                            if let Some(task) = encryption_sync_task.lock().unwrap().take() {
+                                task.abort();
+                            }
+                            if let Err(err) = encryption_sync.stop() {
+                                warn!("unable to stop encryption sync after room list failed: {err:#}");
+                            }
+
+                            // If the room list error was an expired session, also expire the
+                            // encryption sync.
+                            if let room_list_service::Error::SlidingSync(err) = &err {
+                                if err.client_api_error_kind()
+                                    == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                                {
+                                    encryption_sync.expire_session().await;
+                                }
+                            }
+                        }
+
+                        error!("Error while processing room list in sync service: {err:#}");
+
+                        state_task.set(SyncServiceState::Error);
+                        break;
+                    }
+
+                    None => {
+                        // The stream has ended.
+                        state_task.set(SyncServiceState::Terminated);
+                        break;
+                    }
+                }
+            }
+        };
+    }
+
     /// Start (or restart) the underlying sliding syncs.
     ///
     /// This can be called multiple times safely:
@@ -132,176 +241,36 @@ impl SyncService {
     pub async fn start(&self) -> Result<(), Error> {
         let _guard = self.modifying_state.lock().await;
 
-        let state = self.state.get();
-
         // Only (re)start the tasks if any was stopped.
-        if matches!(state, SyncServiceState::Running) {
+        if matches!(self.state.get(), SyncServiceState::Running) {
             // It was already true, so we can skip the restart.
             return Ok(());
         }
 
         trace!("starting sync service");
 
-        // Set up a sender/receiver pair so that each service can notify the other when it's
-        // expired, avoiding a double restart.
-
-        let (sender, mut receiver) = tokio::sync::broadcast::channel(16);
-
         // First, take care of the room list.
-
-        let mut room_list_task_guard = self.room_list_task.lock().unwrap();
-
-        if let Some(task) = room_list_task_guard.take() {
-            warn!("active room list service task when start()ing sync service");
-            task.abort();
-            // task is dropped here.
+        {
+            let mut room_list_task_guard = self.room_list_task.lock().unwrap();
+            if let Some(task) = room_list_task_guard.take() {
+                warn!("active room list service task when start()ing sync service");
+                task.abort();
+            }
+            *room_list_task_guard = Some(spawn(self.spawn_room_list_sync()));
         }
 
-        let room_list_task = self.room_list_service.clone();
-        let sender_clone = sender.clone();
-        let mut receiver_clone = sender.subscribe();
-
-        let state_task = self.state.clone();
-
-        *room_list_task_guard = Some(spawn(async move {
-            let room_list_stream = room_list_task.sync();
-            pin_mut!(room_list_stream);
-
-            loop {
-                tokio::select! {
-                    biased;
-
-                    internal_message = receiver_clone.recv() => {
-                        // Note: don't update the overall state here: it's been written to by the
-                        // other task, so we don't have to do it ourselves.
-                        if let Err(err) = internal_message {
-                            warn!("Sync service broadcast channel error when receiving (room list): {err:#}");
-                        }
-                        room_list_task.expire_session().await;
-                        break;
-                    }
-
-                    res = room_list_stream.next() => {
-                        match res {
-                            Some(Ok(())) => {
-                                // Carry on.
-                            }
-                            Some(Err(err)) => {
-                                let mut was_expired = false;
-                                if let room_list_service::Error::SlidingSync(err) = &err {
-                                    if err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos) {
-                                        was_expired = true;
-                                        if let Err(err) = sender_clone.send(()) {
-                                            warn!("Sync service broadcast channel when writing (room list): {err:#}");
-                                        }
-                                    }
-                                }
-                                if !was_expired {
-                                    error!("Error while processing room list (sync service): {err:#}");
-                                }
-                                state_task.set(SyncServiceState::Error);
-                                break;
-                            }
-                            None => {
-                                // The stream has ended.
-                                state_task.set(SyncServiceState::Terminated);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }));
-
-        drop(room_list_task_guard);
-
+        // Then, take care of the encryption sync.
         if let Some(encryption_sync) = self.encryption_sync.clone() {
             let mut task_guard = self.encryption_sync_task.lock().unwrap();
-
             if let Some(task) = task_guard.take() {
                 warn!("active encryption sync service service task when start()ing sync service");
                 task.abort();
-                // task is dropped here.
             }
-
-            let state_task = self.state.clone();
-
-            *task_guard = Some(spawn(async move {
-                let encryption_sync_stream = encryption_sync.sync();
-
-                pin_mut!(encryption_sync_stream);
-
-                loop {
-                    tokio::select! {
-                        biased;
-
-                        internal_message = receiver.recv() => {
-                            if let Err(err) = internal_message {
-                                warn!("Sync service broadcast channel error when receiving (encryption sync): {err:#}");
-                            }
-                            encryption_sync.expire_session().await;
-                            break;
-                        }
-
-                        res = encryption_sync_stream.next() => {
-                            match res {
-                                Some(Ok(())) => {
-                                    // Carry on.
-                                }
-                                Some(Err(err)) => {
-                                    let mut was_expired = false;
-                                    if let encryption_sync::Error::SlidingSync(err) = &err {
-                                        if err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos) {
-                                            was_expired = true;
-                                            if let Err(err) = sender.send(()) {
-                                                warn!("Sync service broadcast channel when writing (encryption sync): {err:#}");
-                                            }
-                                        }
-                                    }
-                                    if !was_expired {
-                                        error!("Error while processing encryption sync (sync service): {err:#}");
-                                    }
-                                    state_task.set(SyncServiceState::Error);
-                                    break;
-                                }
-                                None => {
-                                    // The stream has ended.
-                                    state_task.set(SyncServiceState::Terminated);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }));
+            *task_guard = Some(spawn(self.spawn_encryption_sync(encryption_sync)));
         }
 
         self.state.set(SyncServiceState::Running);
 
-        Ok(())
-    }
-
-    fn cancel_and_stop_encryption_sync(&self) -> Result<(), Error> {
-        {
-            let mut encryption_task_guard = self.encryption_sync_task.lock().unwrap();
-            if let Some(task) = encryption_task_guard.take() {
-                task.abort();
-            }
-        }
-        if let Some(ref encryption_sync) = self.encryption_sync {
-            encryption_sync.stop()?;
-        }
-        Ok(())
-    }
-
-    fn cancel_and_stop_room_list(&self) -> Result<(), Error> {
-        {
-            let mut room_list_task_guard = self.room_list_task.lock().unwrap();
-            if let Some(task) = room_list_task_guard.take() {
-                task.abort();
-            }
-        }
-        self.room_list_service.stop_sync()?;
         Ok(())
     }
 
@@ -311,9 +280,9 @@ impl SyncService {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     pub async fn pause(&self) -> Result<(), Error> {
-        trace!("pausing sync service");
-
         let _guard = self.modifying_state.lock().await;
+
+        trace!("pausing sync service");
 
         match self.state.get() {
             SyncServiceState::Idle | SyncServiceState::Terminated | SyncServiceState::Error => {
@@ -327,9 +296,22 @@ impl SyncService {
         // later, so that we're in a clean state independently of the request to
         // stop.
 
-        let encryption_sync_result = self.cancel_and_stop_encryption_sync();
-        let room_list_result = self.cancel_and_stop_room_list();
+        let encryption_sync_result = if let Some(ref encryption_sync) = self.encryption_sync {
+            encryption_sync.stop()
+        } else {
+            Ok(())
+        };
+        let room_list_result = self.room_list_service.stop_sync();
 
+        // Next, drop both tasks.
+        if let Some(task) = self.encryption_sync_task.lock().unwrap().take() {
+            task.abort();
+        }
+        if let Some(task) = self.room_list_task.lock().unwrap().take() {
+            task.abort();
+        }
+
+        // Update internal state.
         self.state.set(SyncServiceState::Idle);
 
         // Now that we've updated the internal state, possibly report stop errors.
