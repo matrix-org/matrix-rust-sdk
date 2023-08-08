@@ -151,28 +151,33 @@ pub fn setup_tracing(config: TracingConfiguration) {
         .init();
 }
 
-#[uniffi::export]
-pub fn setup_otlp_tracing(
-    filter: String,
+#[derive(uniffi::Record)]
+pub struct OtlpTracingConfiguration {
     client_name: String,
     user: String,
     password: String,
     otlp_endpoint: String,
-) {
+    filter: String,
+    write_to_stdout: bool,
+    write_to_files: Option<TracingFileConfiguration>,
+}
+
+#[uniffi::export]
+pub fn setup_otlp_tracing(config: OtlpTracingConfiguration) {
     #[cfg(target_os = "android")]
     log_panics();
 
-    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)
-        .expect("Couldn't configure the OpenTelemetry tracer");
+    let otlp_tracer =
+        create_otlp_tracer(config.user, config.password, config.otlp_endpoint, config.client_name)
+            .expect("Couldn't configure the OpenTelemetry tracer");
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new(&filter))
-        // TODO: Change fn to have OtlpTracingConfiguration param, allow configuring files?
+        .with(EnvFilter::new(&config.filter))
         .with(text_layers(TracingConfiguration {
-            filter,
-            write_to_stdout: true,
-            write_to_files: None,
+            filter: config.filter,
+            write_to_stdout: config.write_to_stdout,
+            write_to_files: config.write_to_files,
         }))
         .with(otlp_layer)
         .init();
