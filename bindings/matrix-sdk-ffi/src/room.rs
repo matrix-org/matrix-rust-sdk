@@ -22,7 +22,7 @@ use matrix_sdk::{
             },
             AnyMessageLikeEventContent,
         },
-        EventId, UserId,
+        EventId, UInt, UserId,
     },
     RoomMemberships, RoomState,
 };
@@ -40,7 +40,7 @@ use crate::{
     error::{ClientError, RoomError},
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        AudioInfo, FileInfo, ImageInfo, ThumbnailInfo, TimelineDiff, TimelineItem,
+        AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff, TimelineItem,
         TimelineListener, VideoInfo,
     },
     TaskHandle,
@@ -348,6 +348,7 @@ impl Room {
         question: String,
         answers: Vec<String>,
         max_selections: u64,
+        poll_kind: PollKind,
         txn_id: Option<String>,
     ) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
@@ -361,20 +362,30 @@ impl Room {
         RUNTIME.spawn(async move {
             // TODO
             // - fallback text for the question
-            // - random id for options
-            // - remove unwrap
-            // - max selections
-            // - poll kind
+            // - remove unwrap on poll answers
+            // - use unstable blocks?
             let question = TextContentBlock::plain(question);
+
             let options: Vec<PollAnswer> = answers
                 .iter()
-                .map(|option| PollAnswer::new(String::from("foo"), TextContentBlock::plain(option)))
+                .enumerate()
+                .map(|(index, option)| {
+                    PollAnswer::new(index.to_string(), TextContentBlock::plain(option))
+                })
                 .collect();
 
             let poll_answers = PollAnswers::try_from(options).unwrap();
 
-            let poll_content_block = PollContentBlock::new(question.clone(), poll_answers);
-            let poll_start_event_content = PollStartEventContent::new(question, poll_content_block);
+            let mut poll_content_block = PollContentBlock::new(question, poll_answers);
+            poll_content_block.kind = poll_kind.into();
+            if let Some(max_selections) = UInt::new(max_selections) {
+                poll_content_block.max_selections = max_selections;
+            }
+
+            let poll_fallback_text = TextContentBlock::plain(String::from("Fix me"));
+
+            let poll_start_event_content =
+                PollStartEventContent::new(poll_fallback_text, poll_content_block);
             let event_content = AnyMessageLikeEventContent::PollStart(poll_start_event_content);
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
         });
