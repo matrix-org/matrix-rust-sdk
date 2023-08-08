@@ -157,9 +157,7 @@ impl RoomListService {
         }
 
         let sliding_sync = builder
-            // TODO revert to `add_cached_list` when reloading rooms from the cache is blazingly
-            // fast
-            .add_list(configure_all_or_visible_rooms_list(
+            .add_cached_list(configure_all_or_visible_rooms_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
                     .timeline_limit(1)
@@ -169,6 +167,8 @@ impl RoomListService {
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
             ))
+            .await
+            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map(Arc::new)
