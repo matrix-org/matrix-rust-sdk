@@ -47,6 +47,7 @@ enum KotlinCommand {
     BuildAndroidLibrary {
         #[clap(value_enum, long)]
         package: Package,
+
         /// Build with the release profile
         #[clap(long)]
         release: bool,
@@ -59,7 +60,7 @@ enum KotlinCommand {
         #[clap(long)]
         only_target: Option<String>,
 
-        /// Move the generated files into the given src direct
+        /// Move the generated files into the given src directory
         #[clap(long)]
         src_dir: PathBuf,
     },
