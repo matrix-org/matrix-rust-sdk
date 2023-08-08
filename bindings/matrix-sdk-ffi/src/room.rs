@@ -361,10 +361,9 @@ impl Room {
 
         RUNTIME.spawn(async move {
             // TODO
-            // - fallback text for the question
             // - remove unwrap on poll answers
             // - use unstable blocks?
-            let question = TextContentBlock::plain(question);
+            let question_text = TextContentBlock::plain(question.clone());
 
             let options: Vec<PollAnswer> = answers
                 .iter()
@@ -376,13 +375,18 @@ impl Room {
 
             let poll_answers = PollAnswers::try_from(options).unwrap();
 
-            let mut poll_content_block = PollContentBlock::new(question, poll_answers);
+            let mut poll_content_block = PollContentBlock::new(question_text, poll_answers);
             poll_content_block.kind = poll_kind.into();
             if let Some(max_selections) = UInt::new(max_selections) {
                 poll_content_block.max_selections = max_selections;
             }
 
-            let poll_fallback_text = TextContentBlock::plain(String::from("Fix me"));
+            let fallback_string =
+                answers.iter().enumerate().fold(question, |acc, (index, option)| {
+                    format!("{}\n{}. {}", acc, index + 1, option)
+                });
+
+            let poll_fallback_text = TextContentBlock::plain(fallback_string);
 
             let poll_start_event_content =
                 PollStartEventContent::new(poll_fallback_text, poll_content_block);
