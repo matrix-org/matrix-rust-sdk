@@ -9,7 +9,10 @@ use ruma::{
 };
 
 use super::{command::Command, rule_commands::RuleCommands, RoomNotificationMode};
-use crate::error::NotificationSettingsError;
+use crate::{
+    error::NotificationSettingsError,
+    notification_settings::{IsEncrypted, IsOneToOne},
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Rules {
@@ -99,11 +102,13 @@ impl Rules {
     /// * `members_count` - the room members count
     pub(crate) fn get_default_room_notification_mode(
         &self,
-        is_encrypted: bool,
+        is_encrypted: IsEncrypted,
         members_count: u64,
     ) -> RoomNotificationMode {
         // get the correct default rule ID based on `is_encrypted` and `members_count`
-        let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, members_count);
+        let is_one_to_one = members_count == 2;
+        let predefined_rule_id =
+            get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.into());
         let rule_id = predefined_rule_id.as_str();
 
         // If there is an `Underride` rule that should trigger a notification, the mode
@@ -211,6 +216,9 @@ impl Rules {
                 Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
                     _ = self.ruleset.set_enabled(kind, rule_id, enabled);
                 }
+                Command::SetPushRuleActions { scope: _, kind, rule_id, actions } => {
+                    _ = self.ruleset.set_actions(kind, rule_id, actions);
+                }
             }
         }
     }
@@ -221,17 +229,17 @@ impl Rules {
 ///
 /// # Arguments
 ///
-/// * `is_encrypted` - `true` if the room is encrypted
-/// * `members_count` - the room members count
-fn get_predefined_underride_room_rule_id(
-    is_encrypted: bool,
-    members_count: u64,
+/// * `is_encrypted` - `Yes` if the room is encrypted
+/// * `is_one_to_one` - `Yes` if the room is a direct chat
+pub(crate) fn get_predefined_underride_room_rule_id(
+    is_encrypted: IsEncrypted,
+    is_one_to_one: IsOneToOne,
 ) -> PredefinedUnderrideRuleId {
-    match (is_encrypted, members_count) {
-        (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
-        (false, 2) => PredefinedUnderrideRuleId::RoomOneToOne,
-        (true, _) => PredefinedUnderrideRuleId::Encrypted,
-        (false, _) => PredefinedUnderrideRuleId::Message,
+    match (is_encrypted, is_one_to_one) {
+        (IsEncrypted::Yes, IsOneToOne::Yes) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
+        (IsEncrypted::No, IsOneToOne::Yes) => PredefinedUnderrideRuleId::RoomOneToOne,
+        (IsEncrypted::Yes, IsOneToOne::No) => PredefinedUnderrideRuleId::Encrypted,
+        (IsEncrypted::No, IsOneToOne::No) => PredefinedUnderrideRuleId::Message,
     }
 }
 
@@ -254,7 +262,7 @@ pub(crate) mod tests {
         error::NotificationSettingsError,
         notification_settings::{
             rules::{self, Rules},
-            RoomNotificationMode,
+            IsEncrypted, IsOneToOne, RoomNotificationMode,
         },
     };
 
@@ -350,19 +358,19 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_get_predefined_underride_room_rule_id() {
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(false, 3),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::No, IsOneToOne::No),
             PredefinedUnderrideRuleId::Message
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(false, 2),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::No, IsOneToOne::Yes),
             PredefinedUnderrideRuleId::RoomOneToOne
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(true, 3),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::Yes, IsOneToOne::No),
             PredefinedUnderrideRuleId::Encrypted
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(true, 2),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::Yes, IsOneToOne::Yes),
             PredefinedUnderrideRuleId::EncryptedRoomOneToOne
         );
     }
@@ -376,7 +384,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(false, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
         // Then the mode should be `MentionsAndKeywordsOnly`
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
@@ -390,7 +398,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(false, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
         // Then the mode should be `AllMessages`
         assert_eq!(mode, RoomNotificationMode::AllMessages);
     }
