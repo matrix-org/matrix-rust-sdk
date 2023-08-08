@@ -12,9 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use crate::{TaskHandle, RUNTIME};
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use futures_util::pin_mut;
 use matrix_sdk::Client;
@@ -23,7 +21,10 @@ use matrix_sdk_ui::sync_service::{
     SyncServiceState as MatrixSyncServiceState,
 };
 
-use crate::{error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService};
+use crate::{
+    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService, TaskHandle,
+    RUNTIME,
+};
 
 #[derive(uniffi::Enum)]
 pub enum SyncServiceState {

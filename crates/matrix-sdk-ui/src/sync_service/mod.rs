@@ -18,34 +18,10 @@
 //! This is an opiniated way to run both APIs, with high-level callbacks that
 //! should be called in reaction to user actions and/or system events.
 //!
-//! The room list sync will signal errors via its
-//! [`state`](RoomListService::state) that the user
+//! The sync service will signal errors via its
+//! [`state`](SyncService::state) that the user
 //! MUST observe. Whenever an error/termination is observed, the user MUST call
 //! [`SyncService::start()`] again to restart the room list sync.
-//!
-//! The encryption sync is handled separately, and it is the responsibility of
-//! the `SyncService` to manage its errors. Hence, no specific actions are
-//! required from the user if the encryption sync runs into errors, as it is
-//! automatically restarted (unless the user explicitly asked to
-//! [`SyncService::pause()`]).
-//!
-//! This service can be in one of three states:
-//!
-//! - idle: neither the encryption sync nor the room list sync are
-//! running. Nothing is happening until the user asks to do something. That's
-//! the initial state. Calling [`SyncService::start()`] will lead to the next
-//! state. Calling [`SyncService::pause()`] is a no-op.
-//! - both syncs running: both the encryption sync and the room list sync are
-//!   running at the same
-//! time. Calling
-//! [`SyncService::start()`] is a no-op. Calling [`SyncService::pause()`] will
-//! get back to the first state. If the room list sync
-//! runs into an error, it stops, and the sync service runs into the third
-//! state:
-//! - only the encryption sync is running: in that state, the room list sync
-//!   isn't running. Calling
-//! [`SyncService::start()`] will lead to the second state, while
-//! [`SyncService::pause()`] will lead to the first state.
 
 use std::sync::{Arc, Mutex};
 
@@ -76,7 +52,7 @@ use crate::{
 /// This can be observed with [`SyncService::state`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyncServiceState {
-    /// The service hasn't ever been started yet.
+    /// The service hasn't ever been started yet, or has been paused.
     Idle,
     /// The underlying syncs are properly running in the background.
     Running,
@@ -131,6 +107,7 @@ impl SyncService {
         let state_task = self.state.clone();
         let room_list_service = self.room_list_service.clone();
         let room_list_task = self.room_list_task.clone();
+        let encryption_sync_task = self.encryption_sync_task.clone();
 
         return async move {
             let encryption_sync_stream = encryption_sync.sync();
@@ -144,7 +121,7 @@ impl SyncService {
                     }
 
                     Some(Err(err)) => {
-                        // Cancel and stop the room list.
+                        // Cancel the room list task and stop the room list sync.
                         if let Some(task) = room_list_task.lock().unwrap().take() {
                             task.abort();
                         }
@@ -175,17 +152,21 @@ impl SyncService {
                     }
                 }
             }
+
+            // The task will finish after this statement; clean up the handle.
+            *encryption_sync_task.lock().unwrap() = None;
         };
     }
 
     fn spawn_room_list_sync(&self) -> impl Future<Output = ()> {
         let encryption_sync_task = self.encryption_sync_task.clone();
         let encryption_sync = self.encryption_sync.clone();
-        let room_list_task = self.room_list_service.clone();
+        let room_list_service = self.room_list_service.clone();
+        let room_list_task = self.room_list_task.clone();
         let state_task = self.state.clone();
 
         return async move {
-            let room_list_stream = room_list_task.sync();
+            let room_list_stream = room_list_service.sync();
             pin_mut!(room_list_stream);
 
             loop {
@@ -229,6 +210,9 @@ impl SyncService {
                     }
                 }
             }
+
+            // The task will finish after this statement; clean up the handle.
+            *room_list_task.lock().unwrap() = None;
         };
     }
 
