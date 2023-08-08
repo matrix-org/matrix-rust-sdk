@@ -44,6 +44,7 @@ tracing = { workspace = true }
 tracing-core = { workspace = true }
 tracing-opentelemetry = { version = "0.20.0" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = { version = "0.2.2" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
 uniffi = { workspace = true, features = ["tokio"] }
