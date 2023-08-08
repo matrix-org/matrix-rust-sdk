@@ -12,14 +12,42 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
+use crate::{TaskHandle, RUNTIME};
+use std::fmt::Debug;
 use std::sync::Arc;
 
+use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_ui::sync_service::{
     SyncService as MatrixSyncService, SyncServiceBuilder as MatrixSyncServiceBuilder,
+    SyncServiceState as MatrixSyncServiceState,
 };
 
 use crate::{error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService};
+
+#[derive(uniffi::Enum)]
+pub enum SyncServiceState {
+    Idle,
+    Running,
+    Terminated,
+    Error,
+}
+
+impl From<MatrixSyncServiceState> for SyncServiceState {
+    fn from(value: MatrixSyncServiceState) -> Self {
+        match value {
+            MatrixSyncServiceState::Idle => Self::Idle,
+            MatrixSyncServiceState::Running => Self::Running,
+            MatrixSyncServiceState::Terminated => Self::Terminated,
+            MatrixSyncServiceState::Error => Self::Error,
+        }
+    }
+}
+
+#[uniffi::export(callback_interface)]
+pub trait SyncServiceStateObserver: Send + Sync + Debug {
+    fn on_update(&self, state: SyncServiceState);
+}
 
 #[derive(uniffi::Object)]
 pub struct SyncService {
@@ -38,7 +66,19 @@ impl SyncService {
     }
 
     pub fn pause(&self) -> Result<(), ClientError> {
-        Ok(self.inner.pause()?)
+        RUNTIME.block_on(async { Ok(self.inner.pause().await?) })
+    }
+
+    pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
+        let state_stream = self.inner.state();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(state_stream);
+
+            while let Some(state) = state_stream.next().await {
+                listener.on_update(state.into());
+            }
+        })))
     }
 }
 

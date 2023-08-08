@@ -15,7 +15,7 @@
 use std::{sync::Mutex, time::Duration};
 
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::sync_service::{State, SyncService};
+use matrix_sdk_ui::sync_service::{SyncService, SyncServiceState};
 use serde_json::json;
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
@@ -64,23 +64,27 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
         SyncService::builder(client).with_encryption_sync(false, None).build().await.unwrap();
 
     // At first, the sync service is sleeping.
-    assert_eq!(sync_service.state(), State::Idle);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Idle);
     assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(sync_service.task_states(), (false, false));
 
     // After starting, the sync service is, well, running.
     sync_service.start().await?;
-    assert_eq!(sync_service.state(), State::BothRunning);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Running);
+    assert_eq!(sync_service.task_states(), (true, true));
 
     // Restarting while started doesn't change the current state.
     sync_service.start().await?;
-    assert_eq!(sync_service.state(), State::BothRunning);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Running);
+    assert_eq!(sync_service.task_states(), (true, true));
 
     // Let the server respond a few times.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Pausing will stop both syncs, after a bit of delay.
-    sync_service.pause()?;
-    assert_eq!(sync_service.state(), State::Idle);
+    sync_service.pause().await?;
+    assert_eq!(sync_service.state().get(), SyncServiceState::Idle);
+    assert_eq!(sync_service.task_states(), (false, false));
 
     let mut num_encryption_sync_requests: i32 = 0;
     let mut num_room_list_requests = 0;
@@ -132,7 +136,8 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // When restarting and waiting a bit, the server gets new requests, starting at
     // the same position than just before being stopped.
     sync_service.start().await?;
-    assert_eq!(sync_service.state(), State::BothRunning);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Running);
+    assert_eq!(sync_service.task_states(), (true, true));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -190,19 +195,18 @@ async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
     let sync_service = SyncService::builder(client).build().await.unwrap();
 
     // At first, the sync service is sleeping.
-    assert_eq!(sync_service.state(), State::Idle);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Idle);
 
     // After starting, the sync service will be running for a very short while, then
     // getting into the error state.
     sync_service.start().await?;
-    assert_eq!(sync_service.state(), State::BothRunning);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Running);
 
     // Wait a bit for the underlying sync to fail (server isn't mocked here, so will
     // 404).
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // The sync service is internally marked as "not running".
-    assert_eq!(sync_service.state(), State::OnlyEncryptionSync);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Error);
 
     // Now, start mocking the endpoint, and make sure the room sliding sync will
     // restart properly.
@@ -230,7 +234,7 @@ async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
     }
 
     assert!(has_room_list_requests);
-    assert_eq!(sync_service.state(), State::BothRunning);
+    assert_eq!(sync_service.state().get(), SyncServiceState::Running);
 
     Ok(())
 }
