@@ -1,12 +1,12 @@
 use std::result::Result as StdResult;
 
-mod driver;
+mod api;
 mod incoming;
 mod outgoing;
 mod request;
 
 pub use self::{
-    driver::{Driver, WidgetClient, OpenIDState},
+    api::{Client, OpenIDState, Widget},
     incoming::Message as Incoming,
     outgoing::OutgoingMessage,
     request::Request,
@@ -23,15 +23,16 @@ use super::{
 pub use super::{Error, Result};
 
 #[allow(missing_debug_implementations)]
-pub struct MessageHandler<T> {
+pub struct MessageHandler<C, W> {
     capabilities: Option<Capabilities>,
-    driver: T,
+    client: C,
+    widget: W,
 }
 
-impl<T: Driver> MessageHandler<T> {
-    pub async fn new(driver: T, init_immediately: bool) -> Result<Self> {
-        let mut handler = Self { capabilities: None, driver };
-        if init_immediately {
+impl<C: Client, W: Widget> MessageHandler<C, W> {
+    pub async fn new(client: C, widget: W) -> Result<Self> {
+        let mut handler = Self { client, widget, capabilities: None };
+        if handler.widget.early_init() {
             handler.initialise().await?;
         }
 
@@ -54,12 +55,12 @@ impl<T: Driver> MessageHandler<T> {
             }
 
             Incoming::GetOpenID(r) => {
-                let state = self.driver.get_openid(r.clone()).await;
+                let state = self.client.get_openid(r.clone()).await;
                 r.reply(Ok((&state).into()))?;
 
                 if let OpenIDState::Pending(resolution) = state {
                     let resolved = resolution.await.map_err(|_| Error::WidgetDied)?;
-                    self.driver.send(outgoing::OpenIDUpdated(resolved.into())).await?;
+                    self.widget.send(outgoing::OpenIDUpdated(resolved.into())).await?;
                 }
             }
 
@@ -83,13 +84,13 @@ impl<T: Driver> MessageHandler<T> {
     }
 
     async fn initialise(&mut self) -> Result<()> {
-        let requested = self.driver.send(outgoing::SendMeCapabilities).await?;
+        let requested = self.widget.send(outgoing::SendMeCapabilities).await?;
 
-        let capabilities = self.driver.initialise(requested.clone()).await?;
+        let capabilities = self.client.initialise(requested.clone()).await?;
         self.capabilities = Some(capabilities);
 
         let approved: CapabilitiesReq = self.capabilities.as_ref().unwrap().into();
-        self.driver
+        self.widget
             .send(outgoing::CapabilitiesUpdated(CapabilitiesUpdated { requested, approved }))
             .await?;
 

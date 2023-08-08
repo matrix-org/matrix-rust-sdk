@@ -7,9 +7,8 @@ use tokio::sync::{
     oneshot,
 };
 
-use self::driver::Driver;
 use super::{
-    handler::{Driver as HandlerDriver, WidgetClient, Incoming, MessageHandler, Request},
+    handler::{Client, Incoming, MessageHandler, Request, Widget as HandlerSink},
     messages::{
         from_widget::{FromWidgetMessage as FromWidgetAction, ReadEventResponse},
         openid::Request as OpenIDRequest,
@@ -19,7 +18,6 @@ use super::{
     Error, Result,
 };
 
-mod driver;
 #[macro_use]
 mod process_macro;
 mod widget;
@@ -27,7 +25,7 @@ mod widget;
 pub type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>;
 
 /// Runs client widget API handler with a given widget. Returns once the widget is closed.
-pub async fn run<T: WidgetClient>(mut widget: widget::Widget<T>) -> Result<()> {
+pub async fn run<T: Client>(client: T, mut widget: widget::Widget) -> Result<()> {
     // State: a map of outgoing requests that are waiting response from a widget.
     let state: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
 
@@ -36,8 +34,11 @@ pub async fn run<T: WidgetClient>(mut widget: widget::Widget<T>) -> Result<()> {
     tokio::spawn(forward(outgoing_req_rx, widget.comm.sink()));
 
     // Create a message handler (handles all incoming requests and generates outgoing requests).
-    let driver = Driver::new(widget.info.id.clone(), widget.api, outgoing_req_tx, state.clone());
-    let handler = MessageHandler::new(driver, widget.info.negotiate).await?;
+    let handler = MessageHandler::new(
+        client,
+        widget::WidgetSink::new(widget.info, outgoing_req_tx, state.clone()),
+    )
+    .await?;
 
     // Spawn a task that receives requests from a widget, and passes them
     // to the handler, waits for response from a handler and sends it back.
@@ -76,10 +77,10 @@ fn process_message(
 }
 
 /// Receives parsed requests from a widget, passes them to the handler, sends back the response.
-async fn process_requests<T: HandlerDriver + Send>(
+async fn process_requests<C: Client, W: HandlerSink>(
     mut requests: Receiver<FromWidgetAction>,
     responses: Sender<FromWidgetAction>,
-    mut handler: MessageHandler<T>,
+    mut handler: MessageHandler<C, W>,
 ) -> Result<()> {
     while let Some(raw) = requests.recv().await {
         let response = handle_incoming! {

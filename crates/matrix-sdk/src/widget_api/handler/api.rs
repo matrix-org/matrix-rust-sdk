@@ -10,14 +10,15 @@ use super::{
 };
 
 #[async_trait]
-pub trait WidgetClient: Send + Sync + 'static {
+pub trait Client: Send + Sync + 'static {
     async fn initialise(&self, req: CapabilitiesReq) -> Result<Capabilities>;
     async fn get_openid(&self, req: openid::Request) -> OpenIDState;
 }
 
 #[async_trait]
-pub trait Driver: WidgetClient {
+pub trait Widget: Send + Sync + 'static {
     async fn send<T: OutgoingMessage>(&self, message: T) -> Result<T::Response>;
+    fn early_init(&self) -> bool;
 }
 
 #[derive(Debug)]
