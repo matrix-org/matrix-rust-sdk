@@ -33,14 +33,14 @@ pub enum RoomNotificationMode {
 
 /// Whether or not a room is encrypted
 #[derive(Debug)]
-pub enum Encrypted {
+pub enum IsEncrypted {
     /// The room is encrypted
     Yes,
     /// The room is not encrypted
     No,
 }
 
-impl From<bool> for Encrypted {
+impl From<bool> for IsEncrypted {
     fn from(value: bool) -> Self {
         if value {
             Self::Yes
@@ -120,14 +120,13 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `encrypted` - `Yes` if the room is encrypted
+    /// * `is_encrypted` - `Yes` if the room is encrypted
     /// * `members_count` - the room members count
     pub async fn get_default_room_notification_mode(
         &self,
-        encrypted: Encrypted,
+        is_encrypted: IsEncrypted,
         members_count: u64,
     ) -> RoomNotificationMode {
-        let is_encrypted = matches!(encrypted, Encrypted::Yes);
         self.rules.read().await.get_default_room_notification_mode(is_encrypted, members_count)
     }
 
@@ -169,19 +168,17 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `encrypted` - `Yes` if the mode is for encrypted rooms
+    /// * `is_encrypted` - `Yes` if the mode is for encrypted rooms
     /// * `is_one_to_one` - `Yes` if the mode if for `one-to-one` rooms (rooms
     ///   with exactly two members)
     /// * `mode` - the new default mode
     pub async fn set_default_room_notification_mode(
         &self,
-        encrypted: Encrypted,
+        is_encrypted: IsEncrypted,
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
-        let is_encrypted = matches!(encrypted, Encrypted::Yes);
-        let is_one_to_one = matches!(is_one_to_one, IsOneToOne::Yes);
         let rule_id = rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
         let mut rule_commands = RuleCommands::new(rules.ruleset);
 
@@ -286,7 +283,7 @@ impl NotificationSettings {
     pub async fn unmute_room(
         &self,
         room_id: &RoomId,
-        encrypted: Encrypted,
+        is_encrypted: IsEncrypted,
         members_count: u64,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
@@ -299,7 +296,6 @@ impl NotificationSettings {
             }
 
             // Get default mode for this room
-            let is_encrypted = matches!(encrypted, Encrypted::Yes);
             let default_mode =
                 rules.get_default_room_notification_mode(is_encrypted, members_count);
 
@@ -401,7 +397,7 @@ mod tests {
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{
-            Encrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
+            IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
         },
         test_utils::logged_in_client,
         Client,
@@ -517,7 +513,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(Encrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
             RoomNotificationMode::AllMessages
         );
     }
@@ -536,7 +532,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client.to_owned(), ruleset.to_owned());
         assert_eq!(
-            settings.get_default_room_notification_mode(Encrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
 
@@ -548,7 +544,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(Encrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
@@ -848,7 +844,7 @@ mod tests {
         );
 
         // Unmute the room
-        settings.unmute_room(&room_id, Encrypted::Yes, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::Yes, 2).await.unwrap();
 
         // The ruleset must not be modified
         assert_eq!(
@@ -882,7 +878,7 @@ mod tests {
         );
 
         // Unmute the room
-        settings.unmute_room(&room_id, Encrypted::No, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::No, 2).await.unwrap();
 
         // The user defined mode must have been removed
         assert!(settings.get_user_defined_room_notification_mode(&room_id).await.is_none());
@@ -897,7 +893,7 @@ mod tests {
         let settings = client.notification_settings().await;
 
         // Unmute the room
-        settings.unmute_room(&room_id, Encrypted::No, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::No, 2).await.unwrap();
 
         // The new mode must be `AllMessages`
         assert_eq!(
@@ -933,14 +929,14 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(Encrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
             RoomNotificationMode::AllMessages
         );
 
         // After setting the default mode to `MentionsAndKeywordsOnly`
         settings
             .set_default_room_notification_mode(
-                Encrypted::No,
+                IsEncrypted::No,
                 IsOneToOne::Yes,
                 RoomNotificationMode::MentionsAndKeywordsOnly,
             )
@@ -957,7 +953,7 @@ mod tests {
         // and the new mode returned by `get_default_room_notification_mode()` should
         // reflect the change.
         assert_matches!(
-            settings.get_default_room_notification_mode(Encrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
