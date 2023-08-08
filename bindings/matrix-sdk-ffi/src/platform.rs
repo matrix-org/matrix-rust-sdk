@@ -105,26 +105,29 @@ where
             .with_ansi(cfg!(not(any(target_os = "android", target_os = "ios"))))
     }
 
-    let common_layers = Layer::and_then(
-        config.write_to_stdout.then(|| fmt_layer().with_writer(std::io::stderr)),
-        config.write_to_files.map(|c| {
-            fmt_layer().with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix))
-        }),
+    let file_layer = config
+        .write_to_files
+        .map(|c| fmt_layer().with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix)));
+
+    #[cfg(not(target_os = "android"))]
+    return Layer::and_then(
+        file_layer,
+        config.write_to_stdout_or_system.then(|| fmt_layer().with_writer(std::io::stderr)),
     );
 
     #[cfg(target_os = "android")]
-    return common_layers.and_then(
-        fmt_layer()
-            // Level and time are already captured by logcat separately
-            .with_level(false)
-            .without_time()
-            .with_writer(paranoid_android::AndroidLogMakeWriter::new(
-                "org.matrix.rust.sdk".to_owned(),
-            )),
+    return Layer::and_then(
+        file_layer,
+        config.write_to_stdout_or_system.then(|| {
+            fmt_layer()
+                // Level and time are already captured by logcat separately
+                .with_level(false)
+                .without_time()
+                .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+                    "org.matrix.rust.sdk".to_owned(),
+                ))
+        }),
     );
-
-    #[cfg(not(target_os = "android"))]
-    return common_layers;
 }
 
 #[derive(uniffi::Record)]
@@ -136,7 +139,9 @@ pub struct TracingFileConfiguration {
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
     filter: String,
-    write_to_stdout: bool,
+    /// Controls whether to print to stdout or, equivalent, the system logs on
+    /// Android.
+    write_to_stdout_or_system: bool,
     write_to_files: Option<TracingFileConfiguration>,
 }
 
@@ -158,7 +163,9 @@ pub struct OtlpTracingConfiguration {
     password: String,
     otlp_endpoint: String,
     filter: String,
-    write_to_stdout: bool,
+    /// Controls whether to print to stdout or, equivalent, the system logs on
+    /// Android.
+    write_to_stdout_or_system: bool,
     write_to_files: Option<TracingFileConfiguration>,
 }
 
@@ -176,7 +183,7 @@ pub fn setup_otlp_tracing(config: OtlpTracingConfiguration) {
         .with(EnvFilter::new(&config.filter))
         .with(text_layers(TracingConfiguration {
             filter: config.filter,
-            write_to_stdout: config.write_to_stdout,
+            write_to_stdout_or_system: config.write_to_stdout_or_system,
             write_to_files: config.write_to_files,
         }))
         .with(otlp_layer)
