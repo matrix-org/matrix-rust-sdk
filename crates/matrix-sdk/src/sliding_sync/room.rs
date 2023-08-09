@@ -898,7 +898,13 @@ mod tests {
     fn test_frozen_sliding_sync_room_serialization() {
         let frozen_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
-            inner: v4::SlidingSyncRoom::default(),
+            inner: assign!(
+                v4::SlidingSyncRoom::default(),
+                {
+                    name: Some("foobar".to_owned()),
+                    avatar: Some(mxc_uri!("mxc://homeserver/media").to_owned()),
+                }
+            ),
             timeline_queue: vector![TimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
@@ -914,11 +920,16 @@ mod tests {
             .into()],
         };
 
+        let serialized = serde_json::to_value(&frozen_room).unwrap();
+
         assert_eq!(
-            serde_json::to_value(&frozen_room).unwrap(),
+            serialized,
             json!({
                 "room_id": "!29fhd83h92h0:example.com",
-                "inner": {},
+                "inner": {
+                    "name": "foobar",
+                    "avatar": "mxc://homeserver/media",
+                },
                 "timeline": [
                     {
                         "event": {
@@ -937,6 +948,12 @@ mod tests {
                 ]
             })
         );
+
+        let deserialized = serde_json::from_value::<FrozenSlidingSyncRoom>(serialized).unwrap();
+
+        assert_eq!(deserialized.room_id, frozen_room.room_id);
+        assert_eq!(deserialized.inner.name, frozen_room.inner.name);
+        assert_eq!(deserialized.inner.avatar, frozen_room.inner.avatar);
     }
 
     #[async_test]
