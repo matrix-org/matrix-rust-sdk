@@ -313,7 +313,9 @@ impl RoomListEntriesDynamicFilter {
 
         match kind {
             Kind::All => self.inner.set(new_filter_all()),
-            Kind::FuzzyMatchRoomName { pattern } => self.inner.set(new_filter_fuzzy_match_room_name(&self.client, &pattern)),
+            Kind::FuzzyMatchRoomName { pattern } => {
+                self.inner.set(new_filter_fuzzy_match_room_name(&self.client, &pattern))
+            }
         }
     }
 }
@@ -321,9 +323,7 @@ impl RoomListEntriesDynamicFilter {
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesDynamicFilterKind {
     All,
-    FuzzyMatchRoomName {
-        pattern: String,
-    }
+    FuzzyMatchRoomName { pattern: String },
 }
 
 #[derive(uniffi::Object)]

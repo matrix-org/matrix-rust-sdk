@@ -8,9 +8,10 @@ use matrix_sdk::Client;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        filters::{new_filter_all, new_filter_fuzzy_match_room_name}, Error, Input, InputResult, RoomListEntry,
-        RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
-        INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        filters::{new_filter_all, new_filter_fuzzy_match_room_name},
+        Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State,
+        ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
+        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
     RoomListService,
