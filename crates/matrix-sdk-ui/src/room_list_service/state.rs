@@ -117,7 +117,10 @@ impl Action for AddVisibleRoomsList {
                         SlidingSyncMode::new_selective().add_range(VISIBLE_ROOMS_DEFAULT_RANGE),
                     )
                     .timeline_limit(20)
-                    .required_state(vec![(StateEventType::RoomEncryption, "".to_owned())]),
+                    .required_state(vec![
+                        (StateEventType::RoomEncryption, "".to_owned()),
+                        (StateEventType::RoomMember, "$LAZY".to_owned()),
+                    ]),
             ))
             .await
             .map_err(Error::SlidingSync)?;
