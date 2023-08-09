@@ -253,6 +253,12 @@ impl NotificationSettings {
         Ok(())
     }
 
+    /// Get all room IDs for which a user-defined rule exists.
+    pub async fn get_rooms_with_user_defined_rules(&self, enabled: Option<bool>) -> Vec<String> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        notification_settings.get_rooms_with_user_defined_rules(enabled).await
+    }
+
     /// Get whether some enabled keyword rules exist.
     pub async fn contains_keywords_rules(&self) -> bool {
         let notification_settings = self.sdk_notification_settings.read().await;

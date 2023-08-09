@@ -130,6 +130,11 @@ impl NotificationSettings {
         self.rules.read().await.get_default_room_notification_mode(is_encrypted, members_count)
     }
 
+    /// Get all room IDs for which a user-defined rule exists.
+    pub async fn get_rooms_with_user_defined_rules(&self, enabled: Option<bool>) -> Vec<String> {
+        self.rules.read().await.get_rooms_with_user_defined_rules(enabled)
+    }
+
     /// Get whether the given ruleset contains some enabled keywords rules.
     pub async fn contains_keyword_rules(&self) -> bool {
         self.rules.read().await.contains_keyword_rules()
