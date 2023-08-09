@@ -120,7 +120,7 @@ impl RoomList {
         filter: F,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>)
     where
-        F: Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
+        F: Fn(&RoomListEntry) -> bool,
     {
         let (entries, entries_stream) = self.sliding_sync_list.room_list_filtered_stream(filter);
 
@@ -149,7 +149,6 @@ impl RoomList {
         let room_list_service_state = self.room_list_service_state.clone();
         let stream = ReceiverStream::new(rx)
             .map(move |filter_fn| {
-                // FIXME: filter_fn is already boxed, we box it again here
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
                 stream::once(
                     // Reset the stream with all its items.
