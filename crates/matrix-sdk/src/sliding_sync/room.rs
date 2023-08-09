@@ -317,8 +317,9 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
+        api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
         mxc_uri, room_id, uint, RoomId,
     };
     use serde_json::json;
@@ -350,7 +351,7 @@ mod tests {
         SlidingSyncRoom::new(client, room_id.to_owned(), inner, timeline)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_state_from_not_loaded() {
         let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
@@ -362,7 +363,7 @@ mod tests {
         assert_eq!(room.state(), SlidingSyncRoomState::Loaded);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_state_from_preloaded() {
         let mut room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
@@ -374,7 +375,7 @@ mod tests {
         assert_eq!(room.state(), SlidingSyncRoomState::Loaded);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_room_room_id() {
         let room_id = room_id!("!foo:bar.org");
         let room = new_room(room_id, room_response!({})).await;
@@ -395,7 +396,7 @@ mod tests {
             )+
         ) => {
             $(
-                #[tokio::test]
+                #[async_test]
                 async fn $test_name () {
                     // Default value.
                     {
@@ -501,7 +502,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_prev_batch() {
         // Default value.
         {
@@ -533,7 +534,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_required_state() {
         // Default value.
         {
@@ -592,7 +593,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_initially_empty() {
         let room = new_room(room_id!("!foo:bar.org"), room_response!({})).await;
 
@@ -633,7 +634,7 @@ mod tests {
         };
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_initially_not_empty() {
         let room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -659,7 +660,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_update_with_empty_timeline() {
         let mut room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -701,7 +702,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_update_with_empty_timeline_and_with_limited() {
         let mut room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -742,7 +743,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_update_from_preloaded() {
         let mut room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -792,7 +793,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_update_from_not_loaded() {
         let mut room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -842,7 +843,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_timeline_queue_update_from_not_loaded_with_limited() {
         let mut room = new_room_with_timeline(
             room_id!("!foo:bar.org"),
@@ -938,7 +939,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_frozen_sliding_sync_room_has_a_capped_version_of_the_timeline() {
         // Just below the limit.
         {
