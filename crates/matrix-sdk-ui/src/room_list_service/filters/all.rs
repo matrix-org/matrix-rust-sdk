@@ -1,7 +1,7 @@
 use matrix_sdk::RoomListEntry;
 
 /// Create a new filter that will accept all filled or invalidated entries.
-pub fn new_filter() -> impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static {
+pub fn new_filter() -> impl Fn(&RoomListEntry) -> bool {
     |room_list_entry| -> bool {
         matches!(room_list_entry, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_))
     }
