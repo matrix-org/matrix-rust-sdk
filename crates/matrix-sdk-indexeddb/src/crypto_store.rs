@@ -86,7 +86,8 @@ mod keys {
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
-/// An implementation of [CryptoStore] that uses [IndexedDB] for persistent storage.
+/// An implementation of [CryptoStore] that uses [IndexedDB] for persistent
+/// storage.
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
