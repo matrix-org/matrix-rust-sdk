@@ -115,7 +115,7 @@ impl RoomList {
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
     /// filter that will filter out room list entries.
-    pub fn entries_filtered<F>(
+    pub fn entries_with_static_filter<F>(
         &self,
         filter: F,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>)
@@ -132,7 +132,8 @@ impl RoomList {
         )
     }
 
-    /// Get a stream of room list entries, filtered dynamically.
+    /// Similar to [`Self::entries_with_static_filter`] except that it's
+    /// possible to change the filter dynamically.
     ///
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned `DynamicRoomListFilter`. For every call to
