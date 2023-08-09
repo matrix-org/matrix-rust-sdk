@@ -2789,6 +2789,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "url",
+ "uuid",
  "vergen",
  "zeroize",
 ]

@@ -35,6 +35,7 @@ use tokio::{
     task::{AbortHandle, JoinHandle},
 };
 use tracing::{error, info};
+use uuid::Uuid;
 
 use super::RUNTIME;
 use crate::{
@@ -362,8 +363,7 @@ impl Room {
 
         let poll_answers_vec: Vec<UnstablePollAnswer> = answers
             .iter()
-            .enumerate()
-            .map(|(index, option)| UnstablePollAnswer::new(index.to_string(), option))
+            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
             .collect();
 
         let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
