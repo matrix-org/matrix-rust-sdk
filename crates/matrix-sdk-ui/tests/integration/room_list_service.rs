@@ -163,7 +163,7 @@ macro_rules! assert_entries_stream {
         )
     };
 
-    // `insert [$nth] [ $entry ]`
+    // `insert [$nth] [$entry]`
     ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
@@ -175,6 +175,24 @@ macro_rules! assert_entries_stream {
                     $entries.next(),
                     Some(&VectorDiff::Insert { index: $index, ref value }) => {
                         assert_eq!(value, &entries!( $( $entry )+ )[0]);
+                    }
+                );
+            ]
+        )
+    };
+
+    // `reset [$entries]`
+    ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $entries.next(),
+                    Some(&VectorDiff::Reset { ref values }) => {
+                        assert_eq!(values, &entries!( $( $entry )+ ));
                     }
                 );
             ]
@@ -1372,7 +1390,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 }
 
 #[async_test]
-async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
+async fn test_entries_stream_with_filters() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
@@ -1427,9 +1445,32 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         pending;
     };
 
-    let (previous_entries, entries_stream) =
-        all_rooms.entries_filtered(new_filter_fuzzy_match_room_name(&client, "mat ba"));
-    pin_mut!(entries_stream);
+    // 1. Test with a static filter.
+    let (previous_entries_static_filter, entries_stream_static_filter) =
+        all_rooms.entries_with_static_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+    pin_mut!(entries_stream_static_filter);
+
+    // 2. Test with a dynamic filter.
+    let (entries_stream_dynamic_filter, dynamic_filter) = all_rooms.entries_with_dynamic_filter();
+    pin_mut!(entries_stream_dynamic_filter);
+
+    // Assert the static filter.
+    assert_eq!(previous_entries_static_filter, entries![F("!r0:bar.org")]);
+
+    // Ensure the dynamic filter stream is pending because there is no filter set
+    // yet.
+    assert_pending!(entries_stream_dynamic_filter);
+
+    // Now, let's define a filter.
+    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` because the filter has been reset/set for the first time.
+        reset [ F("!r0:bar.org") ];
+        pending;
+    };
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1484,7 +1525,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                     "timeline": [],
                 },
                 "!r3:bar.org": {
-                    "name": "Matrix Qux",
+                    "name": "Helios live",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1497,11 +1538,106 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(previous_entries, entries![F("!r0:bar.org")]);
+    // Assert the static filter.
     assert_entries_stream! {
-        [entries_stream]
+        [entries_stream_static_filter]
         insert[1] [ F("!r1:bar.org") ];
         insert[2] [ F("!r4:bar.org") ];
+        pending;
+    };
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        insert[1] [ F("!r1:bar.org") ];
+        insert[2] [ F("!r4:bar.org") ];
+        pending;
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [5, 7],
+                            "room_ids": [
+                                "!r5:bar.org",
+                                "!r6:bar.org",
+                                "!r7:bar.org",
+                            ],
+                        },
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 0,
+                },
+            },
+            "rooms": {
+                "!r5:bar.org": {
+                    "name": "Matrix Barracuda Room",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r6:bar.org": {
+                    "name": "Matrix is real as hell",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r7:bar.org": {
+                    "name": "Matrix Baraka",
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    // Assert the static filter.
+    assert_entries_stream! {
+        [entries_stream_static_filter]
+        insert[3] [ F("!r5:bar.org") ];
+        insert[4] [ F("!r7:bar.org") ];
+        pending;
+    };
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        insert[3] [ F("!r5:bar.org") ];
+        insert[4] [ F("!r7:bar.org") ];
+        pending;
+    };
+
+    // Now, let's change the dynamic filter!
+    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "hell"));
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` again because the filter has been reset.
+        reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
         pending;
     };
 
