@@ -352,44 +352,43 @@ impl Room {
         max_selections: u64,
         poll_kind: PollKind,
         txn_id: Option<String>,
-    ) {
+    ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
-                error!("Timeline not set up, can't send the poll");
-                return;
+                return Err(anyhow!("Timeline not set up, can't send the poll").into());
             }
         };
 
+        let options: Vec<UnstablePollAnswer> = answers
+            .iter()
+            .enumerate()
+            .map(|(index, option)| UnstablePollAnswer::new(index.to_string(), option))
+            .collect();
+
+        let poll_answers = UnstablePollAnswers::try_from(options).context("Failed to create poll answers")?;
+
+        let mut poll_content_block =
+            UnstablePollStartContentBlock::new(question.clone(), poll_answers);
+        poll_content_block.kind = poll_kind.into();
+        if let Some(max_selections) = UInt::new(max_selections) {
+            poll_content_block.max_selections = max_selections;
+        }
+
+        let fallback_text = answers
+            .iter()
+            .enumerate()
+            .fold(question, |acc, (index, option)| format!("{}\n{}. {}", acc, index + 1, option));
+
+        let poll_start_event_content =
+            UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
+
         RUNTIME.spawn(async move {
-            // TODO
-            // - remove unwrap on poll answers
-            let options: Vec<UnstablePollAnswer> = answers
-                .iter()
-                .enumerate()
-                .map(|(index, option)| UnstablePollAnswer::new(index.to_string(), option))
-                .collect();
-
-            let poll_answers = UnstablePollAnswers::try_from(options).unwrap();
-
-            let mut poll_content_block =
-                UnstablePollStartContentBlock::new(question.clone(), poll_answers);
-            poll_content_block.kind = poll_kind.into();
-            if let Some(max_selections) = UInt::new(max_selections) {
-                poll_content_block.max_selections = max_selections;
-            }
-
-            let fallback_text =
-                answers.iter().enumerate().fold(question, |acc, (index, option)| {
-                    format!("{}\n{}. {}", acc, index + 1, option)
-                });
-
-            let poll_start_event_content =
-                UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
-            let event_content =
-                AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
         });
+
+        Ok(())
     }
 
     pub fn send_reply(
