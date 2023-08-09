@@ -12,8 +12,10 @@ use matrix_sdk::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
-            message::TextContentBlock,
-            poll::start::{PollAnswer, PollAnswers, PollContentBlock, PollStartEventContent},
+            poll::unstable_start::{
+                UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
+                UnstablePollStartEventContent,
+            },
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
@@ -362,35 +364,30 @@ impl Room {
         RUNTIME.spawn(async move {
             // TODO
             // - remove unwrap on poll answers
-            // - use unstable blocks?
-            let question_text = TextContentBlock::plain(question.clone());
-
-            let options: Vec<PollAnswer> = answers
+            let options: Vec<UnstablePollAnswer> = answers
                 .iter()
                 .enumerate()
-                .map(|(index, option)| {
-                    PollAnswer::new(index.to_string(), TextContentBlock::plain(option))
-                })
+                .map(|(index, option)| UnstablePollAnswer::new(index.to_string(), option))
                 .collect();
 
-            let poll_answers = PollAnswers::try_from(options).unwrap();
+            let poll_answers = UnstablePollAnswers::try_from(options).unwrap();
 
-            let mut poll_content_block = PollContentBlock::new(question_text, poll_answers);
+            let mut poll_content_block =
+                UnstablePollStartContentBlock::new(question.clone(), poll_answers);
             poll_content_block.kind = poll_kind.into();
             if let Some(max_selections) = UInt::new(max_selections) {
                 poll_content_block.max_selections = max_selections;
             }
 
-            let fallback_string =
+            let fallback_text =
                 answers.iter().enumerate().fold(question, |acc, (index, option)| {
                     format!("{}\n{}. {}", acc, index + 1, option)
                 });
 
-            let poll_fallback_text = TextContentBlock::plain(fallback_string);
-
             let poll_start_event_content =
-                PollStartEventContent::new(poll_fallback_text, poll_content_block);
-            let event_content = AnyMessageLikeEventContent::PollStart(poll_start_event_content);
+                UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
+            let event_content =
+                AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
         });
     }
