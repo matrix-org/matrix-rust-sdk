@@ -2958,6 +2958,7 @@ dependencies = [
  "stream_assert",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "unicode-normalization",
