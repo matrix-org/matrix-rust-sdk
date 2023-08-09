@@ -88,11 +88,12 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.fuzzy_match("Matrix"));
+        assert!(matcher.fuzzy_match("matrix"));
         assert!(matcher.fuzzy_match("Matrix"));
 
         let matcher = matcher.with_pattern("Mtx");
-        assert!(matcher.fuzzy_match("MatriX").not());
+        assert!(matcher.fuzzy_match("matrix").not());
+        assert!(matcher.fuzzy_match("Matrix"));
     }
 
     #[test]
