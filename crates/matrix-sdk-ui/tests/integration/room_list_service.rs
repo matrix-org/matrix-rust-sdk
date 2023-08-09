@@ -8,7 +8,7 @@ use matrix_sdk::Client;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        filters::new_filter_fuzzy_match_room_name, Error, Input, InputResult, RoomListEntry,
+        filters::{new_filter_all, new_filter_fuzzy_match_room_name}, Error, Input, InputResult, RoomListEntry,
         RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
         INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
@@ -1638,6 +1638,26 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
         [entries_stream_dynamic_filter]
         // Receive a `reset` again because the filter has been reset.
         reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
+        pending;
+    };
+
+    // Now, let's change again the dynamic filter!
+    dynamic_filter.set(new_filter_all());
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` again because the filter has been reset.
+        reset [
+            F("!r0:bar.org"),
+            F("!r1:bar.org"),
+            F("!r2:bar.org"),
+            F("!r3:bar.org"),
+            F("!r4:bar.org"),
+            F("!r5:bar.org"),
+            F("!r6:bar.org"),
+            F("!r7:bar.org"),
+        ];
         pending;
     };
 
