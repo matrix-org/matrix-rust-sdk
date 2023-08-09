@@ -12,6 +12,7 @@ use matrix_sdk::{
     },
     RoomListEntry as MatrixRoomListEntry,
 };
+use matrix_sdk_ui::room_list_service::filters::new_filter_fuzzy_match_room_name;
 use tokio::sync::RwLock;
 
 use crate::{room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
@@ -137,13 +138,10 @@ impl RoomList {
         })
     }
 
-    fn entries(
-        &self,
-        listener: Box<dyn RoomListEntriesListener>,
-    ) -> Result<RoomListEntriesResult, RoomListError> {
+    fn entries(&self, listener: Box<dyn RoomListEntriesListener>) -> RoomListEntriesResult {
         let (entries, entries_stream) = self.inner.entries();
 
-        Ok(RoomListEntriesResult {
+        RoomListEntriesResult {
             entries: entries.into_iter().map(Into::into).collect(),
             entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
                 pin_mut!(entries_stream);
@@ -152,7 +150,28 @@ impl RoomList {
                     listener.on_update(diff.into_iter().map(Into::into).collect());
                 }
             }))),
-        })
+        }
+    }
+
+    fn entries_with_dynamic_filter(
+        &self,
+        listener: Box<dyn RoomListEntriesListener>,
+    ) -> RoomListEntriesWithDynamicFilterResult {
+        let (entries_stream, dynamic_filter) = self.inner.entries_with_dynamic_filter();
+
+        RoomListEntriesWithDynamicFilterResult {
+            dynamic_filter: Arc::new(RoomListEntriesDynamicFilter::new(
+                dynamic_filter,
+                self.room_list_service.inner.client(),
+            )),
+            entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+                pin_mut!(entries_stream);
+
+                while let Some(diff) = entries_stream.next().await {
+                    listener.on_update(diff.into_iter().map(Into::into).collect());
+                }
+            }))),
+        }
     }
 
     fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
@@ -163,6 +182,12 @@ impl RoomList {
 #[derive(uniffi::Record)]
 pub struct RoomListEntriesResult {
     pub entries: Vec<RoomListEntry>,
+    pub entries_stream: Arc<TaskHandle>,
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomListEntriesWithDynamicFilterResult {
+    pub dynamic_filter: Arc<RoomListEntriesDynamicFilter>,
     pub entries_stream: Arc<TaskHandle>,
 }
 
@@ -264,6 +289,28 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
 #[uniffi::export(callback_interface)]
 pub trait RoomListEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: Vec<RoomListEntriesUpdate>);
+}
+
+#[derive(uniffi::Object)]
+pub struct RoomListEntriesDynamicFilter {
+    inner: matrix_sdk_ui::room_list_service::DynamicRoomListFilter,
+    client: matrix_sdk::Client,
+}
+
+impl RoomListEntriesDynamicFilter {
+    fn new(
+        dynamic_filter: matrix_sdk_ui::room_list_service::DynamicRoomListFilter,
+        client: &matrix_sdk::Client,
+    ) -> Self {
+        Self { inner: dynamic_filter, client: client.clone() }
+    }
+}
+
+#[uniffi::export]
+impl RoomListEntriesDynamicFilter {
+    fn set_with_fuzzy_match_pattern(&self, pattern: String) -> bool {
+        self.inner.set(new_filter_fuzzy_match_room_name(&self.client, &pattern))
+    }
 }
 
 #[derive(uniffi::Object)]
