@@ -1275,7 +1275,7 @@ impl From<PollKind> for RumaPollKind {
     fn from(value: PollKind) -> Self {
         match value {
             PollKind::Disclosed => Self::Disclosed,
-            PollKind::Undisclosed => Self::Undisclosed
+            PollKind::Undisclosed => Self::Undisclosed,
         }
     }
 }

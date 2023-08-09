@@ -360,13 +360,14 @@ impl Room {
             }
         };
 
-        let options: Vec<UnstablePollAnswer> = answers
+        let poll_answers_vec: Vec<UnstablePollAnswer> = answers
             .iter()
             .enumerate()
             .map(|(index, option)| UnstablePollAnswer::new(index.to_string(), option))
             .collect();
 
-        let poll_answers = UnstablePollAnswers::try_from(options).context("Failed to create poll answers")?;
+        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
+            .context("Failed to create poll answers")?;
 
         let mut poll_content_block =
             UnstablePollStartContentBlock::new(question.clone(), poll_answers);
@@ -378,7 +379,7 @@ impl Room {
         let fallback_text = answers
             .iter()
             .enumerate()
-            .fold(question, |acc, (index, option)| format!("{}\n{}. {}", acc, index + 1, option));
+            .fold(question, |acc, (index, answer)| format!("{}\n{}. {}", acc, index + 1, answer));
 
         let poll_start_event_content =
             UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
