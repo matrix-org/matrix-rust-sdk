@@ -153,7 +153,7 @@ impl NotificationClient {
         let encryption_sync = EncryptionSync::new(
             Self::LOCK_ID.to_owned(),
             self.client.clone(),
-            Some((Duration::from_secs(3), Duration::from_secs(1))),
+            Some((Duration::from_secs(3), Duration::from_secs(4))),
             with_locking,
         )
         .await;
@@ -268,7 +268,7 @@ impl NotificationClient {
             .client
             .sliding_sync(Self::CONNECTION_ID)?
             .poll_timeout(Duration::from_secs(1))
-            .network_timeout(Duration::from_secs(1))
+            .network_timeout(Duration::from_secs(3))
             .with_account_data_extension(
                 assign!(AccountDataConfig::default(), { enabled: Some(true) }),
             )
