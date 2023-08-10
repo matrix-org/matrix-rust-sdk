@@ -87,7 +87,10 @@ mod keys {
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
-/// An in-memory only store that will forget all the E2EE key once it's dropped.
+/// An implementation of [CryptoStore] that uses [IndexedDB] for persistent
+/// storage.
+///
+/// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     name: String,
