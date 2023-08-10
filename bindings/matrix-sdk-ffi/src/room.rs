@@ -12,12 +12,17 @@ use matrix_sdk::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
             location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
+            poll::unstable_start::{
+                UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
+                UnstablePollStartEventContent,
+            },
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
                 ForwardThread, LocationMessageEventContent, MessageType, Relation,
                 RoomMessageEvent, RoomMessageEventContent,
             },
+            AnyMessageLikeEventContent,
         },
         EventId, UserId,
     },
@@ -30,6 +35,7 @@ use tokio::{
     task::{AbortHandle, JoinHandle},
 };
 use tracing::{error, info};
+use uuid::Uuid;
 
 use super::RUNTIME;
 use crate::{
@@ -37,7 +43,7 @@ use crate::{
     error::{ClientError, RoomError},
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        AudioInfo, FileInfo, ImageInfo, ThumbnailInfo, TimelineDiff, TimelineItem,
+        AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff, TimelineItem,
         TimelineListener, VideoInfo,
     },
     TaskHandle,
@@ -338,6 +344,50 @@ impl Room {
         RUNTIME.spawn(async move {
             timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
         });
+    }
+
+    pub fn create_poll(
+        &self,
+        question: String,
+        answers: Vec<String>,
+        max_selections: u8,
+        poll_kind: PollKind,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't send the poll").into());
+            }
+        };
+
+        let poll_answers_vec: Vec<UnstablePollAnswer> = answers
+            .iter()
+            .map(|answer| UnstablePollAnswer::new(Uuid::new_v4().to_string(), answer))
+            .collect();
+
+        let poll_answers = UnstablePollAnswers::try_from(poll_answers_vec)
+            .context("Failed to create poll answers")?;
+
+        let mut poll_content_block =
+            UnstablePollStartContentBlock::new(question.clone(), poll_answers);
+        poll_content_block.kind = poll_kind.into();
+        poll_content_block.max_selections = max_selections.into();
+
+        let fallback_text = answers
+            .iter()
+            .enumerate()
+            .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
+
+        let poll_start_event_content =
+            UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
     }
 
     pub fn send_reply(
