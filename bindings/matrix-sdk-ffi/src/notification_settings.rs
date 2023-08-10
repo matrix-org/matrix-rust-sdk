@@ -176,6 +176,24 @@ impl NotificationSettings {
         Ok(())
     }
 
+    /// Get the user defined room notification mode
+    pub async fn get_user_defined_room_notification_mode(
+        &self,
+        room_id: String,
+    ) -> Result<Option<RoomNotificationMode>, NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        let parsed_room_id = RoomId::parse(&room_id)
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+        // Get the current user defined mode for this room
+        if let Some(mode) =
+            notification_settings.get_user_defined_room_notification_mode(&parsed_room_id).await
+        {
+            Ok(Some(mode.into()))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get the default room notification mode
     ///
     /// The mode will depend on the associated `PushRule` based on whether the
@@ -233,6 +251,12 @@ impl NotificationSettings {
             .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
         notification_settings.delete_user_defined_room_rules(&parsed_room_id).await?;
         Ok(())
+    }
+
+    /// Get all room IDs for which a user-defined rule exists.
+    pub async fn get_rooms_with_user_defined_rules(&self, enabled: Option<bool>) -> Vec<String> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        notification_settings.get_rooms_with_user_defined_rules(enabled).await
     }
 
     /// Get whether some enabled keyword rules exist.
