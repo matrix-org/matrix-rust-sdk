@@ -17,8 +17,6 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName,
 };
 
-use super::TimelineItemContent;
-
 /// Holds the state of a poll.
 ///
 /// This struct should be created for each poll start event received and then
@@ -132,17 +130,6 @@ impl PollState {
             } else {
                 None
             },
-        }
-    }
-}
-
-impl TryFrom<&TimelineItemContent> for PollState {
-    type Error = ();
-
-    fn try_from(value: &TimelineItemContent) -> Result<PollState, Self::Error> {
-        match value {
-            TimelineItemContent::Poll(poll_state) => Ok(poll_state.clone()),
-            _ => Err(()),
         }
     }
 }

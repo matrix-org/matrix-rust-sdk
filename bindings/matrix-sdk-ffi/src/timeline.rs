@@ -27,7 +27,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_ui::timeline::{polls::FfiPollKind, EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, FfiPollKind, Profile, TimelineDetails};
 use ruma::{assign, UInt};
 use tracing::warn;
 

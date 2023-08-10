@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::timeline::polls::PollState;
 use crate::timeline::tests::{assert_no_more_updates, TestTimeline, ALICE, BOB};
-use crate::timeline::{EventTimelineItem, TimelineItem};
+use crate::timeline::{EventTimelineItem, TimelineItem, TimelineItemContent};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
@@ -187,4 +187,15 @@ fn assert_poll_description(poll_state: &PollState) {
     assert_eq!(start_content.answers[0].text, "Up");
     assert_eq!(start_content.answers[1].id, "id_down");
     assert_eq!(start_content.answers[1].text, "Down");
+}
+
+impl TryFrom<&TimelineItemContent> for PollState {
+    type Error = ();
+
+    fn try_from(value: &TimelineItemContent) -> Result<PollState, Self::Error> {
+        match value {
+            TimelineItemContent::Poll(poll_state) => Ok(poll_state.clone()),
+            _ => Err(()),
+        }
+    }
 }

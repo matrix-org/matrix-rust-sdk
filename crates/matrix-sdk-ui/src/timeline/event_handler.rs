@@ -528,24 +528,29 @@ impl<'a> TimelineEventHandler<'a> {
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
         // TODO(polls): what if the event isn't found? Cache this for later?
-        update_timeline_item!(self, &c.relates_to.event_id.clone(), "vote", |event_item| {
-            match event_item.content() {
-                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
-                    TimelineItemContent::Poll(poll_state.add_response(
-                        self.ctx.sender.clone(),
-                        self.ctx.timestamp,
-                        c,
+        update_timeline_item!(
+            self,
+            &c.relates_to.event_id.clone(),
+            "poll response",
+            |event_item| {
+                match event_item.content() {
+                    TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
+                        TimelineItemContent::Poll(poll_state.add_response(
+                            self.ctx.sender.clone(),
+                            self.ctx.timestamp,
+                            c,
+                        )),
+                        None,
                     )),
-                    None,
-                )),
-                _ => None,
+                    _ => None,
+                }
             }
-        });
+        );
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
         // TODO(polls): what if the event isn't found? Cache this for later?
-        update_timeline_item!(self, &c.relates_to.event_id.clone(), "ended", |event_item| {
+        update_timeline_item!(self, &c.relates_to.event_id.clone(), "poll end", |event_item| {
             match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.end(

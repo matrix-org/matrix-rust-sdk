@@ -56,7 +56,7 @@ mod futures;
 mod inner;
 mod item;
 mod pagination;
-pub mod polls;
+mod polls;
 mod queue;
 mod reactions;
 mod read_receipts;
@@ -80,6 +80,7 @@ pub use self::{
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
+    polls::FfiPollKind,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
     traits::RoomExt,
