@@ -229,7 +229,7 @@ impl ClientInner {
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
     ) -> Self {
-        let (unknown_token_error_sender, _) = broadcast::channel(1);
+        let unknown_token_error_sender = broadcast::Sender::new(1);
 
         Self {
             homeserver: RwLock::new(homeserver),

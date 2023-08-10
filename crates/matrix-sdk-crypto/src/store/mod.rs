@@ -401,8 +401,8 @@ impl Store {
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let (room_keys_received_sender, _) = broadcast::channel(10);
-        let (secrets_broadcaster, _) = broadcast::channel(10);
+        let room_keys_received_sender = broadcast::Sender::new(10);
+        let secrets_broadcaster = broadcast::Sender::new(10);
 
         let inner = Arc::new(StoreInner {
             user_id,
