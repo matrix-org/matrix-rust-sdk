@@ -99,17 +99,16 @@ impl Rules {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - `true` if the room is encrypted
-    /// * `members_count` - the room members count
+    /// * `is_encrypted` - `Yes` if the room is encrypted
+    /// * `is_one_to_one` - `Yes` if the room is a direct chat involving two
+    ///   people
     pub(crate) fn get_default_room_notification_mode(
         &self,
         is_encrypted: IsEncrypted,
-        members_count: u64,
+        is_one_to_one: IsOneToOne,
     ) -> RoomNotificationMode {
-        // get the correct default rule ID based on `is_encrypted` and `members_count`
-        let is_one_to_one = members_count == 2;
-        let predefined_rule_id =
-            get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.into());
+        // get the correct default rule ID based on `is_encrypted` and `is_one_to_one`
+        let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
         let rule_id = predefined_rule_id.as_str();
 
         // If there is an `Underride` rule that should trigger a notification, the mode
@@ -264,7 +263,7 @@ impl Rules {
 /// # Arguments
 ///
 /// * `is_encrypted` - `Yes` if the room is encrypted
-/// * `is_one_to_one` - `Yes` if the room is a direct chat
+/// * `is_one_to_one` - `Yes` if the room is a direct chat involving two people
 pub(crate) fn get_predefined_underride_room_rule_id(
     is_encrypted: IsEncrypted,
     is_one_to_one: IsOneToOne,
@@ -419,7 +418,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes);
         // Then the mode should be `MentionsAndKeywordsOnly`
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
@@ -433,7 +432,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes);
         // Then the mode should be `AllMessages`
         assert_eq!(mode, RoomNotificationMode::AllMessages);
     }
