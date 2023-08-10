@@ -37,7 +37,7 @@ use tokio::{
     },
     task::{spawn, JoinHandle},
 };
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 
 use crate::{
     encryption_sync::{self, EncryptionSync, WithLocking},
@@ -109,6 +109,10 @@ impl SyncService {
         self.state.subscribe()
     }
 
+    /// The role of the scheduler task is to wait for a termination message
+    /// (`TerminationReport`), sent either because we wanted to stop both
+    /// syncs, or because one of the syncs failed (in which case we'll stop
+    /// the other one too).
     fn spawn_scheduler_task(
         &self,
         mut receiver: Receiver<TerminationReport>,
@@ -121,34 +125,47 @@ impl SyncService {
 
         async move {
             let Some(report) = receiver.recv().await else {
-                info!("sync service scheduler: channel has been closed?");
+                info!("internal channel has been closed?");
                 return;
             };
 
+            // If one service failed, make sure to request stopping the other one.
             let (stop_room_list, stop_encryption) = match &report.origin {
                 TerminationOrigin::EncryptionSync => (true, false),
                 TerminationOrigin::RoomList => (false, true),
                 TerminationOrigin::Scheduler => (true, true),
             };
 
-            // Put both tasks in the same state: abort and drop them.
-            if let Some(task) = room_list_task.lock().unwrap().take() {
-                task.abort();
-            }
-            if let Some(task) = encryption_sync_task.lock().unwrap().take() {
-                task.abort();
-            }
+            // Stop both services, and wait for the streams to properly finish: at some
+            // point they'll return `None` and will exit their infinite loops,
+            // and their tasks will gracefully terminate.
 
-            // Put both sliding syncs in the same state: stop both.
             if stop_room_list {
                 if let Err(err) = room_list_service.stop_sync() {
-                    warn!("unable to stop room list after encryption sync failed: {err:#}");
+                    error!("unable to stop room list service: {err:#}");
                 }
             }
-            if stop_encryption {
-                if let Some(encryption_sync) = &encryption_sync {
+
+            {
+                let task = room_list_task.lock().unwrap().take();
+                if let Some(task) = task {
+                    if let Err(err) = task.await {
+                        error!("when awaiting room list service: {err:#}");
+                    }
+                }
+            }
+
+            if let Some(encryption_sync) = &encryption_sync {
+                if stop_encryption {
                     if let Err(err) = encryption_sync.stop() {
-                        warn!("unable to stop encryption sync after room list failed: {err:#}");
+                        warn!("unable to stop encryption sync: {err:#}");
+                    }
+                }
+
+                let task = encryption_sync_task.lock().unwrap().take();
+                if let Some(task) = task {
+                    if let Err(err) = task.await {
+                        error!("when awaiting encryption sync: {err:#}");
                     }
                 }
             }
@@ -173,6 +190,7 @@ impl SyncService {
                 state.set(SyncServiceState::Terminated);
             }
         }
+        .instrument(tracing::span!(Level::WARN, "scheduler task"))
     }
 
     fn spawn_encryption_sync(
@@ -319,10 +337,9 @@ impl SyncService {
     /// This must be called when the app goes into the background. It's better
     /// to call this API when the application exits, although not strictly
     /// necessary.
+    #[instrument(skip_all)]
     pub async fn pause(&self) -> Result<(), Error> {
         let _guard = self.modifying_state.lock().await;
-
-        trace!("pausing sync service");
 
         match self.state.get() {
             SyncServiceState::Idle | SyncServiceState::Terminated | SyncServiceState::Error => {
@@ -332,6 +349,8 @@ impl SyncService {
             SyncServiceState::Running => {}
         };
 
+        trace!("pausing sync service");
+
         // First, request to stop the two underlying syncs; we'll look at the results
         // later, so that we're in a clean state independently of the request to
         // stop.
@@ -339,7 +358,7 @@ impl SyncService {
         let sender = self.scheduler_sender.lock().unwrap().clone();
         sender
             .ok_or_else(|| {
-                error!("scheduler error: missing sender");
+                error!("missing sender");
                 Error::InternalSchedulerError
             })?
             .send(TerminationReport {
@@ -349,19 +368,19 @@ impl SyncService {
             })
             .await
             .map_err(|err| {
-                error!("scheduler error: when sending termination report: {err}");
+                error!("when sending termination report: {err}");
                 Error::InternalSchedulerError
             })?;
 
         let scheduler_task = self.scheduler_task.lock().unwrap().take();
         scheduler_task
             .ok_or_else(|| {
-                error!("scheduler error: missing scheduler task");
+                error!("missing scheduler task");
                 Error::InternalSchedulerError
             })?
             .await
             .map_err(|err| {
-                error!("scheduler error: couldn't finish scheduler task: {err}");
+                error!("couldn't finish scheduler task: {err}");
                 Error::InternalSchedulerError
             })?;
 
