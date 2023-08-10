@@ -12,7 +12,10 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{SyncService, SyncServiceState};
@@ -27,10 +30,11 @@ use crate::{
 
 /// Sets up a sliding sync server that use different `pos` values for the
 /// encrptyion and the room sync.
-async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
-    let encryption_pos = Mutex::new(0);
-    let room_pos = Mutex::new(0);
-
+async fn setup_mocking_sliding_sync_server(
+    server: &MockServer,
+    encryption_pos: Arc<Mutex<i32>>,
+    room_pos: Arc<Mutex<i32>>,
+) -> MockGuard {
     Mock::given(SlidingSyncMatcher)
         .respond_with(move |request: &Request| {
             let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
@@ -59,7 +63,10 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 async fn test_sync_service_state() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let _guard = setup_mocking_sliding_sync_server(&server).await;
+    let encryption_pos = Arc::new(Mutex::new(0));
+    let room_pos = Arc::new(Mutex::new(0));
+    let guard =
+        setup_mocking_sliding_sync_server(&server, encryption_pos.clone(), room_pos.clone()).await;
 
     let sync_service =
         SyncService::builder(client).with_encryption_sync(false, None).build().await.unwrap();
@@ -128,9 +135,10 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert!(latest_room_list_pos.is_some());
 
     // Now reset the server, wait for a bit that it doesn't receive extra requests.
-    drop(_guard);
+    drop(guard);
     server.reset().await;
-    let _guard = setup_mocking_sliding_sync_server(&server).await;
+    let _guard =
+        setup_mocking_sliding_sync_server(&server, encryption_pos.clone(), room_pos.clone()).await;
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -219,7 +227,9 @@ async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
 
     // Now, start mocking the endpoint, and make sure the room sliding sync will
     // restart properly.
-    let _guard = setup_mocking_sliding_sync_server(&server).await;
+    let encryption_pos = Arc::new(Mutex::new(0));
+    let room_pos = Arc::new(Mutex::new(0));
+    let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
 
     sync_service.start().await;
 
