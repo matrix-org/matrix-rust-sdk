@@ -422,7 +422,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "3",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -463,7 +463,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "4",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -933,7 +933,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "1",
+            "pos": "0",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -973,7 +973,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "1",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -2186,7 +2186,7 @@ async fn test_room_timeline() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "1",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2267,7 +2267,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "1",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2291,7 +2291,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "2",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2399,7 +2399,7 @@ async fn test_input_viewport() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "1",
+            "pos": "2",
             "lists": {},
             "rooms": {},
         },
