@@ -10,7 +10,10 @@ use ruma::{
             unstable_response::{
                 OriginalSyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
             },
-            unstable_start::{UnstablePollStartContentBlock, UnstablePollStartEventContent},
+            unstable_start::{
+                UnstablePollStartContentBlock, UnstablePollStartEventContent,
+                UnstablePollStartEventContentWithoutRelation,
+            },
         },
         MessageLikeUnsigned,
     },
@@ -55,12 +58,24 @@ impl PollState {
         sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: UnstablePollStartEventContent,
-    ) -> PollState {
-        PollState {
+    ) -> Self {
+        Self {
             start_event: StartEvent { sender, timestamp, content },
             response_events: Vec::new(),
             end_event: None,
         }
+    }
+
+    pub(super) fn edit(
+        &self,
+        timestamp: MilliSecondsSinceUnixEpoch,
+        replacement: &UnstablePollStartEventContentWithoutRelation,
+    ) -> Self {
+        let mut clone = self.clone();
+        clone.start_event.timestamp = timestamp;
+        clone.start_event.content.poll_start = replacement.poll_start.clone();
+        clone.start_event.content.text = replacement.text.clone();
+        clone
     }
 
     pub(super) fn add_response(
@@ -87,6 +102,10 @@ impl PollState {
 
     pub fn fallback_text(&self) -> Option<String> {
         self.start_event.content.text.clone()
+    }
+
+    pub fn can_edit(&self) -> bool {
+        self.response_events.is_empty() && self.end_event.is_none()
     }
 
     pub fn results(&self) -> FfiPoll {

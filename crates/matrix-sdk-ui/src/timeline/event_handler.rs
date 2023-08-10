@@ -22,7 +22,9 @@ use ruma::{
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
-            unstable_start::UnstablePollStartEventContent,
+            unstable_start::{
+                UnstablePollStartEventContent, UnstablePollStartEventContentWithoutRelation,
+            },
         },
         reaction::ReactionEventContent,
         receipt::Receipt,
@@ -297,6 +299,10 @@ impl<'a> TimelineEventHandler<'a> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
+                AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent {
+                    relates_to: Some(message::Relation::Replacement(re)),
+                    ..
+                }) => self.handle_poll_start_edit(re),
                 AnyMessageLikeEventContent::UnstablePollStart(c) => {
                     self.handle_poll_start(c, should_add)
                 }
@@ -393,6 +399,10 @@ impl<'a> TimelineEventHandler<'a> {
                     info!("Edit event applies to a sticker, discarding");
                     return None;
                 }
+                TimelineItemContent::Poll(_) => {
+                    info!("Edit event applies to a poll, discarding");
+                    return None;
+                }
                 TimelineItemContent::UnableToDecrypt(_) => {
                     info!("Edit event applies to event that couldn't be decrypted, discarding");
                     return None;
@@ -407,9 +417,6 @@ impl<'a> TimelineEventHandler<'a> {
                 | TimelineItemContent::FailedToParseState { .. } => {
                     info!("Edit event applies to event that couldn't be parsed, discarding");
                     return None;
-                }
-                TimelineItemContent::Poll(_) => {
-                    todo!("Implement poll edit.")
                 }
             };
 
@@ -513,6 +520,52 @@ impl<'a> TimelineEventHandler<'a> {
             timestamp: self.ctx.timestamp,
         };
         self.state.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
+    }
+
+    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
+    fn handle_poll_start_edit(
+        &mut self,
+        replacement: Replacement<UnstablePollStartEventContentWithoutRelation>,
+    ) {
+        update_timeline_item!(self, &replacement.event_id, "poll edit", |event_item| {
+            if self.ctx.sender != event_item.sender() {
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "Edit event applies to another user's timeline item, discarding"
+                );
+                return None;
+            }
+
+            let poll_state = if let TimelineItemContent::Poll(poll_state) = &event_item.content() {
+                poll_state
+            } else {
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
+                );
+                return None;
+            };
+
+            if !poll_state.can_edit() {
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "This poll can't be edited, discarding"
+                );
+                return None;
+            }
+
+            let new_content = TimelineItemContent::Poll(
+                poll_state.edit(self.ctx.timestamp, &replacement.new_content),
+            );
+
+            let edit_json = match &self.ctx.flow {
+                Flow::Local { .. } => None,
+                Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
+            };
+
+            trace!("Applying edit");
+            Some(event_item.with_content(new_content, edit_json))
+        });
     }
 
     fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {

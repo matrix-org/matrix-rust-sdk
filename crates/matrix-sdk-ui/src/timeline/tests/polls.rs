@@ -13,6 +13,8 @@ use ruma::events::poll::unstable_start::{
     UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
     UnstablePollStartEventContent,
 };
+use ruma::events::relation::Replacement;
+use ruma::events::room::message::Relation;
 use ruma::events::AnyMessageLikeEventContent;
 use ruma::{OwnedEventId, UInt, UserId};
 
@@ -24,6 +26,21 @@ async fn start_poll_event_should_have_initial_poll_state() {
 
     assert_poll_description(&poll_state);
     assert_eq!(poll_state.response_events.is_empty(), true);
+
+    assert_no_more_updates(&mut stream).await;
+}
+
+#[async_test]
+async fn eidt_start_poll_event_should_have_edited_poll_state() {
+    let (timeline, mut stream) = create_timeline_with_start_poll_event().await;
+    let start_event = get_poll_start_event(&mut stream);
+    let _original_poll_state = PollState::try_from(start_event.content()).unwrap();
+    timeline.send_poll_start_edit_event(start_event.event_id().unwrap().to_owned()).await;
+    let updated_start_event = get_updated_poll_event(&mut stream);
+    let updated_poll_state = PollState::try_from(updated_start_event.content()).unwrap();
+
+    assert_poll_description(&_original_poll_state);
+    assert_edited_poll_description(&updated_poll_state);
 
     assert_no_more_updates(&mut stream).await;
 }
@@ -134,6 +151,28 @@ impl TestTimeline {
         .await
     }
 
+    async fn send_poll_start_edit_event(self: &Self, original_id: OwnedEventId) {
+        let mut content_block = UnstablePollStartContentBlock::new(
+            "Up or down edited?",
+            UnstablePollAnswers::try_from(vec![
+                UnstablePollAnswer::new("id_up".to_string(), "Up edited".to_string()),
+                UnstablePollAnswer::new("id_down".to_string(), "Down edited".to_string()),
+            ])
+            .unwrap(),
+        );
+        content_block.kind = PollKind::Disclosed;
+
+        let mut content = UnstablePollStartEventContent::new(content_block);
+        content.relates_to =
+            Some(Relation::Replacement(Replacement::new(original_id, content.clone().into())));
+
+        self.handle_live_message_event(
+            &ALICE,
+            AnyMessageLikeEventContent::UnstablePollStart(content),
+        )
+        .await
+    }
+
     async fn send_poll_response_event(
         self: &Self,
         sender: &UserId,
@@ -187,6 +226,18 @@ fn assert_poll_description(poll_state: &PollState) {
     assert_eq!(start_content.answers[0].text, "Up");
     assert_eq!(start_content.answers[1].id, "id_down");
     assert_eq!(start_content.answers[1].text, "Down");
+}
+
+fn assert_edited_poll_description(poll_state: &PollState) {
+    let start_content = poll_state.start_event.content.poll_start.clone();
+    assert_eq!(start_content.question.text, "Up or down edited?");
+    assert_eq!(start_content.kind, PollKind::Disclosed);
+    assert_eq!(start_content.max_selections, UInt::new(1).unwrap());
+    assert_eq!(start_content.answers.len(), 2);
+    assert_eq!(start_content.answers[0].id, "id_up");
+    assert_eq!(start_content.answers[0].text, "Up edited");
+    assert_eq!(start_content.answers[1].id, "id_down");
+    assert_eq!(start_content.answers[1].text, "Down edited");
 }
 
 impl TryFrom<&TimelineItemContent> for PollState {
