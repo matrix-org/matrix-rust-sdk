@@ -1489,7 +1489,7 @@ mod tests {
             // `pos` has not been updated.
             assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("1".to_owned()));
 
-            // `past_positions` has been updated.
+            // `past_positions` has not been updated.
             let past_positions = sliding_sync.inner.past_positions.read().unwrap();
             assert_eq!(past_positions.len(), 2);
             assert_eq!(past_positions.get(0).unwrap().pos, Some("0".to_owned()));
