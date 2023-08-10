@@ -157,7 +157,7 @@ impl SyncService {
 
             if let Some(encryption_sync) = &encryption_sync {
                 if stop_encryption {
-                    if let Err(err) = encryption_sync.stop() {
+                    if let Err(err) = encryption_sync.stop_sync() {
                         warn!("unable to stop encryption sync: {err:#}");
                     }
                 }

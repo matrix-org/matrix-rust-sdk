@@ -251,7 +251,7 @@ impl EncryptionSync {
     /// Requests that the underlying sliding sync be stopped.
     ///
     /// This will unlock the cross-process lock, if taken.
-    pub fn stop(&self) -> Result<(), Error> {
+    pub fn stop_sync(&self) -> Result<(), Error> {
         // Stopping the sync loop will cause the next `next()` call to return `None`, so
         // this will also release the cross-process lock automatically.
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)?;
