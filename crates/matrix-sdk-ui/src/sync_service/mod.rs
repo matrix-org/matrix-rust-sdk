@@ -305,24 +305,13 @@ impl SyncService {
         let (sender, receiver) = tokio::sync::mpsc::channel(16);
 
         // First, take care of the room list.
-        {
-            let mut room_list_task_guard = self.room_list_task.lock().unwrap();
-            if let Some(task) = room_list_task_guard.take() {
-                warn!("active room list service task when start()ing sync service");
-                task.abort();
-            }
-            let sender = sender.clone();
-            *room_list_task_guard = Some(spawn(self.spawn_room_list_sync(sender.clone())));
-        }
+        *self.room_list_task.lock().unwrap() =
+            Some(spawn(self.spawn_room_list_sync(sender.clone())));
 
         // Then, take care of the encryption sync.
         if let Some(encryption_sync) = self.encryption_sync.clone() {
-            let mut task_guard = self.encryption_sync_task.lock().unwrap();
-            if let Some(task) = task_guard.take() {
-                warn!("active encryption sync service service task when start()ing sync service");
-                task.abort();
-            }
-            *task_guard = Some(spawn(self.spawn_encryption_sync(encryption_sync, sender.clone())));
+            *self.encryption_sync_task.lock().unwrap() =
+                Some(spawn(self.spawn_encryption_sync(encryption_sync, sender.clone())));
         }
 
         // Spawn the scheduler task.
