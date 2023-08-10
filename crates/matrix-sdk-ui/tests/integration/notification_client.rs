@@ -32,16 +32,16 @@ async fn test_notification_client_with_context() {
             "body": "Hello world!",
             "msgtype": "m.text",
         },
-        "room_id": room_id.clone(),
+        "room_id": room_id,
         "event_id": event_id,
         "origin_server_ts": 152049794,
-        "sender": sender.clone(),
+        "sender": sender,
         "type": "m.room.message",
     });
 
     let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id.clone())
+        JoinedRoomBuilder::new(room_id)
             .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),
     );
 
@@ -67,11 +67,11 @@ async fn test_notification_client_with_context() {
                             "displayname": "John Mastodon",
                             "membership": "join"
                         },
-                        "room_id": room_id.clone(),
+                        "room_id": room_id,
                         "event_id": "$151800140517rfvjc:example.org",
                         "membership": "join",
                         "origin_server_ts": 151800140,
-                        "sender": sender.clone(),
+                        "sender": sender,
                         "state_key": sender,
                         "type": "m.room.member",
                         "unsigned": {
@@ -114,10 +114,10 @@ async fn test_notification_client_sliding_sync() {
             "body": "Hello world!",
             "msgtype": "m.text",
         },
-        "room_id": room_id.clone(),
+        "room_id": room_id,
         "event_id": event_id,
         "origin_server_ts": 152049794,
-        "sender": sender.clone(),
+        "sender": sender,
         "type": "m.room.message",
     });
 
@@ -138,22 +138,22 @@ async fn test_notification_client_sliding_sync() {
                 "pos": pos_as_str,
                 "rooms": {
                     "!a98sd12bjh:example.org": {
-                        "name": room_name.clone(),
+                        "name": room_name,
                         "initial": true,
 
                         "required_state": [
                             // Sender's member information.
                             {
                                 "content": {
-                                    "avatar_url": sender_avatar_url.clone(),
-                                    "displayname": sender_display_name.clone(),
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
                                     "membership": "join"
                                 },
-                                "room_id": room_id.clone(),
+                                "room_id": room_id,
                                 "event_id": "$151800140517rfvjc:example.org",
                                 "membership": "join",
                                 "origin_server_ts": 151800140,
-                                "sender": sender.clone(),
+                                "sender": sender,
                                 "state_key": sender,
                                 "type": "m.room.member",
                                 "unsigned": {
@@ -168,7 +168,7 @@ async fn test_notification_client_sliding_sync() {
                                     "displayname": "My Self",
                                     "membership": "join"
                                 },
-                                "room_id": room_id.clone(),
+                                "room_id": room_id,
                                 "event_id": "$151800140517rflkc:example.org",
                                 "membership": "join",
                                 "origin_server_ts": 151800140,
@@ -199,7 +199,7 @@ async fn test_notification_client_sliding_sync() {
                                     "state_default": 50,
                                     "users": {
                                         "@example:localhost": 100,
-                                        sender.clone(): 0
+                                        sender: 0
                                     },
                                     "users_default": 0
                                 },
