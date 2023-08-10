@@ -695,20 +695,7 @@ impl SlidingSync {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
                                     sync_span.in_scope(|| async {
-                                        info!("Session expired; resetting `pos` and sticky parameters");
-
-                                        {
-                                            let mut position = self.inner.position.write().unwrap();
-                                            position.pos = None;
-
-                                            let mut past_positions = self.inner.past_positions.write().unwrap();
-                                            past_positions.clear();
-                                        }
-
-                                        // Force invalidation of all the sticky parameters.
-                                        let _ = self.inner.sticky.write().unwrap().data_mut();
-
-                                        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
+                                        self.expire_session().await;
                                     }).await;
                                 }
 
@@ -736,6 +723,29 @@ impl SlidingSync {
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
+    }
+
+    /// Expire the current Sliding Sync session.
+    ///
+    /// Expiring a Sliding Sync session means: resetting `pos`. It also cleans
+    /// up the `past_positions`, and resets sticky parameters.
+    ///
+    /// This method **MUST** be called when the sync-loop is stopped.
+    async fn expire_session(&self) {
+        info!("Session expired; resetting `pos` and sticky parameters");
+
+        {
+            let mut position = self.inner.position.write().unwrap();
+            position.pos = None;
+
+            let mut past_positions = self.inner.past_positions.write().unwrap();
+            past_positions.clear();
+        }
+
+        // Force invalidation of all the sticky parameters.
+        let _ = self.inner.sticky.write().unwrap().data_mut();
+
+        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
     }
 }
 
