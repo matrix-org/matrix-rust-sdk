@@ -272,6 +272,8 @@ impl SlidingSync {
         &self,
         mut sliding_sync_response: v4::Response,
     ) -> Result<UpdateSummary, crate::Error> {
+        let pos = Some(sliding_sync_response.pos.clone());
+
         {
             debug!(
                 pos = ?sliding_sync_response.pos,
@@ -279,10 +281,8 @@ impl SlidingSync {
                 "Update position markers`"
             );
 
-            let pos = Some(sliding_sync_response.pos.clone());
-
             // Look up for this new `pos` in the past position markers.
-            let mut past_positions = self.inner.past_positions.write().unwrap();
+            let past_positions = self.inner.past_positions.read().unwrap();
 
             // The `pos` received by the server has already been received in the past!
             if past_positions.iter().any(|position| position.pos == pos) {
@@ -293,14 +293,6 @@ impl SlidingSync {
 
                 return Err(Error::ResponseAlreadyReceived { pos }.into());
             }
-
-            // Save the new position markers.
-            let mut position = self.inner.position.write().unwrap();
-            position.pos = pos;
-            position.delta_token = sliding_sync_response.delta_token.clone();
-
-            // Keep this position markers in memory, in case it pops from the server.
-            past_positions.push(position.clone());
         }
 
         // Compute `limited`.
@@ -419,6 +411,17 @@ impl SlidingSync {
 
             UpdateSummary { lists: updated_lists, rooms: updated_rooms }
         };
+
+        // Everything went well, we can update the position markers.
+        //
+        // Save the new position markers.
+        let mut position = self.inner.position.write().unwrap();
+        position.pos = pos;
+        position.delta_token = sliding_sync_response.delta_token.clone();
+
+        // Keep this position markers in memory, in case it pops from the server.
+        let mut past_positions = self.inner.past_positions.write().unwrap();
+        past_positions.push(position.clone());
 
         Ok(update_summary)
     }
