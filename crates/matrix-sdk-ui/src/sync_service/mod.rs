@@ -173,12 +173,12 @@ impl SyncService {
             if report.is_error {
                 if report.has_expired {
                     if stop_room_list {
-                        room_list_service.expire_session().await;
+                        room_list_service.expire_sync_session().await;
                     }
                     if stop_encryption {
                         // Expire the encryption sync too.
                         if let Some(encryption_sync) = encryption_sync {
-                            encryption_sync.expire_session().await;
+                            encryption_sync.expire_sync_session().await;
                         }
                     }
                 }
