@@ -713,28 +713,6 @@ impl SlidingSync {
         }
     }
 
-    /// Force expire a sliding sync session.
-    ///
-    /// This will invalidate the current position (`pos` in the SS
-    /// request/response body), as well as all the sticky parameters. This
-    /// should only be used when it's clear that this session was about to
-    /// expire anyways, and should be used only in very specific cases (e.g.
-    /// multiple sliding syncs being run in parallel, and one of them has
-    /// expired).
-    pub async fn expire_session(&self) {
-        info!("Session expired; resetting `pos` and sticky parameters");
-
-        {
-            let mut position_lock = self.inner.position.write().unwrap();
-            position_lock.pos = None;
-        }
-
-        // Force invalidation of all the sticky parameters.
-        let _ = self.inner.sticky.write().unwrap().data_mut();
-
-        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
-    }
-
     /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
     ///
     /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
@@ -752,8 +730,14 @@ impl SlidingSync {
     /// Expiring a Sliding Sync session means: resetting `pos`. It also cleans
     /// up the `past_positions`, and resets sticky parameters.
     ///
+    /// This should only be used when it's clear that this session was about to
+    /// expire anyways, and should be used only in very specific cases (e.g.
+    /// multiple sliding syncs being run in parallel, and one of them has
+    /// expired).
+    ///
     /// This method **MUST** be called when the sync-loop is stopped.
-    async fn expire_session(&self) {
+    #[doc(hidden)]
+    pub async fn expire_session(&self) {
         info!("Session expired; resetting `pos` and sticky parameters");
 
         {
