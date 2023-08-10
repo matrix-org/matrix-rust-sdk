@@ -338,7 +338,7 @@ impl SyncService {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     #[instrument(skip_all)]
-    pub async fn pause(&self) -> Result<(), Error> {
+    pub async fn stop(&self) -> Result<(), Error> {
         let _guard = self.modifying_state.lock().await;
 
         match self.state.get() {

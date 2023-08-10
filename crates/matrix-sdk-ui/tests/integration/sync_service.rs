@@ -85,7 +85,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Pausing will stop both syncs, after a bit of delay.
-    sync_service.pause().await?;
+    sync_service.stop().await?;
     assert_next_matches!(state_stream, SyncServiceState::Idle);
     assert_eq!(sync_service.task_states(), (false, false));
 

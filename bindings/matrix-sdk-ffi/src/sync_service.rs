@@ -65,8 +65,8 @@ impl SyncService {
         self.inner.start().await;
     }
 
-    pub fn pause(&self) -> Result<(), ClientError> {
-        RUNTIME.block_on(async { Ok(self.inner.pause().await?) })
+    pub fn stop(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async { Ok(self.inner.stop().await?) })
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
