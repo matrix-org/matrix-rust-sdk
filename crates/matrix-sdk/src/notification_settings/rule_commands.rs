@@ -1,7 +1,8 @@
 use ruma::{
     api::client::push::RuleScope,
     push::{
-        PredefinedContentRuleId, PredefinedOverrideRuleId, RemovePushRuleError, RuleKind, Ruleset,
+        Action, PredefinedContentRuleId, PredefinedOverrideRuleId, RemovePushRuleError, RuleKind,
+        Ruleset,
     },
     RoomId,
 };
@@ -153,6 +154,24 @@ impl RuleCommands {
 
         Ok(())
     }
+
+    /// Set the actions of the rule from the given kind and with the given
+    /// `rule_id`
+    pub(crate) fn set_rule_actions(
+        &mut self,
+        kind: RuleKind,
+        rule_id: &str,
+        actions: Vec<Action>,
+    ) -> Result<(), NotificationSettingsError> {
+        self.rules.set_actions(kind.clone(), rule_id, actions.clone())?;
+        self.commands.push(Command::SetPushRuleActions {
+            scope: RuleScope::Global,
+            kind,
+            rule_id: rule_id.to_owned(),
+            actions,
+        });
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -162,8 +181,9 @@ mod tests {
     use ruma::{
         api::client::push::RuleScope,
         push::{
-            NewPushRule, NewSimplePushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
-            RemovePushRuleError, RuleKind, Ruleset,
+            Action, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
+            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RemovePushRuleError, RuleKind,
+            Ruleset, Tweak,
         },
         OwnedRoomId, RoomId, UserId,
     };
@@ -481,5 +501,48 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[async_test]
+    async fn test_set_rule_actions() {
+        let mut ruleset = get_server_default_ruleset();
+        let mut rule_commands = RuleCommands::new(ruleset.clone());
+
+        // Starting with an empty action list for `PredefinedUnderrideRuleId::Message`.
+        ruleset
+            .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::Message, vec![])
+            .unwrap();
+
+        // After setting a list of actions
+        rule_commands
+            .set_rule_actions(
+                RuleKind::Underride,
+                PredefinedUnderrideRuleId::Message.as_str(),
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+            )
+            .unwrap();
+
+        // The ruleset must have been updated
+        let actions = rule_commands
+            .rules
+            .get(RuleKind::Underride, PredefinedUnderrideRuleId::Message)
+            .unwrap()
+            .actions();
+        assert_eq!(actions.len(), 2);
+
+        // and a `SetPushRuleActions` command must have been added
+        assert_eq!(rule_commands.commands.len(), 1);
+        assert_matches!(&rule_commands.commands[0],
+            Command::SetPushRuleActions { scope, kind, rule_id, actions } => {
+                assert_eq!(scope, &RuleScope::Global);
+                assert_eq!(kind, &RuleKind::Underride);
+                assert_eq!(rule_id, PredefinedUnderrideRuleId::Message.as_str());
+                assert_eq!(actions.len(), 2);
+                assert_matches!(&actions[0], Action::Notify);
+                assert_matches!(&actions[1], Action::SetTweak(Tweak::Sound(sound)) => {
+                    assert_eq!(sound, "default");
+                });
+            }
+        );
     }
 }

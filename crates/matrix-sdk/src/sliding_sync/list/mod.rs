@@ -61,8 +61,6 @@ pub struct SlidingSyncList {
     inner: Arc<SlidingSyncListInner>,
 }
 
-type BoxedRoomListEntryFilter = Box<dyn Fn(&RoomListEntry) -> bool + Sync + Send>;
-
 impl SlidingSyncList {
     /// Create a new [`SlidingSyncListBuilder`] with the given name.
     pub fn builder(name: impl Into<String>) -> SlidingSyncListBuilder {
@@ -169,11 +167,11 @@ impl SlidingSyncList {
     pub fn room_list_filtered_stream<F>(
         &self,
         filter: F,
-    ) -> (Vector<RoomListEntry>, FilterVectorSubscriber<RoomListEntry, BoxedRoomListEntryFilter>)
+    ) -> (Vector<RoomListEntry>, FilterVectorSubscriber<RoomListEntry, F>)
     where
-        F: Fn(&RoomListEntry) -> bool + Sync + Send + 'static,
+        F: Fn(&RoomListEntry) -> bool,
     {
-        ObservableVector::subscribe_filter(&self.inner.room_list.read().unwrap(), Box::new(filter))
+        ObservableVector::subscribe_filter(&self.inner.room_list.read().unwrap(), filter)
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]

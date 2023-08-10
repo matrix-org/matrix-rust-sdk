@@ -13,6 +13,14 @@ pub enum Error {
     #[error("The sliding sync response could not be handled: {0}")]
     BadResponse(String),
 
+    /// The response we've received from the server has already been received in
+    /// the past because it has a `pos` that we have recently seen.
+    #[error("The sliding sync response has already been received: `pos={pos:?}`")]
+    ResponseAlreadyReceived {
+        /// The `pos`ition that has been received.
+        pos: Option<String>,
+    },
+
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.

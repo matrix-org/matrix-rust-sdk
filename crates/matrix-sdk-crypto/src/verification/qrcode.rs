@@ -914,7 +914,7 @@ mod tests {
     #[async_test]
     async fn test_verification_creation() {
         let store = memory_store();
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
 
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
         let master_key = private_identity.master_public_key().await.unwrap();
@@ -978,7 +978,7 @@ mod tests {
     #[async_test]
     async fn test_reciprocate_receival() {
         let test = |flow_id: FlowId| async move {
-            let alice_account = ReadOnlyAccount::new(user_id(), device_id());
+            let alice_account = ReadOnlyAccount::with_device_id(user_id(), device_id());
             let store = memory_store();
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
@@ -990,7 +990,7 @@ mod tests {
             };
 
             let bob_account =
-                ReadOnlyAccount::new(alice_account.user_id(), device_id!("BOBDEVICE"));
+                ReadOnlyAccount::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
             let identity = private_identity.to_public_identity().await.unwrap();

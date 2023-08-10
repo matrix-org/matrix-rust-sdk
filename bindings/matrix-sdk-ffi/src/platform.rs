@@ -9,7 +9,9 @@ use opentelemetry::{
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use tokio::runtime::Handle;
 use tracing_core::Subscriber;
-use tracing_subscriber::{fmt, prelude::*, registry::LookupSpan, EnvFilter, Layer};
+use tracing_subscriber::{
+    fmt, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, EnvFilter, Layer,
+};
 
 use crate::RUNTIME;
 
@@ -88,55 +90,98 @@ pub fn log_panics() {
     log_panics::init();
 }
 
-fn fmt_layer<S>() -> impl Layer<S>
+fn text_layers<S>(config: TracingConfiguration) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
+    fn fmt_layer<S>() -> fmt::Layer<S> {
+        fmt::layer()
+            .with_file(true)
+            .with_line_number(true)
+            .with_ansi(cfg!(not(any(target_os = "android", target_os = "ios"))))
+    }
+
+    let file_layer = config
+        .write_to_files
+        .map(|c| fmt_layer().with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix)));
+
     #[cfg(not(target_os = "android"))]
-    return fmt::layer()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(!cfg!(target_os = "ios"))
-        .with_writer(std::io::stderr);
+    return Layer::and_then(
+        file_layer,
+        config.write_to_stdout_or_system.then(|| fmt_layer().with_writer(std::io::stderr)),
+    );
 
     #[cfg(target_os = "android")]
-    return fmt::layer()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(false)
-        .with_level(false)
-        .without_time()
-        .with_writer(paranoid_android::AndroidLogMakeWriter::new(
-            "org.matrix.rust.sdk".to_owned(),
-        ));
+    return Layer::and_then(
+        file_layer,
+        config.write_to_stdout_or_system.then(|| {
+            fmt_layer()
+                // Level and time are already captured by logcat separately
+                .with_level(false)
+                .without_time()
+                .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+                    "org.matrix.rust.sdk".to_owned(),
+                ))
+        }),
+    );
+}
+
+#[derive(uniffi::Record)]
+pub struct TracingFileConfiguration {
+    path: String,
+    file_prefix: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct TracingConfiguration {
+    filter: String,
+    /// Controls whether to print to stdout or, equivalent, the system logs on
+    /// Android.
+    write_to_stdout_or_system: bool,
+    write_to_files: Option<TracingFileConfiguration>,
 }
 
 #[uniffi::export]
-pub fn setup_tracing(filter: String) {
+pub fn setup_tracing(config: TracingConfiguration) {
     #[cfg(target_os = "android")]
     log_panics();
 
-    tracing_subscriber::registry().with(EnvFilter::new(filter)).with(fmt_layer()).init();
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(&config.filter))
+        .with(text_layers(config))
+        .init();
 }
 
-#[uniffi::export]
-pub fn setup_otlp_tracing(
-    filter: String,
+#[derive(uniffi::Record)]
+pub struct OtlpTracingConfiguration {
     client_name: String,
     user: String,
     password: String,
     otlp_endpoint: String,
-) {
+    filter: String,
+    /// Controls whether to print to stdout or, equivalent, the system logs on
+    /// Android.
+    write_to_stdout_or_system: bool,
+    write_to_files: Option<TracingFileConfiguration>,
+}
+
+#[uniffi::export]
+pub fn setup_otlp_tracing(config: OtlpTracingConfiguration) {
     #[cfg(target_os = "android")]
     log_panics();
 
-    let otlp_tracer = create_otlp_tracer(user, password, otlp_endpoint, client_name)
-        .expect("Couldn't configure the OpenTelemetry tracer");
+    let otlp_tracer =
+        create_otlp_tracer(config.user, config.password, config.otlp_endpoint, config.client_name)
+            .expect("Couldn't configure the OpenTelemetry tracer");
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(otlp_tracer);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new(filter))
-        .with(fmt_layer())
+        .with(EnvFilter::new(&config.filter))
+        .with(text_layers(TracingConfiguration {
+            filter: config.filter,
+            write_to_stdout_or_system: config.write_to_stdout_or_system,
+            write_to_files: config.write_to_files,
+        }))
         .with(otlp_layer)
         .init();
 }

@@ -1,15 +1,19 @@
 //! Ruleset utility struct
 
+use imbl::HashSet;
 use ruma::{
     push::{
-        PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
-        PushCondition, RuleKind, Ruleset,
+        AnyPushRuleRef, PredefinedContentRuleId, PredefinedOverrideRuleId,
+        PredefinedUnderrideRuleId, PushCondition, RuleKind, Ruleset,
     },
     RoomId,
 };
 
 use super::{command::Command, rule_commands::RuleCommands, RoomNotificationMode};
-use crate::error::NotificationSettingsError;
+use crate::{
+    error::NotificationSettingsError,
+    notification_settings::{IsEncrypted, IsOneToOne},
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Rules {
@@ -99,11 +103,13 @@ impl Rules {
     /// * `members_count` - the room members count
     pub(crate) fn get_default_room_notification_mode(
         &self,
-        is_encrypted: bool,
+        is_encrypted: IsEncrypted,
         members_count: u64,
     ) -> RoomNotificationMode {
         // get the correct default rule ID based on `is_encrypted` and `members_count`
-        let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, members_count);
+        let is_one_to_one = members_count == 2;
+        let predefined_rule_id =
+            get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.into());
         let rule_id = predefined_rule_id.as_str();
 
         // If there is an `Underride` rule that should trigger a notification, the mode
@@ -116,6 +122,39 @@ impl Rules {
             // Otherwise, the mode is `MentionsAndKeywordsOnly`
             RoomNotificationMode::MentionsAndKeywordsOnly
         }
+    }
+
+    /// Get all room IDs for which a user-defined rule exists.
+    pub(crate) fn get_rooms_with_user_defined_rules(&self, enabled: Option<bool>) -> Vec<String> {
+        let test_if_enabled = enabled.is_some();
+        let must_be_enabled = enabled.unwrap_or(false);
+
+        let mut room_ids = HashSet::new();
+        for rule in &self.ruleset {
+            if rule.is_server_default() {
+                continue;
+            }
+            if test_if_enabled && rule.enabled() != must_be_enabled {
+                continue;
+            }
+            match rule {
+                AnyPushRuleRef::Override(r) | AnyPushRuleRef::Underride(r) => {
+                    for condition in &r.conditions {
+                        if let PushCondition::EventMatch { key, pattern } = condition {
+                            if key == "room_id" {
+                                room_ids.insert(pattern.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+                AnyPushRuleRef::Room(r) => {
+                    room_ids.insert(r.rule_id.to_string());
+                }
+                _ => {}
+            }
+        }
+        Vec::from_iter(room_ids)
     }
 
     /// Get whether the `IsUserMention` rule is enabled.
@@ -211,6 +250,9 @@ impl Rules {
                 Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
                     _ = self.ruleset.set_enabled(kind, rule_id, enabled);
                 }
+                Command::SetPushRuleActions { scope: _, kind, rule_id, actions } => {
+                    _ = self.ruleset.set_actions(kind, rule_id, actions);
+                }
             }
         }
     }
@@ -221,22 +263,23 @@ impl Rules {
 ///
 /// # Arguments
 ///
-/// * `is_encrypted` - `true` if the room is encrypted
-/// * `members_count` - the room members count
-fn get_predefined_underride_room_rule_id(
-    is_encrypted: bool,
-    members_count: u64,
+/// * `is_encrypted` - `Yes` if the room is encrypted
+/// * `is_one_to_one` - `Yes` if the room is a direct chat
+pub(crate) fn get_predefined_underride_room_rule_id(
+    is_encrypted: IsEncrypted,
+    is_one_to_one: IsOneToOne,
 ) -> PredefinedUnderrideRuleId {
-    match (is_encrypted, members_count) {
-        (true, 2) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
-        (false, 2) => PredefinedUnderrideRuleId::RoomOneToOne,
-        (true, _) => PredefinedUnderrideRuleId::Encrypted,
-        (false, _) => PredefinedUnderrideRuleId::Message,
+    match (is_encrypted, is_one_to_one) {
+        (IsEncrypted::Yes, IsOneToOne::Yes) => PredefinedUnderrideRuleId::EncryptedRoomOneToOne,
+        (IsEncrypted::No, IsOneToOne::Yes) => PredefinedUnderrideRuleId::RoomOneToOne,
+        (IsEncrypted::Yes, IsOneToOne::No) => PredefinedUnderrideRuleId::Encrypted,
+        (IsEncrypted::No, IsOneToOne::No) => PredefinedUnderrideRuleId::Message,
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use imbl::HashSet;
     use matrix_sdk_test::{
         async_test,
         notification_settings::{build_ruleset, get_server_default_ruleset},
@@ -254,7 +297,7 @@ pub(crate) mod tests {
         error::NotificationSettingsError,
         notification_settings::{
             rules::{self, Rules},
-            RoomNotificationMode,
+            IsEncrypted, IsOneToOne, RoomNotificationMode,
         },
     };
 
@@ -350,19 +393,19 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_get_predefined_underride_room_rule_id() {
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(false, 3),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::No, IsOneToOne::No),
             PredefinedUnderrideRuleId::Message
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(false, 2),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::No, IsOneToOne::Yes),
             PredefinedUnderrideRuleId::RoomOneToOne
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(true, 3),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::Yes, IsOneToOne::No),
             PredefinedUnderrideRuleId::Encrypted
         );
         assert_eq!(
-            rules::get_predefined_underride_room_rule_id(true, 2),
+            rules::get_predefined_underride_room_rule_id(IsEncrypted::Yes, IsOneToOne::Yes),
             PredefinedUnderrideRuleId::EncryptedRoomOneToOne
         );
     }
@@ -376,7 +419,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(false, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
         // Then the mode should be `MentionsAndKeywordsOnly`
         assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
@@ -390,7 +433,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let rules = Rules::new(ruleset);
-        let mode = rules.get_default_room_notification_mode(false, 2);
+        let mode = rules.get_default_room_notification_mode(IsEncrypted::No, 2);
         // Then the mode should be `AllMessages`
         assert_eq!(mode, RoomNotificationMode::AllMessages);
     }
@@ -558,5 +601,80 @@ pub(crate) mod tests {
         assert!(!rules
             .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
             .unwrap());
+    }
+
+    #[async_test]
+    async fn test_get_rooms_with_user_defined_rules() {
+        // Without user-defined rules
+        let rules = Rules::new(get_server_default_ruleset());
+        let room_ids = rules.get_rooms_with_user_defined_rules(None);
+        assert!(room_ids.is_empty());
+
+        // With one rule.
+        let room_id = RoomId::parse("!room_a:matrix.org").unwrap();
+        let ruleset = build_ruleset(vec![(RuleKind::Override, &room_id, false)]);
+        let rules = Rules::new(ruleset);
+
+        let room_ids = rules.get_rooms_with_user_defined_rules(None);
+        assert_eq!(room_ids.len(), 1);
+
+        // With duplicates
+        let ruleset = build_ruleset(vec![
+            (RuleKind::Override, &room_id, false),
+            (RuleKind::Underride, &room_id, false),
+            (RuleKind::Room, &room_id, false),
+        ]);
+        let rules = Rules::new(ruleset);
+
+        let room_ids = rules.get_rooms_with_user_defined_rules(None);
+        assert_eq!(room_ids.len(), 1);
+        assert_eq!(room_ids[0], room_id.to_string());
+
+        // With multiple rules
+        let ruleset = build_ruleset(vec![
+            (RuleKind::Room, &RoomId::parse("!room_a:matrix.org").unwrap(), false),
+            (RuleKind::Room, &RoomId::parse("!room_b:matrix.org").unwrap(), false),
+            (RuleKind::Room, &RoomId::parse("!room_c:matrix.org").unwrap(), false),
+            (RuleKind::Override, &RoomId::parse("!room_d:matrix.org").unwrap(), false),
+            (RuleKind::Underride, &RoomId::parse("!room_e:matrix.org").unwrap(), false),
+        ]);
+        let rules = Rules::new(ruleset);
+
+        let room_ids = rules.get_rooms_with_user_defined_rules(None);
+        assert_eq!(room_ids.len(), 5);
+        let expected_set: HashSet<String> = vec![
+            "!room_a:matrix.org",
+            "!room_b:matrix.org",
+            "!room_c:matrix.org",
+            "!room_d:matrix.org",
+            "!room_e:matrix.org",
+        ]
+        .into_iter()
+        .collect();
+        assert!(expected_set.difference(HashSet::from(room_ids)).is_empty());
+
+        // Only disabled rules
+        let room_ids = rules.get_rooms_with_user_defined_rules(Some(false));
+        assert_eq!(room_ids.len(), 0);
+
+        // Only enabled rules
+        let room_ids = rules.get_rooms_with_user_defined_rules(Some(true));
+        assert_eq!(room_ids.len(), 5);
+
+        let mut ruleset = build_ruleset(vec![
+            (RuleKind::Room, &RoomId::parse("!room_a:matrix.org").unwrap(), false),
+            (RuleKind::Room, &RoomId::parse("!room_b:matrix.org").unwrap(), false),
+            (RuleKind::Override, &RoomId::parse("!room_c:matrix.org").unwrap(), false),
+            (RuleKind::Underride, &RoomId::parse("!room_d:matrix.org").unwrap(), false),
+        ]);
+        ruleset.set_enabled(RuleKind::Room, "!room_b:matrix.org", false).unwrap();
+        ruleset.set_enabled(RuleKind::Override, "!room_c:matrix.org", false).unwrap();
+        let rules = Rules::new(ruleset);
+        // Only room_a and room_d rules are enabled
+        let room_ids = rules.get_rooms_with_user_defined_rules(Some(true));
+        assert_eq!(room_ids.len(), 2);
+        let expected_set: HashSet<String> =
+            vec!["!room_a:matrix.org", "!room_d:matrix.org"].into_iter().collect();
+        assert!(expected_set.difference(HashSet::from(room_ids)).is_empty());
     }
 }

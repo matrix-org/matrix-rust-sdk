@@ -229,7 +229,7 @@ impl ClientInner {
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
     ) -> Self {
-        let (unknown_token_error_sender, _) = broadcast::channel(1);
+        let unknown_token_error_sender = broadcast::Sender::new(1);
 
         Self {
             homeserver: RwLock::new(homeserver),
@@ -950,9 +950,9 @@ impl Client {
     ///
     /// See the documentation of the authentication API's `refresh_access_token`
     /// method for more information.
-    pub async fn refresh_access_token(&self) -> HttpResult<()> {
+    pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         let Some(auth_api) = self.auth_api() else {
-            return Err(RefreshTokenError::RefreshTokenRequired.into());
+            return Err(RefreshTokenError::RefreshTokenRequired);
         };
 
         match auth_api {
@@ -1295,12 +1295,12 @@ impl Client {
             {
                 if let Err(refresh_error) = self.refresh_access_token().await {
                     match &refresh_error {
-                        HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                        RefreshTokenError::RefreshTokenRequired => {
                             // Refreshing access tokens is not supported by
                             // this `Session`, ignore.
                         }
                         _ => {
-                            return Err(refresh_error);
+                            return Err(refresh_error.into());
                         }
                     }
                 } else {

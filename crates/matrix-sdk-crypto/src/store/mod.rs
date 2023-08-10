@@ -401,8 +401,8 @@ impl Store {
         store: Arc<DynCryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let (room_keys_received_sender, _) = broadcast::channel(10);
-        let (secrets_broadcaster, _) = broadcast::channel(10);
+        let room_keys_received_sender = broadcast::Sender::new(10);
+        let secrets_broadcaster = broadcast::Sender::new(10);
 
         let inner = Arc::new(StoreInner {
             user_id,
@@ -508,8 +508,7 @@ impl Store {
         self.save_changes(changes).await
     }
 
-    #[cfg(test)]
-    /// Testing helper to allow to save only a set of InboundGroupSession
+    /// Convenience helper to persist an array of [`InboundGroupSession`]s.
     pub(crate) async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],

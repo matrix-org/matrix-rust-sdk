@@ -154,7 +154,7 @@ async fn no_refresh_token() {
         .await;
 
     let res = client.refresh_access_token().await;
-    assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired)));
+    assert_matches!(res, Err(RefreshTokenError::RefreshTokenRequired));
 }
 
 #[async_test]
@@ -348,8 +348,9 @@ async fn refresh_token_handled_failure() {
         .mount(&server)
         .await;
 
-    let res = client.whoami().await.unwrap_err();
-    assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
+    let res = client.whoami().await;
+    let http_err = assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) => http_err);
+    assert_matches!(http_err.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
 }
 
 #[async_test]
