@@ -307,6 +307,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                     "required_state": [
                         ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
                     ],
                     "filters": {
                         "is_invite": false,
