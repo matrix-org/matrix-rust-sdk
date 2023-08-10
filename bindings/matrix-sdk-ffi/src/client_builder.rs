@@ -208,7 +208,7 @@ impl Default for ClientBuilder {
             sliding_sync_proxy: None,
             proxy: None,
             disable_ssl_verification: false,
-            inner: MatrixClient::builder(),
+            inner: MatrixClient::builder().handle_refresh_tokens(),
         }
     }
 }

@@ -3266,6 +3266,7 @@ dependencies = [
  "paranoid-android",
  "ruma",
  "sanitize-filename-reader-friendly",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

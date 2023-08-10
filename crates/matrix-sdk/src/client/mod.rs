@@ -20,6 +20,7 @@ use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
+    ops::Deref,
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -27,6 +28,13 @@ use std::{
 use dashmap::DashMap;
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
+use mas_oidc_client::{
+    error::{
+        Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
+        TokenRefreshError, TokenRequestError,
+    },
+    types::errors::ClientErrorCode,
+};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;
 use matrix_sdk_base::{
@@ -69,7 +77,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, Instrument, Span};
+use tracing::{debug, error, info, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -86,6 +94,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
+    oidc::OidcError,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -124,11 +133,16 @@ pub enum LoopCtrl {
     Break,
 }
 
-/// Wrapper struct for ErrorKind::UnknownToken
+/// Represents changes that can occur to a `Client`s `Session`.
 #[derive(Debug, Clone)]
-pub struct UnknownToken {
-    /// Whether or not the session was soft logged out
-    pub soft_logout: bool,
+pub enum SessionChange {
+    /// The session's token is no longer valid.
+    UnknownToken {
+        /// Whether or not the session was soft logged out
+        soft_logout: bool,
+    },
+    /// The session's tokens have been refreshed.
+    TokensRefreshed,
 }
 
 /// An async/await enabled Matrix client.
@@ -188,9 +202,10 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
-    /// Client API UnknownToken error publisher. Allows the subscriber logout
-    /// the user when any request fails because of an invalid access token
-    pub(crate) unknown_token_error_sender: broadcast::Sender<UnknownToken>,
+    /// Session change publisher. Allows the subscriber to handle changes to the
+    /// session such as logging out when the access token is invalid or
+    /// persisting updates to the access/refresh tokens.
+    pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
 
@@ -231,7 +246,7 @@ impl ClientInner {
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
     ) -> Self {
-        let unknown_token_error_sender = broadcast::Sender::new(1);
+        let session_change_sender = broadcast::Sender::new(1);
 
         Self {
             homeserver: RwLock::new(homeserver),
@@ -257,7 +272,7 @@ impl ClientInner {
             sync_beat: event_listener::Event::new(),
             handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
-            unknown_token_error_sender,
+            session_change_sender,
             auth_data: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             cross_process_crypto_store_lock: OnceCell::new(),
@@ -971,10 +986,12 @@ impl Client {
 
         match auth_api {
             AuthApi::Matrix(a) => {
+                trace!("Token refresh: Using the homeserver.");
                 a.refresh_access_token().await?;
             }
             #[cfg(feature = "experimental-oidc")]
             AuthApi::Oidc(api) => {
+                trace!("Token refresh: Using OIDC.");
                 api.refresh_access_token().await?;
             }
         }
@@ -1305,31 +1322,64 @@ impl Client {
         ))
         .await;
 
-        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
-        // try to refresh the token and retry the request.
-        if self.inner.handle_refresh_tokens {
-            if let Err(Some(ErrorKind::UnknownToken { .. })) =
-                res.as_ref().map_err(HttpError::client_api_error_kind)
-            {
-                if let Err(refresh_error) = self.refresh_access_token().await {
-                    match &refresh_error {
-                        RefreshTokenError::RefreshTokenRequired => {
-                            // Refreshing access tokens is not supported by
-                            // this `Session`, ignore.
-                        }
-                        _ => {
-                            return Err(refresh_error.into());
-                        }
+        // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
+        if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
+            res.as_ref().map_err(HttpError::client_api_error_kind)
+        {
+            trace!("Token refresh: Unknown token error received.");
+            // If automatic token refresh isn't supported, there is nothing more to do.
+            if !self.inner.handle_refresh_tokens {
+                trace!("Token refresh: Automatic refresh disabled.");
+                self.broadcast_unknown_token(soft_logout);
+                return res;
+            }
+
+            // Try to refresh the token and retry the request.
+            if let Err(refresh_error) = self.refresh_access_token().await {
+                match &refresh_error {
+                    RefreshTokenError::RefreshTokenRequired => {
+                        trace!("Token refresh: The session doesn't have a refresh token.");
+                        // Refreshing access tokens is not supported by this `Session`, ignore.
+                        self.broadcast_unknown_token(soft_logout);
                     }
-                } else {
-                    return Box::pin(self.send_inner(
-                        request,
-                        config,
-                        sliding_sync_proxy,
-                        Default::default(),
-                    ))
-                    .await;
+                    RefreshTokenError::Oidc(oidc_error) => {
+                        let oidc_error = oidc_error.deref();
+                        match oidc_error {
+                            OidcError::Oidc(OidcClientError::TokenRefresh(
+                                TokenRefreshError::Token(TokenRequestError::Http(OidcHttpError {
+                                    body:
+                                        Some(OidcErrorBody {
+                                            error: ClientErrorCode::InvalidGrant, ..
+                                        }),
+                                    ..
+                                })),
+                            )) => {
+                                trace!("Token refresh: OIDC refresh denied.");
+                                // The refresh was denied, signal to sign out the user.
+                                self.broadcast_unknown_token(soft_logout);
+                            }
+                            _ => {
+                                trace!("Token refresh: OIDC refresh encountered a problem.");
+                                // The refresh failed for other reasons, no need
+                                // to sign out.
+                            }
+                        };
+                        return Err(refresh_error.into());
+                    }
+                    _ => {
+                        trace!("Token refresh: Token refresh failed.");
+                        return Err(refresh_error.into());
+                    }
                 }
+            } else {
+                trace!("Token refresh: Refresh succeeded, retrying request.");
+                return Box::pin(self.send_inner(
+                    request,
+                    config,
+                    sliding_sync_proxy,
+                    Default::default(),
+                ))
+                .await;
             }
         }
 
@@ -1352,8 +1402,7 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
-        let response = self
-            .inner
+        self.inner
             .http_client
             .send(
                 request,
@@ -1364,20 +1413,15 @@ impl Client {
                 self.server_versions().await?,
                 send_progress,
             )
-            .await;
+            .await
+    }
 
-        if let Err(http_error) = &response {
-            if let Some(ErrorKind::UnknownToken { soft_logout }) =
-                http_error.client_api_error_kind()
-            {
-                _ = self
-                    .inner
-                    .unknown_token_error_sender
-                    .send(UnknownToken { soft_logout: *soft_logout });
-            }
-        }
-
-        response
+    fn broadcast_unknown_token(&self, soft_logout: &bool) {
+        info!("An unknown token error has been encountered.");
+        _ = self
+            .inner
+            .session_change_sender
+            .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
 
     async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
@@ -1950,9 +1994,9 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Subscribes a new receiver to client UnknownToken errors
-    pub fn subscribe_to_unknown_token_errors(&self) -> broadcast::Receiver<UnknownToken> {
-        let broadcast = &self.inner.unknown_token_error_sender;
+    /// Subscribes a new receiver to client SessionChange broadcasts.
+    pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
+        let broadcast = &self.inner.session_change_sender;
         broadcast.subscribe()
     }
 

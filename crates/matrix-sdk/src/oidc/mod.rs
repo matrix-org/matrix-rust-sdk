@@ -209,7 +209,7 @@ pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
     end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
 };
-use crate::{authentication::AuthData, Client, RefreshTokenError, Result};
+use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
 pub(crate) struct OidcAuthData {
     pub(crate) issuer_info: AuthenticationServerInfo,
@@ -929,6 +929,11 @@ impl Oidc {
             match self.refresh_access_token_inner(session_tokens, refresh_token).await {
                 Ok(response) => {
                     *guard = Ok(());
+                    _ = self
+                        .client
+                        .inner
+                        .session_change_sender
+                        .send(SessionChange::TokensRefreshed);
                     Ok(Some(response))
                 }
                 Err(error) => {
