@@ -377,7 +377,7 @@ impl Room {
         let fallback_text = answers
             .iter()
             .enumerate()
-            .fold(question, |acc, (index, answer)| format!("{}\n{}. {}", acc, index + 1, answer));
+            .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
 
         let poll_start_event_content =
             UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
