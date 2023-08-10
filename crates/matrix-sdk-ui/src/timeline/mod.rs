@@ -495,8 +495,8 @@ impl Timeline {
             | TimelineItemContent::FailedToParseState { .. } => {
                 error_return!("Invalid state: attempting to retry a failed-to-parse item");
             }
-            TimelineItemContent::Poll(_) => {
-                todo!("Implement retry for polls.");
+            TimelineItemContent::Poll(poll_state) => {
+                AnyMessageLikeEventContent::UnstablePollStart(poll_state.into())
             }
         };
 

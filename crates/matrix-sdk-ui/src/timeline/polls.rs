@@ -10,7 +10,7 @@ use ruma::{
             unstable_response::{
                 OriginalSyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
             },
-            unstable_start::UnstablePollStartEventContent,
+            unstable_start::{UnstablePollStartContentBlock, UnstablePollStartEventContent},
         },
         MessageLikeUnsigned,
     },
@@ -85,6 +85,10 @@ impl PollState {
         clone
     }
 
+    pub fn fallback_text(&self) -> Option<String> {
+        self.start_event.content.text.clone()
+    }
+
     pub fn results(&self) -> FfiPoll {
         let responses = self
             .response_events
@@ -130,6 +134,20 @@ impl PollState {
             } else {
                 None
             },
+        }
+    }
+}
+
+impl Into<UnstablePollStartEventContent> for PollState {
+    fn into(self) -> UnstablePollStartEventContent {
+        let content = UnstablePollStartContentBlock::new(
+            self.start_event.content.poll_start.question.text.clone(),
+            self.start_event.content.poll_start.answers.clone(),
+        );
+        if let Some(text) = self.fallback_text() {
+            UnstablePollStartEventContent::plain_text(text, content)
+        } else {
+            UnstablePollStartEventContent::new(content)
         }
     }
 }
