@@ -24,7 +24,7 @@ use matrix_sdk::{
             },
             AnyMessageLikeEventContent,
         },
-        EventId, UInt, UserId,
+        EventId, UserId,
     },
     RoomMemberships, RoomState,
 };
@@ -350,7 +350,7 @@ impl Room {
         &self,
         question: String,
         answers: Vec<String>,
-        max_selections: u64,
+        max_selections: u8,
         poll_kind: PollKind,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
