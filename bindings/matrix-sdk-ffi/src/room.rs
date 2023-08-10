@@ -372,9 +372,7 @@ impl Room {
         let mut poll_content_block =
             UnstablePollStartContentBlock::new(question.clone(), poll_answers);
         poll_content_block.kind = poll_kind.into();
-        if let Some(max_selections) = UInt::new(max_selections) {
-            poll_content_block.max_selections = max_selections;
-        }
+        poll_content_block.max_selections = max_selections.into();
 
         let fallback_text = answers
             .iter()
