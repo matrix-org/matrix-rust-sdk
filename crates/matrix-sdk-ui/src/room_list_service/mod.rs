@@ -95,6 +95,9 @@ use tokio::sync::{Mutex, RwLock};
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
+    /// Client that has created this [`RoomListService`].
+    client: Client,
+
     /// The Sliding Sync instance.
     sliding_sync: Arc<SlidingSync>,
 
@@ -175,6 +178,7 @@ impl RoomListService {
             .map_err(Error::SlidingSync)?;
 
         Ok(Self {
+            client,
             sliding_sync,
             state: SharedObservable::new(State::Init),
             rooms: Arc::new(RwLock::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
@@ -256,6 +260,11 @@ impl RoomListService {
     /// state-machine into the [`State::Terminated`] state.
     pub fn stop_sync(&self) -> Result<(), Error> {
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
+    }
+
+    /// Get the [`Client`] that has been used to create [`Self`].
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Get a subscriber to the state.

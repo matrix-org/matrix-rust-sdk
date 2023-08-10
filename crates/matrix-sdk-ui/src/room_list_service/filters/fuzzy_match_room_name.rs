@@ -31,10 +31,7 @@ impl FuzzyMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(
-    client: &Client,
-    pattern: &str,
-) -> impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static {
+pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> bool {
     let searcher = FuzzyMatcher::new().with_pattern(pattern);
 
     let client = client.clone();
@@ -88,11 +85,12 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.fuzzy_match("Matrix"));
+        assert!(matcher.fuzzy_match("matrix"));
         assert!(matcher.fuzzy_match("Matrix"));
 
         let matcher = matcher.with_pattern("Mtx");
-        assert!(matcher.fuzzy_match("MatriX").not());
+        assert!(matcher.fuzzy_match("matrix").not());
+        assert!(matcher.fuzzy_match("Matrix"));
     }
 
     #[test]

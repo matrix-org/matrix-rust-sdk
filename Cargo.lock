@@ -417,6 +417,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async_cell"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "834eee9ce518130a3b4d5af09ecc43e9d6b57ee76613f227a1ddd6b77c7a62bc"
+
+[[package]]
 name = "atomic"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2937,6 +2943,7 @@ dependencies = [
  "async-std",
  "async-stream",
  "async-trait",
+ "async_cell",
  "chrono",
  "ctor",
  "eyeball",

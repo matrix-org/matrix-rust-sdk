@@ -1,5 +1,7 @@
+mod all;
 mod fuzzy_match_room_name;
 
+pub use all::new_filter as new_filter_all;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
