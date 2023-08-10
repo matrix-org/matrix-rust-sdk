@@ -121,13 +121,14 @@ impl NotificationSettings {
     /// # Arguments
     ///
     /// * `is_encrypted` - `Yes` if the room is encrypted
-    /// * `members_count` - the room members count
+    /// * `is_one_to_one` - `Yes` if the room is a direct chat involving two
+    ///   people
     pub async fn get_default_room_notification_mode(
         &self,
         is_encrypted: IsEncrypted,
-        members_count: u64,
+        is_one_to_one: IsOneToOne,
     ) -> RoomNotificationMode {
-        self.rules.read().await.get_default_room_notification_mode(is_encrypted, members_count)
+        self.rules.read().await.get_default_room_notification_mode(is_encrypted, is_one_to_one)
     }
 
     /// Get all room IDs for which a user-defined rule exists.
@@ -289,7 +290,7 @@ impl NotificationSettings {
         &self,
         room_id: &RoomId,
         is_encrypted: IsEncrypted,
-        members_count: u64,
+        is_one_to_one: IsOneToOne,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
 
@@ -302,7 +303,7 @@ impl NotificationSettings {
 
             // Get default mode for this room
             let default_mode =
-                rules.get_default_room_notification_mode(is_encrypted, members_count);
+                rules.get_default_room_notification_mode(is_encrypted, is_one_to_one);
 
             // If the default mode is `Mute`, set it to `AllMessages`
             if default_mode == RoomNotificationMode::Mute {
@@ -518,7 +519,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::AllMessages
         );
     }
@@ -537,7 +538,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client.to_owned(), ruleset.to_owned());
         assert_eq!(
-            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
 
@@ -549,7 +550,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
@@ -849,7 +850,7 @@ mod tests {
         );
 
         // Unmute the room
-        settings.unmute_room(&room_id, IsEncrypted::Yes, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::Yes, IsOneToOne::Yes).await.unwrap();
 
         // The ruleset must not be modified
         assert_eq!(
@@ -883,7 +884,7 @@ mod tests {
         );
 
         // Unmute the room
-        settings.unmute_room(&room_id, IsEncrypted::No, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::No, IsOneToOne::Yes).await.unwrap();
 
         // The user defined mode must have been removed
         assert!(settings.get_user_defined_room_notification_mode(&room_id).await.is_none());
@@ -898,7 +899,7 @@ mod tests {
         let settings = client.notification_settings().await;
 
         // Unmute the room
-        settings.unmute_room(&room_id, IsEncrypted::No, 2).await.unwrap();
+        settings.unmute_room(&room_id, IsEncrypted::No, IsOneToOne::Yes).await.unwrap();
 
         // The new mode must be `AllMessages`
         assert_eq!(
@@ -934,7 +935,7 @@ mod tests {
 
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
-            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::AllMessages
         );
 
@@ -958,7 +959,7 @@ mod tests {
         // and the new mode returned by `get_default_room_notification_mode()` should
         // reflect the change.
         assert_matches!(
-            settings.get_default_room_notification_mode(IsEncrypted::No, 2).await,
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
