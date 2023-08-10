@@ -7,7 +7,7 @@ use once_cell::sync::OnceCell;
 use tracing::{callsite::DefaultCallsite, field::FieldSet, Callsite};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
-/// Log an event at the given callsite (file, line and column).
+/// Log an event.
 ///
 /// The target should be something like a module path, and can be referenced in
 /// the filter string given to `setup_tracing`. `level` and `target` for a
@@ -16,22 +16,15 @@ use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 /// following `log_event`s with the same callsite will be ignored.
 ///
 /// This function leaks a little bit of memory for each unique (file + line +
-/// column + level + target) it is called with. Please make sure that the number
-/// of different combinations of those parameters this can be called with is
+/// level + target) it is called with. Please make sure that the number of
+/// different combinations of those parameters this can be called with is
 /// constant in the final executable.
 #[uniffi::export]
-fn log_event(
-    file: String,
-    line: u32,
-    column: u32,
-    level: LogLevel,
-    target: String,
-    message: String,
-) {
+fn log_event(file: String, line: Option<u32>, level: LogLevel, target: String, message: String) {
     static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
         Mutex::new(BTreeMap::new());
 
-    let id = MetadataId::new(file, line, column, level, target, None);
+    let id = MetadataId { file, line, level, target, name: None };
     let callsite = get_or_init_metadata(&CALLSITES, id, &["message"], MetadataKind::EVENT);
     let metadata = callsite.metadata();
 
@@ -64,13 +57,16 @@ fn get_or_init_metadata(
             Box::leak(
                 id.name
                     .clone()
-                    .unwrap_or_else(|| format!("event {}:{}", id.file, id.line))
+                    .unwrap_or_else(|| match id.line {
+                        Some(line) => format!("event {}:{line}", id.file),
+                        None => format!("event {}", id.file),
+                    })
                     .into_boxed_str(),
             ),
             Box::leak(id.target.as_str().into()),
             id.level.to_tracing_level(),
             Some(Box::leak(Box::from(id.file.as_str()))),
-            Some(id.line),
+            id.line,
             None, // module path
             FieldSet::new(field_names, identify_callsite!(callsite)),
             meta_kind,
@@ -112,9 +108,9 @@ impl Span {
     /// callsite will be ignored.
     ///
     /// This function leaks a little bit of memory for each unique (file + line
-    /// + column + level + target + name) it is called with. Please make sure
-    /// that the number of different combinations of those parameters this can
-    /// be called with is constant in the final executable.
+    /// + level + target + name) it is called with. Please make sure that the
+    /// number of different combinations of those parameters this can be called
+    /// with is constant in the final executable.
     ///
     /// For a span to have an effect, you must `.enter()` it at the start of a
     /// logical unit of work and `.exit()` it at the end of the same (including
@@ -129,8 +125,7 @@ impl Span {
     #[uniffi::constructor]
     pub fn new(
         file: String,
-        line: u32,
-        column: u32,
+        line: Option<u32>,
         level: LogLevel,
         target: String,
         name: String,
@@ -138,7 +133,7 @@ impl Span {
         static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
             Mutex::new(BTreeMap::new());
 
-        let loc = MetadataId::new(file, line, column, level, target, Some(name));
+        let loc = MetadataId { file, line, level, target, name: Some(name) };
         let callsite = get_or_init_metadata(&CALLSITES, loc, &[], MetadataKind::SPAN);
         let metadata = callsite.metadata();
 
@@ -195,24 +190,10 @@ impl LogLevel {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct MetadataId {
     file: String,
-    line: u32,
-    column: u32,
+    line: Option<u32>,
     level: LogLevel,
     target: String,
     name: Option<String>,
-}
-
-impl MetadataId {
-    fn new(
-        file: String,
-        line: u32,
-        column: u32,
-        level: LogLevel,
-        target: String,
-        name: Option<String>,
-    ) -> Self {
-        Self { file, line, column, level, target, name }
-    }
 }
 
 struct LateInitCallsite(OnceCell<DefaultCallsite>);
