@@ -57,7 +57,7 @@ use crate::{
 /// This can be observed with [`SyncService::state`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
-    /// The service hasn't ever been started yet, or has been paused.
+    /// The service hasn't ever been started yet, or has been stopped.
     Idle,
     /// The underlying syncs are properly running in the background.
     Running,
@@ -343,7 +343,7 @@ impl SyncService {
 
         match self.state.get() {
             State::Idle | State::Terminated | State::Error => {
-                // No need to pause if we were not running.
+                // No need to stop if we were not running.
                 return Ok(());
             }
             State::Running => {}
