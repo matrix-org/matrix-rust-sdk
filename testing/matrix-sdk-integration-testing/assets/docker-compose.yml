@@ -2,7 +2,6 @@
 version: '3'
 
 services:
-
   synapse:
     build: .
     restart: "no"
@@ -10,7 +9,6 @@ services:
       disable: true
     volumes:
       - matrix-rust-sdk-ci-data:/data
-      
     ports:
       - 8228:8008/tcp
 
