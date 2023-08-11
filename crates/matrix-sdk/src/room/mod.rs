@@ -1468,6 +1468,7 @@ impl Room {
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     /// [`StateUnsigned`]: ruma::events::StateUnsigned
     /// [`transaction_id`]: ruma::events::StateUnsigned#structfield.transaction_id
+    #[instrument(skip_all, fields(event_type, room_id = %self.room_id(), transaction_id, encrypted))]
     pub async fn send_raw(
         &self,
         content: serde_json::Value,
@@ -1477,6 +1478,7 @@ impl Room {
         self.ensure_room_joined()?;
 
         let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
+        tracing::Span::current().record("transaction_id", tracing::field::debug(&txn_id));
 
         #[cfg(not(feature = "e2e-encryption"))]
         let content = {
@@ -1489,6 +1491,7 @@ impl Room {
 
         #[cfg(feature = "e2e-encryption")]
         let (content, event_type) = if self.is_encrypted().await? {
+            tracing::Span::current().record("encrypted", tracing::field::debug(&txn_id));
             // Reactions are currently famously not encrypted, skip encrypting
             // them until they are.
             if event_type == "m.reaction" {
