@@ -16,13 +16,13 @@ use ruma::events::poll::unstable_start::{
 use ruma::events::relation::Replacement;
 use ruma::events::room::message::Relation;
 use ruma::events::AnyMessageLikeEventContent;
-use ruma::{OwnedEventId, UInt, UserId};
+use ruma::{server_name, EventId, OwnedEventId, UInt, UserId};
 
 #[async_test]
 async fn start_poll_event_should_have_initial_poll_state() {
-    let (_timeline, mut stream) = create_timeline_with_start_poll_event().await;
-    let start_event = get_poll_start_event(&mut stream);
-    let poll_state = PollState::try_from(start_event.content()).unwrap();
+    let (timeline, mut stream) = create_timeline().await;
+    timeline.send_poll_start_event().await;
+    let poll_state = get_poll_start_event(&mut stream).poll_state();
 
     assert_poll_description(&poll_state);
     assert_eq!(poll_state.response_events.is_empty(), true);
@@ -31,23 +31,22 @@ async fn start_poll_event_should_have_initial_poll_state() {
 }
 
 #[async_test]
-async fn eidt_start_poll_event_should_have_edited_poll_state() {
-    let (timeline, mut stream) = create_timeline_with_start_poll_event().await;
+async fn edit_start_poll_event_should_have_edited_poll_state() {
+    let (timeline, mut stream) = create_timeline().await;
+    timeline.send_poll_start_event().await;
     let start_event = get_poll_start_event(&mut stream);
-    let _original_poll_state = PollState::try_from(start_event.content()).unwrap();
     timeline.send_poll_start_edit_event(start_event.event_id().unwrap().to_owned()).await;
-    let updated_start_event = get_updated_poll_event(&mut stream);
-    let updated_poll_state = PollState::try_from(updated_start_event.content()).unwrap();
+    let updated_poll_state = get_updated_poll_event(&mut stream).poll_state();
 
-    assert_poll_description(&_original_poll_state);
+    assert_poll_description(&start_event.poll_state());
     assert_edited_poll_description(&updated_poll_state);
-
     assert_no_more_updates(&mut stream).await;
 }
 
 #[async_test]
 async fn poll_response_event_should_update_poll_state() {
-    let (timeline, mut stream) = create_timeline_with_start_poll_event().await;
+    let (timeline, mut stream) = create_timeline().await;
+    timeline.send_poll_start_event().await;
     let start_event = get_poll_start_event(&mut stream);
     timeline
         .send_poll_response_event(
@@ -56,8 +55,7 @@ async fn poll_response_event_should_update_poll_state() {
             start_event.event_id().unwrap().to_owned(),
         )
         .await;
-    let updated_start_event = get_updated_poll_event(&mut stream);
-    let poll_state = PollState::try_from(updated_start_event.content()).unwrap();
+    let poll_state = get_updated_poll_event(&mut stream).poll_state();
 
     assert_poll_description(&poll_state);
     assert_eq!(poll_state.response_events.len(), 1);
@@ -76,7 +74,8 @@ async fn poll_response_event_should_update_poll_state() {
 
 #[async_test]
 async fn two_poll_response_events_should_update_poll_state() {
-    let (timeline, mut stream) = create_timeline_with_start_poll_event().await;
+    let (timeline, mut stream) = create_timeline().await;
+    timeline.send_poll_start_event().await;
     let start_event = get_poll_start_event(&mut stream);
     timeline
         .send_poll_response_event(
@@ -85,9 +84,7 @@ async fn two_poll_response_events_should_update_poll_state() {
             start_event.event_id().unwrap().to_owned(),
         )
         .await;
-    let start_event_after_1st_vote = get_updated_poll_event(&mut stream);
-    let _poll_state_after_first_vote =
-        PollState::try_from(start_event_after_1st_vote.content()).unwrap();
+    let _start_event_after_1st_vote = get_updated_poll_event(&mut stream);
     timeline
         .send_poll_response_event(
             &BOB,
@@ -95,37 +92,47 @@ async fn two_poll_response_events_should_update_poll_state() {
             start_event.event_id().unwrap().to_owned(),
         )
         .await;
-    let start_event_after_2nd_vote = get_updated_poll_event(&mut stream);
-    let _poll_state_after_2nd_vote =
-        PollState::try_from(start_event_after_2nd_vote.content()).unwrap();
+    let poll_state_after_2nd_vote = get_updated_poll_event(&mut stream).poll_state();
 
-    assert_poll_description(&_poll_state_after_2nd_vote);
-    assert_eq!(_poll_state_after_2nd_vote.response_events.len(), 2);
-    assert_eq!(_poll_state_after_2nd_vote.response_events[0].sender, ALICE.to_owned());
-    assert_eq!(_poll_state_after_2nd_vote.response_events[0].timestamp.0, UInt::new(1).unwrap());
+    assert_poll_description(&poll_state_after_2nd_vote);
+    assert_eq!(poll_state_after_2nd_vote.response_events.len(), 2);
+    assert_eq!(poll_state_after_2nd_vote.response_events[0].sender, ALICE.to_owned());
+    assert_eq!(poll_state_after_2nd_vote.response_events[0].timestamp.0, UInt::new(1).unwrap());
     assert_eq!(
-        _poll_state_after_2nd_vote.response_events[0]
-            .content
-            .poll_response
-            .answers
-            .first()
-            .unwrap(),
+        poll_state_after_2nd_vote.response_events[0].content.poll_response.answers.first().unwrap(),
         "id_up"
     );
-    assert_eq!(_poll_state_after_2nd_vote.response_events[1].sender, BOB.to_owned());
-    assert_eq!(_poll_state_after_2nd_vote.response_events[1].timestamp.0, UInt::new(2).unwrap());
+    assert_eq!(poll_state_after_2nd_vote.response_events[1].sender, BOB.to_owned());
+    assert_eq!(poll_state_after_2nd_vote.response_events[1].timestamp.0, UInt::new(2).unwrap());
     assert_eq!(
-        _poll_state_after_2nd_vote.response_events[1]
-            .content
-            .poll_response
-            .answers
-            .first()
-            .unwrap(),
+        poll_state_after_2nd_vote.response_events[1].content.poll_response.answers.first().unwrap(),
         "id_up"
     );
 
-    let poll = _poll_state_after_2nd_vote.results();
+    let poll = poll_state_after_2nd_vote.results();
     assert_eq!(poll.votes["id_up"], vec!["@alice:server.name", "@bob:other.server"]);
+
+    assert_no_more_updates(&mut stream).await;
+}
+
+#[async_test]
+async fn poll_with_weird_event_order() {
+    let poll_start_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
+    let (timeline, mut stream) = create_timeline().await;
+    timeline.send_poll_response_event(&BOB, vec!["id_up".to_string()], poll_start_id.clone()).await;
+    timeline
+        .send_poll_response_event(&ALICE, vec!["id_up".to_string()], poll_start_id.clone())
+        .await;
+    timeline.send_poll_start_event_with_id(poll_start_id.clone()).await;
+
+    let poll_state = get_poll_start_event(&mut stream).poll_state();
+    assert_poll_description(&poll_state);
+
+    assert_eq!(poll_state.response_events.len(), 2);
+    assert_eq!(
+        poll_state.response_events[1].content.poll_response.answers.first().unwrap(),
+        "id_up"
+    );
 
     assert_no_more_updates(&mut stream).await;
 }
@@ -148,6 +155,27 @@ impl TestTimeline {
                 content,
             )),
         )
+        .await
+    }
+
+    async fn send_poll_start_event_with_id(self: &Self, event_id: OwnedEventId) {
+        let mut content = UnstablePollStartContentBlock::new(
+            "Up or down?",
+            UnstablePollAnswers::try_from(vec![
+                UnstablePollAnswer::new("id_up".to_string(), "Up".to_string()),
+                UnstablePollAnswer::new("id_down".to_string(), "Down".to_string()),
+            ])
+            .unwrap(),
+        );
+        content.kind = PollKind::Disclosed;
+
+        self.handle_live_custom_event(self.make_message_event_with_id(
+            &ALICE,
+            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::new(
+                content,
+            )),
+            event_id,
+        ))
         .await
     }
 
@@ -189,11 +217,9 @@ impl TestTimeline {
     }
 }
 
-async fn create_timeline_with_start_poll_event(
-) -> (TestTimeline, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
+async fn create_timeline() -> (TestTimeline, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
     let timeline = TestTimeline::new();
     let stream = timeline.subscribe().await;
-    timeline.send_poll_start_event().await;
     (timeline, stream)
 }
 
@@ -240,13 +266,11 @@ fn assert_edited_poll_description(poll_state: &PollState) {
     assert_eq!(start_content.answers[1].text, "Down edited");
 }
 
-impl TryFrom<&TimelineItemContent> for PollState {
-    type Error = ();
-
-    fn try_from(value: &TimelineItemContent) -> Result<PollState, Self::Error> {
-        match value {
-            TimelineItemContent::Poll(poll_state) => Ok(poll_state.clone()),
-            _ => Err(()),
+impl EventTimelineItem {
+    fn poll_state(self) -> PollState {
+        match self.content() {
+            TimelineItemContent::Poll(poll_state) => poll_state.clone(),
+            _ => panic!("Not a poll state"),
         }
     }
 }

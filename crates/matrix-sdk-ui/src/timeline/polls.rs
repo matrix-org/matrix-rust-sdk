@@ -17,7 +17,7 @@ use ruma::{
         },
         MessageLikeUnsigned,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, ServerName,
 };
 
 /// Holds the state of a poll.
@@ -70,42 +70,50 @@ impl PollState {
         &self,
         timestamp: MilliSecondsSinceUnixEpoch,
         replacement: &UnstablePollStartEventContentWithoutRelation,
-    ) -> Self {
-        let mut clone = self.clone();
-        clone.start_event.timestamp = timestamp;
-        clone.start_event.content.poll_start = replacement.poll_start.clone();
-        clone.start_event.content.text = replacement.text.clone();
-        clone
+    ) -> Result<Self, ()> {
+        if self.response_events.is_empty() && self.end_event.is_none() {
+            let mut clone = self.clone();
+            clone.start_event.timestamp = timestamp;
+            clone.start_event.content.poll_start = replacement.poll_start.clone();
+            clone.start_event.content.text = replacement.text.clone();
+            Ok(clone)
+        } else {
+            Err(())
+        }
     }
 
     pub(super) fn add_response(
         &self,
-        sender: OwnedUserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-        content: UnstablePollResponseEventContent,
+        sender: &OwnedUserId,
+        timestamp: &MilliSecondsSinceUnixEpoch,
+        content: &UnstablePollResponseEventContent,
     ) -> Self {
         let mut clone = self.clone();
-        clone.response_events.push(ResponseEvent { sender, timestamp, content });
+        clone.response_events.push(ResponseEvent {
+            sender: sender.clone(),
+            timestamp: timestamp.clone(),
+            content: content.clone(),
+        });
         clone
     }
 
     pub(super) fn end(
         &self,
-        sender: OwnedUserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-        content: UnstablePollEndEventContent,
+        sender: &OwnedUserId,
+        timestamp: &MilliSecondsSinceUnixEpoch,
+        content: &UnstablePollEndEventContent,
     ) -> Self {
         let mut clone = self.clone();
-        clone.end_event = Some(EndEvent { sender, timestamp, content });
+        clone.end_event = Some(EndEvent {
+            sender: sender.clone(),
+            timestamp: timestamp.clone(),
+            content: content.clone(),
+        });
         clone
     }
 
     pub fn fallback_text(&self) -> Option<String> {
         self.start_event.content.text.clone()
-    }
-
-    pub fn can_edit(&self) -> bool {
-        self.response_events.is_empty() && self.end_event.is_none()
     }
 
     pub fn results(&self) -> FfiPoll {
@@ -167,6 +175,55 @@ impl Into<UnstablePollStartEventContent> for PollState {
             UnstablePollStartEventContent::plain_text(text, content)
         } else {
             UnstablePollStartEventContent::new(content)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct PollCache {
+    pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseEvent>>,
+    pub(super) pending_poll_ends: HashMap<OwnedEventId, EndEvent>,
+}
+
+impl PollCache {
+    pub(super) fn add_response(
+        &mut self,
+        start_id: &OwnedEventId,
+        sender: &OwnedUserId,
+        timestamp: &MilliSecondsSinceUnixEpoch,
+        content: &UnstablePollResponseEventContent,
+    ) {
+        self.pending_poll_responses.entry(start_id.clone()).or_insert(vec![]).push(ResponseEvent {
+            sender: sender.clone(),
+            timestamp: timestamp.clone(),
+            content: content.clone(),
+        });
+    }
+
+    pub(super) fn add_end(
+        &mut self,
+        start_id: &OwnedEventId,
+        sender: &OwnedUserId,
+        timestamp: &MilliSecondsSinceUnixEpoch,
+        content: &UnstablePollEndEventContent,
+    ) {
+        self.pending_poll_ends.insert(
+            start_id.clone(),
+            EndEvent {
+                sender: sender.clone(),
+                timestamp: timestamp.clone(),
+                content: content.clone(),
+            },
+        );
+    }
+
+    /// Adds all response and end event in the cache to the given poll_state
+    pub(super) fn apply(&mut self, start_event_id: &OwnedEventId, poll_state: &mut PollState) {
+        if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
+            poll_state.response_events.append(pending_responses)
+        }
+        if let Some(pending_end) = self.pending_poll_ends.get_mut(start_event_id) {
+            poll_state.end_event = Some(pending_end.clone())
         }
     }
 }
