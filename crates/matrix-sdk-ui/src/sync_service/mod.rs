@@ -88,7 +88,18 @@ pub struct SyncService {
     /// Task running the encryption sync.
     encryption_sync_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 
+    /// Scheduler task ensuring proper termination.
+    ///
+    /// This task is waiting for a `TerminationReport` from any of the other two
+    /// tasks, or from a user request via [`Self::stop()`]. It makes sure
+    /// that the two services are properly shut up and just interrupted.
+    ///
+    /// This is set at the same time as the other two tasks.
     scheduler_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+
+    /// `TerminationReport` sender for the [`Self::stop()`] function.
+    ///
+    /// This is set at the same time as all the tasks in [`Self::start()`].
     scheduler_sender: Mutex<Option<Sender<TerminationReport>>>,
 }
 
