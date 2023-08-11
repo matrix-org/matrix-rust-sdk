@@ -38,6 +38,7 @@ pub struct SendEventRequest {
     state_key: String,
     content: serde_json::Value,
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SendEventResponse {
     room_id: String,

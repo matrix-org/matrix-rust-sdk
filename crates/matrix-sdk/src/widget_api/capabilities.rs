@@ -4,7 +4,7 @@ use super::{
     messages::{
         capabilities::{EventFilter, Options},
         from_widget::{
-            ReadEventRequest as RawReadEventRequest, SendEventRequest, SendEventResponse,
+            ReadEventRequest, SendEventRequest, SendEventResponse,
             SendToDeviceRequest,
         },
         MatrixEvent,
@@ -25,29 +25,6 @@ pub trait EventReader: Send {
     async fn read(&mut self, req: ReadEventRequest) -> Result<Vec<MatrixEvent>>;
     fn filter(&self) -> Vec<EventFilter>;
 }
-
-#[derive(Debug, Clone)]
-pub struct ReadEventRequest {
-    pub limit: usize,
-    pub description: EventDescription,
-}
-
-impl From<RawReadEventRequest> for ReadEventRequest {
-    fn from(req: RawReadEventRequest) -> Self {
-        Self {
-            limit: req.limit,
-            description: EventDescription {
-                event_type: req.message_type,
-                kind: if req.state_key.is_empty() {
-                    EventKind::Timeline
-                } else {
-                    EventKind::State { key: req.state_key }
-                },
-            },
-        }
-    }
-}
-
 #[async_trait]
 pub trait EventWriter: Send {
     async fn write(&mut self, req: SendEventRequest) -> Result<SendEventResponse>;
@@ -57,18 +34,6 @@ pub trait EventWriter: Send {
 #[async_trait]
 pub trait ToDeviceSender: Send {
     async fn send(&mut self, req: SendToDeviceRequest) -> Result<()>;
-}
-
-#[derive(Debug, Clone)]
-pub struct EventDescription {
-    pub event_type: String,
-    pub kind: EventKind,
-}
-
-#[derive(Debug, Clone)]
-pub enum EventKind {
-    State { key: String },
-    Timeline,
 }
 
 impl<'t> From<&'t Capabilities> for Options {

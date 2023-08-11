@@ -3,10 +3,7 @@ use crate::widget_api::messages::from_widget::{
 };
 
 use super::{
-    super::{
-        capabilities::ReadEventRequest,
-        messages::{openid, MatrixEvent, SupportedVersions},
-    },
+    super::messages::{from_widget::ReadEventRequest, openid, MatrixEvent, SupportedVersions},
     Request,
 };
 
