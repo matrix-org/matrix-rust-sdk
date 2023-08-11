@@ -17,8 +17,8 @@ use std::{fmt::Debug, sync::Arc};
 use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_ui::sync_service::{
-    SyncService as MatrixSyncService, SyncServiceBuilder as MatrixSyncServiceBuilder,
-    SyncServiceState as MatrixSyncServiceState,
+    State as MatrixSyncServiceState, SyncService as MatrixSyncService,
+    SyncServiceBuilder as MatrixSyncServiceBuilder,
 };
 
 use crate::{

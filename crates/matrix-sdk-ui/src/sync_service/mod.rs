@@ -56,7 +56,7 @@ use crate::{
 ///
 /// This can be observed with [`SyncService::state`].
 #[derive(Clone, Debug, PartialEq)]
-pub enum SyncServiceState {
+pub enum State {
     /// The service hasn't ever been started yet, or has been paused.
     Idle,
     /// The underlying syncs are properly running in the background.
@@ -75,7 +75,7 @@ pub struct SyncService {
     encryption_sync: Option<Arc<EncryptionSync>>,
 
     /// What's the state of this sync service?
-    state: SharedObservable<SyncServiceState>,
+    state: SharedObservable<State>,
 
     /// Use a mutex everytime to modify the `state` value, otherwise it would be
     /// possible to have race conditions when starting or pausing the
@@ -116,7 +116,7 @@ impl SyncService {
     }
 
     /// Returns the state of the sync service.
-    pub fn state(&self) -> Subscriber<SyncServiceState> {
+    pub fn state(&self) -> Subscriber<State> {
         self.state.subscribe()
     }
 
@@ -194,11 +194,11 @@ impl SyncService {
                     }
                 }
 
-                state.set(SyncServiceState::Error);
+                state.set(State::Error);
             } else if matches!(report.origin, TerminationOrigin::Scheduler) {
-                state.set(SyncServiceState::Idle);
+                state.set(State::Idle);
             } else {
-                state.set(SyncServiceState::Terminated);
+                state.set(State::Terminated);
             }
         }
         .instrument(tracing::span!(Level::WARN, "scheduler task"))
@@ -306,7 +306,7 @@ impl SyncService {
         let _guard = self.modifying_state.lock().await;
 
         // Only (re)start the tasks if any was stopped.
-        if matches!(self.state.get(), SyncServiceState::Running) {
+        if matches!(self.state.get(), State::Running) {
             // It was already true, so we can skip the restart.
             return;
         }
@@ -329,7 +329,7 @@ impl SyncService {
         *self.scheduler_sender.lock().unwrap() = Some(sender);
         *self.scheduler_task.lock().unwrap() = Some(spawn(self.spawn_scheduler_task(receiver)));
 
-        self.state.set(SyncServiceState::Running);
+        self.state.set(State::Running);
     }
 
     /// Stop the underlying sliding syncs.
@@ -342,11 +342,11 @@ impl SyncService {
         let _guard = self.modifying_state.lock().await;
 
         match self.state.get() {
-            SyncServiceState::Idle | SyncServiceState::Terminated | SyncServiceState::Error => {
+            State::Idle | State::Terminated | State::Error => {
                 // No need to pause if we were not running.
                 return Ok(());
             }
-            SyncServiceState::Running => {}
+            State::Running => {}
         };
 
         trace!("pausing sync service");
@@ -495,7 +495,7 @@ impl SyncServiceBuilder {
             room_list_task: Arc::new(Mutex::new(None)),
             scheduler_task: Arc::new(Mutex::new(None)),
             scheduler_sender: Mutex::new(None),
-            state: SharedObservable::new(SyncServiceState::Idle),
+            state: SharedObservable::new(State::Idle),
             modifying_state: AsyncMutex::new(()),
         })
     }
