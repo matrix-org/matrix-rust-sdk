@@ -1416,6 +1416,37 @@ impl Room {
         self.send_raw(content, &event_type, txn_id).await
     }
 
+    /// Run /keys/query requests for all the non-tracked users.
+    #[cfg(feature = "e2e-encryption")]
+    async fn query_keys_for_untracked_users(&self) -> Result<()> {
+        use std::collections::HashMap;
+
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        let members =
+            self.client.store().get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
+
+        let tracked: HashMap<_, _> = olm
+            .store()
+            .load_tracked_users()
+            .await?
+            .into_iter()
+            .map(|tracked| (tracked.user_id, tracked.dirty))
+            .collect();
+
+        // A member has no unknown devices iff it was tracked *and* the tracking is
+        // not considered dirty.
+        let members_with_unknown_devices =
+            members.iter().filter(|member| tracked.get(*member).map_or(true, |dirty| *dirty));
+
+        let (req_id, request) =
+            olm.query_keys_for_users(members_with_unknown_devices.map(|owned| owned.borrow()));
+
+        self.client.keys_query(&req_id, request.device_keys).await?;
+        Ok(())
+    }
+
     /// Send a room message to this room from a json `Value`.
     ///
     /// Returns the parsed response from the server.
@@ -1512,7 +1543,9 @@ impl Room {
 
                 if !self.are_members_synced() {
                     self.sync_members().await?;
-                    // TODO query keys here?
+
+                    // Query keys in case we don't have them for newly synced members.
+                    self.query_keys_for_untracked_users().await?;
                 }
 
                 self.preshare_room_key().await?;
