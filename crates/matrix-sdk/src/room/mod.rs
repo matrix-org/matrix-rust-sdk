@@ -467,11 +467,10 @@ impl Room {
     /// Returns true if the room is encrypted, otherwise false.
     pub async fn is_encrypted(&self) -> Result<bool> {
         if !self.is_encryption_state_synced() {
-            let encryption = self.request_encryption_state().await?;
-            Ok(encryption.is_some())
-        } else {
-            Ok(self.inner.is_encrypted())
+            self.request_encryption_state().await?;
         }
+
+        Ok(self.inner.is_encrypted())
     }
 
     fn are_events_visible(&self) -> bool {
