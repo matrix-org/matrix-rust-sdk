@@ -31,6 +31,7 @@
   - `get_presence_events`
   - `get_users_with_display_names`
 - Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
+- Add `Room::subscribe_info`
 
 ## 0.5.1
 
