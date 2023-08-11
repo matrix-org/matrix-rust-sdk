@@ -410,28 +410,22 @@ impl Room {
         }
     }
 
-    async fn request_encryption_state(&self) -> Result<Option<RoomEncryptionEventContent>> {
-        if let Some(mutex) = self
-            .client
-            .inner
-            .encryption_state_request_locks
-            .get(self.inner.room_id())
-            .map(|m| m.clone())
-        {
+    async fn request_encryption_state(&self) -> Result<()> {
+        let mut map = self.client.inner.encryption_state_request_locks.lock().await;
+
+        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
             // If a encryption state request is already going on, await the release of
             // the lock.
+            drop(map);
             _ = mutex.lock().await;
-
-            Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .inner
-                .encryption_state_request_locks
-                .insert(self.inner.room_id().to_owned(), mutex.clone());
+            map.insert(self.inner.room_id().to_owned(), mutex.clone());
 
             let _guard = mutex.lock().await;
+            drop(map);
 
+            // Request the event from the server.
             let request = get_state_events_for_key::v3::Request::new(
                 self.inner.room_id().to_owned(),
                 StateEventType::RoomEncryption,
@@ -446,19 +440,30 @@ impl Room {
             };
 
             let sync_lock = self.client.base_client().sync_lock().read().await;
+
+            // Persist the event and the fact that we requested it from the server in
+            // `RoomInfo`.
             let mut room_info = self.inner.clone_info();
             room_info.mark_encryption_state_synced();
             room_info.set_encryption_event(response.clone());
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
+
             self.client.store().save_changes(&changes).await?;
             self.update_summary(room_info);
+
+            // Alright, we're done, release the locks and let the client send an event to
+            // the room.
             drop(sync_lock);
-
-            self.client.inner.encryption_state_request_locks.remove(self.inner.room_id());
-
-            Ok(response)
+            self.client
+                .inner
+                .encryption_state_request_locks
+                .lock()
+                .await
+                .remove(self.inner.room_id());
         }
+
+        Ok(())
     }
 
     /// Check whether this room is encrypted. If the room encryption state is

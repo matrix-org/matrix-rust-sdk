@@ -160,7 +160,7 @@ pub(crate) struct ClientInner {
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Locks for requests on the encryption state of rooms.
-    pub(crate) encryption_state_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) encryption_state_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
