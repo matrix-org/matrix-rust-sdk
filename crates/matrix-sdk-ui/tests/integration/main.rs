@@ -30,6 +30,7 @@ mod encryption_sync;
 mod notification_client;
 mod room_list_service;
 mod sliding_sync;
+mod sync_service;
 mod timeline;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -14,16 +14,16 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_ui::sync_service::{
-    SyncService as MatrixSyncService, SyncServiceBuilder as MatrixSyncServiceBuilder,
-    SyncServiceState as MatrixSyncServiceState,
+    State as MatrixSyncServiceState, SyncService as MatrixSyncService,
+    SyncServiceBuilder as MatrixSyncServiceBuilder,
 };
 
 use crate::{
-    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    task_handle::TaskHandle, RUNTIME,
+    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService, TaskHandle,
+    RUNTIME,
 };
 
 #[derive(uniffi::Enum)]
@@ -61,6 +61,14 @@ impl SyncService {
         Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
+    pub async fn start(&self) {
+        self.inner.start().await;
+    }
+
+    pub async fn stop(&self) -> Result<(), ClientError> {
+        Ok(self.inner.stop().await?)
+    }
+
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
@@ -71,19 +79,6 @@ impl SyncService {
                 listener.on_update(state.into());
             }
         })))
-    }
-
-    pub fn current_state(&self) -> SyncServiceState {
-        self.inner.state().get().into()
-    }
-
-    pub async fn start(&self) -> Result<(), ClientError> {
-        let start = self.inner.start();
-        Ok(start.await?)
-    }
-
-    pub fn pause(&self) -> Result<(), ClientError> {
-        Ok(self.inner.pause()?)
     }
 }
 

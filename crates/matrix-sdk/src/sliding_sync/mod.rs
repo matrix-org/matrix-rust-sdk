@@ -730,8 +730,14 @@ impl SlidingSync {
     /// Expiring a Sliding Sync session means: resetting `pos`. It also cleans
     /// up the `past_positions`, and resets sticky parameters.
     ///
+    /// This should only be used when it's clear that this session was about to
+    /// expire anyways, and should be used only in very specific cases (e.g.
+    /// multiple sliding syncs being run in parallel, and one of them has
+    /// expired).
+    ///
     /// This method **MUST** be called when the sync-loop is stopped.
-    async fn expire_session(&self) {
+    #[doc(hidden)]
+    pub async fn expire_session(&self) {
         info!("Session expired; resetting `pos` and sticky parameters");
 
         {
