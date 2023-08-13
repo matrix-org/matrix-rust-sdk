@@ -203,7 +203,13 @@ impl OidcCli {
         }
 
         let metadata = client_metadata();
-        let res = oidc.register_client(&issuer_info.issuer, metadata.clone()).await?;
+
+        // During registration, we have the option of providing a software statement,
+        // which is a digitally signed version of the client metadata. That would allow
+        // to update the metadata later without changing the client ID, but requires to
+        // have a way to serve public keys online to validate the signature of
+        // the JWT.
+        let res = oidc.register_client(&issuer_info.issuer, metadata.clone(), None).await?;
 
         let client_data = RegisteredClientData {
             // The format of the credentials changes according to the client metadata that was sent.

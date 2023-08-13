@@ -979,9 +979,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "795bc6e66a8e340f075fcf6227e417a2dc976b92b91f3cdc778bb858778b6747"
+checksum = "28c122c3980598d243d63d9a704629a2d748d101f278052ff068be5a4423ab6f"
 
 [[package]]
 name = "const_format"
@@ -1340,9 +1340,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c7ed52955ce76b1554f509074bb357d3fb8ac9b51288a65a3fd480d1dfba946"
+checksum = "fffa369a668c8af7dbf8b5e56c9f744fbd399949ed171606040001947de40b1c"
 dependencies = [
  "const-oid",
  "der_derive",
@@ -1353,11 +1353,10 @@ dependencies = [
 
 [[package]]
 name = "der_derive"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "114792ba6b7545d3f3dd693794aed3a312a67795cd577fcc725c148d84fabe32"
+checksum = "5fe87ce4529967e0ba1dcf8450bab64d97dfd5010a6256187ffe2e43e6f0e049"
 dependencies = [
- "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn 2.0.28",
@@ -2856,7 +2855,7 @@ dependencies = [
 [[package]]
 name = "mas-http"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2866,7 +2865,7 @@ dependencies = [
  "hyper",
  "mas-tower",
  "once_cell",
- "opentelemetry 0.19.0",
+ "opentelemetry",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -2874,13 +2873,13 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-opentelemetry 0.19.0",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
 name = "mas-iana"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "schemars",
  "serde",
@@ -2889,7 +2888,7 @@ dependencies = [
 [[package]]
 name = "mas-jose"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "base64ct",
  "chrono",
@@ -2919,7 +2918,7 @@ dependencies = [
 [[package]]
 name = "mas-keystore"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "aead 0.5.2",
  "base64ct",
@@ -2948,7 +2947,7 @@ dependencies = [
 [[package]]
 name = "mas-oidc-client"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "base64ct",
  "bytes",
@@ -2961,6 +2960,7 @@ dependencies = [
  "http-body",
  "hyper",
  "hyper-rustls",
+ "language-tags",
  "mas-http",
  "mas-iana",
  "mas-jose",
@@ -2985,16 +2985,17 @@ dependencies = [
 [[package]]
 name = "mas-tower"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "http",
- "opentelemetry 0.19.0",
- "opentelemetry-http 0.8.0",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-semantic-conventions",
  "pin-project-lite",
  "tokio",
  "tower",
  "tracing",
- "tracing-opentelemetry 0.19.0",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -3259,7 +3260,7 @@ dependencies = [
  "matrix-sdk-ui",
  "mime",
  "once_cell",
- "opentelemetry 0.20.0",
+ "opentelemetry",
  "opentelemetry-otlp",
  "paranoid-android",
  "ruma",
@@ -3271,7 +3272,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-core",
- "tracing-opentelemetry 0.20.0",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uniffi",
  "url",
@@ -3714,7 +3715,7 @@ dependencies = [
 [[package]]
 name = "oauth2-types"
 version = "0.1.0"
-source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=d6130176b526f9e490ba6bfd2949694ddd6cc665#d6130176b526f9e490ba6bfd2949694ddd6cc665"
+source = "git+https://github.com/matrix-org/matrix-authentication-service?rev=4280045b24bc71ef1fa100c0a046ed15e6e20748#4280045b24bc71ef1fa100c0a046ed15e6e20748"
 dependencies = [
  "chrono",
  "data-encoding",
@@ -3828,34 +3829,12 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f4b8347cc26099d3aeee044065ecc3ae11469796b4d65d065a23a584ed92a6f"
-dependencies = [
- "opentelemetry_api 0.19.0",
- "opentelemetry_sdk 0.19.0",
-]
-
-[[package]]
-name = "opentelemetry"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9591d937bc0e6d2feb6f71a559540ab300ea49955229c347a517a28d27784c54"
 dependencies = [
- "opentelemetry_api 0.20.0",
- "opentelemetry_sdk 0.20.0",
-]
-
-[[package]]
-name = "opentelemetry-http"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a819b71d6530c4297b49b3cae2939ab3a8cc1b9f382826a1bc29dd0ca3864906"
-dependencies = [
- "async-trait",
- "bytes",
- "http",
- "opentelemetry_api 0.19.0",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
 ]
 
 [[package]]
@@ -3867,7 +3846,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "http",
- "opentelemetry_api 0.20.0",
+ "opentelemetry_api",
  "reqwest",
 ]
 
@@ -3880,11 +3859,11 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http",
- "opentelemetry-http 0.9.0",
+ "opentelemetry-http",
  "opentelemetry-proto",
  "opentelemetry-semantic-conventions",
- "opentelemetry_api 0.20.0",
- "opentelemetry_sdk 0.20.0",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
  "prost",
  "reqwest",
  "thiserror",
@@ -3898,8 +3877,8 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1e3f814aa9f8c905d0ee4bde026afd3b2577a97c10e1699912e3e44f0c4cbeb"
 dependencies = [
- "opentelemetry_api 0.20.0",
- "opentelemetry_sdk 0.20.0",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
  "prost",
  "tonic",
 ]
@@ -3910,23 +3889,7 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73c9f9340ad135068800e7f1b24e9e09ed9e7143f5bf8518ded3d3ec69789269"
 dependencies = [
- "opentelemetry 0.20.0",
-]
-
-[[package]]
-name = "opentelemetry_api"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed41783a5bf567688eb38372f2b7a8530f5a607a4b49d38dd7573236c23ca7e2"
-dependencies = [
- "fnv",
- "futures-channel",
- "futures-util",
- "indexmap 1.9.3",
- "once_cell",
- "pin-project-lite",
- "thiserror",
- "urlencoding",
+ "opentelemetry",
 ]
 
 [[package]]
@@ -3947,26 +3910,6 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3a2a91fdbfdd4d212c0dcc2ab540de2c2bcbbd90be17de7a7daf8822d010c1"
-dependencies = [
- "async-trait",
- "crossbeam-channel",
- "dashmap",
- "fnv",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "once_cell",
- "opentelemetry_api 0.19.0",
- "percent-encoding",
- "rand 0.8.5",
- "thiserror",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa8e705a0612d48139799fcbaba0d4a90f06277153e43dd2bdc16c6f0edd8026"
@@ -3977,7 +3920,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "once_cell",
- "opentelemetry_api 0.20.0",
+ "opentelemetry_api",
  "ordered-float",
  "percent-encoding",
  "rand 0.8.5",
@@ -4500,7 +4443,6 @@ dependencies = [
  "proc-macro-error-attr",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
  "version_check",
 ]
 
@@ -5323,9 +5265,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.181"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d3e73c93c3240c0bda063c239298e633114c69a888c3e37ca8bb33f343e9890"
+checksum = "32ac8da02677876d532745a130fc9d8e6edfa81a269b107c5b00829b91d8eb3c"
 dependencies = [
  "serde_derive",
 ]
@@ -5341,9 +5283,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.181"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be02f6cb0cd3a5ec20bbcfbcbd749f57daddb1a0882dc2e46a6c236c90b977ed"
+checksum = "aafe972d60b0b9bee71a91b92fee2d4fb3c9d7e8f6b179aa99f27203d99a4816"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5429,14 +5371,15 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21e47d95bc83ed33b2ecf84f4187ad1ab9685d18ff28db000c99deac8ce180e3"
+checksum = "1402f54f9a3b9e2efe71c1cea24e648acce55887983553eeb858cf3115acfd49"
 dependencies = [
  "base64 0.21.2",
  "chrono",
  "hex",
  "indexmap 1.9.3",
+ "indexmap 2.0.0",
  "serde",
  "serde_json",
  "serde_with_macros",
@@ -5445,9 +5388,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea3cee93715c2e266b9338b7544da68a9f24e227722ba482bd1c024367c77c65"
+checksum = "9197f1ad0e3c173a0222d3c4404fb04c3afe87e962bcb327af73e8301fa203c7"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -6167,26 +6110,12 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00a39dcf9bfc1742fa4d6215253b33a6e474be78275884c216fc2a06267b3600"
-dependencies = [
- "once_cell",
- "opentelemetry 0.19.0",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc09e402904a5261e42cf27aea09ccb7d5318c6717a9eec3d8e2e65c56b18f19"
 dependencies = [
  "once_cell",
- "opentelemetry 0.20.0",
+ "opentelemetry",
  "tracing",
  "tracing-core",
  "tracing-log",

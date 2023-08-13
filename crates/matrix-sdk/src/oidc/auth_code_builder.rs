@@ -68,15 +68,14 @@ impl OidcAuthCodeUrlBuilder {
         let provider_metadata = oidc.provider_metadata().await?;
 
         // TODO: Add support for more parameters.
-        let authorization_data = AuthorizationRequestData {
-            client_id: data.credentials.client_id(),
-            code_challenge_methods_supported: provider_metadata
-                .code_challenge_methods_supported
-                .as_deref(),
-            scope: &scope,
-            redirect_uri: &redirect_uri,
-            prompt: prompt.as_deref(),
-        };
+        let mut authorization_data = AuthorizationRequestData::new(
+            data.credentials.client_id().to_owned(),
+            scope,
+            redirect_uri,
+        );
+        authorization_data.code_challenge_methods_supported =
+            provider_metadata.code_challenge_methods_supported.clone();
+        authorization_data.prompt = prompt;
 
         // TODO: use Pushed Authorization Request if possible.
         // <https://www.rfc-editor.org/rfc/rfc9126>

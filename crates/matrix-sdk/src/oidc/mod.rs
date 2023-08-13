@@ -189,7 +189,7 @@ use mas_oidc_client::{
         oidc::VerifiedProviderMetadata,
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         requests::AccessTokenResponse,
-        scope::{Scope, ScopeToken},
+        scope::{MatrixApiScopeToken, Scope, ScopeToken},
         IdToken,
     },
 };
@@ -481,6 +481,13 @@ impl Oidc {
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] to register.
     ///
+    /// * `software_statement` - A [software statement], a digitally signed
+    ///   version of the metadata, as a JWT. Any claim in this JWT will override
+    ///   the corresponding field in the client metadata. It must include a
+    ///   `software_id` claim that is used to uniquely identify a client and
+    ///   ensure the same `client_id` is returned on subsequent registration,
+    ///   allowing to update the registered client metadata.
+    ///
     /// The credentials in the response should be persisted for future use and
     /// reused for the same issuer, along with the client metadata sent to the
     /// provider, even for different sessions or user accounts.
@@ -499,7 +506,7 @@ impl Oidc {
     ///
     /// if let Some(info) = oidc.authentication_server_info() {
     ///     let response = oidc
-    ///         .register_client(&info.issuer, metadata.clone())
+    ///         .register_client(&info.issuer, metadata.clone(), None)
     ///         .await?;
     ///
     ///     println!(
@@ -521,10 +528,13 @@ impl Oidc {
     /// }
     /// # anyhow::Ok(()) }
     /// ```
+    ///
+    /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
     pub async fn register_client(
         &self,
         issuer: &str,
         client_metadata: VerifiedClientMetadata,
+        software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
         let provider_metadata = self.given_provider_metadata(issuer).await?;
         let registration_endpoint = provider_metadata
@@ -532,12 +542,14 @@ impl Oidc {
             .as_ref()
             .ok_or(OidcError::NoRegistrationSupport)?;
 
-        // TODO: Support software statement (RFC7591) / Metadata signature (MSC2966)
-        // <https://datatracker.ietf.org/doc/html/rfc7591#autoid-8>
-
-        register_client(&self.http_service(), registration_endpoint, client_metadata)
-            .await
-            .map_err(Into::into)
+        register_client(
+            &self.http_service(),
+            registration_endpoint,
+            client_metadata,
+            software_statement,
+        )
+        .await
+        .map_err(Into::into)
     }
 
     /// Set the data of a client that is registered with an OpenID Connect
@@ -704,7 +716,7 @@ impl Oidc {
 
         let scope = [
             ScopeToken::Openid,
-            ScopeToken::MatrixApi,
+            ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
             ScopeToken::try_with_matrix_device(device_id).or(Err(OidcError::InvalidDeviceId))?,
         ]
         .into_iter()
