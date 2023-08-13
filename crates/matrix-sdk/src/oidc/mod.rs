@@ -265,7 +265,6 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        // TODO: be able to get the account URL at anytime. In the session?
         self.client.inner.authentication_server_info.as_ref()
     }
 
