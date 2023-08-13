@@ -203,8 +203,12 @@ use url::Url;
 
 mod auth_code_builder;
 mod data_serde;
+mod end_session_builder;
 
-pub use self::auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData};
+pub use self::{
+    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
+};
 use crate::{authentication::AuthData, Client, RefreshTokenError, Result};
 
 pub(crate) struct OidcAuthData {
@@ -943,7 +947,13 @@ impl Oidc {
     }
 
     /// Log out from the currently authenticated session.
-    pub async fn logout(&self) -> Result<(), OidcError> {
+    ///
+    /// On success, if the provider supports [RP-Initiated Logout], an
+    /// [`OidcEndSessionUrlBuilder`] will be provided to build the URL allowing
+    /// the user to log out from their account in the provider's interface.
+    ///
+    /// [RP-Initiated Logout]: https://openid.net/specs/openid-connect-rpinitiated-1_0.html
+    pub async fn logout(&self) -> Result<Option<OidcEndSessionUrlBuilder>, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let client_credentials = self.client_credentials().ok_or(OidcError::NotAuthenticated)?;
 
@@ -979,10 +989,16 @@ impl Oidc {
             .await?;
         }
 
-        // TODO: Add support for generating RP-Initiated Logout URL
-        // <https://openid.net/specs/openid-connect-rpinitiated-1_0.html>
+        let end_session_builder =
+            provider_metadata.end_session_endpoint.clone().map(|end_session_endpoint| {
+                OidcEndSessionUrlBuilder::new(
+                    self.clone(),
+                    end_session_endpoint,
+                    client_credentials.client_id().to_owned(),
+                )
+            });
 
-        Ok(())
+        Ok(end_session_builder)
     }
 }
 

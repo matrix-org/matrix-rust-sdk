@@ -48,6 +48,7 @@ experimental-oidc = [
     "ruma/unstable-msc2967",
     "dep:rand",
     "dep:chrono",
+    "dep:language-tags",
 ]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
@@ -75,8 +76,9 @@ eyre = { version = "0.6.8", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
-imbl = { version = "2.0.0", features = ["serde"] }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
+imbl = { version = "2.0.0", features = ["serde"] }
+language-tags = { version = "0.3.2", optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }

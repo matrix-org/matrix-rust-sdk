@@ -3067,6 +3067,7 @@ dependencies = [
  "hyper",
  "image 0.24.6",
  "imbl",
+ "language-tags",
  "mas-oidc-client",
  "matrix-sdk-base",
  "matrix-sdk-common",
