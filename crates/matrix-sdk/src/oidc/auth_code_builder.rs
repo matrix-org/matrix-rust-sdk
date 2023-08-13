@@ -14,16 +14,19 @@
 
 use std::{collections::HashSet, num::NonZeroU32};
 
+use chrono::Utc;
 use language_tags::LanguageTag;
 use mas_oidc_client::{
-    requests::authorization_code::{build_authorization_url, AuthorizationRequestData},
+    requests::authorization_code::{
+        build_authorization_url, build_par_authorization_url, AuthorizationRequestData,
+    },
     types::{
         requests::{Display, Prompt},
         scope::Scope,
     },
 };
 use ruma::UserId;
-use tracing::{info, instrument};
+use tracing::{error, info, instrument};
 use url::Url;
 
 use super::{Oidc, OidcError};
@@ -131,6 +134,9 @@ impl OidcAuthCodeUrlBuilder {
     /// This URL should be presented to the user and once they are redirected to
     /// the `redirect_uri`, the authorization can be completed by calling
     /// [`Oidc::finish_authorization()`].
+    ///
+    /// Returns an error if the client registration was not restored, or if a
+    /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
         let Self {
@@ -171,14 +177,58 @@ impl OidcAuthCodeUrlBuilder {
             authorization_data.id_token_hint = Some(id_token.into_string());
         }
 
-        // TODO: use Pushed Authorization Request if possible.
-        // <https://www.rfc-editor.org/rfc/rfc9126>
+        let authorization_endpoint = provider_metadata.authorization_endpoint();
+        let mut rng = super::rng()?;
 
-        let (url, validation_data) = build_authorization_url(
-            provider_metadata.authorization_endpoint().clone(),
-            authorization_data,
-            &mut super::rng()?,
-        )?;
+        // Try a pushed authorization request if the provider supports it.
+        let (url, validation_data) = if let Some(par_endpoint) =
+            &provider_metadata.pushed_authorization_request_endpoint
+        {
+            let client_credentials =
+                oidc.client_credentials().ok_or(OidcError::NotAuthenticated)?;
+
+            let res = build_par_authorization_url(
+                &oidc.http_service(),
+                client_credentials.clone(),
+                par_endpoint,
+                authorization_endpoint.clone(),
+                authorization_data.clone(),
+                Utc::now(),
+                &mut rng,
+            )
+            .await;
+
+            match res {
+                Ok(res) => res,
+                Err(error) => {
+                    // Keycloak doesn't allow public clients to use the PAR endpoint, so we
+                    // should try a regular authorization URL instead.
+                    // See: <https://github.com/keycloak/keycloak/issues/8939>
+                    let client_metadata =
+                        oidc.client_metadata().ok_or(OidcError::NotAuthenticated)?;
+
+                    // If the client said that PAR should be enforced, we should not try without
+                    // it, so just return the error.
+                    if client_metadata.require_pushed_authorization_requests.unwrap_or_default() {
+                        return Err(error.into());
+                    }
+
+                    error!(
+                        ?error,
+                        "Error making a request to the Pushed Authorization Request endpoint. \
+                        Falling back to a regular authorization URL"
+                    );
+
+                    build_authorization_url(
+                        authorization_endpoint.clone(),
+                        authorization_data,
+                        &mut rng,
+                    )?
+                }
+            }
+        } else {
+            build_authorization_url(authorization_endpoint.clone(), authorization_data, &mut rng)?
+        };
 
         let state = validation_data.state.clone();
 
