@@ -12,10 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::HashSet, num::NonZeroU32};
+
+use language_tags::LanguageTag;
 use mas_oidc_client::{
     requests::authorization_code::{build_authorization_url, AuthorizationRequestData},
-    types::{requests::Prompt, scope::Scope},
+    types::{
+        requests::{Display, Prompt},
+        scope::Scope,
+    },
 };
+use ruma::UserId;
 use tracing::{info, instrument};
 use url::Url;
 
@@ -32,20 +39,89 @@ pub struct OidcAuthCodeUrlBuilder {
     oidc: Oidc,
     scope: Scope,
     redirect_uri: Url,
+    display: Option<Display>,
     prompt: Option<Vec<Prompt>>,
+    max_age: Option<NonZeroU32>,
+    ui_locales: Option<Vec<LanguageTag>>,
+    login_hint: Option<String>,
+    acr_values: Option<HashSet<String>>,
 }
 
 impl OidcAuthCodeUrlBuilder {
     pub(super) fn new(oidc: Oidc, scope: Scope, redirect_uri: Url) -> Self {
-        Self { oidc, scope, redirect_uri, prompt: None }
+        Self {
+            oidc,
+            scope,
+            redirect_uri,
+            display: None,
+            prompt: None,
+            max_age: None,
+            ui_locales: None,
+            login_hint: None,
+            acr_values: None,
+        }
+    }
+
+    /// Set how the Authorization Server should display the authentication and
+    /// consent user interface pages to the End-User.
+    pub fn display(mut self, display: Display) -> Self {
+        self.display = Some(display);
+        self
     }
 
     /// Set the [`Prompt`] of the authorization URL.
     ///
     /// [`Prompt::Create`] can be used to signify that the user wants to
-    /// register a new account.
+    /// register a new account. If [`Prompt::None`] is used, it must be the only
+    /// value.
     pub fn prompt(mut self, prompt: Vec<Prompt>) -> Self {
         self.prompt = Some(prompt);
+        self
+    }
+
+    /// Set the allowable elapsed time in seconds since the last time the
+    /// End-User was actively authenticated by the OpenID Provider.
+    pub fn max_age(mut self, max_age: NonZeroU32) -> Self {
+        self.max_age = Some(max_age);
+        self
+    }
+
+    /// Set the preferred locales of the user.
+    ///
+    /// Must be ordered from the preferred locale to the least preferred locale.
+    pub fn ui_locales(mut self, ui_locales: Vec<LanguageTag>) -> Self {
+        self.ui_locales = Some(ui_locales);
+        self
+    }
+
+    /// Set the hint to the Authorization Server about the login identifier the
+    /// End-User might use to log in.
+    ///
+    /// To set a Matrix user ID as a login hint, use [`Self::user_id_hint()`].
+    ///
+    /// Erases any value set with [`Self::user_id_hint()`].
+    pub fn login_hint(mut self, login_hint: String) -> Self {
+        self.login_hint = Some(login_hint);
+        self
+    }
+
+    /// Set the hint to the Authorization Server about the Matrix user ID the
+    /// End-User might use to log in.
+    ///
+    /// To set another type of identifier as a login hint, use
+    /// [`Self::login_hint()`].
+    ///
+    /// Erases any value set with [`Self::login_hint()`].
+    pub fn user_id_hint(mut self, user_id: &UserId) -> Self {
+        self.login_hint = Some(format!("mxid:{user_id}"));
+        self
+    }
+
+    /// Set the requested Authentication Context Class Reference values.
+    ///
+    /// This is only necessary with specific providers.
+    pub fn acr_values(mut self, acr_values: HashSet<String>) -> Self {
+        self.acr_values = Some(acr_values);
         self
     }
 
@@ -57,7 +133,17 @@ impl OidcAuthCodeUrlBuilder {
     /// [`Oidc::finish_authorization()`].
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
-        let Self { oidc, scope, redirect_uri, prompt } = self;
+        let Self {
+            oidc,
+            scope,
+            redirect_uri,
+            display,
+            prompt,
+            max_age,
+            ui_locales,
+            login_hint,
+            acr_values,
+        } = self;
 
         let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
         info!(
@@ -67,7 +153,6 @@ impl OidcAuthCodeUrlBuilder {
 
         let provider_metadata = oidc.provider_metadata().await?;
 
-        // TODO: Add support for more parameters.
         let mut authorization_data = AuthorizationRequestData::new(
             data.credentials.client_id().to_owned(),
             scope,
@@ -75,7 +160,16 @@ impl OidcAuthCodeUrlBuilder {
         );
         authorization_data.code_challenge_methods_supported =
             provider_metadata.code_challenge_methods_supported.clone();
+        authorization_data.display = display;
         authorization_data.prompt = prompt;
+        authorization_data.max_age = max_age;
+        authorization_data.ui_locales = ui_locales;
+        authorization_data.login_hint = login_hint;
+        authorization_data.acr_values = acr_values;
+
+        if let Some(id_token) = oidc.latest_id_token() {
+            authorization_data.id_token_hint = Some(id_token.into_string());
+        }
 
         // TODO: use Pushed Authorization Request if possible.
         // <https://www.rfc-editor.org/rfc/rfc9126>
