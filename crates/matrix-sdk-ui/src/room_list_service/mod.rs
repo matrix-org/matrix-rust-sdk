@@ -384,7 +384,7 @@ fn configure_all_or_visible_rooms_list(
 #[derive(Debug, Error)]
 pub enum Error {
     /// Error from [`matrix_sdk::SlidingSync`].
-    #[error("SlidingSync failed")]
+    #[error("SlidingSync failed: {0}")]
     SlidingSync(SlidingSyncError),
 
     /// An operation has been requested on an unknown list.
