@@ -14,37 +14,38 @@ use crate::widget_api::{
 #[allow(missing_debug_implementations)]
 #[derive(Default)]
 pub struct Capabilities {
-    pub event_listener: Option<UnboundedReceiver<MatrixEvent>>,
-    pub event_reader: Option<Box<dyn EventReader>>,
-    pub event_sender: Option<Box<dyn EventSender>>,
+    pub listener: Option<UnboundedReceiver<MatrixEvent>>,
+    pub reader: Option<Box<dyn EventReader>>,
+    pub sender: Option<Box<dyn EventSender>>,
 }
 
 #[async_trait]
-pub trait EventReader: Send {
+pub trait EventReader: EventHandler + Send {
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse>;
-    fn get_filter(&self) -> &Vec<Filter>;
 }
 
 #[async_trait]
-pub trait EventSender: Send {
+pub trait EventSender: EventHandler + Send {
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse>;
-    fn get_filter(&self) -> &Vec<Filter>;
+}
+
+pub trait EventHandler {
+    fn filters(&self) -> &[Filter];
 }
 
 impl<'t> From<&'t Capabilities> for Options {
-    fn from(capabilities: &'t Capabilities) -> Self {
-        Options {
-            // room events
-            send_filter: match &capabilities.event_sender {
-                None => vec![],
-                Some(sender) => sender.get_filter().clone(),
-            },
-            read_filter: match &capabilities.event_reader {
-                None => vec![],
-                Some(reader) => reader.get_filter().clone(),
-            },
-
-            // all other unimplemented capabilities
+    fn from(c: &'t Capabilities) -> Self {
+        Self {
+            send_filter: c
+                .sender
+                .as_ref()
+                .map(|e| e.filters().to_owned())
+                .unwrap_or_default(),
+            read_filter: c
+                .reader
+                .as_ref()
+                .map(|e| e.filters().to_owned())
+                .unwrap_or_default(),
             ..Options::default()
         }
     }

@@ -1,5 +1,3 @@
-use std::result::Result as StdResult;
-
 mod api;
 mod capabilities;
 mod incoming;
@@ -8,7 +6,7 @@ mod request;
 
 pub use self::{
     api::{Client, OpenIDState, Widget},
-    capabilities::{Capabilities, EventReader, EventSender},
+    capabilities::{Capabilities, EventHandler, EventReader, EventSender},
     incoming::Message as Incoming,
     outgoing::OutgoingMessage,
     request::Request,
@@ -46,7 +44,7 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
             Incoming::ContentLoaded(r) => {
                 let response = match self.capabilities.as_ref() {
                     Some(..) => Ok(()),
-                    None => Err("Capabilities have already been sent"),
+                    None => Err(Error::AlreadyLoaded),
                 };
                 r.reply(response)?;
                 self.initialise().await?;
@@ -93,23 +91,19 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
         Ok(())
     }
 
-    async fn read_events(
-        &mut self,
-        req: &ReadEventRequest,
-    ) -> StdResult<ReadEventResponse, &'static str> {
-        let fut = self.caps()?.event_reader.as_ref().ok_or("No permissions")?.read(req.clone());
-        fut.await.map_err(|_| "Failed to read events")
+    async fn read_events(&mut self, req: &ReadEventRequest) -> Result<ReadEventResponse> {
+        let fut =
+            self.caps()?.reader.as_ref().ok_or(Error::InvalidPermissions)?.read(req.clone());
+        fut.await
     }
 
-    async fn send_event(
-        &mut self,
-        req: &SendEventRequest,
-    ) -> StdResult<SendEventResponse, &'static str> {
-        let fut = self.caps()?.event_sender.as_ref().ok_or("No permissions")?.send(req.clone());
-        fut.await.map_err(|_| "Failed to write events")
+    async fn send_event(&mut self, req: &SendEventRequest) -> Result<SendEventResponse> {
+        let fut =
+            self.caps()?.sender.as_ref().ok_or(Error::InvalidPermissions)?.send(req.clone());
+        fut.await
     }
 
-    fn caps(&mut self) -> StdResult<&mut Capabilities, &'static str> {
-        self.capabilities.as_mut().ok_or("Capabilities have not been negotiated")
+    fn caps(&mut self) -> Result<&mut Capabilities> {
+        self.capabilities.as_mut().ok_or(Error::InvalidPermissions)
     }
 }

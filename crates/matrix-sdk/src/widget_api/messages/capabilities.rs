@@ -2,6 +2,8 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::{MatrixEvent, from_widget::SendEventRequest};
+
 const SEND_EVENT: &str = "org.matrix.msc2762.m.send.event";
 const READ_EVENT: &str = "org.matrix.msc2762.m.receive.event";
 const SEND_STATE: &str = "org.matrix.msc2762.m.send.state_event";
@@ -9,14 +11,10 @@ const READ_STATE: &str = "org.matrix.msc2762.m.receive.state_event";
 
 #[derive(Debug, Default, Clone)]
 pub struct Options {
-    pub screenshot: bool,
-
-    // room events
     pub send_filter: Vec<Filter>,
     pub read_filter: Vec<Filter>,
-    // state events
-    pub always_on_screen: bool, // "m.always_on_screen",
-
+    pub screenshot: bool,
+    pub always_on_screen: bool,
     pub requires_client: bool,
 }
 
@@ -137,17 +135,12 @@ pub enum Filter {
 }
 
 impl EventFilter for Filter {
-    fn allow_event(
-        &self,
-        message_type: &String,
-        state_key: &Option<String>,
-        content: &serde_json::Value,
-    ) -> bool {
+    fn allow(&self, input: FilterInput) -> bool {
         match self {
-            Filter::Timeline(f) => f.allow_event(message_type, state_key, content),
-            Filter::State(f) => f.allow_event(message_type, state_key, content),
-            Filter::AllowAllTimeline => state_key.is_none(),
-            Filter::AllowAllState => state_key.is_some(),
+            Filter::Timeline(f) => f.allow(input),
+            Filter::State(f) => f.allow(input),
+            Filter::AllowAllTimeline => input.state_key.is_none(),
+            Filter::AllowAllState => input.state_key.is_some(),
         }
     }
 }
@@ -159,6 +152,7 @@ impl Filter {
             Filter::State(_) | Filter::AllowAllState => true,
         }
     }
+
     fn capability_extension(&self) -> Result<String, serde_json::Error> {
         match self {
             Filter::State(s_filter) => serde_json::to_string(s_filter),
@@ -168,13 +162,36 @@ impl Filter {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FilterInput<'a> {
+    pub message_type: &'a str,
+    pub state_key: Option<&'a str>,
+    pub content: &'a serde_json::Value,
+}
+
+impl<'a> From<&'a MatrixEvent> for FilterInput<'a> {
+    fn from(event: &'a MatrixEvent) -> Self {
+        Self {
+            message_type: event.event_type.as_str(),
+            state_key: event.state_key.as_ref().map(|s| s.as_str()),
+            content: &event.content,
+        }
+    }
+}
+
+impl<'a> From<&'a SendEventRequest> for FilterInput<'a> {
+    fn from(req: &'a SendEventRequest) -> Self {
+        Self {
+            message_type: req.message_type.as_str(),
+            state_key: req.state_key.as_ref().map(|s| s.as_str()),
+            content: &req.content,
+        }
+    }
+}
+
+
 pub trait EventFilter {
-    fn allow_event(
-        &self,
-        message_type: &String,
-        state_key: &Option<String>,
-        content: &serde_json::Value,
-    ) -> bool;
+    fn allow(&self, input: FilterInput) -> bool;
 }
 
 #[derive(Debug, Default, Clone)]
@@ -184,29 +201,20 @@ pub struct TimelineFilter {
 }
 
 impl EventFilter for TimelineFilter {
-    fn allow_event(
-        &self,
-        message_type: &String,
-        _state_key: &Option<String>,
-        content: &serde_json::Value,
-    ) -> bool {
-        if message_type == &self.event_type {
-            if let Some(msgtype) = self.msgtype.clone() {
-                if message_type == "m.room.message" {
-                    if content
-                        .get("msgtype")
-                        .unwrap_or(&serde_json::to_value("").unwrap())
-                        .to_string()
-                        == msgtype
-                    {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            return true;
+    fn allow(&self, input: FilterInput) -> bool {
+        if self.event_type != input.message_type {
+            return false;
         }
-        return false;
+
+        let Some(allowed_type) = self.msgtype.as_ref() else {
+            return true;
+        };
+
+        if input.message_type != "m.room.message" {
+            return false;
+        }
+
+        input.content.get("msgtype").map(|t| &t.to_string() == allowed_type).unwrap_or(false)
     }
 }
 
@@ -217,19 +225,16 @@ pub struct StateFilter {
 }
 
 impl EventFilter for StateFilter {
-    fn allow_event(
-        &self,
-        message_type: &String,
-        state_key: &Option<String>,
-        _content: &serde_json::Value,
-    ) -> bool {
-        if message_type == &self.event_type {
-            if let (Some(filter_key), Some(ev_key)) = (self.state_key.clone(), state_key.clone()) {
-                return filter_key == ev_key;
-            }
-            return true;
+    fn allow(&self, input: FilterInput) -> bool {
+        if &self.event_type != input.message_type {
+            return false;
         }
-        return false;
+
+        self.state_key
+            .as_ref()
+            .zip(input.state_key)
+            .map(|(expected, passed)| expected == passed)
+            .unwrap_or(false)
     }
 }
 
