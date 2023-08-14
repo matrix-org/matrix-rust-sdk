@@ -507,7 +507,7 @@ mod test {
     use serde_json::json;
 
     use super::*;
-    use crate::{store::MemoryStore, SessionMeta};
+    use crate::{store::MemoryStore, RoomStateFilter, SessionMeta};
 
     #[async_test]
     async fn can_process_empty_sliding_sync_response() {
@@ -556,6 +556,7 @@ mod test {
         // Then the room appears in the client with the expected name
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
+        assert_eq!(client_room.state(), RoomState::Joined);
     }
 
     #[async_test]
@@ -575,6 +576,7 @@ mod test {
         // Then the room appears in the client with the expected name
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
+        assert_eq!(client_room.state(), RoomState::Invited);
     }
 
     #[async_test]
@@ -659,6 +661,54 @@ mod test {
         // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
         assert!(direct_targets(&client, room_id).contains(user_b_id));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
+    }
+
+    #[async_test]
+    async fn members_count_in_a_dm_where_other_person_has_joined() {
+        let room_id = room_id!("!r:bar.org");
+        let user_a_id = user_id!("@a:bar.org");
+        let user_b_id = user_id!("@b:bar.org");
+
+        // Given we have a DM with B, who is joined
+        let client = logged_in_client().await;
+        create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
+
+        // (Sanity: A is in Join state)
+        assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
+
+        // (Sanity: B is a direct target, and is in Join state)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
+
+        let room = client.get_room(room_id).unwrap();
+
+        assert_eq!(room.active_members_count(), 2);
+        assert_eq!(room.joined_members_count(), 2);
+        assert_eq!(room.invited_members_count(), 0);
+    }
+
+    #[async_test]
+    async fn members_count_in_a_dm_where_other_person_is_invited() {
+        let room_id = room_id!("!r:bar.org");
+        let user_a_id = user_id!("@a:bar.org");
+        let user_b_id = user_id!("@b:bar.org");
+
+        // Given we have a DM with B, who is joined
+        let client = logged_in_client().await;
+        create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
+
+        // (Sanity: A is in Join state)
+        assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
+
+        // (Sanity: B is a direct target, and is in Join state)
+        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
+
+        let room = client.get_room(room_id).unwrap();
+
+        assert_eq!(room.active_members_count(), 2);
+        assert_eq!(room.joined_members_count(), 1);
+        assert_eq!(room.invited_members_count(), 1);
     }
 
     #[async_test]
@@ -1166,7 +1216,26 @@ mod test {
     ) {
         let mut room = v4::SlidingSyncRoom::new();
         set_room_joined(&mut room, my_id);
+
+        match other_state {
+            MembershipState::Join => {
+                room.joined_count = Some(uint!(2));
+                room.invited_count = None;
+            }
+
+            MembershipState::Invite => {
+                room.joined_count = Some(uint!(1));
+                room.invited_count = Some(uint!(1));
+            }
+
+            _ => {
+                room.joined_count = Some(uint!(1));
+                room.invited_count = None;
+            }
+        }
+
         room.required_state.push(make_membership_event(their_id, other_state));
+
         let mut response = response_with_room(room_id, room).await;
         set_direct_with(&mut response, their_id.to_owned(), vec![room_id.to_owned()]);
         client.process_sliding_sync(&response).await.expect("Failed to process sync");

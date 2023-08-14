@@ -9,6 +9,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Receipts,
 };
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -80,7 +81,7 @@ async fn invite_user_by_3pid() {
 }
 
 #[async_test]
-async fn leave_room() {
+async fn leave_room() -> Result<(), anyhow::Error> {
     let (client, server) = logged_in_client().await;
 
     Mock::given(method("POST"))
@@ -94,11 +95,15 @@ async fn leave_room() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let _response = client.sync_once(sync_settings).await.unwrap();
+    let _response = client.sync_once(sync_settings).await?;
 
     let room = client.get_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
-    room.leave().await.unwrap();
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    Ok(())
 }
 
 #[async_test]
