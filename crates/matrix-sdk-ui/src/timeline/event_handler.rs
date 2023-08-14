@@ -803,11 +803,8 @@ impl<'a> TimelineEventHandler<'a> {
 
                     if txn_id.is_none() {
                         // The event was created by this client, but the server
-                        // sent it back without a transaction ID. This occurs
-                        // very often right now due to a sliding-sync bug:
-                        // https://github.com/matrix-org/sliding-sync/issues/3
-                        // TODO: Raise log level once that bug is fixed
-                        trace!("Received remote echo without transaction ID");
+                        // sent it back without a transaction ID.
+                        warn!("Received remote echo without transaction ID");
                     }
 
                     // TODO: Check whether anything is different about the
