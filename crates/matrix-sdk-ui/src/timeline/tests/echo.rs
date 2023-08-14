@@ -45,8 +45,9 @@ async fn remote_echo_full_trip() {
     // Scenario 1: The local event has not been sent yet to the server.
     let id = {
         let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-        let event = item.as_event().unwrap();
-        assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
+        let event_item = item.as_event().unwrap();
+        assert!(event_item.is_local_echo());
+        assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet));
         item.unique_id()
     };
 
@@ -63,8 +64,9 @@ async fn remote_echo_full_trip() {
             .await;
 
         let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
-        let event = item.as_event().unwrap();
-        assert_matches!(event.send_state(), Some(EventSendState::SendingFailed { .. }));
+        let event_item = item.as_event().unwrap();
+        assert!(event_item.is_local_echo());
+        assert_matches!(event_item.send_state(), Some(EventSendState::SendingFailed { .. }));
         assert_eq!(item.unique_id(), id);
     }
 
@@ -82,6 +84,7 @@ async fn remote_echo_full_trip() {
 
         let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);
         let event_item = item.as_event().unwrap();
+        assert!(event_item.is_local_echo());
         assert_matches!(event_item.send_state(), Some(EventSendState::Sent { .. }));
         assert_eq!(item.unique_id(), id);
 
