@@ -139,21 +139,24 @@ impl Room {
 
     /// Get the latest event in the timeline.
     ///
-    /// The latest event comes first from the `Timeline` if it exists.
-    /// Otherwise, it comes from the cache. This method does not fetch any
-    /// events or calculate anything — if it's not already available, we
-    /// return `None`.
+    /// The latest event comes first from the `Timeline` if it exists and if it
+    /// contains a local event. Otherwise, it comes from the cache. This method
+    /// does not fetch any events or calculate anything — if it's not
+    /// already available, we return `None`.
     ///
     /// It's different from `Self::timeline().latest_event()` as it won't track
     /// the read marker and receipts.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        // Look for a remote or **local** event in the `Timeline`.
+        // Look for a local event in the `Timeline`.
         //
         // First off, let's see if a `Timeline` exists…
         if let Some(timeline) = self.inner.timeline.get() {
             // If it contains a `latest_event`…
             if let Some(timeline_last_event) = timeline.latest_event().await {
-                return Some(timeline_last_event);
+                // If it's a local echo…
+                if timeline_last_event.is_local_echo() {
+                    return Some(timeline_last_event);
+                }
             }
         }
 
