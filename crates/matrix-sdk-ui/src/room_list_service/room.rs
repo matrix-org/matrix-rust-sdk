@@ -143,9 +143,6 @@ impl Room {
     /// contains a local event. Otherwise, it comes from the cache. This method
     /// does not fetch any events or calculate anything — if it's not
     /// already available, we return `None`.
-    ///
-    /// It's different from `Self::timeline().latest_event()` as it won't track
-    /// the read marker and receipts.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         // Look for a local event in the `Timeline`.
         //
