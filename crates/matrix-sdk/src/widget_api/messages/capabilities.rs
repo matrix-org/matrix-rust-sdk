@@ -62,6 +62,7 @@ impl Serialize for Options {
         capability_list.serialize(serializer)
     }
 }
+
 impl<'de> Deserialize<'de> for Options {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -134,6 +135,7 @@ pub enum Filter {
     AllowAllTimeline,
     AllowAllState,
 }
+
 impl EventFilter for Filter {
     fn allow_event(
         &self,
@@ -149,6 +151,7 @@ impl EventFilter for Filter {
         }
     }
 }
+
 impl Filter {
     pub fn is_state_filter(&self) -> bool {
         match self {
@@ -164,6 +167,7 @@ impl Filter {
         }
     }
 }
+
 pub trait EventFilter {
     fn allow_event(
         &self,
@@ -172,11 +176,13 @@ pub trait EventFilter {
         content: &serde_json::Value,
     ) -> bool;
 }
+
 #[derive(Debug, Default, Clone)]
 pub struct TimelineFilter {
     event_type: String,
     msgtype: Option<String>,
 }
+
 impl EventFilter for TimelineFilter {
     fn allow_event(
         &self,
@@ -203,35 +209,13 @@ impl EventFilter for TimelineFilter {
         return false;
     }
 }
-#[derive(Debug, Default, Clone)]
-pub struct EventFilterAllowAllState {}
-impl EventFilter for EventFilterAllowAllState {
-    fn allow_event(
-        &self,
-        message_type: &String,
-        state_key: &Option<String>,
-        content: &serde_json::Value,
-    ) -> bool {
-        return state_key.is_some();
-    }
-}
-#[derive(Debug, Default, Clone)]
-pub struct EventFilterAllowAllRoom {}
-impl EventFilter for EventFilterAllowAllRoom {
-    fn allow_event(
-        &self,
-        _message_type: &String,
-        state_key: &Option<String>,
-        _content: &serde_json::Value,
-    ) -> bool {
-        return state_key.is_none();
-    }
-}
+
 #[derive(Debug, Default, Clone)]
 pub struct StateFilter {
     event_type: String,
     state_key: Option<String>,
 }
+
 impl EventFilter for StateFilter {
     fn allow_event(
         &self,
@@ -248,6 +232,7 @@ impl EventFilter for StateFilter {
         return false;
     }
 }
+
 impl Serialize for TimelineFilter {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut string = format!("{}", self.event_type);
@@ -257,6 +242,7 @@ impl Serialize for TimelineFilter {
         serializer.serialize_str(&string)
     }
 }
+
 impl Serialize for StateFilter {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut string = format!(":{}", self.event_type);
@@ -279,6 +265,7 @@ impl<'de> Deserialize<'de> for StateFilter {
         Ok(StateFilter { event_type: ev_type, state_key: state_key })
     }
 }
+
 impl<'de> Deserialize<'de> for TimelineFilter {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let des_string = String::deserialize(deserializer)?;

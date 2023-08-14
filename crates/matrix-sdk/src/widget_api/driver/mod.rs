@@ -2,7 +2,7 @@ use self::widget::Widget;
 use super::{
     handler::{self, Capabilities, OpenIDState},
     messages::{
-        capabilities::{Filter, Options, EventFilter},
+        capabilities::{EventFilter, Filter, Options},
         from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
         {openid, MatrixEvent},
     },
@@ -18,20 +18,15 @@ pub mod widget;
 
 #[derive(Debug)]
 pub struct Driver<W: Widget> {
-    pub matrix_room: Joined,
-    pub widget: W,
-    add_event_handler_handle: Option<EventHandlerHandle>,
+    room: Joined,
+    widget: W,
+    event_handler_handle: Option<EventHandlerHandle>,
 }
 
-#[async_trait(?Send)]
-impl<W: Widget> handler::Driver for Driver<W> {
-    async fn send(&self, _message: handler::Outgoing) -> Result<()> {
-        // let message_str = serde_json::to_string(&message)?;
-        let _ = self.widget.send_widget_message("TODO get message string from outgoing");
-        Result::Ok(())
-    }
+#[async_trait]
+impl<W: Widget> handler::Client for Driver<W> {
     async fn initialise(&mut self, options: Options) -> Result<Capabilities> {
-        let options = self.widget.capability_permissions(options).await?;
+        let options = self.widget.acquire_permissions(options).await?;
 
         let mut capabilities = Capabilities::default();
 
@@ -40,40 +35,21 @@ impl<W: Widget> handler::Driver for Driver<W> {
         capabilities.event_reader = self.build_event_reader(&options.read_filter);
         Result::Ok(capabilities)
     }
-    async fn get_openid(&self, req: openid::Request) -> OpenIDState {
-        // TODO: make the client ask the user first.
-        // We wont care about this for Element call -> Element X
-        // if !self.has_open_id_user_permission() {
-        //     let (rx,tx) = tokio::oneshot::channel();
-        //     return OpenIDState::Pending(tx);
-        //     let permissions = widget.openid_permissions().await?;
-        //     if (permissions.should_cache){
-        //        self.auto_allow_openid_token(permission.is_allowed);
-        //     }
-        //     self.get_openid(req, Some(tx)); // get open id can be called with or without tx and either reutrns as return or sends return val over tx
-        // }
 
-        let user_id = self.matrix_room.client.user_id();
+    async fn get_openid(&self, req: openid::Request) -> OpenIDState {
+        let user_id = self.room.client.user_id();
         if user_id == None {
-            return OpenIDState::Resolved(Err(WidgetError(
-                "Failed to get an open id token from the homeserver. Because the userId is not available".to_owned()
-            )));
+            return OpenIDState::Resolved(None);
         }
         let user_id = user_id.unwrap();
 
         let request =
             ruma::api::client::account::request_openid_token::v3::Request::new(user_id.to_owned());
-        let res = self.matrix_room.client.send(request, None).await;
+        let res = self.room.client.send(request, None).await;
 
         let state = match res {
-            Err(err) => Err(WidgetError(
-                format!(
-                    "Failed to get an open id token from the homeserver. Because of Http Error: {}",
-                    err.to_string()
-                )
-                .to_owned(),
-            )),
-            Ok(res) => Ok(openid::Response {
+            Err(_) => None,
+            Ok(res) => Some(openid::Response {
                 id: req.id,
                 token: res.access_token,
                 expires_in_seconds: res.expires_in.as_secs() as usize,
@@ -90,11 +66,13 @@ pub struct EventReader {
     room: Joined,
     filter: Vec<Filter>,
 }
+
 #[async_trait]
 impl handler::EventReader for EventReader {
     fn get_filter(&self) -> &Vec<Filter> {
         &self.filter
     }
+
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
         let options = {
             let mut o = MessagesOptions::backward();
@@ -106,6 +84,7 @@ impl handler::EventReader for EventReader {
             };
             o
         };
+
         match self.room.messages(options).await {
             Ok(messages) => {
                 // TODO fix unwrap
@@ -136,11 +115,13 @@ pub struct EventSender {
     room: Joined,
     filter: Vec<Filter>,
 }
+
 #[async_trait]
 impl handler::EventSender for EventSender {
     fn get_filter(&self) -> &Vec<Filter> {
         &self.filter
     }
+
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
         let filter_fn = |f: &Filter| f.allow_event(&req.message_type, &req.state_key, &req.content);
 
@@ -179,11 +160,12 @@ impl handler::EventSender for EventSender {
         }
     }
 }
+
 impl<W: Widget> Driver<W> {
     fn build_event_sender(&self, filter: &Vec<Filter>) -> Option<Box<dyn handler::EventSender>> {
         if filter.len() > 0 {
             let s: Box<dyn handler::EventSender> =
-                Box::new(EventSender { room: self.matrix_room.clone(), filter: filter.clone() });
+                Box::new(EventSender { room: self.room.clone(), filter: filter.clone() });
             return Some(s);
         }
         None
@@ -191,7 +173,7 @@ impl<W: Widget> Driver<W> {
 
     fn build_event_reader(&self, filter: &Vec<Filter>) -> Option<Box<dyn handler::EventReader>> {
         if filter.len() > 0 {
-            Some(Box::new(EventReader { room: self.matrix_room.clone(), filter: filter.clone() }))
+            Some(Box::new(EventReader { room: self.room.clone(), filter: filter.clone() }))
         } else {
             None
         }
@@ -222,7 +204,7 @@ impl<W: Widget> Driver<W> {
                     }
                 }
             };
-            self.add_event_handler_handle = Some(self.matrix_room.add_event_handler(callback));
+            self.event_handler_handle = Some(self.room.add_event_handler(callback));
             return Some(rx);
         }
 

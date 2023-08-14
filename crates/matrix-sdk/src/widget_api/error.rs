@@ -8,4 +8,10 @@ pub enum Error {
     WidgetDied,
     #[error("Widget error: {0}")]
     WidgetError(String),
+    #[error("Invalid JSON")]
+    InvalidJSON,
+    #[error("Unexpected response")]
+    UnexpectedResponse,
+    #[error("Handler did not send a reply")]
+    NoReply,
 }
