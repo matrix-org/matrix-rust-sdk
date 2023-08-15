@@ -21,7 +21,7 @@ use std::{
 };
 
 use bitflags::bitflags;
-use eyeball::SharedObservable;
+use eyeball::{SharedObservable, Subscriber};
 use futures_util::stream::{self, StreamExt};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -566,6 +566,11 @@ impl Room {
         );
 
         Ok(self.inner.read().base_info.calculate_room_name(joined, invited, members))
+    }
+
+    /// Subscribe to the inner `RoomInfo`.
+    pub fn subscribe_info(&self) -> Subscriber<RoomInfo> {
+        self.inner.subscribe()
     }
 
     /// Clone the inner `RoomInfo`.
