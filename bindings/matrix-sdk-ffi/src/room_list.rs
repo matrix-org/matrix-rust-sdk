@@ -365,7 +365,8 @@ impl RoomListItem {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        Ok(RoomInfo::new(&self.inner).await?)
+        let latest_event = self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new);
+        Ok(RoomInfo::new(self.inner.inner_room(), latest_event).await?)
     }
 
     /// Building a `Room`.

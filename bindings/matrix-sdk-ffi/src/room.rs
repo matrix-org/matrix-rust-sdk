@@ -41,10 +41,11 @@ use super::RUNTIME;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
+    room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff, TimelineItem,
-        TimelineListener, VideoInfo,
+        AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
+        TimelineItem, TimelineListener, VideoInfo,
     },
     TaskHandle,
 };
@@ -263,6 +264,56 @@ impl Room {
             items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
             items_stream: Arc::new(timeline_stream),
         }
+    }
+
+    pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
+        // Look for a local event in the `Timeline`.
+        //
+        // First off, let's see if a `Timeline` exists…
+        if let Some(timeline) = self.timeline.read().await.clone() {
+            // If it contains a `latest_event`…
+            if let Some(timeline_last_event) = timeline.latest_event().await {
+                // If it's a local echo…
+                if timeline_last_event.is_local_echo() {
+                    return Ok(RoomInfo::new(
+                        &self.inner,
+                        Some(Arc::new(EventTimelineItem(timeline_last_event))),
+                    )
+                    .await?);
+                }
+            }
+        }
+
+        // Otherwise, fallback to the classical path.
+        let latest_event = match self.inner.latest_event() {
+            Some(ev) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
+                self.inner.client(),
+                self.inner.room_id(),
+                ev,
+            )
+            .await
+            .map(EventTimelineItem)
+            .map(Arc::new),
+            None => None,
+        };
+        Ok(RoomInfo::new(&self.inner, latest_event).await?)
+    }
+
+    pub fn subscribe_to_room_info_updates(
+        self: Arc<Self>,
+        listener: Box<dyn RoomInfoListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_info();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while subscriber.next().await.is_some() {
+                match self.room_info().await {
+                    Ok(room_info) => listener.call(room_info),
+                    Err(e) => {
+                        error!("Failed to compute new RoomInfo: {e}");
+                    }
+                }
+            }
+        })))
     }
 
     pub fn subscribe_to_back_pagination_status(
@@ -983,6 +1034,11 @@ impl SendAttachmentJoinHandle {
 pub struct RoomTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub items_stream: Arc<TaskHandle>,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomInfoListener: Sync + Send {
+    fn call(&self, room_info: RoomInfo);
 }
 
 #[uniffi::export(callback_interface)]
