@@ -42,7 +42,7 @@ impl SlidingSyncRoomExt for SlidingSyncRoom {
     #[instrument(skip_all)]
     async fn latest_timeline_item(&self) -> Option<EventTimelineItem> {
         let latest_event = self.latest_event()?;
-        EventTimelineItem::from_latest_event(self, latest_event).await
+        EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
     }
 }
 

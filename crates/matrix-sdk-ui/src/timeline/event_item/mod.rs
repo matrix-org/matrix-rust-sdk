@@ -15,14 +15,14 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::EncryptionInfo, Error, SlidingSyncRoom};
+use matrix_sdk::{deserialized_responses::EncryptionInfo, Client, Error};
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, TransactionId, UserId,
+    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::warn;
 
@@ -90,8 +90,9 @@ impl EventTimelineItem {
 
     /// If the supplied low-level SyncTimelineEventy is suitable for use as the
     /// latest_event in a message preview, wrap it as an EventTimelineItem,
-    pub(crate) async fn from_latest_event(
-        room: &SlidingSyncRoom,
+    pub async fn from_latest_event(
+        client: Client,
+        room_id: &RoomId,
         sync_event: SyncTimelineEvent,
     ) -> Option<EventTimelineItem> {
         use super::traits::RoomDataProvider;
@@ -107,7 +108,7 @@ impl EventTimelineItem {
         let timestamp = event.origin_server_ts();
         let sender = event.sender().to_owned();
         let event_id = event.event_id().to_owned();
-        let is_own = room.client().user_id().map(|uid| uid == sender).unwrap_or(false);
+        let is_own = client.user_id().map(|uid| uid == sender).unwrap_or(false);
 
         // If we don't (yet) know how to handle this type of message, return None here.
         // If we do, convert it into a TimelineItemContent.
@@ -143,7 +144,7 @@ impl EventTimelineItem {
         }
         .into();
 
-        let room = room.client().get_room(room.room_id());
+        let room = client.get_room(room_id);
         let sender_profile = if let Some(room) = room {
             room.profile(&sender)
                 .await
@@ -493,15 +494,11 @@ mod tests {
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
         let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
-        let room = SlidingSyncRoom::new(
-            logged_in_client(None).await,
-            room_id.to_owned(),
-            v4::SlidingSyncRoom::new(),
-            Vec::new(),
-        );
+        let client = logged_in_client(None).await;
 
         // When we construct a timeline event from it
-        let timeline_item = EventTimelineItem::from_latest_event(&room, event).await.unwrap();
+        let timeline_item =
+            EventTimelineItem::from_latest_event(client, room_id, event).await.unwrap();
 
         // Then its properties correctly translate
         assert_eq!(timeline_item.sender, user_id);
@@ -529,15 +526,14 @@ mod tests {
         let client = logged_in_client(None).await;
         let mut room = v4::SlidingSyncRoom::new();
         room.timeline.push(member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs"));
-        let ss_room =
-            SlidingSyncRoom::new(client.clone(), room_id.to_owned(), room.clone(), Vec::new());
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room).await;
         client.process_sliding_sync(&response).await.unwrap();
 
         // When we construct a timeline event from it
-        let timeline_item = EventTimelineItem::from_latest_event(&ss_room, event).await.unwrap();
+        let timeline_item =
+            EventTimelineItem::from_latest_event(client, room_id, event).await.unwrap();
 
         // Then its sender is properly populated
         let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
