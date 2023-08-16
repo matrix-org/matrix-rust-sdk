@@ -1,9 +1,8 @@
-use crate::widget_api::messages::from_widget::{
-    ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse, SendToDeviceRequest,
-};
-
 use super::{
-    super::messages::{openid, SupportedVersions},
+    super::messages::{
+        from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
+        openid, SupportedVersions,
+    },
     Request,
 };
 
@@ -14,5 +13,4 @@ pub enum Message {
     GetOpenID(Request<openid::Request, openid::State>),
     ReadEvents(Request<ReadEventRequest, ReadEventResponse>),
     SendEvent(Request<SendEventRequest, SendEventResponse>),
-    SendToDeviceRequest(Request<SendToDeviceRequest, ()>),
 }

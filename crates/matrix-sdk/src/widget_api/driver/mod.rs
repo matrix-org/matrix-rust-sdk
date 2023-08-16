@@ -1,100 +1,115 @@
-use self::widget::Widget;
+use std::result::Result as StdResult;
+
+use async_trait::async_trait;
+use ruma::{
+    api::client::{
+        account::request_openid_token::v3::Request as OpenIDRequest, filter::RoomEventFilter,
+    },
+    events::AnySyncTimelineEvent,
+    serde::Raw,
+};
+use tokio::sync::mpsc;
+
 use super::{
-    handler::{self, Capabilities, OpenIDState},
+    handler::{
+        Capabilities, Client, Filtered as Handler, EventReader as Reader,
+        EventSender as Sender, OpenIDState,
+    },
     messages::{
-        capabilities::{Filter, Options, EventFilter},
+        capabilities::{EventFilter, Filter, FilterInput, Options},
         from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
         {openid, MatrixEvent},
     },
-    {Error::WidgetError, Result},
+    {Error, Result},
 };
-use crate::room::MessagesOptions;
-use crate::{event_handler::EventHandlerHandle, room::Joined};
-use async_trait::async_trait;
-use ruma::{api::client::filter::RoomEventFilter, events::AnySyncTimelineEvent, serde::Raw};
-use tokio::sync::mpsc;
+use crate::{
+    event_handler::EventHandlerDropGuard,
+    room::{Joined, MessagesOptions},
+};
 
-pub mod widget;
-
-#[derive(Debug)]
-pub struct Driver<W: Widget> {
-    pub matrix_room: Joined,
-    pub widget: W,
-    add_event_handler_handle: Option<EventHandlerHandle>,
+#[async_trait]
+pub trait PermissionProvider: Send + Sync + 'static {
+    async fn acquire_permissions(&self, cap: Options) -> Result<Options>;
 }
 
-#[async_trait(?Send)]
-impl<W: Widget> handler::Driver for Driver<W> {
-    async fn send(&self, _message: handler::Outgoing) -> Result<()> {
-        // let message_str = serde_json::to_string(&message)?;
-        let _ = self.widget.send_widget_message("TODO get message string from outgoing");
-        Result::Ok(())
+#[derive(Debug)]
+pub struct Driver<W> {
+    room: Joined,
+    widget: W,
+    event_handler_handle: Option<EventHandlerDropGuard>,
+}
+
+impl<W> Driver<W> {
+    pub fn new(room: Joined, widget: W) -> Self {
+        Self { room, widget, event_handler_handle: None }
     }
+}
+
+#[async_trait]
+impl<W: PermissionProvider> Client for Driver<W> {
     async fn initialise(&mut self, options: Options) -> Result<Capabilities> {
-        let options = self.widget.capability_permissions(options).await?;
+        let options = self.widget.acquire_permissions(options).await?;
 
-        let mut capabilities = Capabilities::default();
-
-        capabilities.event_listener = self.build_event_listener(&options.read_filter);
-        capabilities.event_sender = self.build_event_sender(&options.send_filter);
-        capabilities.event_reader = self.build_event_reader(&options.read_filter);
-        Result::Ok(capabilities)
-    }
-    async fn get_openid(&self, req: openid::Request) -> OpenIDState {
-        // TODO: make the client ask the user first.
-        // We wont care about this for Element call -> Element X
-        // if !self.has_open_id_user_permission() {
-        //     let (rx,tx) = tokio::oneshot::channel();
-        //     return OpenIDState::Pending(tx);
-        //     let permissions = widget.openid_permissions().await?;
-        //     if (permissions.should_cache){
-        //        self.auto_allow_openid_token(permission.is_allowed);
-        //     }
-        //     self.get_openid(req, Some(tx)); // get open id can be called with or without tx and either reutrns as return or sends return val over tx
-        // }
-
-        let user_id = self.matrix_room.client.user_id();
-        if user_id == None {
-            return OpenIDState::Resolved(Err(WidgetError(
-                "Failed to get an open id token from the homeserver. Because the userId is not available".to_owned()
-            )));
-        }
-        let user_id = user_id.unwrap();
-
-        let request =
-            ruma::api::client::account::request_openid_token::v3::Request::new(user_id.to_owned());
-        let res = self.matrix_room.client.send(request, None).await;
-
-        let state = match res {
-            Err(err) => Err(WidgetError(
-                format!(
-                    "Failed to get an open id token from the homeserver. Because of Http Error: {}",
-                    err.to_string()
-                )
-                .to_owned(),
-            )),
-            Ok(res) => Ok(openid::Response {
-                id: req.id,
-                token: res.access_token,
-                expires_in_seconds: res.expires_in.as_secs() as usize,
-                server: res.matrix_server_name.to_string(),
-                kind: res.token_type.to_string(),
+        Ok(Capabilities {
+            listener: Filters::new(options.read_filter.clone())
+                .map(|filters| self.setup_event_listener(filters)),
+            reader: Filters::new(options.read_filter).map(|filters| {
+                Box::new(EventServerProxy::new(self.room.clone(), filters)) as Box<dyn Reader>
             }),
-        };
+            sender: Filters::new(options.send_filter).map(|filters| {
+                Box::new(EventServerProxy::new(self.room.clone(), filters)) as Box<dyn Sender>
+            }),
+        })
+    }
+
+    async fn get_openid(&self, req: openid::Request) -> OpenIDState {
+        let user_id = self.room.own_user_id();
+
+        let request = OpenIDRequest::new(user_id.to_owned());
+        let state = self.room.client.send(request, None).await.ok().map(|res| openid::Response {
+            id: req.id,
+            token: res.access_token,
+            expires_in_seconds: res.expires_in.as_secs() as usize,
+            server: res.matrix_server_name.to_string(),
+            kind: res.token_type.to_string(),
+        });
+
         OpenIDState::Resolved(state)
     }
 }
 
-#[derive(Debug)]
-pub struct EventReader {
-    room: Joined,
-    filter: Vec<Filter>,
-}
-#[async_trait]
-impl handler::EventReader for EventReader {
-    fn get_filter(&self) -> &Vec<Filter> {
-        &self.filter
+impl<W> Driver<W> {
+    fn setup_event_listener(&mut self, filter: Filters) -> mpsc::UnboundedReceiver<MatrixEvent> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let callback = move |ev: Raw<AnySyncTimelineEvent>| {
+            let (filter, tx) = (filter.clone(), tx.clone());
+            if let Ok(msg) = ev.deserialize_as::<MatrixEvent>() {
+                filter.allow(&msg).then(|| tx.send(msg));
+            }
+            async {}
+        };
+
+        let handle = self.room.add_event_handler(callback);
+        let drop_guard = self.room.client().event_handler_drop_guard(handle);
+        self.event_handler_handle.replace(drop_guard);
+        return rx;
     }
+}
+
+#[derive(Debug)]
+pub struct EventServerProxy {
+    room: Joined,
+    filter: Filters,
+}
+
+impl EventServerProxy {
+    fn new(room: Joined, filter: Filters) -> Self {
+        Self { room, filter }
+    }
+}
+
+#[async_trait]
+impl Reader for EventServerProxy {
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
         let options = {
             let mut o = MessagesOptions::backward();
@@ -106,126 +121,78 @@ impl handler::EventReader for EventReader {
             };
             o
         };
-        match self.room.messages(options).await {
-            Ok(messages) => {
-                // TODO fix unwrap
-                let state_events: Vec<MatrixEvent> =
-                    messages.state.iter().map(|s| s.deserialize_as().unwrap()).collect();
-                let timeline_events: Vec<MatrixEvent> =
-                    messages.chunk.iter().map(|msg| msg.event.deserialize_as().unwrap()).collect();
-                let all_messages = vec![state_events, timeline_events].concat();
-                let filtered_messages = all_messages
-                    .into_iter()
-                    .filter(|m| {
-                        let filter_fn =
-                            |f: &Filter| f.allow_event(&m.event_type, &m.state_key, &m.content);
-                        self.filter.iter().any(filter_fn)
-                    })
-                    .collect();
-                Ok(ReadEventResponse { events: filtered_messages })
-            }
-            Err(err) => Err(WidgetError(
-                format!("Could not fetch messages from homeserver: {}", err.to_string())
-                    .to_string(),
-            )),
-        }
+
+        let messages = self.room.messages(options).await.map_err(|_| Error::Other)?;
+
+        // Iterator over deserialized state messages.
+        let state = messages.state.into_iter().map(|s| s.deserialize_as());
+
+        // Iterator over deserialized timeline messages.
+        let timeline = messages.chunk.into_iter().map(|m| m.event.deserialize_as());
+
+        // Chain two iterators together and run them through the filter.
+        Ok(ReadEventResponse {
+            events: state
+                .chain(timeline)
+                .filter_map(StdResult::ok)
+                .filter(|m| self.filter.allow(m))
+                .collect(),
+        })
     }
 }
-#[derive(Debug)]
-pub struct EventSender {
-    room: Joined,
-    filter: Vec<Filter>,
-}
+
 #[async_trait]
-impl handler::EventSender for EventSender {
-    fn get_filter(&self) -> &Vec<Filter> {
-        &self.filter
-    }
+impl Sender for EventServerProxy {
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
-        let filter_fn = |f: &Filter| f.allow_event(&req.message_type, &req.state_key, &req.content);
-
-        if self.filter.iter().any(filter_fn) {
-            match req.state_key {
-                Some(state_key) => {
-                    match self
-                        .room
-                        .send_state_event_raw(req.content, &req.message_type, &state_key)
-                        .await
-                    {
-                        Ok(send_res) => Ok(SendEventResponse {
-                            room_id: self.room.room_id().to_string(),
-                            event_id: send_res.event_id.to_string(),
-                        }),
-                        Err(err) => {
-                            Err(WidgetError(format!("Could not send event with error: {}", err)))
-                        }
-                    }
-                }
-                None => match self.room.send_raw(req.content, &req.message_type, None).await {
-                    Ok(send_res) => Ok(SendEventResponse {
-                        room_id: self.room.room_id().to_string(),
-                        event_id: send_res.event_id.to_string(),
-                    }),
-                    Err(err) => {
-                        Err(WidgetError(format!("Could not send event with error: {}", err)))
-                    }
-                },
-            }
-        } else {
-            Err(WidgetError(format!(
-                "No capability to send event of type {} with state key {} (for room events the state key is undefined if no state key is shown the state key is \"\")",
-                req.message_type, req.state_key.unwrap_or("undefined".to_string())
-            )))
+        // Run the request through the filter.
+        if !self.filter.allow(&req) {
+            return Err(Error::InvalidPermissions);
         }
+
+        // Send the request based on whether the state key is set or not.
+        let event_id = match req.state_key {
+            Some(key) => {
+                self.room
+                    .send_state_event_raw(req.content, &req.message_type, &key)
+                    .await
+                    .map_err(|_| Error::Other)?
+                    .event_id
+            }
+            None => {
+                self.room
+                    .send_raw(req.content, &req.message_type, None)
+                    .await
+                    .map_err(|_| Error::Other)?
+                    .event_id
+            }
+        };
+
+        // Return the response.
+        Ok(SendEventResponse {
+            room_id: self.room.room_id().to_string(),
+            event_id: event_id.to_string(),
+        })
     }
 }
-impl<W: Widget> Driver<W> {
-    fn build_event_sender(&self, filter: &Vec<Filter>) -> Option<Box<dyn handler::EventSender>> {
-        if filter.len() > 0 {
-            let s: Box<dyn handler::EventSender> =
-                Box::new(EventSender { room: self.matrix_room.clone(), filter: filter.clone() });
-            return Some(s);
-        }
-        None
+
+impl Handler for EventServerProxy {
+    fn filters(&self) -> &[Filter] {
+        &self.filter.filters
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Filters {
+    filters: Vec<Filter>,
+}
+
+impl Filters {
+    fn new(filters: Vec<Filter>) -> Option<Self> {
+        (!filters.is_empty()).then(|| Self { filters })
     }
 
-    fn build_event_reader(&self, filter: &Vec<Filter>) -> Option<Box<dyn handler::EventReader>> {
-        if filter.len() > 0 {
-            Some(Box::new(EventReader { room: self.matrix_room.clone(), filter: filter.clone() }))
-        } else {
-            None
-        }
-    }
-
-    fn build_event_listener(
-        &mut self,
-        filter: &Vec<Filter>,
-    ) -> Option<mpsc::UnboundedReceiver<MatrixEvent>> {
-        let (tx, rx) = mpsc::unbounded_channel::<MatrixEvent>();
-        let filter = filter.clone();
-        if filter.len() > 0 {
-            let callback = move |ev: Raw<AnySyncTimelineEvent>| {
-                let filter = filter.clone();
-                let tx = tx.clone();
-                async move {
-                    match ev.deserialize_as::<MatrixEvent>() {
-                        Ok(m_ev) => {
-                            if (&filter).clone().iter().any(|f| {
-                                f.allow_event(&m_ev.event_type, &m_ev.state_key, &m_ev.content)
-                            }) {
-                                let _= tx.send(m_ev).map_err(|err|eprintln!("Could not send sync matrix message to another thread: {err}"));
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("Could not parse AnySyncTimelineEvent as crate::widget_api::MatrixEvent: {err}");
-                        }
-                    }
-                }
-            };
-            self.add_event_handler_handle = Some(self.matrix_room.add_event_handler(callback));
-            return Some(rx);
-        }
-
-        None
+    fn allow<'a>(&self, input: impl Into<FilterInput<'a>>) -> bool {
+        let input = input.into();
+        self.filters.iter().any(|f| f.allow(input.clone()))
     }
 }
