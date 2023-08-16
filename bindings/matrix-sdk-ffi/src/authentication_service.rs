@@ -12,6 +12,7 @@ use matrix_sdk::{
     oidc::{
         types::{
             client_credentials::ClientCredentials,
+            errors::ClientErrorCode::AccessDenied,
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
@@ -388,14 +389,13 @@ impl AuthenticationService {
         let code = match response {
             AuthorizationResponse::Success(code) => code,
             AuthorizationResponse::Error(err) => {
-                // TODO: This doesn't work, cancel doesn't include a description it seems.
-                let Some(error) = err.error.error_description else {
-                    return Err(AuthenticationError::OidcCallbackUrlInvalid);
-                };
-                if error == "access_denied" {
+                if err.error.error == AccessDenied {
+                    // The user cancelled the login in the web view.
                     return Err(AuthenticationError::OidcCancelled);
                 }
-                return Err(AuthenticationError::OidcError { message: error.to_string() });
+                return Err(AuthenticationError::OidcError {
+                    message: err.error.error.to_string(),
+                });
             }
         };
 
