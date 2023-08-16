@@ -39,7 +39,7 @@ use crate::{
     error::Result,
     rooms::RoomState,
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
-    sync::{JoinedRoom, Rooms, SyncResponse},
+    sync::{JoinedRoom, LeftRoom, Rooms, SyncResponse},
     Room, RoomInfo,
 };
 
@@ -148,7 +148,7 @@ impl BaseClient {
         let mut new_rooms = Rooms::default();
 
         for (room_id, room_data) in rooms {
-            let (room_to_store, joined_room, invited_room) = self
+            let (room_to_store, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     room_data,
@@ -158,10 +158,17 @@ impl BaseClient {
                     account_data,
                 )
                 .await?;
+
             changes.add_room(room_to_store);
+
             if let Some(joined_room) = joined_room {
                 new_rooms.join.insert(room_id.clone(), joined_room);
             }
+
+            if let Some(left_room) = left_room {
+                new_rooms.leave.insert(room_id.clone(), left_room);
+            }
+
             if let Some(invited_room) = invited_room {
                 new_rooms.invite.insert(room_id.clone(), invited_room);
             }
@@ -228,11 +235,11 @@ impl BaseClient {
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
-    ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
+    ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<LeftRoom>, Option<InvitedRoom>)> {
         let mut state_events = Self::deserialize_state_events(&room_data.required_state);
         state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
 
-        let (raw_event_states, state_events): (Vec<_>, Vec<_>) = state_events.into_iter().unzip();
+        let (raw_state_events, state_events): (Vec<_>, Vec<_>) = state_events.into_iter().unzip();
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
@@ -248,7 +255,7 @@ impl BaseClient {
 
         let mut user_ids = if !state_events.is_empty() {
             self.handle_state(
-                &raw_event_states,
+                &raw_state_events,
                 &state_events,
                 &mut room_info,
                 changes,
@@ -309,21 +316,33 @@ impl BaseClient {
         let notification_count = room_data.unread_notifications.clone().into();
         room_info.update_notification_count(notification_count);
 
-        // If this room was not an invite, we treat it as joined
-        // FIXME: it could be left, or possibly some other state
-        let joined_room = if invited_room.is_none() {
-            Some(JoinedRoom::new(
-                timeline,
-                room_data.required_state.clone(),
-                room_account_data.unwrap_or_default(),
-                Vec::new(),
-                notification_count,
-            ))
-        } else {
-            None
-        };
+        match room_info.state() {
+            RoomState::Joined => Ok((
+                room_info,
+                Some(JoinedRoom::new(
+                    timeline,
+                    raw_state_events,
+                    room_account_data.unwrap_or_default(),
+                    Vec::new(),
+                    notification_count,
+                )),
+                None,
+                None,
+            )),
 
-        Ok((room_info, joined_room, invited_room))
+            RoomState::Left => Ok((
+                room_info,
+                None,
+                Some(LeftRoom::new(
+                    timeline,
+                    raw_state_events,
+                    room_account_data.unwrap_or_default(),
+                )),
+                None,
+            )),
+
+            RoomState::Invited => Ok((room_info, None, None, invited_room)),
+        }
     }
 
     /// Look through the sliding sync data for this room, find/create it in the
@@ -566,8 +585,9 @@ mod test {
         assert_eq!(client_room.joined_members_count(), 41);
         assert_eq!(client_room.state(), RoomState::Joined);
 
-        // And it is added to the list of joined rooms, and not the invited ones
+        // And it is added to the list of joined rooms only.
         assert!(sync_resp.rooms.join.get(room_id).is_some());
+        assert!(sync_resp.rooms.leave.get(room_id).is_none());
         assert!(sync_resp.rooms.invite.get(room_id).is_none());
     }
 
@@ -581,12 +601,18 @@ mod test {
         let mut room = v4::SlidingSyncRoom::new();
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        let sync_resp =
+            client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
         // Then the room appears in the client with the expected name
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
         assert_eq!(client_room.state(), RoomState::Joined);
+
+        // And it is added to the list of joined rooms only.
+        assert!(sync_resp.rooms.join.get(room_id).is_some());
+        assert!(sync_resp.rooms.leave.get(room_id).is_none());
+        assert!(sync_resp.rooms.invite.get(room_id).is_none());
     }
 
     #[async_test]
@@ -601,12 +627,18 @@ mod test {
         set_room_invited(&mut room, user_id);
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        let sync_resp =
+            client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
         // Then the room appears in the client with the expected name
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
         assert_eq!(client_room.state(), RoomState::Invited);
+
+        // And it is added to the list of invited rooms only.
+        assert!(sync_resp.rooms.join.get(room_id).is_none());
+        assert!(sync_resp.rooms.leave.get(room_id).is_none());
+        assert!(sync_resp.rooms.invite.get(room_id).is_some());
     }
 
     #[async_test]
@@ -627,10 +659,16 @@ mod test {
         let mut room = v4::SlidingSyncRoom::new();
         set_room_left(&mut room, user_id);
         let response = response_with_room(room_id, room).await;
-        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        let sync_resp =
+            client.process_sliding_sync(&response).await.expect("Failed to process sync");
 
         // The room is left.
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+
+        // And it is added to the list of invited rooms only.
+        assert!(sync_resp.rooms.join.get(room_id).is_none());
+        assert!(sync_resp.rooms.leave.get(room_id).is_some());
+        assert!(sync_resp.rooms.invite.get(room_id).is_none());
     }
 
     #[async_test]
