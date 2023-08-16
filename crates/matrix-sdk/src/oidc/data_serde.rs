@@ -23,13 +23,7 @@ impl Serialize for SessionTokens {
     {
         let Self { access_token, refresh_token, latest_id_token } = self;
 
-        let mut len = 3;
-        if refresh_token.is_none() {
-            len -= 1
-        };
-        if latest_id_token.is_none() {
-            len -= 1
-        };
+        let len = 1 + refresh_token.is_some() as usize + latest_id_token.is_some() as usize;
         let mut st = serializer.serialize_struct("SessionTokens", len)?;
 
         st.serialize_field("access_token", access_token)?;

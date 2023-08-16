@@ -740,7 +740,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to log text messages in joined rooms.
     if room.state() != RoomState::Joined {
         return;
-    };
+    }
     let MessageType::Text(text_content) = &event.content.msgtype else { return };
 
     let room_name = match room.display_name().await {

@@ -43,12 +43,12 @@ image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-oidc = [
-    "dep:mas-oidc-client",
-    "dep:tower",
     "ruma/unstable-msc2967",
-    "dep:rand",
     "dep:chrono",
     "dep:language-tags",
+    "dep:mas-oidc-client",
+    "dep:rand",
+    "dep:tower",
 ]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
