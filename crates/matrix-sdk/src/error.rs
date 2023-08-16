@@ -257,6 +257,11 @@ pub enum Error {
     #[error("The internal client state is inconsistent.")]
     InconsistentState,
 
+    /// An error occurred interacting with the OpenID Connect API.
+    #[cfg(feature = "experimental-oidc")]
+    #[error(transparent)]
+    Oidc(#[from] crate::oidc::OidcError),
+
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
@@ -423,6 +428,11 @@ pub enum RefreshTokenError {
     /// An error occurred interacting with the native Matrix authentication API.
     #[error(transparent)]
     MatrixAuth(Arc<HttpError>),
+
+    /// An error occurred interacting with the OpenID Connect API.
+    #[cfg(feature = "experimental-oidc")]
+    #[error(transparent)]
+    Oidc(#[from] Arc<crate::oidc::OidcError>),
 }
 
 /// Errors that can occur when manipulating push notification settings.

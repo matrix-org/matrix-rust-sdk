@@ -74,6 +74,8 @@ use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::Oidc;
 use crate::{
     authentication::AuthData,
     config::RequestConfig,
@@ -141,12 +143,12 @@ pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
     /// The authentication server info discovered from the homeserver.
-    authentication_server_info: Option<AuthenticationServerInfo>,
+    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
     /// The underlying HTTP client.
-    http_client: HttpClient,
+    pub(crate) http_client: HttpClient,
     /// User session data.
     base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
@@ -477,7 +479,7 @@ impl Client {
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        Some(self.inner.auth_data.get()?.access_token())
+        self.inner.auth_data.get()?.access_token()
     }
 
     /// Access the authentication API used to log in this client.
@@ -486,6 +488,8 @@ impl Client {
     pub fn auth_api(&self) -> Option<AuthApi> {
         match self.inner.auth_data.get()? {
             AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
+            #[cfg(feature = "experimental-oidc")]
+            AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
         }
     }
 
@@ -498,6 +502,8 @@ impl Client {
     pub fn session(&self) -> Option<AuthSession> {
         match self.auth_api()? {
             AuthApi::Matrix(api) => api.session().map(Into::into),
+            #[cfg(feature = "experimental-oidc")]
+            AuthApi::Oidc(api) => api.full_session().map(Into::into),
         }
     }
 
@@ -525,6 +531,12 @@ impl Client {
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
         Media::new(self.clone())
+    }
+
+    /// Access the OpenID Connect API of the client.
+    #[cfg(feature = "experimental-oidc")]
+    pub fn oidc(&self) -> Oidc {
+        Oidc::new(self.clone())
     }
 
     /// Register a handler for a specific event type.
@@ -942,6 +954,8 @@ impl Client {
         let session = session.into();
         match session {
             AuthSession::Matrix(s) => self.matrix_auth().restore_session(s).await,
+            #[cfg(feature = "experimental-oidc")]
+            AuthSession::Oidc(s) => self.oidc().restore_session(s).await,
         }
     }
 
@@ -958,6 +972,10 @@ impl Client {
         match auth_api {
             AuthApi::Matrix(a) => {
                 a.refresh_access_token().await?;
+            }
+            #[cfg(feature = "experimental-oidc")]
+            AuthApi::Oidc(api) => {
+                api.refresh_access_token().await?;
             }
         }
 

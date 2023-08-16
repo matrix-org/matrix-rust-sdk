@@ -40,6 +40,8 @@ mod http_client;
 pub mod matrix_auth;
 pub mod media;
 pub mod notification_settings;
+#[cfg(feature = "experimental-oidc")]
+pub mod oidc;
 pub mod room;
 pub mod sync;
 

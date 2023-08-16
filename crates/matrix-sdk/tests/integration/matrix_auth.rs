@@ -193,12 +193,10 @@ async fn login_error() {
         .await;
 
     if let Err(err) = client.matrix_auth().login_username("example", "wordpass").send().await {
-        if let Some(RumaApiError::ClientApi(client_api::Error { status_code, body })) =
-            err.as_ruma_api_error()
-        {
-            assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
+        if let Some(RumaApiError::ClientApi(api_err)) = err.as_ruma_api_error() {
+            assert_eq!(api_err.status_code, http::StatusCode::from_u16(403).unwrap());
 
-            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+            if let client_api::error::ErrorBody::Standard { kind, message } = &api_err.body {
                 if *kind != client_api::error::ErrorKind::Forbidden {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
@@ -237,9 +235,9 @@ async fn register_error() {
     });
 
     if let Err(err) = client.matrix_auth().register(user).await {
-        if let Some(client_api::Error { status_code, body }) = err.as_client_api_error() {
-            assert_eq!(*status_code, http::StatusCode::from_u16(403).unwrap());
-            if let client_api::error::ErrorBody::Standard { kind, message } = body {
+        if let Some(api_err) = err.as_client_api_error() {
+            assert_eq!(api_err.status_code, http::StatusCode::from_u16(403).unwrap());
+            if let client_api::error::ErrorBody::Standard { kind, message } = &api_err.body {
                 if *kind != client_api::error::ErrorKind::Forbidden {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
