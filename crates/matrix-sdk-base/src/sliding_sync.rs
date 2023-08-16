@@ -22,7 +22,7 @@ use ruma::{
         v3::{self, InvitedRoom, RoomSummary},
         v4::{self, AccountData},
     },
-    events::AnySyncStateEvent,
+    events::{AnySyncStateEvent, AnySyncTimelineEvent},
     RoomId,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -229,13 +229,16 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
-        let required_state = Self::deserialize_state_events(&room_data.required_state);
+        let mut state_events = Self::deserialize_state_events(&room_data.required_state);
+        state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
+
+        let (raw_event_states, state_events): (Vec<_>, Vec<_>) = state_events.into_iter().unzip();
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room) = self.process_sliding_sync_room_membership(
             room_data,
-            &required_state,
+            &state_events,
             store,
             room_id,
             changes,
@@ -243,10 +246,10 @@ impl BaseClient {
 
         room_info.mark_state_partially_synced();
 
-        let mut user_ids = if !required_state.is_empty() {
+        let mut user_ids = if !state_events.is_empty() {
             self.handle_state(
-                &room_data.required_state,
-                &required_state,
+                &raw_event_states,
+                &state_events,
                 &mut room_info,
                 changes,
                 ambiguity_cache,
@@ -331,7 +334,7 @@ impl BaseClient {
     fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
-        required_state: &[AnySyncStateEvent],
+        state_events: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
         changes: &mut StateChanges,
@@ -372,10 +375,10 @@ impl BaseClient {
 
             // We don't need to do this in a v2 sync, because the membership of a room can
             // be figured out by whether the room is in the "join", "leave" etc.
-            // property. In sliding sync we only have invite_state and
-            // required_state, so we must process required_state looking for
-            // relevant membership events.
-            self.handle_own_room_membership(required_state, &mut room_info);
+            // property. In sliding sync we only have invite_state,
+            // required_state and timeline, so we must process required_state and timeline
+            // looking for relevant membership events.
+            self.handle_own_room_membership(state_events, &mut room_info);
 
             (room, room_info, None)
         }
@@ -385,10 +388,10 @@ impl BaseClient {
     /// the state in room_info to reflect the "membership" property.
     pub(crate) fn handle_own_room_membership(
         &self,
-        required_state: &[AnySyncStateEvent],
+        state_events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
     ) {
-        for event in required_state {
+        for event in state_events {
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
@@ -401,6 +404,33 @@ impl BaseClient {
                 }
             }
         }
+    }
+
+    pub(crate) fn deserialize_state_events_from_timeline(
+        raw_events: &[Raw<AnySyncTimelineEvent>],
+    ) -> Vec<(Raw<AnySyncStateEvent>, AnySyncStateEvent)> {
+        raw_events
+            .iter()
+            .filter_map(|raw_event| {
+                // If it contains `state_key`, we assume it's a state event.
+                if raw_event.get_field::<serde::de::IgnoredAny>("state_key").transpose().is_some() {
+                    match raw_event.deserialize_as::<AnySyncStateEvent>() {
+                        Ok(event) => {
+                            // SAFETY: Casting `AnySyncTimelineEvent` to `AnySyncStateEvent` is safe
+                            // because we checked that there is a `state_key`.
+                            Some((raw_event.clone().cast(), event))
+                        }
+
+                        Err(error) => {
+                            warn!("Couldn't deserialize state event from timeline: {error}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -497,8 +527,8 @@ mod test {
                 member::{MembershipState, RoomMemberEventContent},
                 message::SyncRoomMessageEvent,
             },
-            AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-            GlobalAccountDataEventContent, StateEventContent,
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
+            StateEventContent,
         },
         mxc_uri, room_alias_id, room_id,
         serde::Raw,
@@ -507,7 +537,7 @@ mod test {
     use serde_json::json;
 
     use super::*;
-    use crate::{store::MemoryStore, RoomStateFilter, SessionMeta};
+    use crate::{store::MemoryStore, SessionMeta};
 
     #[async_test]
     async fn can_process_empty_sliding_sync_response() {
@@ -577,6 +607,54 @@ mod test {
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name(), Some("little room".to_owned()));
         assert_eq!(client_room.state(), RoomState::Invited);
+    }
+
+    #[async_test]
+    async fn left_a_room_from_required_state_event() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I join…
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_joined(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        // And then leave with a `required_state` state event…
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_left(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // The room is left.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+    }
+
+    #[async_test]
+    async fn left_a_room_from_timeline_state_event() {
+        // Given a logged-in client
+        let client = logged_in_client().await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I join…
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_joined(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        // And then leave with a `timeline` state event…
+        let mut room = v4::SlidingSyncRoom::new();
+        set_room_left_as_timeline_event(&mut room, user_id);
+        let response = response_with_room(room_id, room).await;
+        client.process_sliding_sync(&response).await.expect("Failed to process sync");
+
+        // The room is left.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
     }
 
     #[async_test]
@@ -1352,7 +1430,11 @@ mod test {
         room.required_state.push(make_membership_event(user_id, MembershipState::Leave));
     }
 
-    fn make_membership_event(user_id: &UserId, state: MembershipState) -> Raw<AnySyncStateEvent> {
+    fn set_room_left_as_timeline_event(room: &mut v4::SlidingSyncRoom, user_id: &UserId) {
+        room.timeline.push(make_membership_event(user_id, MembershipState::Leave));
+    }
+
+    fn make_membership_event<K>(user_id: &UserId, state: MembershipState) -> Raw<K> {
         make_state_event(user_id, user_id.as_str(), RoomMemberEventContent::new(state), None)
     }
 
