@@ -15,7 +15,10 @@ use matrix_sdk::{
 use matrix_sdk_ui::room_list_service::filters::{new_filter_all, new_filter_fuzzy_match_room_name};
 use tokio::sync::RwLock;
 
-use crate::{room::Room, timeline::EventTimelineItem, TaskHandle, RUNTIME};
+use crate::{
+    error::ClientError, room::Room, room_info::RoomInfo, timeline::EventTimelineItem, TaskHandle,
+    RUNTIME,
+};
 
 #[derive(uniffi::Error)]
 pub enum RoomListError {
@@ -351,6 +354,10 @@ impl RoomListItem {
 
     fn canonical_alias(&self) -> Option<String> {
         self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
+    }
+
+    pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
+        Ok(RoomInfo::new(&self.inner).await?)
     }
 
     /// Building a `Room`.

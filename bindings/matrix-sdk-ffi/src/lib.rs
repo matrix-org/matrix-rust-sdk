@@ -30,6 +30,7 @@ mod notification;
 mod notification_settings;
 mod platform;
 mod room;
+mod room_info;
 mod room_list;
 mod room_member;
 mod session_verification;

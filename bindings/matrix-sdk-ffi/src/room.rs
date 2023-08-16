@@ -56,6 +56,16 @@ pub enum Membership {
     Left,
 }
 
+impl From<RoomState> for Membership {
+    fn from(value: RoomState) -> Self {
+        match value {
+            RoomState::Invited => Membership::Invited,
+            RoomState::Joined => Membership::Joined,
+            RoomState::Left => Membership::Left,
+        }
+    }
+}
+
 pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
 #[derive(uniffi::Object)]
@@ -117,11 +127,7 @@ impl Room {
     }
 
     pub fn membership(&self) -> Membership {
-        match self.inner.state() {
-            RoomState::Invited => Membership::Invited,
-            RoomState::Joined => Membership::Joined,
-            RoomState::Left => Membership::Left,
-        }
+        self.inner.state().into()
     }
 
     pub fn inviter(&self) -> Option<Arc<RoomMember>> {
