@@ -229,7 +229,7 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         account_data: &AccountData,
     ) -> Result<(RoomInfo, Option<JoinedRoom>, Option<InvitedRoom>)> {
-        let required_state = Self::deserialize_events(&room_data.required_state);
+        let required_state = Self::deserialize_state_events(&room_data.required_state);
 
         // Find or create the room in the store
         #[allow(unused_mut)] // Required for some feature flag combinations
@@ -331,7 +331,7 @@ impl BaseClient {
     fn process_sliding_sync_room_membership(
         &self,
         room_data: &v4::SlidingSyncRoom,
-        required_state: &[Option<AnySyncStateEvent>],
+        required_state: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
         changes: &mut StateChanges,
@@ -385,11 +385,11 @@ impl BaseClient {
     /// the state in room_info to reflect the "membership" property.
     pub(crate) fn handle_own_room_membership(
         &self,
-        required_state: &[Option<AnySyncStateEvent>],
+        required_state: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
     ) {
         for event in required_state {
-            if let Some(AnySyncStateEvent::RoomMember(member)) = &event {
+            if let AnySyncStateEvent::RoomMember(member) = &event {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
                 if let Some(meta) = self.session_meta() {
