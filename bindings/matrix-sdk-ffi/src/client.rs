@@ -420,6 +420,10 @@ impl Client {
         })
     }
 
+    pub fn account_url(&self) -> Option<String> {
+        self.authentication_server().and_then(|a| a.account)
+    }
+
     pub fn user_id(&self) -> Result<String, ClientError> {
         let user_id = self.inner.user_id().context("No User ID found")?;
         Ok(user_id.to_string())

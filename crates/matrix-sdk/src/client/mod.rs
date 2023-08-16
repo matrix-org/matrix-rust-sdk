@@ -424,13 +424,17 @@ impl Client {
     /// The authentication server info discovered from the homeserver.
     ///
     /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect ([MSC3861]) and this `Client` was constructed using
-    /// auto-discovery by setting the homeserver with
-    /// [`ClientBuilder::server_name()`].
+    /// OpenID Connect ([MSC3861]) and either this `Client` was constructed
+    /// using auto-discovery by setting the homeserver with
+    /// [`ClientBuilder::server_name()`] or it is authenticated using said
+    /// authentication server.
     ///
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.inner.authentication_server_info.as_ref()
+        if let Some(discovered_server) = &self.inner.authentication_server_info {
+            return Some(discovered_server);
+        };
+        self.inner.auth_data.get().and_then(|d| d.as_oidc().map(|o| &o.issuer_info))
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
