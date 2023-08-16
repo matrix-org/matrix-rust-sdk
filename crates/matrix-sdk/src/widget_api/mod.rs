@@ -7,8 +7,19 @@ pub mod handler;
 pub mod matrix;
 pub mod messages;
 
-pub use self::error::{Error, Result};
+pub use self::{
+    api::{run, widget::Widget},
+    error::{Error, Result},
+    matrix::{Driver as MatrixDriver, PermissionProvider},
+};
+use crate::room::Joined as JoinedRoom;
 
-pub fn run_client_widget_api() {
-    println!("Hello, world!");
+/// Runs client widget API for a given `widget` with a given `permission_manager` within a given `room`.
+/// The function returns once the API is completed (the widget disconnected etc).
+pub async fn run_client_widget_api(
+    widget: Widget,
+    permission_manager: impl PermissionProvider,
+    room: JoinedRoom,
+) -> Result<()> {
+    run(MatrixDriver::new(room, permission_manager), widget).await
 }

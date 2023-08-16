@@ -21,7 +21,7 @@ use super::{
 
 #[macro_use]
 mod process_macro;
-mod widget;
+pub mod widget;
 
 pub type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>;
 
