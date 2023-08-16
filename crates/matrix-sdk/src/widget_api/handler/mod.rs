@@ -6,7 +6,7 @@ mod request;
 
 pub use self::{
     api::{Client, OpenIDState, Widget},
-    capabilities::{Capabilities, EventHandler, EventReader, EventSender},
+    capabilities::{Capabilities, EventReader, EventSender, Filtered},
     incoming::Message as Incoming,
     outgoing::OutgoingMessage,
     request::Request,
@@ -32,7 +32,7 @@ pub struct MessageHandler<C, W> {
 impl<C: Client, W: Widget> MessageHandler<C, W> {
     pub async fn new(client: C, widget: W) -> Result<Self> {
         let mut handler = Self { client, widget, capabilities: None };
-        if handler.widget.early_init() {
+        if !handler.widget.init_on_load() {
             handler.initialise().await?;
         }
 
@@ -42,12 +42,17 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
     pub async fn handle(&mut self, req: Incoming) -> Result<()> {
         match req {
             Incoming::ContentLoaded(r) => {
-                let response = match self.capabilities.as_ref() {
-                    Some(..) => Ok(()),
-                    None => Err(Error::AlreadyLoaded),
-                };
+                let (response, negotiate) =
+                    match (self.widget.init_on_load(), self.capabilities.as_ref()) {
+                        (true, None) => (Ok(()), true),
+                        (true, Some(..)) => (Err(Error::AlreadyLoaded), false),
+                        _ => (Ok(()), false),
+                    };
+
                 r.reply(response)?;
-                self.initialise().await?;
+                if negotiate {
+                    self.initialise().await?;
+                }
             }
 
             Incoming::GetSupportedApiVersion(r) => {
@@ -92,14 +97,12 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
     }
 
     async fn read_events(&mut self, req: &ReadEventRequest) -> Result<ReadEventResponse> {
-        let fut =
-            self.caps()?.reader.as_ref().ok_or(Error::InvalidPermissions)?.read(req.clone());
+        let fut = self.caps()?.reader.as_ref().ok_or(Error::InvalidPermissions)?.read(req.clone());
         fut.await
     }
 
     async fn send_event(&mut self, req: &SendEventRequest) -> Result<SendEventResponse> {
-        let fut =
-            self.caps()?.sender.as_ref().ok_or(Error::InvalidPermissions)?.send(req.clone());
+        let fut = self.caps()?.sender.as_ref().ok_or(Error::InvalidPermissions)?.send(req.clone());
         fut.await
     }
 

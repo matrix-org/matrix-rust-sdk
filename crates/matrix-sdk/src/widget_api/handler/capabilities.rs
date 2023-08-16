@@ -20,32 +20,24 @@ pub struct Capabilities {
 }
 
 #[async_trait]
-pub trait EventReader: EventHandler + Send {
+pub trait EventReader: Filtered + Send {
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse>;
 }
 
 #[async_trait]
-pub trait EventSender: EventHandler + Send {
+pub trait EventSender: Filtered + Send {
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse>;
 }
 
-pub trait EventHandler {
+pub trait Filtered {
     fn filters(&self) -> &[Filter];
 }
 
 impl<'t> From<&'t Capabilities> for Options {
     fn from(c: &'t Capabilities) -> Self {
         Self {
-            send_filter: c
-                .sender
-                .as_ref()
-                .map(|e| e.filters().to_owned())
-                .unwrap_or_default(),
-            read_filter: c
-                .reader
-                .as_ref()
-                .map(|e| e.filters().to_owned())
-                .unwrap_or_default(),
+            send_filter: c.sender.as_ref().map(|e| e.filters().to_owned()).unwrap_or_default(),
+            read_filter: c.reader.as_ref().map(|e| e.filters().to_owned()).unwrap_or_default(),
             ..Options::default()
         }
     }

@@ -10,10 +10,9 @@ use ruma::{
 };
 use tokio::sync::mpsc;
 
-use self::widget::Widget;
 use super::{
     handler::{
-        Capabilities, Client, EventHandler as Handler, EventReader as Reader,
+        Capabilities, Client, Filtered as Handler, EventReader as Reader,
         EventSender as Sender, OpenIDState,
     },
     messages::{
@@ -23,36 +22,42 @@ use super::{
     },
     {Error, Result},
 };
-use crate::{event_handler::EventHandlerHandle, room::Joined, room::MessagesOptions};
+use crate::{
+    event_handler::EventHandlerDropGuard,
+    room::{Joined, MessagesOptions},
+};
 
-pub mod widget;
+#[async_trait]
+pub trait PermissionProvider: Send + Sync + 'static {
+    async fn acquire_permissions(&self, cap: Options) -> Result<Options>;
+}
 
 #[derive(Debug)]
 pub struct Driver<W> {
     room: Joined,
     widget: W,
-    event_handler_handle: Option<EventHandlerHandle>,
+    event_handler_handle: Option<EventHandlerDropGuard>,
 }
 
 impl<W> Driver<W> {
-    pub fn new(room: Joined, widget: W) -> Result<Self> {
-        Ok(Driver { room, widget, event_handler_handle: None })
+    pub fn new(room: Joined, widget: W) -> Self {
+        Self { room, widget, event_handler_handle: None }
     }
 }
 
 #[async_trait]
-impl<W: Widget> Client for Driver<W> {
+impl<W: PermissionProvider> Client for Driver<W> {
     async fn initialise(&mut self, options: Options) -> Result<Capabilities> {
         let options = self.widget.acquire_permissions(options).await?;
 
         Ok(Capabilities {
             listener: Filters::new(options.read_filter.clone())
-                .map(|filter| self.setup_event_listener(filter)),
-            reader: Filters::new(options.read_filter).map(|filter| {
-                Box::new(EventHandler::new(self.room.clone(), filter)) as Box<dyn Reader>
+                .map(|filters| self.setup_event_listener(filters)),
+            reader: Filters::new(options.read_filter).map(|filters| {
+                Box::new(EventServerProxy::new(self.room.clone(), filters)) as Box<dyn Reader>
             }),
-            sender: Filters::new(options.send_filter).map(|filter| {
-                Box::new(EventHandler::new(self.room.clone(), filter)) as Box<dyn Sender>
+            sender: Filters::new(options.send_filter).map(|filters| {
+                Box::new(EventServerProxy::new(self.room.clone(), filters)) as Box<dyn Sender>
             }),
         })
     }
@@ -84,25 +89,27 @@ impl<W> Driver<W> {
             async {}
         };
 
-        self.event_handler_handle = Some(self.room.add_event_handler(callback));
+        let handle = self.room.add_event_handler(callback);
+        let drop_guard = self.room.client().event_handler_drop_guard(handle);
+        self.event_handler_handle.replace(drop_guard);
         return rx;
     }
 }
 
 #[derive(Debug)]
-pub struct EventHandler {
+pub struct EventServerProxy {
     room: Joined,
     filter: Filters,
 }
 
-impl EventHandler {
+impl EventServerProxy {
     fn new(room: Joined, filter: Filters) -> Self {
         Self { room, filter }
     }
 }
 
 #[async_trait]
-impl Reader for EventHandler {
+impl Reader for EventServerProxy {
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
         let options = {
             let mut o = MessagesOptions::backward();
@@ -135,14 +142,14 @@ impl Reader for EventHandler {
 }
 
 #[async_trait]
-impl Sender for EventHandler {
+impl Sender for EventServerProxy {
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
         // Run the request through the filter.
         if !self.filter.allow(&req) {
             return Err(Error::InvalidPermissions);
         }
 
-        // Send the requset based on whether the state key is set or not.
+        // Send the request based on whether the state key is set or not.
         let event_id = match req.state_key {
             Some(key) => {
                 self.room
@@ -168,7 +175,7 @@ impl Sender for EventHandler {
     }
 }
 
-impl Handler for EventHandler {
+impl Handler for EventServerProxy {
     fn filters(&self) -> &[Filter] {
         &self.filter.filters
     }

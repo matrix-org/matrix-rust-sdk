@@ -16,7 +16,7 @@ pub trait Client: Send + Sync + 'static {
 #[async_trait]
 pub trait Widget: Send + Sync + 'static {
     async fn send<T: OutgoingMessage>(&self, message: T) -> Result<T::Response>;
-    fn early_init(&self) -> bool;
+    fn init_on_load(&self) -> bool;
 }
 
 #[derive(Debug)]

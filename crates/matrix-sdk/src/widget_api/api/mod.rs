@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use serde_json::{from_str as from_json, to_string as to_json};
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver as Receiver, UnboundedSender as Sender},
     oneshot,
 };
+use uuid::Uuid;
 
 use super::{
-    handler::{Client, Incoming, MessageHandler, Request, Widget as HandlerSink},
+    handler::{Client, Incoming, MessageHandler, OutgoingMessage, Request, Widget as HandlerSink},
     messages::{
         from_widget::FromWidgetMessage as FromWidgetAction, openid::Request as OpenIDRequest,
-        to_widget::ToWidgetMessage as ToWidgetAction, Message as WidgetMessage,
+        to_widget::ToWidgetMessage as ToWidgetAction, Header, Message as WidgetMessage,
         Response as ResponseBody,
     },
     Error, Result,
@@ -33,11 +35,10 @@ pub async fn run<T: Client>(client: T, mut widget: widget::Widget) -> Result<()>
     tokio::spawn(forward(outgoing_req_rx, widget.comm.sink()));
 
     // Create a message handler (handles all incoming requests and generates outgoing requests).
-    let handler = MessageHandler::new(
-        client,
-        widget::WidgetSink::new(widget.info, outgoing_req_tx, state.clone()),
-    )
-    .await?;
+    let handler = {
+        let widget = WidgetSink::new(widget.info, outgoing_req_tx, state.clone());
+        MessageHandler::new(client, widget).await?
+    };
 
     // Spawn a task that receives requests from a widget, and passes them
     // to the handler, waits for response from a handler and sends it back.
@@ -132,5 +133,35 @@ async fn forward(mut receiver: Receiver<impl Into<WidgetMessage>>, sink: Sender<
     while let Some(msg) = receiver.recv().await {
         let raw = to_json(&msg.into()).expect("Bug: invalid JSON");
         let _ = sink.send(raw);
+    }
+}
+
+struct WidgetSink {
+    info: widget::Info,
+    sink: Sender<ToWidgetAction>,
+    pending: PendingResponses,
+}
+
+impl WidgetSink {
+    fn new(info: widget::Info, sink: Sender<ToWidgetAction>, pending: PendingResponses) -> Self {
+        Self { info, sink, pending }
+    }
+}
+
+#[async_trait]
+impl HandlerSink for WidgetSink {
+    async fn send<M: OutgoingMessage>(&self, msg: M) -> Result<M::Response> {
+        let id = Uuid::new_v4();
+        let request_id = id.to_string();
+        let raw = msg.into_message(Header { request_id, widget_id: self.info.id.clone() });
+        self.sink.send(raw).map_err(|_| Error::WidgetDied)?;
+
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().expect("Pending mutex poisoned").insert(id.to_string(), tx);
+        Ok(M::extract_response(rx.await.map_err(|_| Error::WidgetDied)?)?)
+    }
+
+    fn init_on_load(&self) -> bool {
+        self.info.init_on_load
     }
 }
