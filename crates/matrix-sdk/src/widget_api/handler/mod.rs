@@ -1,26 +1,26 @@
-use std::result::Result as StdResult;
-
 mod api;
+mod capabilities;
 mod incoming;
 mod outgoing;
 mod request;
 
 pub use self::{
     api::{Client, OpenIDState, Widget},
+    capabilities::{Capabilities, EventReader, EventSender, Filtered},
     incoming::Message as Incoming,
     outgoing::OutgoingMessage,
     request::Request,
 };
+
 use super::{
-    capabilities::Capabilities,
     messages::{
         capabilities::Options as CapabilitiesReq,
-        from_widget::{ReadEventRequest, SendEventRequest, SendEventResponse, SendToDeviceRequest},
+        from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
         to_widget::CapabilitiesUpdatedRequest as CapabilitiesUpdated,
-        MatrixEvent, SupportedVersions, SUPPORTED_API_VERSIONS,
+        SupportedVersions, SUPPORTED_API_VERSIONS,
     },
+    Error, Result,
 };
-pub use super::{Error, Result};
 
 #[allow(missing_debug_implementations)]
 pub struct MessageHandler<C, W> {
@@ -32,7 +32,7 @@ pub struct MessageHandler<C, W> {
 impl<C: Client, W: Widget> MessageHandler<C, W> {
     pub async fn new(client: C, widget: W) -> Result<Self> {
         let mut handler = Self { client, widget, capabilities: None };
-        if handler.widget.early_init() {
+        if !handler.widget.init_on_load() {
             handler.initialise().await?;
         }
 
@@ -42,12 +42,17 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
     pub async fn handle(&mut self, req: Incoming) -> Result<()> {
         match req {
             Incoming::ContentLoaded(r) => {
-                let response = match self.capabilities.as_ref() {
-                    Some(..) => Ok(()),
-                    None => Err("Capabilities have already been sent"),
-                };
+                let (response, negotiate) =
+                    match (self.widget.init_on_load(), self.capabilities.as_ref()) {
+                        (true, None) => (Ok(()), true),
+                        (true, Some(..)) => (Err(Error::AlreadyLoaded), false),
+                        _ => (Ok(()), false),
+                    };
+
                 r.reply(response)?;
-                self.initialise().await?;
+                if negotiate {
+                    self.initialise().await?;
+                }
             }
 
             Incoming::GetSupportedApiVersion(r) => {
@@ -65,17 +70,12 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
             }
 
             Incoming::ReadEvents(r) => {
-                let response = self.read_events(&r).await;
+                let response = self.read_events(&*r).await;
                 r.reply(response)?;
             }
 
             Incoming::SendEvent(r) => {
-                let response = self.send_event(&r).await;
-                r.reply(response)?;
-            }
-
-            Incoming::SendToDeviceRequest(r) => {
-                let response = self.send_to_device(&r).await;
+                let response = self.send_event(&*r).await;
                 r.reply(response)?;
             }
         }
@@ -90,50 +90,23 @@ impl<C: Client, W: Widget> MessageHandler<C, W> {
         self.capabilities = Some(capabilities);
 
         let approved: CapabilitiesReq = self.capabilities.as_ref().unwrap().into();
-        self.widget
-            .send(outgoing::CapabilitiesUpdated(CapabilitiesUpdated { requested, approved }))
-            .await?;
+        let update = CapabilitiesUpdated { requested, approved };
+        self.widget.send(outgoing::CapabilitiesUpdated(update)).await?;
 
         Ok(())
     }
 
-    async fn read_events(
-        &mut self,
-        req: &ReadEventRequest,
-    ) -> StdResult<Vec<MatrixEvent>, &'static str> {
-        self.capabilities()?
-            .event_reader
-            .as_mut()
-            .ok_or("No permissions to read the events")?
-            .read(req.clone())
-            .await
-            .map_err(|_| "Failed to read events")
+    async fn read_events(&mut self, req: &ReadEventRequest) -> Result<ReadEventResponse> {
+        let fut = self.caps()?.reader.as_ref().ok_or(Error::InvalidPermissions)?.read(req.clone());
+        fut.await
     }
 
-    async fn send_event(
-        &mut self,
-        req: &SendEventRequest,
-    ) -> StdResult<SendEventResponse, &'static str> {
-        self.capabilities()?
-            .event_writer
-            .as_mut()
-            .ok_or("No permissions to write the events")?
-            .write(req.clone())
-            .await
-            .map_err(|_| "Failed to write events")
+    async fn send_event(&mut self, req: &SendEventRequest) -> Result<SendEventResponse> {
+        let fut = self.caps()?.sender.as_ref().ok_or(Error::InvalidPermissions)?.send(req.clone());
+        fut.await
     }
 
-    async fn send_to_device(&mut self, req: &SendToDeviceRequest) -> StdResult<(), &'static str> {
-        self.capabilities()?
-            .to_device_sender
-            .as_mut()
-            .ok_or("No permissions to send to device messages")?
-            .send(req.clone())
-            .await
-            .map_err(|_| "Failed to write events")
-    }
-
-    fn capabilities(&mut self) -> StdResult<&mut Capabilities, &'static str> {
-        self.capabilities.as_mut().ok_or("Capabilities have not been negotiated")
+    fn caps(&mut self) -> Result<&mut Capabilities> {
+        self.capabilities.as_mut().ok_or(Error::InvalidPermissions)
     }
 }

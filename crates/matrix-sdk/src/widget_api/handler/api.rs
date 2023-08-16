@@ -2,23 +2,21 @@ use async_trait::async_trait;
 use tokio::sync::oneshot::Receiver;
 
 use super::{
-    super::{
-        capabilities::Capabilities,
-        messages::{capabilities::Options as CapabilitiesReq, openid},
-    },
+    super::messages::{capabilities::Options as CapabilitiesReq, openid},
+    capabilities::Capabilities,
     OutgoingMessage, Result,
 };
 
 #[async_trait]
 pub trait Client: Send + Sync + 'static {
-    async fn initialise(&self, req: CapabilitiesReq) -> Result<Capabilities>;
+    async fn initialise(&mut self, req: CapabilitiesReq) -> Result<Capabilities>;
     async fn get_openid(&self, req: openid::Request) -> OpenIDState;
 }
 
 #[async_trait]
 pub trait Widget: Send + Sync + 'static {
     async fn send<T: OutgoingMessage>(&self, message: T) -> Result<T::Response>;
-    fn early_init(&self) -> bool;
+    fn init_on_load(&self) -> bool;
 }
 
 #[derive(Debug)]

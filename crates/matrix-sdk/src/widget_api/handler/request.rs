@@ -1,10 +1,10 @@
-use std::{ops::Deref, result::Result as StdResult};
+use std::ops::Deref;
 
 use tokio::sync::oneshot::{Receiver, Sender};
 
 use super::{Error, Result};
 
-type Response<T> = StdResult<T, &'static str>;
+type Response<T> = Result<T>;
 
 #[allow(missing_debug_implementations)]
 pub struct Request<Req, Resp> {
