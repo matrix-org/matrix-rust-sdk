@@ -546,17 +546,16 @@ impl<'a> TimelineEventHandler<'a> {
                 return None;
             };
 
-            let new_content = if let Ok(edited_poll_state) =
-                poll_state.edit(self.ctx.timestamp, &replacement.new_content)
-            {
-                TimelineItemContent::Poll(edited_poll_state)
-            } else {
-                info!(
-                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                    "This poll can't be edited, discarding"
-                );
-                return None;
-            };
+            let new_content =
+                if let Ok(edited_poll_state) = poll_state.edit(&replacement.new_content) {
+                    TimelineItemContent::Poll(edited_poll_state)
+                } else {
+                    info!(
+                        original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                        "This poll can't be edited, discarding"
+                    );
+                    return None;
+                };
 
             let edit_json = match &self.ctx.flow {
                 Flow::Local { .. } => None,
@@ -569,7 +568,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
-        let mut poll_state = PollState::new(self.ctx.sender.clone(), self.ctx.timestamp, c);
+        let mut poll_state = PollState::new(c);
         if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
             self.state.poll_cache.apply(&event_id, &mut poll_state);
         };
@@ -612,23 +611,14 @@ impl<'a> TimelineEventHandler<'a> {
             "poll end",
             |event_item| match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
-                    TimelineItemContent::Poll(poll_state.end(
-                        &self.ctx.sender.clone(),
-                        &self.ctx.timestamp,
-                        &c,
-                    )),
+                    TimelineItemContent::Poll(poll_state.end(&self.ctx.timestamp)),
                     None,
                 )),
                 _ => None,
             },
         );
         if !found {
-            self.state.poll_cache.add_end(
-                &c.relates_to.event_id,
-                &self.ctx.sender,
-                &self.ctx.timestamp,
-                &c,
-            );
+            self.state.poll_cache.add_end(&c.relates_to.event_id, &self.ctx.timestamp);
         }
     }
 

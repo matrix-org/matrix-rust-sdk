@@ -243,7 +243,7 @@ fn get_updated_poll_event(
 }
 
 fn assert_poll_description(poll_state: &PollState) {
-    let start_content = poll_state.start_event.content.poll_start.clone();
+    let start_content = poll_state.start_event_content.poll_start.clone();
     assert_eq!(start_content.question.text, "Up or down?");
     assert_eq!(start_content.kind, PollKind::Disclosed);
     assert_eq!(start_content.max_selections, UInt::new(1).unwrap());
@@ -255,7 +255,7 @@ fn assert_poll_description(poll_state: &PollState) {
 }
 
 fn assert_edited_poll_description(poll_state: &PollState) {
-    let start_content = poll_state.start_event.content.poll_start.clone();
+    let start_content = poll_state.start_event_content.poll_start.clone();
     assert_eq!(start_content.question.text, "Up or down edited?");
     assert_eq!(start_content.kind, PollKind::Disclosed);
     assert_eq!(start_content.max_selections, UInt::new(1).unwrap());
