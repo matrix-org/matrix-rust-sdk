@@ -17,16 +17,17 @@ use std::ops::Deref;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::{
         v3::{self, InvitedRoom, RoomSummary},
         v4::{self, AccountData},
     },
     events::{AnySyncStateEvent, AnySyncTimelineEvent},
+    serde::Raw,
     RoomId,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnyToDeviceEvent, serde::Raw};
 use tracing::{instrument, trace, warn};
 
 use super::BaseClient;
