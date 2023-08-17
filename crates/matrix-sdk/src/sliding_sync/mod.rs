@@ -435,7 +435,7 @@ impl SlidingSync {
         past_positions.push(position_guard.clone());
 
         // Release the position markers lock.
-        // It means that other request can start be sent.
+        // It means that other requests can start to be sent.
         drop(position_guard);
 
         Ok(update_summary)
