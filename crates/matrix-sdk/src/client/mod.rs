@@ -14,13 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-oidc")]
+use std::ops::Deref;
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
-    ops::Deref,
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -28,6 +29,7 @@ use std::{
 use dashmap::DashMap;
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
+#[cfg(feature = "experimental-oidc")]
 use mas_oidc_client::{
     error::{
         Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
@@ -83,7 +85,7 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::Oidc;
+use crate::oidc::{Oidc, OidcError};
 use crate::{
     authentication::AuthData,
     config::RequestConfig,
@@ -94,7 +96,6 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    oidc::OidcError,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -434,7 +435,12 @@ impl Client {
         if let Some(discovered_server) = &self.inner.authentication_server_info {
             return Some(discovered_server);
         };
-        self.inner.auth_data.get().and_then(|d| d.as_oidc().map(|o| &o.issuer_info))
+
+        match self.inner.auth_data.get()? {
+            AuthData::Matrix(_) => None,
+            #[cfg(feature = "experimental-oidc")]
+            AuthData::Oidc(o) => Some(&o.issuer_info),
+        }
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
@@ -1346,6 +1352,7 @@ impl Client {
                         // Refreshing access tokens is not supported by this `Session`, ignore.
                         self.broadcast_unknown_token(soft_logout);
                     }
+                    #[cfg(feature = "experimental-oidc")]
                     RefreshTokenError::Oidc(oidc_error) => {
                         let oidc_error = oidc_error.deref();
                         match oidc_error {

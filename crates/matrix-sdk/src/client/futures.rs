@@ -1,7 +1,8 @@
+#[cfg(feature = "experimental-oidc")]
+use std::ops::Deref;
 use std::{
     fmt::Debug,
     future::{Future, IntoFuture},
-    ops::Deref,
     pin::Pin,
 };
 
@@ -9,22 +10,23 @@ use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
+#[cfg(feature = "experimental-oidc")]
 use mas_oidc_client::{
     error::{
         Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
         TokenRefreshError, TokenRequestError,
     },
-    requests::authorization_code::AuthorizationValidationData,
     types::errors::ClientErrorCode,
 };
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
 use tracing::trace;
 
 use super::super::Client;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcError;
 use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    oidc::OidcError,
     RefreshTokenError, TransmissionProgress,
 };
 
@@ -100,6 +102,7 @@ where
                             // Refreshing access tokens is not supported by this `Session`, ignore.
                             client.broadcast_unknown_token(soft_logout);
                         }
+                        #[cfg(feature = "experimental-oidc")]
                         RefreshTokenError::Oidc(oidc_error) => {
                             let oidc_error = oidc_error.deref();
                             match oidc_error {

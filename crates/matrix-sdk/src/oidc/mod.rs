@@ -741,7 +741,7 @@ impl Oidc {
         // Get the user ID.
         let whoami_res = self.client.whoami().await.map_err(crate::Error::from)?;
 
-        let session = matrix_sdk_base::SessionMeta {
+        let session = SessionMeta {
             user_id: whoami_res.user_id,
             device_id: whoami_res.device_id.ok_or(OidcError::MissingDeviceId)?,
         };
