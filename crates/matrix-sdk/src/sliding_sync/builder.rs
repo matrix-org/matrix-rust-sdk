@@ -13,7 +13,7 @@ use ruma::{
     },
     OwnedRoomId,
 };
-use tokio::sync::{broadcast::channel, RwLock as AsyncRwLock};
+use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
@@ -266,7 +266,10 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            position: StdRwLock::new(SlidingSyncPositionMarkers { pos: None, delta_token }),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers {
+                pos: None,
+                delta_token,
+            })),
             past_positions: StdRwLock::new(RingBuffer::new(20)),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
