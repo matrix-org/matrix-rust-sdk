@@ -60,7 +60,8 @@ use self::{
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
 use crate::{
-    config::RequestConfig, sliding_sync::client::SlidingSyncResponseProcessor, Client, Result,
+    config::RequestConfig, sliding_sync::client::SlidingSyncResponseProcessor, Client, HttpError,
+    Result,
 };
 
 /// The Sliding Sync instance.
@@ -718,7 +719,12 @@ impl SlidingSync {
                             }
 
                             // Here, errors we can safely ignore.
+                            // * when a response has already been received from the server.
                             Err(crate::Error::SlidingSync(Error::ResponseAlreadyReceived { .. })) => {
+                                continue;
+                            }
+                            // * when the server timed out, so there is no response.
+                            Err(crate::Error::Http(HttpError::Reqwest(reqwest_error))) if reqwest_error.is_timeout()  => {
                                 continue;
                             }
 
@@ -1942,6 +1948,57 @@ mod tests {
 
         // The room is now known.
         assert!(client.get_room(&room).is_some());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_timeout() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("test-slidingsync")?
+            .poll_timeout(Duration::from_millis(100))
+            .network_timeout(Duration::from_millis(100))
+            .build()
+            .await?;
+
+        let sync = sliding_sync.sync();
+        pin_mut!(sync);
+
+        let _mock_guard1 = Mock::given(SlidingSyncMatcher)
+            .respond_with(|_request: &Request| {
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "pos": "0",
+                    }))
+                    .set_delay(Duration::from_secs(5)) // reply after 5s.
+            })
+            .up_to_n_times(1) // run it once.
+            .mount_as_scoped(&server)
+            .await;
+
+        let _mock_guard2 = Mock::given(SlidingSyncMatcher)
+            .respond_with(|_request: &Request| {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "1",
+                }))
+            })
+            .up_to_n_times(1) // run it once.
+            .mount_as_scoped(&server)
+            .await;
+
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        // `pos` has been updated to `1`.
+        assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
+
+        // `past_positions` contains only `1` because `0` has timed out and is absent.
+        let past_positions = sliding_sync.inner.past_positions.read().unwrap();
+        assert_eq!(past_positions.len(), 1);
+        assert_eq!(past_positions.get(0).unwrap().pos, Some("1".to_owned()));
 
         Ok(())
     }
