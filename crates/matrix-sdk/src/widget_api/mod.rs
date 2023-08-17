@@ -2,8 +2,13 @@
 
 use crate::room::Room as JoinedRoom;
 
-pub mod permissions;
-pub mod widget;
+mod permissions;
+mod widget;
+
+pub use self::{
+    permissions::{Permissions, PermissionsProvider},
+    widget::{Comm, Info, Widget},
+};
 
 /// Starts a client widget API state machine for a given `widget` in a given joined `room`.
 /// The function returns once the widget is disconnected or any terminal error occurs.
