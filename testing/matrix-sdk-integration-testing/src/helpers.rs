@@ -1,9 +1,9 @@
-use std::{collections::HashMap, option_env};
+use std::{collections::HashMap, ops::Deref, option_env, sync::Mutex as StdMutex, time::Duration};
 
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
-    config::RequestConfig,
+    config::{RequestConfig, SyncSettings},
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     Client,
 };
@@ -73,4 +73,38 @@ pub async fn get_client_for_user(username: String, use_sqlite_store: bool) -> Re
     users.insert(username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
     Ok(client)
+}
+
+/// Client that correctly maintains and propagates sync token values.
+pub struct SyncTokenAwareClient {
+    client: Client,
+    token: StdMutex<Option<String>>,
+}
+
+impl SyncTokenAwareClient {
+    pub async fn sync_once(&self) -> Result<()> {
+        let mut settings = SyncSettings::default().timeout(Duration::from_secs(1));
+
+        let token = { self.token.lock().unwrap().clone() };
+        if let Some(token) = token {
+            settings = settings.token(token);
+        }
+
+        let response = self.client.sync_once(settings).await?;
+        *self.token.lock().unwrap() = Some(response.next_batch);
+        Ok(())
+    }
+}
+
+impl Deref for SyncTokenAwareClient {
+    type Target = Client;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+pub async fn get_sync_aware_client_for_user(username: String) -> Result<SyncTokenAwareClient> {
+    let client = get_client_for_user(username, true).await?;
+    Ok(SyncTokenAwareClient { client, token: None.into() })
 }

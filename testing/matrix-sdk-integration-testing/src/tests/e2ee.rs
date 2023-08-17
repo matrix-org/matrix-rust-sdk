@@ -1,55 +1,17 @@
 use std::{
-    ops::Deref,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
 use assign::assign;
-use matrix_sdk::{
-    config::SyncSettings,
-    ruma::{
-        api::client::room::create_room::v3::Request as CreateRoomRequest,
-        events::room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
-    },
-    Client,
+use matrix_sdk::ruma::{
+    api::client::room::create_room::v3::Request as CreateRoomRequest,
+    events::room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
 };
 use tracing::warn;
 
-use crate::helpers::get_client_for_user;
-
-struct SyncAwareClient {
-    client: Client,
-    token: Mutex<Option<String>>,
-}
-
-impl SyncAwareClient {
-    async fn sync_once(&self) -> Result<()> {
-        let mut settings = SyncSettings::default().timeout(Duration::from_secs(1));
-
-        let token = { self.token.lock().unwrap().clone() };
-        if let Some(token) = token {
-            settings = settings.token(token);
-        }
-
-        let response = self.client.sync_once(settings).await?;
-        *self.token.lock().unwrap() = Some(response.next_batch);
-        Ok(())
-    }
-}
-
-impl Deref for SyncAwareClient {
-    type Target = Client;
-
-    fn deref(&self) -> &Self::Target {
-        &self.client
-    }
-}
-
-async fn get_sync_aware_client_for_user(username: String) -> Result<SyncAwareClient> {
-    let client = get_client_for_user(username, true).await?;
-    Ok(SyncAwareClient { client, token: None.into() })
-}
+use crate::helpers::get_sync_aware_client_for_user;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_encryption_missing_member_keys() -> Result<()> {
