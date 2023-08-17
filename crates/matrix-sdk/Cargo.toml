@@ -55,10 +55,9 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
+experimental-widget-api = []
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
-
-widget-api = []
 
 [dependencies]
 anyhow = { workspace = true, optional = true }

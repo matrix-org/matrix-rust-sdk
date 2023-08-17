@@ -44,15 +44,13 @@ pub mod notification_settings;
 pub mod oidc;
 pub mod room;
 pub mod sync;
-
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
-
 #[cfg(feature = "widget-api")]
 pub mod widget_api;
-
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
+
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, UnknownToken};
