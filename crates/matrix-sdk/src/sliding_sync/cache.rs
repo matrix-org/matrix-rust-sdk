@@ -71,7 +71,7 @@ pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Resu
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync))?,
+            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync).await)?,
         )
         .await?;
 
@@ -395,7 +395,7 @@ mod tests {
 
         // Emulate some data to be cached.
         let delta_token = "delta_token".to_owned();
-        sliding_sync.inner.position.write().unwrap().delta_token = Some(delta_token.clone());
+        sliding_sync.inner.position.lock().await.delta_token = Some(delta_token.clone());
 
         // Then, we can correctly cache the sliding sync instance.
         store_sliding_sync_state(&sliding_sync).await?;

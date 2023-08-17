@@ -49,7 +49,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     select, spawn,
-    sync::{broadcast::Sender, Mutex as AsyncMutex, RwLock as AsyncRwLock},
+    sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
@@ -70,9 +70,6 @@ use crate::{
 pub struct SlidingSync {
     /// The Sliding Sync data.
     inner: Arc<SlidingSyncInner>,
-
-    /// A lock to ensure that responses are handled one at a time.
-    response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
 #[derive(Debug)]
@@ -95,11 +92,22 @@ pub(super) struct SlidingSyncInner {
     /// the [`Self::proxy_timeout`].
     network_timeout: Duration,
 
-    /// The storage key to keep this cache at and load it from
+    /// The storage key to keep this cache at and load it from.
     storage_key: String,
 
-    /// Position markers
-    position: StdRwLock<SlidingSyncPositionMarkers>,
+    /// Position markers.
+    ///
+    /// The `pos` marker represents a progression when exchanging requests and
+    /// responses with the server: the server acknowledges the request by
+    /// responding with a new `pos`. If the client sends two non-necessarily
+    /// consecutive requests with the same `pos`, the server has to reply with
+    /// the same identical response.
+    ///
+    /// `position` is behind a mutex so that a new request starts after the
+    /// previous request trip has fully ended (successfully or not). This
+    /// mechanism exists to wait for the response to be handled and to see the
+    /// `position` being updated, before sending a new request.
+    position: Arc<AsyncMutex<SlidingSyncPositionMarkers>>,
 
     /// Past position markers.
     past_positions: StdRwLock<RingBuffer<SlidingSyncPositionMarkers>>,
@@ -119,11 +127,14 @@ pub(super) struct SlidingSyncInner {
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
+
+    /// A lock to ensure that responses are handled one at a time.
+    response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
 impl SlidingSync {
     pub(super) fn new(inner: SlidingSyncInner) -> Self {
-        Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
+        Self { inner: Arc::new(inner) }
     }
 
     async fn cache_to_storage(&self) -> Result<()> {
@@ -271,6 +282,7 @@ impl SlidingSync {
     async fn handle_response(
         &self,
         mut sliding_sync_response: v4::Response,
+        mut position_guard: OwnedMutexGuard<SlidingSyncPositionMarkers>,
     ) -> Result<UpdateSummary, crate::Error> {
         let pos = Some(sliding_sync_response.pos.clone());
 
@@ -415,13 +427,16 @@ impl SlidingSync {
         // Everything went well, we can update the position markers.
         //
         // Save the new position markers.
-        let mut position = self.inner.position.write().unwrap();
-        position.pos = pos;
-        position.delta_token = sliding_sync_response.delta_token.clone();
+        position_guard.pos = pos;
+        position_guard.delta_token = sliding_sync_response.delta_token.clone();
 
         // Keep this position markers in memory, in case it pops from the server.
         let mut past_positions = self.inner.past_positions.write().unwrap();
-        past_positions.push(position.clone());
+        past_positions.push(position_guard.clone());
+
+        // Release the position markers lock.
+        // It means that other requests can start to be sent.
+        drop(position_guard);
 
         Ok(update_summary)
     }
@@ -429,7 +444,12 @@ impl SlidingSync {
     async fn generate_sync_request(
         &self,
         txn_id: &mut LazyTransactionId,
-    ) -> Result<(v4::Request, RequestConfig, BTreeSet<OwnedRoomId>)> {
+    ) -> Result<(
+        v4::Request,
+        RequestConfig,
+        BTreeSet<OwnedRoomId>,
+        OwnedMutexGuard<SlidingSyncPositionMarkers>,
+    )> {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
@@ -442,11 +462,15 @@ impl SlidingSync {
         }
 
         // Collect the `pos` and `delta_token`.
-        let (pos, delta_token) = {
-            let position = self.inner.position.read().unwrap();
-
-            (position.pos.clone(), position.delta_token.clone())
-        };
+        //
+        // Wait on the `position` mutex to be available. It means no request nor
+        // response is running. The `position` mutex is released whether the response
+        // has been fully handled successfully, in this case the `pos` is updated, or
+        // the response handling has failed, in this case the `pos` hasn't been updated
+        // and the same `pos` will be used for this new request.
+        let position_guard = self.inner.position.clone().lock_owned().await;
+        let pos = position_guard.pos.clone();
+        let delta_token = position_guard.delta_token.clone();
 
         Span::current().record("pos", &pos);
 
@@ -499,6 +523,7 @@ impl SlidingSync {
             // and extra time for the network delays.
             RequestConfig::default().timeout(self.inner.poll_timeout + self.inner.network_timeout),
             room_unsubscriptions,
+            position_guard,
         ))
     }
 
@@ -523,7 +548,7 @@ impl SlidingSync {
 
     #[instrument(skip_all, fields(pos))]
     async fn sync_once(&self) -> Result<UpdateSummary> {
-        let (request, request_config, requested_room_unsubscriptions) =
+        let (request, request_config, requested_room_unsubscriptions, position_guard) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
         debug!("Sending request");
@@ -613,7 +638,7 @@ impl SlidingSync {
             // In case the task running this future is detached, we must
             // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
-            let response_handling_lock = this.response_handling_lock.lock().await;
+            let response_handling_lock = this.inner.response_handling_lock.lock().await;
 
             // Room unsubscriptions have been received by the server. We can update the
             // unsubscriptions buffer. However, it would be an error to empty it entirely as
@@ -627,11 +652,12 @@ impl SlidingSync {
             }
 
             // Handle the response.
-            let updates = this.handle_response(response).await?;
+            let updates = this.handle_response(response, position_guard).await?;
 
             this.cache_to_storage().await?;
 
-            // Release the lock.
+            // Release the response handling lock.
+            // It means that other responses can be handled.
             drop(response_handling_lock);
 
             debug!("Done handling response");
@@ -741,7 +767,7 @@ impl SlidingSync {
         info!("Session expired; resetting `pos` and sticky parameters");
 
         {
-            let mut position = self.inner.position.write().unwrap();
+            let mut position = self.inner.position.lock().await;
             position.pos = None;
 
             let mut past_positions = self.inner.past_positions.write().unwrap();
@@ -785,13 +811,13 @@ enum SlidingSyncInternalMessage {
 impl SlidingSync {
     /// Get a copy of the `pos` value.
     pub fn pos(&self) -> Option<String> {
-        let position_lock = self.inner.position.read().unwrap();
+        let position_lock = self.inner.position.blocking_lock();
         position_lock.pos.clone()
     }
 
     /// Set a new value for `pos`.
     pub fn set_pos(&self, new_pos: String) {
-        let mut position_lock = self.inner.position.write().unwrap();
+        let mut position_lock = self.inner.position.blocking_lock();
         position_lock.pos = Some(new_pos);
     }
 
@@ -838,8 +864,8 @@ struct FrozenSlidingSync {
 }
 
 impl FrozenSlidingSync {
-    fn new(sliding_sync: &SlidingSync) -> Self {
-        let position = sliding_sync.inner.position.read().unwrap();
+    async fn new(sliding_sync: &SlidingSync) -> Self {
+        let position = sliding_sync.inner.position.lock().await;
 
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
         Self { delta_token: position.delta_token.clone(), to_device_since: None }
@@ -1134,7 +1160,7 @@ mod tests {
 
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
-        let frozen = FrozenSlidingSync::new(&sliding_sync);
+        let frozen = FrozenSlidingSync::new(&sliding_sync).await;
         assert!(frozen.to_device_since.is_none());
 
         Ok(())
@@ -1299,7 +1325,7 @@ mod tests {
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync
+        let (request, _, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
 
@@ -1319,7 +1345,7 @@ mod tests {
 
         // Regenerating a request will yield the same one.
         let txn_id2 = TransactionId::new();
-        let (request, _, _) = sync
+        let (request, _, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id2.to_owned()))
             .await?;
 
@@ -1339,7 +1365,7 @@ mod tests {
 
         // The next request should contain no sticky parameters.
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync
+        let (request, _, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
         assert!(request.extensions.e2ee.enabled.is_none());
@@ -1366,7 +1392,7 @@ mod tests {
         }
 
         let txn_id = TransactionId::new();
-        let (request, _, _) = sync
+        let (request, _, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
 
@@ -1391,7 +1417,7 @@ mod tests {
             .await?;
 
         // First request asks to enable the extension.
-        let (request, _, _) =
+        let (request, _, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_some());
 
@@ -1399,7 +1425,7 @@ mod tests {
         pin_mut!(sync);
 
         // `pos` is `None` to start with.
-        assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
+        assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
         #[derive(Deserialize)]
         struct PartialRequest {
@@ -1424,7 +1450,7 @@ mod tests {
             assert_matches!(next, Some(Ok(_update_summary)));
 
             // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("0".to_owned()));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
 
             // `past_positions` has been updated.
             let past_positions = sliding_sync.inner.past_positions.read().unwrap();
@@ -1433,7 +1459,7 @@ mod tests {
         }
 
         // Next request doesn't ask to enable the extension.
-        let (request, _, _) =
+        let (request, _, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_none());
 
@@ -1456,7 +1482,7 @@ mod tests {
             assert_matches!(next, Some(Ok(_update_summary)));
 
             // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("1".to_owned()));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
 
             // `past_positions` has been updated.
             let past_positions = sliding_sync.inner.past_positions.read().unwrap();
@@ -1493,7 +1519,7 @@ mod tests {
             assert!(sync.next().await.is_none());
 
             // `pos` has not been updated.
-            assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("1".to_owned()));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
 
             // `past_positions` has not been updated.
             let past_positions = sliding_sync.inner.past_positions.read().unwrap();
@@ -1525,7 +1551,7 @@ mod tests {
             assert_matches!(next, Some(Ok(_update_summary)));
 
             // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.read().unwrap().pos, Some("2".to_owned()));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("2".to_owned()));
 
             // `past_positions` has been updated.
             let past_positions = sliding_sync.inner.past_positions.read().unwrap();
@@ -1554,13 +1580,13 @@ mod tests {
             assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
 
             // `pos` has been reset.
-            assert!(sliding_sync.inner.position.read().unwrap().pos.is_none());
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
             // `past_positions` has been reset.
             assert!(sliding_sync.inner.past_positions.read().unwrap().is_empty());
 
             // Next request asks to enable the extension again.
-            let (request, _, _) =
+            let (request, _, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
             assert!(request.extensions.to_device.enabled.is_some());
@@ -1840,7 +1866,14 @@ mod tests {
             .build()
             .await?;
 
-        sliding_sync.handle_response(server_response.clone()).await?;
+        {
+            let sliding_sync_position_guard =
+                sliding_sync.inner.position.clone().lock_owned().await;
+
+            sliding_sync
+                .handle_response(server_response.clone(), sliding_sync_position_guard)
+                .await?;
+        }
 
         // E2EE has been properly handled.
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
@@ -1867,7 +1900,14 @@ mod tests {
             .build()
             .await?;
 
-        sliding_sync.handle_response(server_response.clone()).await?;
+        {
+            let sliding_sync_position_guard =
+                sliding_sync.inner.position.clone().lock_owned().await;
+
+            sliding_sync
+                .handle_response(server_response.clone(), sliding_sync_position_guard)
+                .await?;
+        }
 
         // E2EE response has been ignored.
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
@@ -1897,7 +1937,14 @@ mod tests {
             .build()
             .await?;
 
-        sliding_sync.handle_response(server_response.clone()).await?;
+        {
+            let sliding_sync_position_guard =
+                sliding_sync.inner.position.clone().lock_owned().await;
+
+            sliding_sync
+                .handle_response(server_response.clone(), sliding_sync_position_guard)
+                .await?;
+        }
 
         // E2EE has been properly handled.
         let uploaded_key_count = client.encryption().uploaded_key_count().await?;
