@@ -7,7 +7,7 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait PermissionsProvider: Send + Sync + 'static {
     /// Receives a request for given permissions and returns the actual permissions that
-    /// the user (client) granted to a given widget.
+    /// the clients grants to a given widget (usually by prompting the user).
     async fn acquire_permissions(&self, permissions: Permissions) -> Permissions;
 }
 
