@@ -27,7 +27,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, FfiPollKind, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, PollResult, Profile, TimelineDetails};
 use ruma::{assign, UInt};
 use tracing::warn;
 
@@ -420,24 +420,7 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
-            Content::Poll(poll_state) => {
-                let p = poll_state.results();
-                TimelineItemContentKind::Poll {
-                    question: p.question,
-                    kind: match p.kind {
-                        FfiPollKind::Disclosed => PollKind::Disclosed,
-                        FfiPollKind::Undisclosed => PollKind::Undisclosed,
-                    },
-                    max_selections: p.max_selections,
-                    answers: p
-                        .answers
-                        .iter()
-                        .map(|i| PollAnswer { id: i.id.clone(), text: i.text.clone() })
-                        .collect(),
-                    votes: p.votes.iter().map(|i| (i.0.clone(), i.1.clone())).collect(), // Why is this iter needed? If using into_iter() I can remove the clone()s, why?
-                    end_time: p.end_time,
-                }
-            }
+            Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -1288,7 +1271,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
     }
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(uniffi::Enum)]
 pub enum PollKind {
     Disclosed,
     Undisclosed,
@@ -1303,8 +1286,36 @@ impl From<PollKind> for RumaPollKind {
     }
 }
 
-#[derive(Clone, uniffi::Record)]
+impl From<RumaPollKind> for PollKind {
+    fn from(value: RumaPollKind) -> Self {
+        match value {
+            RumaPollKind::Disclosed => Self::Disclosed,
+            RumaPollKind::Undisclosed => Self::Undisclosed,
+            _ => Self::Undisclosed, // TODO Safe default. Should we keep it?
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
+}
+
+impl From<PollResult> for TimelineItemContentKind {
+    fn from(value: PollResult) -> Self {
+        TimelineItemContentKind::Poll {
+            question: value.question,
+            kind: PollKind::from(value.kind),
+            max_selections: value.max_selections,
+            answers: value
+                .answers
+                .iter()
+                .map(|i| PollAnswer { id: i.id.clone(), text: i.text.clone() })
+                .collect(),
+            // TODO Why is this iter needed? If using into_iter() I can remove the clone()s, why?
+            votes: value.votes.iter().map(|i| (i.0.clone(), i.1.clone())).collect(),
+            end_time: value.end_time,
+        }
+    }
 }

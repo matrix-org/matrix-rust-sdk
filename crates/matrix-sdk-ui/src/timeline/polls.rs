@@ -6,6 +6,7 @@ use ruma::{
     events::{
         poll::{
             compile_unstable_poll_results,
+            start::PollKind,
             unstable_response::{
                 OriginalSyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
             },
@@ -16,14 +17,14 @@ use ruma::{
         },
         MessageLikeUnsigned,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, ServerName,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
 };
 
 /// Holds the state of a poll.
 ///
-/// This struct should be created for each poll start event received and then
-/// updated whenever any other poll response or poll end event is received
-/// that relates to the same poll start event.
+/// This struct should be created for each poll start event handled and then
+/// updated whenever handling any poll response or poll end event that relates
+/// to the same poll start event.
 #[derive(Clone, Debug)]
 pub struct PollState {
     pub(super) start_event_content: UnstablePollStartEventContent,
@@ -40,11 +41,7 @@ pub(super) struct ResponseEvent {
 
 impl PollState {
     pub(super) fn new(content: UnstablePollStartEventContent) -> Self {
-        Self {
-            start_event_content: content,
-            response_events: Vec::new(),
-            end_event_timestamp: None,
-        }
+        Self { start_event_content: content, response_events: vec![], end_event_timestamp: None }
     }
 
     pub(super) fn edit(
@@ -86,14 +83,14 @@ impl PollState {
         self.start_event_content.text.clone()
     }
 
-    pub fn results(&self) -> FfiPoll {
+    pub fn results(&self) -> PollResult {
         let responses = self
             .response_events
             .iter()
             .map(|e| OriginalSyncUnstablePollResponseEvent {
-                // Concocting an OriginalSyncUnstablePollResponseEvent as I'm not able to get it from the handle_event() fn.
+                // TODO Concocting an OriginalSyncUnstablePollResponseEvent as I'm not able to get it from the handle_event() fn.
                 content: e.content.clone(),
-                event_id: EventId::new(<&ServerName>::try_from("example.com").unwrap()), // TODO Remove example.com
+                event_id: EventId::new(server_name!("no-server.local")), // TODO better fake server name?
                 sender: e.sender.clone(),
                 origin_server_ts: e.timestamp,
                 unsigned: MessageLikeUnsigned::new(),
@@ -102,24 +99,20 @@ impl PollState {
 
         let results = compile_unstable_poll_results(
             &self.start_event_content.poll_start,
-            responses.iter().map(|i| i).collect::<Vec<&OriginalSyncUnstablePollResponseEvent>>(),
+            responses.iter().map(|i| i).collect::<Vec<&OriginalSyncUnstablePollResponseEvent>>(), // TODO: Why .iter() twice?
             None,
         );
 
-        FfiPoll {
+        PollResult {
             question: self.start_event_content.poll_start.question.text.clone(),
-            kind: match self.start_event_content.poll_start.kind {
-                ruma::events::poll::start::PollKind::Undisclosed => FfiPollKind::Undisclosed,
-                ruma::events::poll::start::PollKind::Disclosed => FfiPollKind::Disclosed,
-                _ => FfiPollKind::Undisclosed, // Safe default. Should we keep it?
-            },
+            kind: self.start_event_content.poll_start.kind.clone(),
             max_selections: self.start_event_content.poll_start.max_selections.into(),
             answers: self
                 .start_event_content
                 .poll_start
                 .answers
                 .iter()
-                .map(|i| FfiPollAnswer { id: i.id.clone(), text: i.text.clone() })
+                .map(|i| PollResultAnswer { id: i.id.clone(), text: i.text.clone() })
                 .collect(),
             votes: results
                 .iter()
@@ -130,13 +123,13 @@ impl PollState {
     }
 }
 
-impl Into<UnstablePollStartEventContent> for PollState {
-    fn into(self) -> UnstablePollStartEventContent {
+impl From<PollState> for UnstablePollStartEventContent {
+    fn from(value: PollState) -> Self {
         let content = UnstablePollStartContentBlock::new(
-            self.start_event_content.poll_start.question.text.clone(),
-            self.start_event_content.poll_start.answers.clone(),
+            value.start_event_content.poll_start.question.text.clone(),
+            value.start_event_content.poll_start.answers.clone(),
         );
-        if let Some(text) = self.fallback_text() {
+        if let Some(text) = value.fallback_text() {
             UnstablePollStartEventContent::plain_text(text, content)
         } else {
             UnstablePollStartEventContent::new(content)
@@ -144,13 +137,15 @@ impl Into<UnstablePollStartEventContent> for PollState {
     }
 }
 
+/// Acts as a cache for poll response and poll end events handled before their
+/// start event has been handled.
 #[derive(Debug, Default)]
-pub(super) struct PollCache {
+pub(super) struct PollPendingEvents {
     pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseEvent>>,
-    pub(super) pending_poll_end_event_timestamps: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
+    pub(super) pending_poll_ends: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
 }
 
-impl PollCache {
+impl PollPendingEvents {
     pub(super) fn add_response(
         &mut self,
         start_id: &OwnedEventId,
@@ -170,37 +165,31 @@ impl PollCache {
         start_id: &OwnedEventId,
         timestamp: &MilliSecondsSinceUnixEpoch,
     ) {
-        self.pending_poll_end_event_timestamps.insert(start_id.clone(), timestamp.clone());
+        self.pending_poll_ends.insert(start_id.clone(), timestamp.clone());
     }
 
-    /// Adds all response and end event in the cache to the given poll_state
+    /// Dumps all response and end events presnet in the cache that belong to
+    /// the given start_event_id into the given poll_state.
     pub(super) fn apply(&mut self, start_event_id: &OwnedEventId, poll_state: &mut PollState) {
         if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
             poll_state.response_events.append(pending_responses)
         }
-        if let Some(pending_end) = self.pending_poll_end_event_timestamps.get_mut(start_event_id) {
+        if let Some(pending_end) = self.pending_poll_ends.get_mut(start_event_id) {
             poll_state.end_event_timestamp = Some(pending_end.clone())
         }
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub struct PollAnswerId(pub String);
-
-pub struct FfiPoll {
+pub struct PollResult {
     pub question: String,
-    pub kind: FfiPollKind,
+    pub kind: PollKind,
     pub max_selections: u64,
-    pub answers: Vec<FfiPollAnswer>,
+    pub answers: Vec<PollResultAnswer>,
     pub votes: HashMap<String, Vec<String>>,
     pub end_time: Option<u64>,
 }
 
-pub enum FfiPollKind {
-    Disclosed,
-    Undisclosed,
-}
-pub struct FfiPollAnswer {
+pub struct PollResultAnswer {
     pub id: String,
     pub text: String,
 }

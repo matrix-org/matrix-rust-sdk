@@ -80,7 +80,7 @@ pub use self::{
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
-    polls::FfiPollKind,
+    polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
     traits::RoomExt,
