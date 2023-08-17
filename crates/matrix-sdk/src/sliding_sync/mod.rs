@@ -717,6 +717,12 @@ impl SlidingSync {
                                 yield Ok(updates);
                             }
 
+                            // Here, errors we can safely ignore.
+                            Err(crate::Error::SlidingSync(Error::ResponseAlreadyReceived { .. })) => {
+                                continue;
+                            }
+
+                            // Here, errors we **cannot** ignore, and that must stop the sync-loop.
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
@@ -1494,7 +1500,8 @@ mod tests {
         // Next request isn't successful because it receives an already
         // received `pos` from the server.
         {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
+            // First response with an already seen `pos`.
+            let _mock_guard1 = Mock::given(SlidingSyncMatcher)
                 .respond_with(|request: &Request| {
                     // Repeat the txn_id in the response, if set.
                     let request: PartialRequest = request.body_json().unwrap();
@@ -1504,44 +1511,19 @@ mod tests {
                         "pos": "0", // <- already received!
                     }))
                 })
+                .up_to_n_times(1) // run this mock only once.
                 .mount_as_scoped(&server)
                 .await;
 
-            let next = sync.next().await;
-            assert_matches!(
-                next,
-                Some(Err(crate::Error::SlidingSync(Error::ResponseAlreadyReceived { pos }))) => {
-                    assert_eq!(pos, Some("0".to_owned()));
-                }
-            );
-
-            // `sync` has been stopped.
-            assert!(sync.next().await.is_none());
-
-            // `pos` has not been updated.
-            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
-
-            // `past_positions` has not been updated.
-            let past_positions = sliding_sync.inner.past_positions.read().unwrap();
-            assert_eq!(past_positions.len(), 2);
-            assert_eq!(past_positions.get(0).unwrap().pos, Some("0".to_owned()));
-            assert_eq!(past_positions.get(1).unwrap().pos, Some("1".to_owned()));
-        }
-
-        // Restart the sync.
-        let sync = sliding_sync.sync();
-        pin_mut!(sync);
-
-        // Next request is successful.
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
+            // Second response with a new `pos`.
+            let _mock_guard2 = Mock::given(SlidingSyncMatcher)
                 .respond_with(|request: &Request| {
                     // Repeat the txn_id in the response, if set.
                     let request: PartialRequest = request.body_json().unwrap();
 
                     ResponseTemplate::new(200).set_body_json(json!({
                         "txn_id": request.txn_id,
-                        "pos": "2",
+                        "pos": "2", // <- new!
                     }))
                 })
                 .mount_as_scoped(&server)
