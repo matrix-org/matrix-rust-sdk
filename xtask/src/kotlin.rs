@@ -1,8 +1,6 @@
-use std::{
-    fs::create_dir_all,
-    path::{Path, PathBuf},
-};
+use std::fs::create_dir_all;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
 use uniffi_bindgen::bindings::TargetLanguage;
 use xshell::{cmd, pushd};
@@ -62,7 +60,7 @@ enum KotlinCommand {
 
         /// Move the generated files into the given src directory
         #[clap(long)]
-        src_dir: PathBuf,
+        src_dir: Utf8PathBuf,
     },
 }
 
@@ -88,7 +86,7 @@ impl KotlinArgs {
 fn build_android_library(
     profile: &str,
     only_target: Option<String>,
-    src_dir: PathBuf,
+    src_dir: Utf8PathBuf,
     package: Package,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
@@ -98,7 +96,7 @@ fn build_android_library(
     let udl_path = root_dir.join(package_values.udl_path);
 
     let jni_libs_dir = src_dir.join("jniLibs");
-    let jni_libs_dir_str = jni_libs_dir.to_str().unwrap();
+    let jni_libs_dir_str = jni_libs_dir.as_str();
 
     let kotlin_generated_dir = src_dir.join("kotlin");
     create_dir_all(kotlin_generated_dir.clone())?;
@@ -130,21 +128,18 @@ fn build_android_library(
 }
 
 fn generate_uniffi_bindings(
-    udl_path: &Path,
-    library_path: &Path,
-    ffi_generated_dir: &Path,
+    udl_path: &Utf8Path,
+    library_path: &Utf8Path,
+    ffi_generated_dir: &Utf8Path,
 ) -> Result<()> {
-    println!("-- library_path = {}", library_path.to_string_lossy());
-    let udl_file = camino::Utf8Path::from_path(udl_path).unwrap();
-    let out_dir_overwrite = camino::Utf8Path::from_path(ffi_generated_dir).unwrap();
-    let library_file = camino::Utf8Path::from_path(library_path).unwrap();
+    println!("-- library_path = {library_path}");
 
     uniffi_bindgen::generate_bindings(
-        udl_file,
+        udl_path,
         None,
         vec![TargetLanguage::Kotlin],
-        Some(out_dir_overwrite),
-        Some(library_file),
+        Some(ffi_generated_dir),
+        Some(library_path),
         false,
     )?;
     Ok(())
@@ -155,7 +150,7 @@ fn build_for_android_target(
     profile: &str,
     dest_dir: &str,
     package_name: &str,
-) -> Result<PathBuf> {
+) -> Result<Utf8PathBuf> {
     cmd!("cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}")
         .run()?;
 
