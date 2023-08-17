@@ -7,6 +7,8 @@ pub mod widget;
 
 /// Starts a client widget API state machine for a given `widget` in a given joined `room`.
 /// The function returns once the widget is disconnected or any terminal error occurs.
+///
+/// Not implemented yet, currently always panics.
 pub async fn run_widget_api(
     _room: JoinedRoom,
     _widget: widget::Widget,
