@@ -70,9 +70,6 @@ use crate::{
 pub struct SlidingSync {
     /// The Sliding Sync data.
     inner: Arc<SlidingSyncInner>,
-
-    /// A lock to ensure that responses are handled one at a time.
-    response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
 #[derive(Debug)]
@@ -119,11 +116,14 @@ pub(super) struct SlidingSyncInner {
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
+
+    /// A lock to ensure that responses are handled one at a time.
+    response_handling_lock: Arc<AsyncMutex<()>>,
 }
 
 impl SlidingSync {
     pub(super) fn new(inner: SlidingSyncInner) -> Self {
-        Self { inner: Arc::new(inner), response_handling_lock: Arc::new(AsyncMutex::new(())) }
+        Self { inner: Arc::new(inner) }
     }
 
     async fn cache_to_storage(&self) -> Result<()> {
@@ -613,7 +613,7 @@ impl SlidingSync {
             // In case the task running this future is detached, we must
             // ensure responses are handled one at a time, hence we lock the
             // `response_handling_lock`.
-            let response_handling_lock = this.response_handling_lock.lock().await;
+            let response_handling_lock = this.inner.response_handling_lock.lock().await;
 
             // Room unsubscriptions have been received by the server. We can update the
             // unsubscriptions buffer. However, it would be an error to empty it entirely as

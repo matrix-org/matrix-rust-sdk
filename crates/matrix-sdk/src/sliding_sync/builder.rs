@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
+};
 
 use matrix_sdk_common::ring_buffer::RingBuffer;
 use ruma::{
@@ -273,6 +278,7 @@ impl SlidingSyncBuilder {
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
+            response_handling_lock: Arc::new(AsyncMutex::new(())),
 
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,
