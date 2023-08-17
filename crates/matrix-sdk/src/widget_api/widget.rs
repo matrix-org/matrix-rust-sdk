@@ -26,6 +26,6 @@ pub struct Info {
 pub struct Comm {
     /// Raw incoming messages from the widget (normally, formatted as JSON).
     pub from: Receiver<String>,
-    /// Raw outgoing messages from the client (SDK) to the widget (normally, formatted as JSON).
+    /// Raw outgoing messages from the client (SDK) to the widget (normally formatted as JSON).
     pub to: Sender<String>,
 }
