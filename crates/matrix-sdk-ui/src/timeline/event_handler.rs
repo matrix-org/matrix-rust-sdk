@@ -230,13 +230,18 @@ pub(super) struct TimelineEventHandler<'a> {
 // "see through" it, allowing borrows of TimelineEventHandler fields other than
 // `timeline_items` and `items_updated` in the update closure.
 macro_rules! update_timeline_item {
-    ($this:ident, $event_id:expr, $action:expr, $update:expr) => {
+    ($this:ident, $event_id:expr, $action:expr, $found:expr) => {
+        update_timeline_item!($this, $event_id, found: $found, not_found: || {
+            debug!("Timeline item not found, discarding {}", $action);
+        });
+    };
+    ($this:ident, $event_id:expr, found: $found:expr, not_found: $not_found:expr) => {
         _update_timeline_item(
             &mut $this.state.items,
             &mut $this.result.items_updated,
             $event_id,
-            $action,
-            $update,
+            $found,
+            $not_found,
         )
     };
 }
@@ -576,12 +581,10 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
-        let found = _update_timeline_item(
-            &mut self.state.items,
-            &mut self.result.items_updated,
+        update_timeline_item!(
+            self,
             &c.relates_to.event_id,
-            "poll response",
-            |event_item| match event_item.content() {
+            found: |event_item| match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.add_response(
                         &self.ctx.sender,
@@ -592,34 +595,32 @@ impl<'a> TimelineEventHandler<'a> {
                 )),
                 _ => None,
             },
+            not_found: || {
+                self.state.poll_cache.add_response(
+                    &c.relates_to.event_id,
+                    &self.ctx.sender,
+                    &self.ctx.timestamp,
+                    &c,
+                );
+            }
         );
-        if !found {
-            self.state.poll_cache.add_response(
-                &c.relates_to.event_id,
-                &self.ctx.sender,
-                &self.ctx.timestamp,
-                &c,
-            );
-        }
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        let found = _update_timeline_item(
-            &mut self.state.items,
-            &mut self.result.items_updated,
+        update_timeline_item!(
+            self,
             &c.relates_to.event_id.clone(),
-            "poll end",
-            |event_item| match event_item.content() {
+            found: |event_item| match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.end(&self.ctx.timestamp)),
                     None,
                 )),
                 _ => None,
             },
+            not_found: || {
+                self.state.poll_cache.add_end(&c.relates_to.event_id, &self.ctx.timestamp);
+            }
         );
-        if !found {
-            self.state.poll_cache.add_end(&c.relates_to.event_id, &self.ctx.timestamp);
-        }
     }
 
     #[instrument(skip_all)]
@@ -1189,9 +1190,9 @@ fn _update_timeline_item(
     items: &mut ObservableVector<Arc<TimelineItem>>,
     items_updated: &mut u16,
     event_id: &EventId,
-    action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
-) -> bool {
+    not_found: impl FnOnce(),
+) {
     if let Some((idx, item)) = rfind_event_by_id(items, event_id) {
         trace!("Found timeline item to update");
         if let Some(new_item) = update(item.inner) {
@@ -1199,9 +1200,7 @@ fn _update_timeline_item(
             items.set(idx, timeline_item(new_item, item.internal_id));
             *items_updated += 1;
         }
-        true
     } else {
-        debug!("Timeline item not found, discarding {action}");
-        false
+        not_found()
     }
 }
