@@ -7,7 +7,7 @@ use once_cell::sync::OnceCell;
 use tracing::{callsite::DefaultCallsite, field::FieldSet, Callsite};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
-/// Log an event at the given callsite (file, line and column).
+/// Log an event.
 ///
 /// The target should be something like a module path, and can be referenced in
 /// the filter string given to `setup_tracing`. `level` and `target` for a
@@ -15,25 +15,17 @@ use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 /// not be changed afterwards, i.e. the level and target passed for second and
 /// following `log_event`s with the same callsite will be ignored.
 ///
-/// This function leaks a little bit of memory for each unique callsite it is
-/// called with. Please make sure that the number of different
-/// `(file, line, column)` tuples that this can be called with is fixed in the
-/// final executable.
+/// This function leaks a little bit of memory for each unique (file + line +
+/// level + target) it is called with. Please make sure that the number of
+/// different combinations of those parameters this can be called with is
+/// constant in the final executable.
 #[uniffi::export]
-fn log_event(
-    file: String,
-    line: u32,
-    column: u32,
-    level: LogLevel,
-    target: String,
-    message: String,
-) {
-    static CALLSITES: Mutex<BTreeMap<Location, &'static DefaultCallsite>> =
+fn log_event(file: String, line: Option<u32>, level: LogLevel, target: String, message: String) {
+    static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
         Mutex::new(BTreeMap::new());
-    let loc = Location::new(file, line, column);
-    let callsite = get_or_init_metadata(&CALLSITES, loc, level, target, |loc| {
-        (format!("event {}:{}", loc.file, loc.line), &["message"], MetadataKind::EVENT)
-    });
+
+    let id = MetadataId { file, line, level, target, name: None };
+    let callsite = get_or_init_metadata(&CALLSITES, id, &["message"], MetadataKind::EVENT);
     let metadata = callsite.metadata();
 
     if span_or_event_enabled(callsite) {
@@ -54,24 +46,30 @@ fn log_event(
 type FieldNames = &'static [&'static str];
 
 fn get_or_init_metadata(
-    mutex: &Mutex<BTreeMap<Location, &'static DefaultCallsite>>,
-    loc: Location,
-    level: LogLevel,
-    target: String,
-    get_details: impl FnOnce(&Location) -> (String, FieldNames, MetadataKind),
+    mutex: &Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>>,
+    id: MetadataId,
+    field_names: FieldNames,
+    meta_kind: MetadataKind,
 ) -> &'static DefaultCallsite {
-    mutex.lock().unwrap().entry(loc).or_insert_with_key(|loc| {
-        let (name, field_names, span_kind) = get_details(loc);
+    mutex.lock().unwrap().entry(id).or_insert_with_key(|id| {
         let callsite = Box::leak(Box::new(LateInitCallsite(OnceCell::new())));
         let metadata = Box::leak(Box::new(tracing::Metadata::new(
-            Box::leak(name.into_boxed_str()),
-            Box::leak(target.into_boxed_str()),
-            level.to_tracing_level(),
-            Some(Box::leak(Box::from(loc.file.as_str()))),
-            Some(loc.line),
+            Box::leak(
+                id.name
+                    .clone()
+                    .unwrap_or_else(|| match id.line {
+                        Some(line) => format!("event {}:{line}", id.file),
+                        None => format!("event {}", id.file),
+                    })
+                    .into_boxed_str(),
+            ),
+            Box::leak(id.target.as_str().into()),
+            id.level.to_tracing_level(),
+            Some(Box::leak(Box::from(id.file.as_str()))),
+            id.line,
             None, // module path
             FieldSet::new(field_names, identify_callsite!(callsite)),
-            span_kind,
+            meta_kind,
         )));
         callsite.0.try_insert(DefaultCallsite::new(metadata)).expect("callsite was not set before")
     })
@@ -109,10 +107,10 @@ impl Span {
     /// target passed for second and following creation of a span with the same
     /// callsite will be ignored.
     ///
-    /// This function leaks a little bit of memory for each unique callsite it
-    /// is called with. Please make sure that the number of different
-    /// `(file, line, column)` tuples that this can be called with is fixed in
-    /// the final executable.
+    /// This function leaks a little bit of memory for each unique (file + line
+    /// + level + target + name) it is called with. Please make sure that the
+    /// number of different combinations of those parameters this can be called
+    /// with is constant in the final executable.
     ///
     /// For a span to have an effect, you must `.enter()` it at the start of a
     /// logical unit of work and `.exit()` it at the end of the same (including
@@ -127,18 +125,16 @@ impl Span {
     #[uniffi::constructor]
     pub fn new(
         file: String,
-        line: u32,
-        column: u32,
+        line: Option<u32>,
         level: LogLevel,
         target: String,
         name: String,
     ) -> Arc<Self> {
-        static CALLSITES: Mutex<BTreeMap<Location, &'static DefaultCallsite>> =
+        static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
             Mutex::new(BTreeMap::new());
-        let loc = Location::new(file, line, column);
-        let callsite = get_or_init_metadata(&CALLSITES, loc, level, target, |_loc| {
-            (name, &[], MetadataKind::SPAN)
-        });
+
+        let loc = MetadataId { file, line, level, target, name: Some(name) };
+        let callsite = get_or_init_metadata(&CALLSITES, loc, &[], MetadataKind::SPAN);
         let metadata = callsite.metadata();
 
         let span = if span_or_event_enabled(callsite) {
@@ -170,7 +166,7 @@ impl Span {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, uniffi::Enum)]
 pub enum LogLevel {
     Error,
     Warn,
@@ -192,16 +188,12 @@ impl LogLevel {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct Location {
+struct MetadataId {
     file: String,
-    line: u32,
-    column: u32,
-}
-
-impl Location {
-    fn new(file: String, line: u32, column: u32) -> Self {
-        Self { file, line, column }
-    }
+    line: Option<u32>,
+    level: LogLevel,
+    target: String,
+    name: Option<String>,
 }
 
 struct LateInitCallsite(OnceCell<DefaultCallsite>);

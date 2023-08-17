@@ -23,17 +23,23 @@ use std::{
 };
 
 use ruma::{
-    api::client::keys::{
-        upload_keys,
-        upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+    api::client::{
+        dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV1},
+        keys::{
+            upload_keys,
+            upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+        },
     },
     events::AnyToDeviceEvent,
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue as RawJsonValue, Value};
+use serde::{de::Error, Deserialize, Serialize};
+use serde_json::{
+    value::{to_raw_value, RawValue as RawJsonValue},
+    Value,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
@@ -52,6 +58,7 @@ use super::{
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
+    dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
@@ -557,10 +564,7 @@ impl ReadOnlyAccount {
         &EventEncryptionAlgorithm::MegolmV2AesSha2,
     ];
 
-    /// Create a fresh new account, this will generate the identity key-pair.
-    #[allow(clippy::ptr_arg)]
-    pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let mut account = InnerAccount::new();
+    fn new_helper(mut account: InnerAccount, user_id: &UserId, device_id: &DeviceId) -> Self {
         let identity_keys = account.identity_keys();
 
         // Let's generate some initial one-time keys while we're here. Since we know
@@ -585,6 +589,22 @@ impl ReadOnlyAccount {
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
             creation_local_time: MilliSecondsSinceUnixEpoch::now(),
         }
+    }
+
+    /// Create a fresh new account, this will generate the identity key-pair.
+    pub fn with_device_id(user_id: &UserId, device_id: &DeviceId) -> Self {
+        let account = InnerAccount::new();
+
+        Self::new_helper(account, user_id, device_id)
+    }
+
+    /// Create a new random Olm Account, the long-term Curve25519 identity key
+    /// encoded as base64 will be used for the device ID.
+    pub fn new(user_id: &UserId) -> Self {
+        let account = InnerAccount::new();
+        let device_id: OwnedDeviceId = encode(account.identity_keys().curve25519.as_bytes()).into();
+
+        Self::new_helper(account, user_id, &device_id)
     }
 
     /// Get the user id of the owner of the account.
@@ -813,6 +833,36 @@ impl ReadOnlyAccount {
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.creation_local_time,
+        }
+    }
+
+    pub(crate) async fn dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
+        let device_pickle =
+            self.inner.lock().await.to_libolm_pickle(pickle_key).expect(
+                "We should be able to convert a freshly created Account into a libolm pickle",
+            );
+
+        let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
+        Raw::from_json(to_raw_value(&data).expect("Coulnd't our dehydrated device data"))
+    }
+
+    pub(crate) async fn rehydrate(
+        pickle_key: &[u8; 32],
+        user_id: &UserId,
+        device_id: &DeviceId,
+        device_data: Raw<DehydratedDeviceData>,
+    ) -> Result<Self, DehydrationError> {
+        let data = device_data.deserialize()?;
+
+        match data {
+            DehydratedDeviceData::V1(d) => {
+                let account = InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key)?;
+                Ok(Self::new_helper(account, user_id, device_id))
+            }
+            _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
+                "Unsupported dehydrated device algorithm {:?}",
+                data.algorithm()
+            )))),
         }
     }
 
@@ -1329,7 +1379,7 @@ mod tests {
 
     #[async_test]
     async fn one_time_key_creation() -> Result<()> {
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
 
         let (_, one_time_keys, _) = account.keys_for_upload().await;
         assert!(!one_time_keys.is_empty());
@@ -1366,7 +1416,7 @@ mod tests {
 
     #[async_test]
     async fn fallback_key_creation() -> Result<()> {
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
 
         let (_, _, fallback_keys) = account.keys_for_upload().await;
 
@@ -1406,7 +1456,7 @@ mod tests {
         let key = vodozemac::Curve25519PublicKey::from_base64(
             "7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs",
         )?;
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
 
         let key = account.sign_key(key, true).await;
 
@@ -1430,7 +1480,7 @@ mod tests {
     #[async_test]
     async fn test_account_and_device_creation_timestamp() -> Result<()> {
         let now = MilliSecondsSinceUnixEpoch::now();
-        let account = ReadOnlyAccount::new(user_id(), device_id());
+        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
         let then = MilliSecondsSinceUnixEpoch::now();
 
         assert!(account.creation_local_time() >= now);

@@ -769,7 +769,7 @@ pub(crate) mod tests {
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::new(second.user_id(), second.device_id()),
+            ReadOnlyAccount::with_device_id(second.user_id(), second.device_id()),
             private_identity,
             MemoryStore::new().into_crypto_store(),
         );
@@ -804,13 +804,13 @@ pub(crate) mod tests {
         let response = own_key_query();
         let (_, device) = device(&response);
 
-        let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
+        let account = ReadOnlyAccount::with_device_id(device.user_id(), device.device_id());
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::new(device.user_id(), device.device_id()),
+            ReadOnlyAccount::with_device_id(device.user_id(), device.device_id()),
             id.clone(),
             MemoryStore::new().into_crypto_store(),
         );

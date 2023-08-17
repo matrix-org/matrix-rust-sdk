@@ -193,6 +193,7 @@ impl EncryptionSync {
     /// Start synchronization.
     ///
     /// This should be regularly polled.
+    #[doc(hidden)] // Only public for testing purposes.
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream!({
             let sync = self.sliding_sync.sync();
@@ -251,12 +252,16 @@ impl EncryptionSync {
     /// Requests that the underlying sliding sync be stopped.
     ///
     /// This will unlock the cross-process lock, if taken.
-    pub fn stop(&self) -> Result<(), Error> {
+    pub(crate) fn stop_sync(&self) -> Result<(), Error> {
         // Stopping the sync loop will cause the next `next()` call to return `None`, so
         // this will also release the cross-process lock automatically.
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)?;
 
         Ok(())
+    }
+
+    pub(crate) async fn expire_sync_session(&self) {
+        self.sliding_sync.expire_session().await;
     }
 }
 

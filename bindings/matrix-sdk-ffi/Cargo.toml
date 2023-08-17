@@ -50,6 +50,7 @@ tokio-stream = "0.1.8"
 uniffi = { workspace = true, features = ["tokio"] }
 url = "2.2.2"
 zeroize = { workspace = true }
+uuid = { version = "1.4.1", features = ["v4"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 log-panics = { version = "2", features = ["with-backtrace"] }

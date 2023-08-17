@@ -95,6 +95,9 @@ use tokio::sync::{Mutex, RwLock};
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
+    /// Client that has created this [`RoomListService`].
+    client: Client,
+
     /// The Sliding Sync instance.
     sliding_sync: Arc<SlidingSync>,
 
@@ -175,6 +178,7 @@ impl RoomListService {
             .map_err(Error::SlidingSync)?;
 
         Ok(Self {
+            client,
             sliding_sync,
             state: SharedObservable::new(State::Init),
             rooms: Arc::new(RwLock::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
@@ -195,6 +199,10 @@ impl RoomListService {
     /// Stopping the [`Stream`] (i.e. by calling [`Self::stop_sync`]), and
     /// calling [`Self::sync`] again will resume from the previous state of
     /// the state machine.
+    ///
+    /// This should be used only for testing. In practice, most users should be
+    /// using the [`SyncService`] instead.
+    #[doc(hidden)]
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
             let sync = self.sliding_sync.sync();
@@ -243,10 +251,11 @@ impl RoomListService {
     /// Force to stop the sync of the `RoomListService` started by
     /// [`Self::sync`].
     ///
-    /// It's better to call this method rather than stop polling the `Stream`
-    /// returned by [`Self::sync`] because it will force the cancellation and
-    /// exit the sync-loop, i.e. it will cancel any in-flight HTTP requests,
-    /// cancel any pending futures etc.
+    /// It's of utter importance to call this method rather than stop polling
+    /// the `Stream` returned by [`Self::sync`] because it will force the
+    /// cancellation and exit the sync-loop, i.e. it will cancel any
+    /// in-flight HTTP requests, cancel any pending futures etc. and put the
+    /// service into a termination state.
     ///
     /// Ideally, one wants to consume the `Stream` returned by [`Self::sync`]
     /// until it returns `None`, because of [`Self::stop_sync`], so that it
@@ -254,8 +263,17 @@ impl RoomListService {
     ///
     /// Stopping the sync of the room list via this method will put the
     /// state-machine into the [`State::Terminated`] state.
+    ///
+    /// This should be used only for testing. In practice, most users should be
+    /// using the [`SyncService`] instead.
+    #[doc(hidden)]
     pub fn stop_sync(&self) -> Result<(), Error> {
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
+    }
+
+    /// Get the [`Client`] that has been used to create [`Self`].
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /// Get a subscriber to the state.
@@ -330,6 +348,10 @@ impl RoomListService {
         Ok(room)
     }
 
+    pub(crate) async fn expire_sync_session(&self) {
+        self.sliding_sync.expire_session().await;
+    }
+
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
@@ -362,7 +384,7 @@ fn configure_all_or_visible_rooms_list(
 #[derive(Debug, Error)]
 pub enum Error {
     /// Error from [`matrix_sdk::SlidingSync`].
-    #[error("SlidingSync failed")]
+    #[error("SlidingSync failed: {0}")]
     SlidingSync(SlidingSyncError),
 
     /// An operation has been requested on an unknown list.

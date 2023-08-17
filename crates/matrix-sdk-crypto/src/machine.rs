@@ -25,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     api::client::{
+        dehydrated_device::DehydratedDeviceData,
         keys::{
             claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::v3::Response as KeysQueryResponse,
@@ -56,6 +57,7 @@ use vodozemac::{
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
 use crate::{
+    dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
@@ -160,15 +162,34 @@ impl OlmMachine {
             .expect("Reading and writing to the memory store always succeeds")
     }
 
+    pub(crate) async fn rehydrate(
+        &self,
+        pickle_key: &[u8; 32],
+        device_id: &DeviceId,
+        device_data: Raw<DehydratedDeviceData>,
+    ) -> Result<OlmMachine, DehydrationError> {
+        let account =
+            ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+
+        let store = MemoryStore::new().into_crypto_store();
+
+        Ok(Self::new_helper(
+            self.user_id(),
+            self.device_id(),
+            store,
+            account,
+            self.store().private_identity(),
+        ))
+    }
+
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
         store: Arc<DynCryptoStore>,
         account: ReadOnlyAccount,
-        user_identity: PrivateCrossSigningIdentity,
+        user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
         let user_id: OwnedUserId = user_id.into();
-        let user_identity = Arc::new(Mutex::new(user_identity));
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
@@ -262,7 +283,7 @@ impl OlmMachine {
                 account
             }
             None => {
-                let account = ReadOnlyAccount::new(user_id, device_id);
+                let account = ReadOnlyAccount::with_device_id(user_id, device_id);
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -302,6 +323,8 @@ impl OlmMachine {
                 PrivateCrossSigningIdentity::empty(user_id)
             }
         };
+
+        let identity = Arc::new(Mutex::new(identity));
 
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
@@ -1126,6 +1149,22 @@ impl OlmMachine {
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
     ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+        let (events, changes) = self.preprocess_sync_changes(sync_changes).await?;
+
+        // Technically save_changes also does the same work, so if it's slow we could
+        // refactor this to do it only once.
+        let room_key_updates: Vec<_> =
+            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
+
+        self.store().save_changes(changes).await?;
+
+        Ok((events, room_key_updates))
+    }
+
+    pub(crate) async fn preprocess_sync_changes(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Changes)> {
         // Remove verification objects that have expired or are done.
         let mut events = self.inner.verification_machine.garbage_collect();
 
@@ -1154,21 +1193,13 @@ impl OlmMachine {
             events.push(raw_event);
         }
 
-        // Technically save_changes also does the same work, so if it's slow we could
-        // refactor this to do it only once.
-        let room_key_updates: Vec<_> =
-            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
-
         let changed_sessions =
             self.inner.key_request_machine.collect_incoming_key_requests().await?;
 
         changes.sessions.extend(changed_sessions);
-
         changes.next_batch_token = sync_changes.next_batch_token;
 
-        self.store().save_changes(changes).await?;
-
-        Ok((events, room_key_updates))
+        Ok((events, changes))
     }
 
     /// Request a room key from our devices.
@@ -1419,8 +1450,8 @@ impl OlmMachine {
     ///   of tracked users
     ///
     /// Any users that hadn't been seen before will be flagged for a key query
-    /// immediately, and whenever `receive_sync_changes` receives a
-    /// "changed" notification for that user in the future.
+    /// immediately, and whenever [`OlmMachine::receive_sync_changes()`]
+    /// receives a "changed" notification for that user in the future.
     ///
     /// Users that were already in the list are unaffected.
     pub async fn update_tracked_users(
@@ -1875,6 +1906,11 @@ impl OlmMachine {
         Ok(true)
     }
 
+    /// Manage dehydrated devices.
+    pub fn dehydrated_devices(&self) -> DehydratedDevices {
+        DehydratedDevices { inner: self.to_owned() }
+    }
+
     #[cfg(any(feature = "testing", test))]
     /// Returns whether this `OlmMachine` is the same another one.
     ///
@@ -2013,7 +2049,7 @@ pub(crate) mod tests {
             .expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(
+    pub fn to_device_requests_to_content(
         requests: Vec<Arc<ToDeviceRequest>>,
     ) -> ToDeviceEncryptedEventContent {
         let to_device_request = &requests[0];
@@ -2326,7 +2362,7 @@ pub(crate) mod tests {
         assert!(user_sessions.contains_key(alice_device));
     }
 
-    async fn create_session(
+    pub async fn create_session(
         machine: &OlmMachine,
         user_id: &UserId,
         device_id: &DeviceId,

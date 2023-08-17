@@ -42,6 +42,14 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
+experimental-oidc = [
+    "ruma/unstable-msc2967",
+    "dep:chrono",
+    "dep:language-tags",
+    "dep:mas-oidc-client",
+    "dep:rand",
+    "dep:tower",
+]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
     "reqwest/gzip",
@@ -58,6 +66,7 @@ async-trait = { workspace = true }
 bytes = "1.1.0"
 bytesize = "1.1"
 cfg-vis = "0.3.0"
+chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
 event-listener = "2.5.2"
 eyeball = { workspace = true }
@@ -67,8 +76,9 @@ eyre = { version = "0.6.8", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
-imbl = { version = "2.0.0", features = ["serde"] }
 hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional = true }
+imbl = { version = "2.0.0", features = ["serde"] }
+language-tags = { version = "0.3.2", optional = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
@@ -105,6 +115,11 @@ features = [
     "dds",
     "farbfeld",
 ]
+optional = true
+
+[dependencies.mas-oidc-client]
+git = "https://github.com/matrix-org/matrix-authentication-service"
+rev = "4280045b24bc71ef1fa100c0a046ed15e6e20748"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

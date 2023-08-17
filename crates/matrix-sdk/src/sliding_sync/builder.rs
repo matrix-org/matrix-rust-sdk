@@ -1,5 +1,11 @@
-use std::{collections::BTreeMap, fmt::Debug, sync::RwLock as StdRwLock, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
+};
 
+use matrix_sdk_common::ring_buffer::RingBuffer;
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
@@ -7,7 +13,7 @@ use ruma::{
     },
     OwnedRoomId,
 };
-use tokio::sync::{broadcast::channel, RwLock as AsyncRwLock};
+use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use url::Url;
 
 use super::{
@@ -260,7 +266,11 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            position: StdRwLock::new(SlidingSyncPositionMarkers { pos: None, delta_token }),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers {
+                pos: None,
+                delta_token,
+            })),
+            past_positions: StdRwLock::new(RingBuffer::new(20)),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
                 SlidingSyncStickyParameters::new(
@@ -271,6 +281,7 @@ impl SlidingSyncBuilder {
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
+            response_handling_lock: Arc::new(AsyncMutex::new(())),
 
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,

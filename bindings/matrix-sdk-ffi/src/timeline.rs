@@ -7,6 +7,7 @@ use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
     ruma::events::{
         location::AssetType as RumaAssetType,
+        poll::start::PollKind as RumaPollKind,
         room::{
             message::{
                 AudioInfo as RumaAudioInfo,
@@ -1268,6 +1269,15 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
 pub enum PollKind {
     Disclosed,
     Undisclosed,
+}
+
+impl From<PollKind> for RumaPollKind {
+    fn from(value: PollKind) -> Self {
+        match value {
+            PollKind::Disclosed => Self::Disclosed,
+            PollKind::Undisclosed => Self::Undisclosed,
+        }
+    }
 }
 
 #[derive(Clone, uniffi::Record)]

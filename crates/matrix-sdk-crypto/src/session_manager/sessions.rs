@@ -478,7 +478,7 @@ mod tests {
     }
 
     fn bob_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
+        ReadOnlyAccount::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
     }
 
     fn keys_claim_with_failure() -> KeyClaimResponse {
@@ -513,7 +513,7 @@ mod tests {
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(DashMap::new());
-        let account = ReadOnlyAccount::new(user_id, device_id);
+        let account = ReadOnlyAccount::with_device_id(user_id, device_id);
         let store = MemoryStore::new().into_crypto_store();
         store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
@@ -689,7 +689,7 @@ mod tests {
     #[async_test]
     async fn failure_handling() {
         let alice = user_id!("@alice:example.org");
-        let alice_account = ReadOnlyAccount::new(alice, "DEVICEID".into());
+        let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
         let manager = session_manager().await;
@@ -732,7 +732,7 @@ mod tests {
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");
-        let alice_account = ReadOnlyAccount::new(alice, "DEVICEID".into());
+        let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
         let manager = session_manager().await;

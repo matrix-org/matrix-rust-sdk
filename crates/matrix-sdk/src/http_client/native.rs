@@ -23,6 +23,7 @@ use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
+use http::header::CONTENT_LENGTH;
 use ruma::api::{
     client::error::{ErrorBody as ClientApiErrorBody, ErrorKind as ClientApiErrorKind},
     error::FromHttpResponseError,
@@ -166,14 +167,15 @@ pub(super) async fn send_request(
     let request = clone_request(request);
     let request = {
         let mut request = if send_progress.subscriber_count() != 0 {
-            send_progress.update(|p| p.total += request.body().len());
+            let content_length = request.body().len();
+            send_progress.update(|p| p.total += content_length);
 
             // Make sure any concurrent futures in the same task get a chance
             // to also add to the progress total before the first chunks are
             // pulled out of the body stream.
             tokio::task::yield_now().await;
 
-            reqwest::Request::try_from(request.map(|body| {
+            let mut req = reqwest::Request::try_from(request.map(|body| {
                 let chunks = stream::iter(BytesChunks::new(body, 8192).map(
                     move |chunk| -> Result<_, Infallible> {
                         send_progress.update(|p| p.current += chunk.len());
@@ -181,7 +183,14 @@ pub(super) async fn send_request(
                     },
                 ));
                 reqwest::Body::wrap_stream(chunks)
-            }))?
+            }))?;
+
+            // When streaming the request, reqwest / hyper doesn't know how
+            // large the body is, so it doesn't set the content-length header
+            // (required by some servers). Set it manually.
+            req.headers_mut().insert(CONTENT_LENGTH, content_length.into());
+
+            req
         } else {
             reqwest::Request::try_from(request)?
         };

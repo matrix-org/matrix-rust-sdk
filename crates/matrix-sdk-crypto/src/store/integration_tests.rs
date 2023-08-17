@@ -71,12 +71,12 @@ macro_rules! cryptostore_integration_tests {
             }
 
             fn get_account() -> ReadOnlyAccount {
-                ReadOnlyAccount::new(&alice_id(), &alice_device_id())
+                ReadOnlyAccount::with_device_id(alice_id(), alice_device_id())
             }
 
             async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-                let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-                let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+                let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+                let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
 
                 bob.generate_one_time_keys_helper(1).await;
                 let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
@@ -402,13 +402,13 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "device_saving";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
-                let alice_device_1 = ReadOnlyDevice::from_account(&ReadOnlyAccount::new(
+                let alice_device_1 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "FIRSTDEVICE".into(),
                 ))
                 .await;
 
-                let alice_device_2 = ReadOnlyDevice::from_account(&ReadOnlyAccount::new(
+                let alice_device_2 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "SECONDDEVICE".into(),
                 ))
@@ -488,7 +488,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let store = get_store(dir, None).await;
 
-                let account = ReadOnlyAccount::new(&user_id, device_id);
+                let account = ReadOnlyAccount::with_device_id(&user_id, device_id);
 
                 store.save_account(account.clone()).await.expect("Can't save account");
 

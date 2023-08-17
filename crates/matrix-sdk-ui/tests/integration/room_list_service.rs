@@ -8,9 +8,10 @@ use matrix_sdk::Client;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        filters::new_filter_fuzzy_match_room_name, Error, Input, InputResult, RoomListEntry,
-        RoomListLoadingState, State, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
-        INVITES_LIST_NAME as INVITES, VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
+        filters::{new_filter_all, new_filter_fuzzy_match_room_name},
+        Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State,
+        ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
+        VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
     RoomListService,
@@ -18,8 +19,8 @@ use matrix_sdk_ui::{
 use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
     assign, event_id,
-    events::StateEventType,
-    mxc_uri, room_id, uint,
+    events::{room::message::RoomMessageEventContent, StateEventType},
+    mxc_uri, room_id, uint, TransactionId,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -163,7 +164,7 @@ macro_rules! assert_entries_stream {
         )
     };
 
-    // `insert [$nth] [ $entry ]`
+    // `insert [$nth] [$entry]`
     ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_stream!(
             @_
@@ -175,6 +176,24 @@ macro_rules! assert_entries_stream {
                     $entries.next(),
                     Some(&VectorDiff::Insert { index: $index, ref value }) => {
                         assert_eq!(value, &entries!( $( $entry )+ )[0]);
+                    }
+                );
+            ]
+        )
+    };
+
+    // `reset [$entries]`
+    ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_stream!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $entries.next(),
+                    Some(&VectorDiff::Reset { ref values }) => {
+                        assert_eq!(values, &entries!( $( $entry )+ ));
                     }
                 );
             ]
@@ -288,6 +307,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                     "required_state": [
                         ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
                     ],
                     "filters": {
                         "is_invite": false,
@@ -403,7 +423,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "3",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -444,7 +464,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "4",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -914,7 +934,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "1",
+            "pos": "0",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -954,7 +974,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "2",
+            "pos": "1",
             "lists": {
                 ALL_ROOMS: {
                     "count": 1000,
@@ -1372,7 +1392,7 @@ async fn test_entries_stream() -> Result<(), Error> {
 }
 
 #[async_test]
-async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
+async fn test_entries_stream_with_filters() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
@@ -1427,9 +1447,32 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         pending;
     };
 
-    let (previous_entries, entries_stream) =
-        all_rooms.entries_filtered(new_filter_fuzzy_match_room_name(&client, "mat ba"));
-    pin_mut!(entries_stream);
+    // 1. Test with a static filter.
+    let (previous_entries_static_filter, entries_stream_static_filter) =
+        all_rooms.entries_with_static_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+    pin_mut!(entries_stream_static_filter);
+
+    // 2. Test with a dynamic filter.
+    let (entries_stream_dynamic_filter, dynamic_filter) = all_rooms.entries_with_dynamic_filter();
+    pin_mut!(entries_stream_dynamic_filter);
+
+    // Assert the static filter.
+    assert_eq!(previous_entries_static_filter, entries![F("!r0:bar.org")]);
+
+    // Ensure the dynamic filter stream is pending because there is no filter set
+    // yet.
+    assert_pending!(entries_stream_dynamic_filter);
+
+    // Now, let's define a filter.
+    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` because the filter has been reset/set for the first time.
+        reset [ F("!r0:bar.org") ];
+        pending;
+    };
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1484,7 +1527,7 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
                     "timeline": [],
                 },
                 "!r3:bar.org": {
-                    "name": "Matrix Qux",
+                    "name": "Helios live",
                     "initial": true,
                     "timeline": [],
                 },
@@ -1497,11 +1540,126 @@ async fn test_entries_stream_with_updated_filter() -> Result<(), Error> {
         },
     };
 
-    assert_eq!(previous_entries, entries![F("!r0:bar.org")]);
+    // Assert the static filter.
     assert_entries_stream! {
-        [entries_stream]
+        [entries_stream_static_filter]
         insert[1] [ F("!r1:bar.org") ];
         insert[2] [ F("!r4:bar.org") ];
+        pending;
+    };
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        insert[1] [ F("!r1:bar.org") ];
+        insert[2] [ F("!r4:bar.org") ];
+        pending;
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+                VISIBLE_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    "ranges": [[0, 0]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                    "ops": [
+                        {
+                            "op": "SYNC",
+                            "range": [5, 7],
+                            "room_ids": [
+                                "!r5:bar.org",
+                                "!r6:bar.org",
+                                "!r7:bar.org",
+                            ],
+                        },
+                    ],
+                },
+                VISIBLE_ROOMS: {
+                    "count": 0,
+                },
+                INVITES: {
+                    "count": 0,
+                },
+            },
+            "rooms": {
+                "!r5:bar.org": {
+                    "name": "Matrix Barracuda Room",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r6:bar.org": {
+                    "name": "Matrix is real as hell",
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r7:bar.org": {
+                    "name": "Matrix Baraka",
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    // Assert the static filter.
+    assert_entries_stream! {
+        [entries_stream_static_filter]
+        insert[3] [ F("!r5:bar.org") ];
+        insert[4] [ F("!r7:bar.org") ];
+        pending;
+    };
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        insert[3] [ F("!r5:bar.org") ];
+        insert[4] [ F("!r7:bar.org") ];
+        pending;
+    };
+
+    // Now, let's change the dynamic filter!
+    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "hell"));
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` again because the filter has been reset.
+        reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
+        pending;
+    };
+
+    // Now, let's change again the dynamic filter!
+    dynamic_filter.set(new_filter_all());
+
+    // Assert the dynamic filter.
+    assert_entries_stream! {
+        [entries_stream_dynamic_filter]
+        // Receive a `reset` again because the filter has been reset.
+        reset [
+            F("!r0:bar.org"),
+            F("!r1:bar.org"),
+            F("!r2:bar.org"),
+            F("!r3:bar.org"),
+            F("!r4:bar.org"),
+            F("!r5:bar.org"),
+            F("!r6:bar.org"),
+            F("!r7:bar.org"),
+        ];
         pending;
     };
 
@@ -2029,7 +2187,7 @@ async fn test_room_timeline() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "1",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2110,7 +2268,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "1",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2126,6 +2284,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     assert_matches!(
         room.latest_event().await,
         Some(event) => {
+            assert!(event.is_local_echo().not());
             assert_eq!(event.event_id(), Some(event_id!("$x0:bar.org")));
         }
     );
@@ -2134,7 +2293,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
         [server, room_list, sync]
         assert request >= {},
         respond with = {
-            "pos": "0",
+            "pos": "2",
             "lists": {},
             "rooms": {
                 room_id: {
@@ -2147,10 +2306,49 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     // The latest event has been updated.
+    let latest_event = assert_matches!(
+        room.latest_event().await,
+        Some(event) => {
+            assert!(event.is_local_echo().not());
+            assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
+
+            event
+        }
+    );
+
+    // Now let's compare with the result of the `Timeline`.
+    let timeline = room.timeline().await;
+
+    // The latest event matches the latest event of the `Timeline`.
+    assert_matches!(
+        timeline.latest_event().await,
+        Some(timeline_event) => {
+            assert_eq!(timeline_event.event_id(), latest_event.event_id());
+        }
+    );
+
+    // Insert a local event in the `Timeline`.
+    let txn_id: &TransactionId = "foobar-txn-id".into();
+
+    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+
+    // The latest event of the `Timeline` is a local event.
+    assert_matches!(
+        timeline.latest_event().await,
+        Some(timeline_event) => {
+            assert!(timeline_event.is_local_echo());
+            assert_eq!(timeline_event.event_id(), None);
+            assert_eq!(timeline_event.transaction_id(), Some(txn_id));
+        }
+    );
+
+    // The latest event is a local event.
     assert_matches!(
         room.latest_event().await,
         Some(event) => {
-            assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
+            assert!(event.is_local_echo());
+            assert_eq!(event.event_id(), None);
+            assert_eq!(event.transaction_id(), Some(txn_id));
         }
     );
 
@@ -2242,7 +2440,7 @@ async fn test_input_viewport() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "1",
+            "pos": "2",
             "lists": {},
             "rooms": {},
         },

@@ -839,13 +839,13 @@ mod test {
     }
 
     pub(crate) async fn setup_stores() -> (VerificationStore, VerificationStore) {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let alice_store = MemoryStore::new();
         let (alice_private_identity, _, _) =
             PrivateCrossSigningIdentity::with_account(&alice).await;
         let alice_private_identity = Mutex::new(alice_private_identity);
 
-        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
+        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
         let bob_store = MemoryStore::new();
         let (bob_private_identity, _, _) = PrivateCrossSigningIdentity::with_account(&bob).await;
         let bob_private_identity = Mutex::new(bob_private_identity);
