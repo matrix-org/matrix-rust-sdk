@@ -74,6 +74,8 @@ impl Drop for CryptoStoreLockGuard {
 }
 
 /// A store-based lock for the `CryptoStore`.
+///
+/// See the doc-comment of this module for more information.
 #[derive(Clone, Debug)]
 pub struct CryptoStoreLock {
     /// The store we're using to lock.

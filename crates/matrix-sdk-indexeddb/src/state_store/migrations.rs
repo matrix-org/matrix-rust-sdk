@@ -40,7 +40,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 7;
+const CURRENT_DB_VERSION: u32 = 8;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -130,14 +130,14 @@ pub async fn upgrade_meta_db(
     Ok((meta_db, store_cipher))
 }
 
-// Helper struct for upgrading the inner DB.
+/// Helper struct for upgrading the inner DB.
 #[derive(Debug, Clone, Default)]
 pub struct OngoingMigration {
-    // Names of stores to drop.
+    /// Names of stores to drop.
     drop_stores: HashSet<&'static str>,
-    // Names of stores to create.
+    /// Names of stores to create.
     create_stores: HashSet<&'static str>,
-    // Store name => key-value data to add.
+    /// Store name => key-value data to add.
     data: HashMap<&'static str, Vec<(JsValue, JsValue)>>,
 }
 
@@ -222,6 +222,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 7 {
                 migration.merge(migrate_to_v7(&pre_db, store_cipher).await?);
+            }
+            if old_version < 8 {
+                migration.merge(migrate_to_v8(&pre_db, store_cipher).await?);
             }
         }
 
@@ -638,6 +641,18 @@ async fn migrate_to_v7(
         drop_stores: HashSet::from_iter([old_keys::STRIPPED_ROOM_INFOS]),
         data,
         ..Default::default()
+    })
+}
+
+/// Add a new table for leased locks.
+async fn migrate_to_v8(
+    db: &IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<OngoingMigration> {
+    Ok(OngoingMigration {
+        drop_stores: Default::default(),
+        create_stores: [keys::LEASE_LOCKS].into_iter().collect(),
+        data: Default::default(),
     })
 }
 

@@ -29,7 +29,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId,
+    RoomVersionId, UserId,
 };
 use rusqlite::{limits::Limit, OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -57,7 +58,7 @@ mod keys {
     pub const MEDIA: &str = "media";
 }
 
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -158,6 +159,13 @@ impl SqliteStateStore {
                 ))?;
 
                 Result::<_, Error>::Ok(())
+            })
+            .await?;
+        }
+
+        if from < 3 && to >= 3 {
+            conn.with_transaction(|txn| {
+                txn.execute_batch(include_str!("../migrations/state_store/003_lock_leases.sql"))
             })
             .await?;
         }
@@ -1541,6 +1549,39 @@ impl StateStore for SqliteStateStore {
                 Ok(())
             })
             .await
+    }
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool> {
+        let key = key.to_owned();
+        let holder = holder.to_owned();
+
+        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration_ts = now_ts + lease_duration_ms as u64;
+
+        let num_touched = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "INSERT INTO lease_locks (key, holder, expiration_ts)
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT (key)
+                    DO
+                        UPDATE SET holder = ?2, expiration_ts = ?3
+                        WHERE holder = ?2
+                        OR expiration_ts < ?4
+                ",
+                    (key, holder, expiration_ts, now_ts),
+                )
+            })
+            .await?;
+
+        Ok(num_touched == 1)
     }
 }
 
