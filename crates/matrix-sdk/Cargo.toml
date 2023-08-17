@@ -58,6 +58,8 @@ experimental-sliding-sync = [
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 
+widget-api = []
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
