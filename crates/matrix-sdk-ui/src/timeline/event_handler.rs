@@ -609,7 +609,7 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
         update_timeline_item!(
             self,
-            &c.relates_to.event_id.clone(),
+            &c.relates_to.event_id,
             found: |event_item| match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.end(&self.ctx.timestamp)),
