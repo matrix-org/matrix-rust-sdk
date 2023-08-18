@@ -425,7 +425,7 @@ impl Client {
     }
 
     pub fn account_url(&self) -> Option<String> {
-        self.inner.oidc().account_management_url().unwrap_or(None).map(|url| url.to_string())
+        self.inner.oidc().account_management_url().ok().flatten().map(|url| url.to_string())
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
@@ -891,8 +891,8 @@ pub struct Session {
     // FFI-only fields (for now)
     /// The URL for the homeserver used for this session.
     pub homeserver_url: String,
-    /// Additional data for this session session if OpenID Connect was used
-    /// for authentication.
+    /// Additional data for this session if OpenID Connect was used for
+    /// authentication.
     pub oidc_data: Option<String>,
     /// The URL for the sliding sync proxy used for this session.
     pub sliding_sync_proxy: Option<String>,

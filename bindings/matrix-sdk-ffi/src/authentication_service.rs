@@ -360,17 +360,8 @@ impl AuthenticationService {
             self.configure_oidc(&oidc, authentication_server, oidc_configuration).await?;
 
             let mut data_builder = oidc.login(redirect_url, None)?;
-
-            if let Ok(provider_metadata) = oidc.provider_metadata().await {
-                if provider_metadata
-                    .prompt_values_supported
-                    .as_ref()
-                    .is_some_and(|p| p.contains(&Prompt::Consent))
-                {
-                    data_builder = data_builder.prompt(vec![Prompt::Consent]);
-                }
-            }
-
+            // TODO: Add a check for the Consent prompt when MAS is updated.
+            data_builder = data_builder.prompt(vec![Prompt::Consent]);
             let data = data_builder.build().await?;
 
             Ok(Arc::new(OidcAuthenticationData { url: data.url, state: data.state }))
