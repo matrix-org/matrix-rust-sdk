@@ -52,6 +52,14 @@ pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventCo
     Arc::new(RoomMessageEventContent::text_markdown(md))
 }
 
+#[uniffi::export]
+pub fn message_event_content_from_html(
+    body: String,
+    html_body: String,
+) -> Arc<RoomMessageEventContent> {
+    Arc::new(RoomMessageEventContent::text_html(body, html_body))
+}
+
 #[uniffi::export(callback_interface)]
 pub trait TimelineListener: Sync + Send {
     fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
