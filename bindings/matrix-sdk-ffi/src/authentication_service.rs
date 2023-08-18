@@ -365,8 +365,7 @@ impl AuthenticationService {
                 if provider_metadata
                     .prompt_values_supported
                     .as_ref()
-                    .map(|p| p.contains(&Prompt::Consent))
-                    .unwrap_or(false)
+                    .is_some_and(|p| p.contains(&Prompt::Consent))
                 {
                     data_builder = data_builder.prompt(vec![Prompt::Consent]);
                 }
@@ -472,7 +471,8 @@ impl AuthenticationService {
 
         let oidc_metadata = self.oidc_metadata(configuration)?;
 
-        if self.load_client_registration(oidc, oidc_metadata.clone()).await {
+        if self.load_client_registration(oidc, &authentication_server, oidc_metadata.clone()).await
+        {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
@@ -527,11 +527,10 @@ impl AuthenticationService {
     async fn load_client_registration(
         &self,
         oidc: &Oidc,
+        authentication_server: &AuthenticationServerInfo,
         oidc_metadata: VerifiedClientMetadata,
     ) -> bool {
-        let Some(issuer) = oidc.issuer() else {
-            return false;
-        };
+        let issuer = &authentication_server.issuer;
         let Some(registrations) = OidcRegistrations::new(
             &self.base_path,
             self.oidc_configuration
@@ -551,11 +550,7 @@ impl AuthenticationService {
             metadata: oidc_metadata,
         };
 
-        let authentication_server = AuthenticationServerInfo::new(
-            issuer.to_owned(),
-            oidc.account_management_url().unwrap_or(None).map(|url| url.to_string()),
-        );
-        oidc.restore_registered_client(authentication_server, client_data).await;
+        oidc.restore_registered_client(authentication_server.clone(), client_data).await;
 
         true
     }
