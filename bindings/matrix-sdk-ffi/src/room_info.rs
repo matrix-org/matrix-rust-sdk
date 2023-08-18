@@ -12,10 +12,6 @@ pub struct RoomInfo {
     topic: Option<String>,
     avatar_url: Option<String>,
     is_direct: bool,
-    /// Whether the room is encrypted.
-    ///
-    /// Currently always `None` (unknown) for invited rooms.
-    is_encrypted: Option<bool>,
     is_public: bool,
     is_space: bool,
     is_tombstoned: bool,
@@ -42,10 +38,6 @@ impl RoomInfo {
             topic: inner.topic(),
             avatar_url: inner.avatar_url().map(Into::into),
             is_direct: inner.is_direct().await?,
-            is_encrypted: match inner.state() {
-                RoomState::Invited => None,
-                _ => Some(inner.is_encrypted().await?),
-            },
             is_public: inner.is_public(),
             is_space: inner.is_space(),
             is_tombstoned: inner.is_tombstoned(),
