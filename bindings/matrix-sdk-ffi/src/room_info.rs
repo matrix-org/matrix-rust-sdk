@@ -36,7 +36,7 @@ impl RoomInfo {
             id: inner.room_id().to_string(),
             name: inner.name(),
             topic: inner.topic(),
-            avatar_url: inner.avatar_url().map(Into::into),
+            avatar_url: room.avatar_url().map(Into::into),
             is_direct: inner.is_direct().await?,
             is_public: inner.is_public(),
             is_space: inner.is_space(),
