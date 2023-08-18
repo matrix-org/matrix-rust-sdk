@@ -16,9 +16,9 @@ use matrix_sdk::{
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
-            requests::GrantType,
+            requests::{GrantType, Prompt},
         },
-        AuthorizationCode, AuthorizationResponse, Oidc, OidcError, RegisteredClientData,
+        AuthorizationResponse, Oidc, OidcError, RegisteredClientData,
     },
     AuthSession,
 };
@@ -122,7 +122,7 @@ pub struct OidcConfiguration {
 /// The data needed to restore an OpenID Connect session.
 #[derive(Debug, Serialize, Deserialize)]
 struct OidcRegistrations {
-    /// The URL of the OIDC Provider.
+    /// The path of the file where the registrations are stored.
     file_path: PathBuf,
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
@@ -163,10 +163,10 @@ impl OidcRegistrations {
 
     /// Returns the client ID registered for a particular issuer or None if a
     /// registration hasn't been made.
-    fn client_id(&self, issuer: String) -> Option<String> {
+    fn client_id(&self, issuer: &str) -> Option<String> {
         let mut registrations = self.dynamic_registrations();
         registrations.extend(self.static_registrations.clone());
-        registrations.get(&issuer).cloned()
+        registrations.get(issuer).cloned()
     }
 
     /// Stores a new client ID registration for a particular issuer. If a client
@@ -185,8 +185,7 @@ impl OidcRegistrations {
 /// The data required to authenticate against an OIDC server.
 #[derive(uniffi::Object)]
 pub struct OidcAuthenticationData {
-    /// The underlying URL for authentication. Additional parameters may be
-    /// needed. Call `login_url()` to get the URL to be loaded in a web view.
+    /// The underlying URL for authentication.
     url: Url,
     /// A unique identifier for the request, used to ensure the response
     /// originated from the authentication issuer.
@@ -197,9 +196,7 @@ pub struct OidcAuthenticationData {
 impl OidcAuthenticationData {
     /// The login URL to use for authentication.
     pub fn login_url(&self) -> String {
-        let mut prompt_url = self.url.clone();
-        prompt_url.query_pairs_mut().append_pair("prompt", "consent");
-        prompt_url.to_string()
+        self.url.to_string()
     }
 }
 
@@ -346,7 +343,7 @@ impl AuthenticationService {
             return Err(AuthenticationError::ClientMissing);
         };
 
-        let Some(authentication_server) = client.authentication_server() else {
+        let Some(authentication_server) = client.discovered_authentication_server() else {
             return Err(AuthenticationError::OidcNotSupported);
         };
 
@@ -362,7 +359,20 @@ impl AuthenticationService {
         RUNTIME.block_on(async {
             self.configure_oidc(&oidc, authentication_server, oidc_configuration).await?;
 
-            let data = oidc.login(redirect_url, None)?.build().await?;
+            let mut data_builder = oidc.login(redirect_url, None)?;
+
+            if let Ok(provider_metadata) = oidc.provider_metadata().await {
+                if provider_metadata
+                    .prompt_values_supported
+                    .as_ref()
+                    .map(|p| p.contains(&Prompt::Consent))
+                    .unwrap_or(false)
+                {
+                    data_builder = data_builder.prompt(vec![Prompt::Consent]);
+                }
+            }
+
+            let data = data_builder.build().await?;
 
             Ok(Arc::new(OidcAuthenticationData { url: data.url, state: data.state }))
         })
@@ -404,11 +414,7 @@ impl AuthenticationService {
         };
 
         RUNTIME.block_on(async move {
-            oidc.finish_authorization(AuthorizationCode {
-                code: code.code,
-                state: code.state.to_string(),
-            })
-            .await?;
+            oidc.finish_authorization(code).await?;
 
             oidc.finish_login()
                 .await
@@ -443,7 +449,7 @@ impl AuthenticationService {
         let login_details = join(client.async_homeserver(), client.supports_password_login()).await;
 
         let url = login_details.0;
-        let supports_oidc_login = client.authentication_server().is_some();
+        let supports_oidc_login = client.discovered_authentication_server().is_some();
         let supports_password_login = login_details.1.ok().unwrap_or(false);
 
         Ok(HomeserverLoginDetails { url, supports_oidc_login, supports_password_login })
@@ -536,16 +542,19 @@ impl AuthenticationService {
         .ok() else {
             return false;
         };
-        let Some(client_id) = registrations.client_id(issuer.to_owned()) else {
+        let Some(client_id) = registrations.client_id(issuer) else {
             return false;
         };
 
         let client_data = RegisteredClientData {
-            credentials: ClientCredentials::None { client_id: client_id.clone() },
+            credentials: ClientCredentials::None { client_id },
             metadata: oidc_metadata,
         };
 
-        let authentication_server = AuthenticationServerInfo::new(issuer.to_owned(), None);
+        let authentication_server = AuthenticationServerInfo::new(
+            issuer.to_owned(),
+            oidc.account_management_url().unwrap_or(None).map(|url| url.to_string()),
+        );
         oidc.restore_registered_client(authentication_server, client_data).await;
 
         true

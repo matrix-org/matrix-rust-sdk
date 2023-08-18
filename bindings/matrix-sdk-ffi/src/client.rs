@@ -316,9 +316,13 @@ impl Client {
         self.inner.homeserver().await.to_string()
     }
 
-    /// The OIDC Provider that is trusted by the homeserver. `None` when
-    /// not configured.
-    pub(crate) fn authentication_server(&self) -> Option<AuthenticationServerInfo> {
+    /// The homeserver's trusted OIDC Provider that was discovered in the
+    /// well-known.
+    ///
+    /// This will only be set if the homeserver supports authenticating via
+    /// OpenID Connect and this `Client` was constructed using auto-discovery by
+    /// setting the homeserver with [`ClientBuilder::server_name()`].
+    pub(crate) fn discovered_authentication_server(&self) -> Option<AuthenticationServerInfo> {
         self.inner.authentication_server_info().cloned()
     }
 
@@ -421,7 +425,7 @@ impl Client {
     }
 
     pub fn account_url(&self) -> Option<String> {
-        self.authentication_server().and_then(|a| a.account)
+        self.inner.oidc().account_management_url().unwrap_or(None).map(|url| url.to_string())
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {

@@ -44,6 +44,8 @@ use matrix_sdk_base::{
     SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::api::client::error::ErrorKind;
 #[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
@@ -58,7 +60,6 @@ use ruma::{
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
-            error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             membership::{join_room_by_id, join_room_by_id_or_alias},
             profile::get_profile,
@@ -425,22 +426,13 @@ impl Client {
     /// The authentication server info discovered from the homeserver.
     ///
     /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect ([MSC3861]) and either this `Client` was constructed
-    /// using auto-discovery by setting the homeserver with
-    /// [`ClientBuilder::server_name()`] or it is authenticated using said
-    /// authentication server.
+    /// OpenID Connect ([MSC3861]) and this `Client` was constructed using
+    /// auto-discovery by setting the homeserver with
+    /// [`ClientBuilder::server_name()`].
     ///
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        if let Some(discovered_server) = &self.inner.authentication_server_info {
-            return Some(discovered_server);
-        };
-
-        match self.inner.auth_data.get()? {
-            AuthData::Matrix(_) => None,
-            #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(o) => Some(&o.issuer_info),
-        }
+        self.inner.authentication_server_info.as_ref()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
