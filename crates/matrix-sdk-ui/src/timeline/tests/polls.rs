@@ -1,269 +1,176 @@
-use std::sync::Arc;
-
 use crate::timeline::polls::PollState;
-use crate::timeline::tests::{assert_no_more_updates, TestTimeline, ALICE, BOB};
-use crate::timeline::{EventTimelineItem, TimelineItem, TimelineItemContent};
-use eyeball_im::VectorDiff;
-use futures_core::Stream;
-use futures_util::{FutureExt, StreamExt};
+use crate::timeline::tests::{TestTimeline, ALICE, BOB};
+use crate::timeline::{EventTimelineItem, TimelineItemContent};
 use matrix_sdk_test::async_test;
-use ruma::events::poll::start::PollKind;
+use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use ruma::events::poll::unstable_start::{
-    UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
-    UnstablePollStartEventContent,
+    UnstablePollStartContentBlock, UnstablePollStartEventContent,
 };
 use ruma::events::relation::Replacement;
 use ruma::events::room::message::Relation;
 use ruma::events::AnyMessageLikeEventContent;
-use ruma::{server_name, EventId, OwnedEventId, UInt, UserId};
+use ruma::serde::Raw;
+use ruma::{server_name, EventId, OwnedEventId, UserId};
 
 #[async_test]
-async fn start_poll_event_should_have_initial_poll_state() {
-    let (timeline, mut stream) = create_timeline().await;
-    timeline.send_poll_start_event().await;
-    let poll_state = get_poll_start_event(&mut stream).poll_state();
+async fn poll_is_displayed() {
+    let timeline = TestTimeline::new();
 
-    assert_poll_description(&poll_state);
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_state = timeline.poll_state().await;
+
+    assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
     assert_eq!(poll_state.response_events.is_empty(), true);
-
-    assert_no_more_updates(&mut stream).await;
 }
 
 #[async_test]
-async fn edit_start_poll_event_should_have_edited_poll_state() {
-    let (timeline, mut stream) = create_timeline().await;
-    timeline.send_poll_start_event().await;
-    let start_event = get_poll_start_event(&mut stream);
-    timeline.send_poll_start_edit_event(start_event.event_id().unwrap().to_owned()).await;
-    let updated_poll_state = get_updated_poll_event(&mut stream).poll_state();
+async fn edited_poll_is_displayed() {
+    let timeline = TestTimeline::new();
 
-    assert_poll_description(&start_event.poll_state());
-    assert_edited_poll_description(&updated_poll_state);
-    assert_no_more_updates(&mut stream).await;
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let event = timeline.poll_event().await;
+    let event_id = event.event_id().unwrap();
+    timeline.send_poll_edit(&ALICE, event_id, fakes::poll_b()).await;
+    let edited_poll_state = timeline.poll_state().await;
+
+    assert_poll_start_eq(&event.poll_state().start_event_content.poll_start, &fakes::poll_a());
+    assert_poll_start_eq(&edited_poll_state.start_event_content.poll_start, &fakes::poll_b());
 }
 
 #[async_test]
-async fn poll_response_event_should_update_poll_state() {
-    let (timeline, mut stream) = create_timeline().await;
-    timeline.send_poll_start_event().await;
-    let start_event = get_poll_start_event(&mut stream);
-    timeline
-        .send_poll_response_event(
-            &ALICE,
-            vec!["id_up".to_string()],
-            start_event.event_id().unwrap().to_owned(),
-        )
-        .await;
-    let poll_state = get_updated_poll_event(&mut stream).poll_state();
+async fn voting_does_update_a_poll() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
-    assert_poll_description(&poll_state);
-    assert_eq!(poll_state.response_events.len(), 1);
-    assert_eq!(poll_state.response_events[0].sender, ALICE.to_owned());
-    assert_eq!(poll_state.response_events[0].timestamp.0, UInt::new(1).unwrap());
-    assert_eq!(
-        poll_state.response_events[0].content.poll_response.answers.first().unwrap(),
-        "id_up"
-    );
+    // Alice votes
+    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
 
-    let poll = poll_state.results();
-    assert_eq!(poll.votes["id_up"], vec!["@alice:server.name"]);
+    // Now Bob also votes
+    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![ALICE.to_string(), BOB.to_string()]);
 
-    assert_no_more_updates(&mut stream).await;
+    // Alice changes her mind and votes again
+    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
+    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+
+    // Now Bob votes again but his vote won't count
+    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
+    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
 }
 
 #[async_test]
-async fn two_poll_response_events_should_update_poll_state() {
-    let (timeline, mut stream) = create_timeline().await;
-    timeline.send_poll_start_event().await;
-    let start_event = get_poll_start_event(&mut stream);
-    timeline
-        .send_poll_response_event(
-            &ALICE,
-            vec!["id_up".to_string()],
-            start_event.event_id().unwrap().to_owned(),
-        )
-        .await;
-    let _start_event_after_1st_vote = get_updated_poll_event(&mut stream);
-    timeline
-        .send_poll_response_event(
-            &BOB,
-            vec!["id_up".to_string()],
-            start_event.event_id().unwrap().to_owned(),
-        )
-        .await;
-    let poll_state_after_2nd_vote = get_updated_poll_event(&mut stream).poll_state();
+async fn events_received_before_start_are_cached() {
+    let timeline = TestTimeline::new();
+    let poll_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
 
-    assert_poll_description(&poll_state_after_2nd_vote);
-    assert_eq!(poll_state_after_2nd_vote.response_events.len(), 2);
-    assert_eq!(poll_state_after_2nd_vote.response_events[0].sender, ALICE.to_owned());
-    assert_eq!(poll_state_after_2nd_vote.response_events[0].timestamp.0, UInt::new(1).unwrap());
-    assert_eq!(
-        poll_state_after_2nd_vote.response_events[0].content.poll_response.answers.first().unwrap(),
-        "id_up"
-    );
-    assert_eq!(poll_state_after_2nd_vote.response_events[1].sender, BOB.to_owned());
-    assert_eq!(poll_state_after_2nd_vote.response_events[1].timestamp.0, UInt::new(2).unwrap());
-    assert_eq!(
-        poll_state_after_2nd_vote.response_events[1].content.poll_response.answers.first().unwrap(),
-        "id_up"
-    );
+    // Alice votes
+    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
 
-    let poll = poll_state_after_2nd_vote.results();
-    assert_eq!(poll.votes["id_up"], vec!["@alice:server.name", "@bob:other.server"]);
+    // Now Bob also votes
+    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
 
-    assert_no_more_updates(&mut stream).await;
-}
+    // Alice changes her mind and votes again
+    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
 
-#[async_test]
-async fn poll_with_weird_event_order() {
-    let poll_start_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
-    let (timeline, mut stream) = create_timeline().await;
-    timeline.send_poll_response_event(&BOB, vec!["id_up".to_string()], poll_start_id.clone()).await;
-    timeline
-        .send_poll_response_event(&ALICE, vec!["id_up".to_string()], poll_start_id.clone())
-        .await;
-    timeline.send_poll_start_event_with_id(poll_start_id.clone()).await;
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
 
-    let poll_state = get_poll_start_event(&mut stream).poll_state();
-    assert_poll_description(&poll_state);
+    // Now the start event arrives
+    timeline.send_poll_start_with_id(&ALICE, &poll_id, fakes::poll_a()).await;
 
-    assert_eq!(poll_state.response_events.len(), 2);
-    assert_eq!(
-        poll_state.response_events[1].content.poll_response.answers.first().unwrap(),
-        "id_up"
-    );
+    // Now Bob votes again but his vote won't count
+    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
 
-    assert_no_more_updates(&mut stream).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
+    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
 }
 
 impl TestTimeline {
-    async fn send_poll_start_event(self: &Self) {
-        let mut content = UnstablePollStartContentBlock::new(
-            "Up or down?",
-            UnstablePollAnswers::try_from(vec![
-                UnstablePollAnswer::new("id_up".to_string(), "Up".to_string()),
-                UnstablePollAnswer::new("id_down".to_string(), "Down".to_string()),
-            ])
-            .unwrap(),
-        );
-        content.kind = PollKind::Disclosed;
-
-        self.handle_live_message_event(
-            &ALICE,
-            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::new(
-                content,
-            )),
-        )
-        .await
+    async fn events(&self) -> Vec<EventTimelineItem> {
+        self.inner
+            .items()
+            .await
+            .iter()
+            .filter_map(|item| match item.as_event() {
+                Some(event) => Some(event.clone()),
+                None => None,
+            })
+            .collect()
     }
 
-    async fn send_poll_start_event_with_id(self: &Self, event_id: OwnedEventId) {
-        let mut content = UnstablePollStartContentBlock::new(
-            "Up or down?",
-            UnstablePollAnswers::try_from(vec![
-                UnstablePollAnswer::new("id_up".to_string(), "Up".to_string()),
-                UnstablePollAnswer::new("id_down".to_string(), "Down".to_string()),
-            ])
-            .unwrap(),
-        );
-        content.kind = PollKind::Disclosed;
-
-        self.handle_live_custom_event(self.make_message_event_with_id(
-            &ALICE,
-            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::new(
-                content,
-            )),
-            event_id,
-        ))
-        .await
+    async fn poll_event(&self) -> EventTimelineItem {
+        self.events().await.first().unwrap().clone()
     }
 
-    async fn send_poll_start_edit_event(self: &Self, original_id: OwnedEventId) {
-        let mut content_block = UnstablePollStartContentBlock::new(
-            "Up or down edited?",
-            UnstablePollAnswers::try_from(vec![
-                UnstablePollAnswer::new("id_up".to_string(), "Up edited".to_string()),
-                UnstablePollAnswer::new("id_down".to_string(), "Down edited".to_string()),
-            ])
-            .unwrap(),
-        );
-        content_block.kind = PollKind::Disclosed;
-
-        let mut content = UnstablePollStartEventContent::new(content_block);
-        content.relates_to =
-            Some(Relation::Replacement(Replacement::new(original_id, content.clone().into())));
-
-        self.handle_live_message_event(
-            &ALICE,
-            AnyMessageLikeEventContent::UnstablePollStart(content),
-        )
-        .await
+    async fn poll_state(&self) -> PollState {
+        self.events().await.first().unwrap().clone().poll_state()
     }
 
-    async fn send_poll_response_event(
-        self: &Self,
+    async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
+            UnstablePollStartEventContent::new(content),
+        );
+        self.handle_live_message_event(sender, event_content).await;
+    }
+
+    async fn send_poll_start_with_id(
+        &self,
         sender: &UserId,
-        answers: Vec<String>,
-        poll_id: OwnedEventId,
+        event_id: &EventId,
+        content: UnstablePollStartContentBlock,
     ) {
-        self.handle_live_message_event(
-            sender,
-            AnyMessageLikeEventContent::UnstablePollResponse(
-                UnstablePollResponseEventContent::new(answers, poll_id),
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
+            UnstablePollStartEventContent::new(content),
+        );
+        let event = self.make_message_event_with_id(sender, event_content, event_id.to_owned());
+        let raw = Raw::new(&event).unwrap().cast();
+        self.handle_live_event(raw).await;
+    }
+
+    async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {
+        let event_content = AnyMessageLikeEventContent::UnstablePollResponse(
+            UnstablePollResponseEventContent::new(
+                answers.into_iter().map(|i| i.to_owned()).collect(),
+                poll_id.to_owned(),
             ),
-        )
-        .await
+        );
+        self.handle_live_message_event(sender, event_content).await
     }
-}
 
-async fn create_timeline() -> (TestTimeline, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
-    let timeline = TestTimeline::new();
-    let stream = timeline.subscribe().await;
-    (timeline, stream)
-}
-
-fn get_poll_start_event(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) -> EventTimelineItem {
-    let _day_divider = stream.next().now_or_never().unwrap();
-    match stream.next().now_or_never().unwrap().unwrap() {
-        VectorDiff::PushBack { value } => value.as_event().unwrap().clone(),
-        _ => panic!("Not a pushback"),
+    async fn send_poll_end(&self, sender: &UserId, text: &str, poll_id: &EventId) {
+        let event_content = AnyMessageLikeEventContent::UnstablePollEnd(
+            UnstablePollEndEventContent::new(text, poll_id.to_owned()),
+        );
+        self.handle_live_message_event(sender, event_content).await
     }
-}
 
-fn get_updated_poll_event(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) -> EventTimelineItem {
-    match stream.next().now_or_never().unwrap().unwrap() {
-        VectorDiff::Set { value, .. } => value.as_event().unwrap().clone(),
-        _ => panic!("Not a set"),
+    async fn send_poll_edit(
+        &self,
+        sender: &UserId,
+        original_id: &EventId,
+        content: UnstablePollStartContentBlock,
+    ) {
+        let mut content = UnstablePollStartEventContent::new(content);
+        content.relates_to = Some(Relation::Replacement(Replacement::new(
+            original_id.to_owned(),
+            content.clone().into(),
+        )));
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(content);
+        self.handle_live_message_event(sender, event_content).await
     }
-}
-
-fn assert_poll_description(poll_state: &PollState) {
-    let start_content = poll_state.start_event_content.poll_start.clone();
-    assert_eq!(start_content.question.text, "Up or down?");
-    assert_eq!(start_content.kind, PollKind::Disclosed);
-    assert_eq!(start_content.max_selections, UInt::new(1).unwrap());
-    assert_eq!(start_content.answers.len(), 2);
-    assert_eq!(start_content.answers[0].id, "id_up");
-    assert_eq!(start_content.answers[0].text, "Up");
-    assert_eq!(start_content.answers[1].id, "id_down");
-    assert_eq!(start_content.answers[1].text, "Down");
-}
-
-fn assert_edited_poll_description(poll_state: &PollState) {
-    let start_content = poll_state.start_event_content.poll_start.clone();
-    assert_eq!(start_content.question.text, "Up or down edited?");
-    assert_eq!(start_content.kind, PollKind::Disclosed);
-    assert_eq!(start_content.max_selections, UInt::new(1).unwrap());
-    assert_eq!(start_content.answers.len(), 2);
-    assert_eq!(start_content.answers[0].id, "id_up");
-    assert_eq!(start_content.answers[0].text, "Up edited");
-    assert_eq!(start_content.answers[1].id, "id_down");
-    assert_eq!(start_content.answers[1].text, "Down edited");
 }
 
 impl EventTimelineItem {
@@ -272,5 +179,49 @@ impl EventTimelineItem {
             TimelineItemContent::Poll(poll_state) => poll_state.clone(),
             _ => panic!("Not a poll state"),
         }
+    }
+}
+
+fn assert_poll_start_eq(a: &UnstablePollStartContentBlock, b: &UnstablePollStartContentBlock) {
+    assert_eq!(a.question.text, b.question.text);
+    assert_eq!(a.kind, b.kind);
+    assert_eq!(a.max_selections, b.max_selections);
+    assert_eq!(a.answers.len(), a.answers.len());
+    assert_eq!(a.answers[0].id, a.answers[0].id);
+    assert_eq!(a.answers[0].text, a.answers[0].text);
+    assert_eq!(a.answers[1].id, a.answers[1].id);
+    assert_eq!(a.answers[1].text, a.answers[1].text);
+}
+
+mod fakes {
+    use ruma::events::poll::{
+        start::PollKind,
+        unstable_start::{UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock},
+    };
+
+    pub fn poll_a() -> UnstablePollStartContentBlock {
+        let mut content = UnstablePollStartContentBlock::new(
+            "Up or down?",
+            UnstablePollAnswers::try_from(vec![
+                UnstablePollAnswer::new("id_up", "Up"),
+                UnstablePollAnswer::new("id_down", "Down"),
+            ])
+            .unwrap(),
+        );
+        content.kind = PollKind::Disclosed;
+        content
+    }
+
+    pub fn poll_b() -> UnstablePollStartContentBlock {
+        let mut content = UnstablePollStartContentBlock::new(
+            "Left or right?",
+            UnstablePollAnswers::try_from(vec![
+                UnstablePollAnswer::new("id_left", "Left"),
+                UnstablePollAnswer::new("id_right", "Right"),
+            ])
+            .unwrap(),
+        );
+        content.kind = PollKind::Disclosed;
+        content
     }
 }
