@@ -993,10 +993,10 @@ fn compute_limited(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, sync::Mutex};
 
     use assert_matches::assert_matches;
-    use futures_util::{pin_mut, StreamExt};
+    use futures_util::{future::join_all, pin_mut, StreamExt};
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -1924,6 +1924,45 @@ mod tests {
 
         // The room is now known.
         assert!(client.get_room(&room).is_some());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_lock_multiple_requests() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let pos = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |_: &Request| {
+                let mut pos = pos.lock().unwrap();
+                *pos += 1;
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": pos.to_string(),
+                    "lists": {},
+                    "rooms": {}
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_to_device_extension(
+                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
+
+        // Spawn two requests in parallel. Before #2430, this lead to a deadlock and the
+        // test would never terminate.
+        let requests = join_all([sliding_sync.sync_once(), sliding_sync.sync_once()]);
+
+        for result in requests.await {
+            result?;
+        }
 
         Ok(())
     }
