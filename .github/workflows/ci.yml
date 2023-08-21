@@ -408,7 +408,7 @@ jobs:
 
       - uses: michaelkaye/setup-matrix-synapse@main
         with:
-          installer: poetry
+          installer: venv # TODO revert to poetry once https://github.com/michaelkaye/setup-matrix-synapse/issues/95 is fixed
           uploadLogs: true
           httpPort: 8228
           disableRateLimiting: true
