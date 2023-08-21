@@ -12,6 +12,7 @@ use matrix_sdk_base::{
     store::StateStoreExt,
     RoomMemberships, StateChanges,
 };
+use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -1313,13 +1314,16 @@ impl Room {
     ///
     /// This method makes sure the room that was returned when joining a room
     /// has been echoed back in the sync.
+    ///
     /// Warning: This waits until a sync happens and does not return if no sync
-    /// is happening! It can also return early when the room is not a joined
-    /// room anymore!
+    /// is happening. It can also return early when the room is not a joined
+    /// room anymore.
     #[instrument(skip_all)]
     pub async fn sync_up(&self) {
         while !self.is_synced() && self.state() == RoomState::Joined {
-            self.client.inner.sync_beat.listen().wait_timeout(Duration::from_secs(1));
+            let wait_for_beat = self.client.inner.sync_beat.listen();
+            // We don't care whether it's a timeout or a sync beat.
+            let _ = timeout(wait_for_beat, Duration::from_millis(1000)).await;
         }
     }
 
