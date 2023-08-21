@@ -555,11 +555,13 @@ impl<'a> TimelineEventHandler<'a> {
                     warn!("reaction_map out of sync with timeline items");
                 }
             }
+
+            // Even if the event being redacted is a reaction (found in
+            // `reaction_map`), it can still be present in the timeline items
+            // directly with the raw event timeline feature (not yet
+            // implemented) => no early return here.
         }
 
-        // Even if the event being redacted is a reaction (found in
-        // `reaction_map`), it can still be present in the timeline items
-        // directly with the raw event timeline feature (not yet implemented).
         update_timeline_item!(self, &redacts, "redaction", |event_item| {
             if event_item.as_remote().is_none() {
                 error!("inconsistent state: redaction received on a non-remote event item");
