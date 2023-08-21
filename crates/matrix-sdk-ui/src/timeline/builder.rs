@@ -262,10 +262,6 @@ impl TimelineBuilder {
             // The events we're injecting might be encrypted events, but we might
             // have received the room key to decrypt them while nobody was listening to the
             // `m.room_key` event, let's retry now.
-            //
-            // TODO: We could spawn a task here and put this into the background, though it
-            // might not be worth it depending on the number of events we injected.
-            // Some measuring needs to be done.
             timeline.retry_decryption_for_all_events().await;
         }
 
