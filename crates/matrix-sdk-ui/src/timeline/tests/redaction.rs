@@ -102,6 +102,7 @@ async fn redact_replied_to_event() {
     let first_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_matches!(first_item_again.content(), TimelineItemContent::RedactedMessage);
+    assert_matches!(first_item_again.original_json(), None);
 
     let second_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);

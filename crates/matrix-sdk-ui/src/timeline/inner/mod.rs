@@ -730,7 +730,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                     tracing::Span::current().record("event_id", debug(&remote_event.event_id));
 
-                    match decryptor.decrypt_event_impl(&remote_event.original_json).await {
+                    let Some(original_json) = &remote_event.original_json else {
+                        error!("UTD item must contain original JSON");
+                        return None;
+                    };
+
+                    match decryptor.decrypt_event_impl(original_json).await {
                         Ok(event) => {
                             trace!(
                                 "Successfully decrypted event that previously failed to decrypt"
