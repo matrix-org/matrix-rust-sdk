@@ -46,9 +46,15 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     pub encryption_info: Option<EncryptionInfo>,
     /// JSON of the original event.
     ///
-    /// If the message is edited, this *won't* change, instead
-    /// `latest_edit_json` will be updated.
-    pub original_json: Raw<AnySyncTimelineEvent>,
+    /// If the event is edited, this *won't* change, instead `latest_edit_json`
+    /// will be updated.
+    ///
+    /// This field always starts out as `Some(_)`, but is set to `None` when the
+    /// event is redacted. The redacted form of the event could be computed
+    /// locally instead (at least when the redaction came from the server and
+    /// thus the whole event is available), but it's not clear whether there is
+    /// a clear need for that.
+    pub original_json: Option<Raw<AnySyncTimelineEvent>>,
     /// JSON of the latest edit to this item.
     pub latest_edit_json: Option<Raw<AnySyncTimelineEvent>>,
     /// Where we got this event from: A sync response or pagination.
@@ -72,9 +78,15 @@ impl RemoteEventTimelineItem {
         Self { reactions, ..self.clone() }
     }
 
-    /// Clone the current event item, and reset its `reactions`.
-    pub fn without_reactions(&self) -> Self {
-        Self { reactions: BundledReactions::default(), ..self.clone() }
+    /// Clone the current event item, and clear its `reactions` as well as the
+    /// JSON representation fields.
+    pub fn redact(&self) -> Self {
+        Self {
+            reactions: BundledReactions::default(),
+            original_json: None,
+            latest_edit_json: None,
+            ..self.clone()
+        }
     }
 }
 

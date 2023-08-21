@@ -694,7 +694,7 @@ impl<'a> TimelineEventHandler<'a> {
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
                     encryption_info: self.ctx.encryption_info.clone(),
-                    original_json: raw_event.clone(),
+                    original_json: Some(raw_event.clone()),
                     latest_edit_json: None,
                     origin,
                 }

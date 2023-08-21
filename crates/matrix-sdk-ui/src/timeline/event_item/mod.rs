@@ -97,7 +97,6 @@ impl EventTimelineItem {
         use super::traits::RoomDataProvider;
 
         let raw_sync_event = sync_event.event;
-
         let encryption_info = sync_event.encryption_info;
 
         let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
@@ -138,7 +137,7 @@ impl EventTimelineItem {
             is_own,
             is_highlighted,
             encryption_info,
-            original_json: raw_sync_event,
+            original_json: Some(raw_sync_event),
             latest_edit_json,
             origin,
         }
@@ -317,7 +316,7 @@ impl EventTimelineItem {
     pub fn original_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
             EventTimelineItemKind::Local(_local_event) => None,
-            EventTimelineItemKind::Remote(remote_event) => Some(&remote_event.original_json),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.original_json.as_ref(),
         }
     }
 
@@ -379,9 +378,7 @@ impl EventTimelineItem {
         let content = self.content.redact(room_version);
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
-            EventTimelineItemKind::Remote(r) => {
-                EventTimelineItemKind::Remote(r.without_reactions())
-            }
+            EventTimelineItemKind::Remote(r) => EventTimelineItemKind::Remote(r.redact()),
         };
         Self {
             sender: self.sender.clone(),
