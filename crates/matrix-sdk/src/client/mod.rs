@@ -1371,6 +1371,9 @@ impl Client {
                     }
                     _ => {
                         trace!("Token refresh: Token refresh failed.");
+                        // This isn't necessarily correct, but matches the behaviour when
+                        // implementing OIDC.
+                        self.broadcast_unknown_token(soft_logout);
                         return Err(refresh_error.into());
                     }
                 }
