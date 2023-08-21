@@ -644,9 +644,9 @@ impl SlidingSync {
             }
 
             // Handle the response.
-            let updates = this.handle_response(response, &mut *position_guard).await?;
+            let updates = this.handle_response(response, &mut position_guard).await?;
 
-            this.cache_to_storage(&*position_guard).await?;
+            this.cache_to_storage(&position_guard).await?;
 
             // Release the position guard lock.
             // It means that other responses can be generated and then handled later.
@@ -1157,7 +1157,7 @@ mod tests {
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
         let position_guard = sliding_sync.inner.position.lock().await;
-        let frozen = FrozenSlidingSync::new(&*position_guard).await;
+        let frozen = FrozenSlidingSync::new(&position_guard).await;
         assert!(frozen.to_device_since.is_none());
 
         Ok(())
@@ -1842,7 +1842,7 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut *position_guard).await?;
+            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
         }
 
         // E2EE has been properly handled.
@@ -1873,7 +1873,7 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut *position_guard).await?;
+            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
         }
 
         // E2EE response has been ignored.
@@ -1907,7 +1907,7 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut *position_guard).await?;
+            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
         }
 
         // E2EE has been properly handled.
