@@ -283,7 +283,7 @@ mod tests {
             }
 
             let position_guard = sliding_sync.inner.position.lock().await;
-            assert!(sliding_sync.cache_to_storage(&*position_guard).await.is_ok());
+            assert!(sliding_sync.cache_to_storage(&position_guard).await.is_ok());
 
             storage_key
         };
@@ -408,7 +408,7 @@ mod tests {
             position_guard.delta_token = Some(delta_token.clone());
 
             // Then, we can correctly cache the sliding sync instance.
-            store_sliding_sync_state(&sliding_sync, &*position_guard).await?;
+            store_sliding_sync_state(&sliding_sync, &position_guard).await?;
         }
 
         // The delta token has been correctly written to the state store (but not the
