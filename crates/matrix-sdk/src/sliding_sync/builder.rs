@@ -281,7 +281,6 @@ impl SlidingSyncBuilder {
             room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
-            response_handling_lock: Arc::new(AsyncMutex::new(())),
 
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,

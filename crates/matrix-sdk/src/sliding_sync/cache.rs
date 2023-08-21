@@ -10,7 +10,10 @@ use matrix_sdk_base::{StateStore, StoreError};
 use ruma::UserId;
 use tracing::{trace, warn};
 
-use super::{FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList};
+use super::{
+    FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
+    SlidingSyncPositionMarkers,
+};
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
@@ -59,7 +62,10 @@ async fn clean_storage(
 }
 
 /// Store the `SlidingSync`'s state in the storage.
-pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
+pub(super) async fn store_sliding_sync_state(
+    sliding_sync: &SlidingSync,
+    position: &SlidingSyncPositionMarkers,
+) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
     let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
@@ -71,7 +77,7 @@ pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Resu
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(sliding_sync).await)?,
+            serde_json::to_vec(&FrozenSlidingSync::new(position).await)?,
         )
         .await?;
 
@@ -276,7 +282,9 @@ mod tests {
                 list_bar.set_maximum_number_of_rooms(Some(1337));
             }
 
-            assert!(sliding_sync.cache_to_storage().await.is_ok());
+            let position_guard = sliding_sync.inner.position.lock().await;
+            assert!(sliding_sync.cache_to_storage(&*position_guard).await.is_ok());
+
             storage_key
         };
 
@@ -395,10 +403,13 @@ mod tests {
 
         // Emulate some data to be cached.
         let delta_token = "delta_token".to_owned();
-        sliding_sync.inner.position.lock().await.delta_token = Some(delta_token.clone());
+        {
+            let mut position_guard = sliding_sync.inner.position.lock().await;
+            position_guard.delta_token = Some(delta_token.clone());
 
-        // Then, we can correctly cache the sliding sync instance.
-        store_sliding_sync_state(&sliding_sync).await?;
+            // Then, we can correctly cache the sliding sync instance.
+            store_sliding_sync_state(&sliding_sync, &*position_guard).await?;
+        }
 
         // The delta token has been correctly written to the state store (but not the
         // to_device_since, since it's in the other store).
