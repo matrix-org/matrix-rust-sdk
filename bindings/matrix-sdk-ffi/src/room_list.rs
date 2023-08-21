@@ -204,7 +204,9 @@ pub struct RoomListLoadingStateResult {
 
 #[derive(uniffi::Enum)]
 pub enum RoomListServiceState {
-    Init,
+    // Name it `Initial` instead of `Init`, otherwise it creates a keyword conflict in Swift
+    // as of 2023-08-21.
+    Initial,
     SettingUp,
     Running,
     Error,
@@ -216,7 +218,7 @@ impl From<matrix_sdk_ui::room_list_service::State> for RoomListServiceState {
         use matrix_sdk_ui::room_list_service::State::*;
 
         match value {
-            Init => Self::Init,
+            Init => Self::Initial,
             SettingUp => Self::SettingUp,
             Running => Self::Running,
             Error { .. } => Self::Error,

@@ -44,8 +44,8 @@ thiserror = "1.0.38"
 tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-core = "0.1.30"
-uniffi = { git = "https://github.com/Hywan/uniffi-rs", rev = "9e2ffac3e6c8dbad4dcd9c6339069ef31ef87a7b" }
-uniffi_bindgen = { git = "https://github.com/Hywan/uniffi-rs", rev = "9e2ffac3e6c8dbad4dcd9c6339069ef31ef87a7b" }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "e20b9c2b72144ef51a381c6b321ac810a4fbfdbe" }
+uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "e20b9c2b72144ef51a381c6b321ac810a4fbfdbe" }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "e3b658526f6f1dd0a9065c1c96346b796712c425" }
 zeroize = "1.6.0"
 
