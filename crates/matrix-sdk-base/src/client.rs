@@ -962,9 +962,6 @@ impl BaseClient {
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
-            let mut room_info = room.clone_info();
-            room_info.mark_members_synced();
-
             let mut changes = StateChanges::default();
 
             #[cfg(feature = "e2e-encryption")]
@@ -1021,13 +1018,17 @@ impl BaseClient {
             }
 
             #[cfg(feature = "e2e-encryption")]
-            if room_info.is_encrypted() {
+            if room.is_encrypted() {
                 if let Some(o) = self.olm_machine().await.as_ref() {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
                 }
             }
 
             changes.ambiguity_maps = ambiguity_cache.cache;
+
+            let _sync_lock = self.sync_lock().write().await;
+            let mut room_info = room.clone_info();
+            room_info.mark_members_synced();
             changes.add_room(room_info);
 
             self.store.save_changes(&changes).await?;
