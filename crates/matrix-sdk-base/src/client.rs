@@ -28,11 +28,6 @@ use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
     ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::{history_visibility::HistoryVisibility, message::MessageType},
-    AnySyncMessageLikeEvent, SyncMessageLikeEvent,
-};
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
@@ -47,7 +42,15 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
+};
+#[cfg(feature = "e2e-encryption")]
+use ruma::{
+    events::{
+        room::{history_visibility::HistoryVisibility, message::MessageType},
+        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+    },
+    RoomVersionId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
