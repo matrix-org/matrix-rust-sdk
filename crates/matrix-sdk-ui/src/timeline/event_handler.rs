@@ -572,9 +572,10 @@ impl<'a> TimelineEventHandler<'a> {
 
     fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
         let mut poll_state = PollState::new(c);
-        // TODO: If the flow is not remote we're not able to apply the pending events. Is this a problem?
         if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
             self.state.poll_pending_events.apply(&event_id, &mut poll_state);
+        } else {
+            info!("Can't apply poll pending events to non remote event, discarding");
         }
         self.add(should_add, TimelineItemContent::Poll(poll_state));
     }
