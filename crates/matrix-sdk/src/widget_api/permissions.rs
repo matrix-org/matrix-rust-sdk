@@ -2,6 +2,8 @@
 
 use async_trait::async_trait;
 
+use crate::ruma::events::{StateEventType, TimelineEventType};
+
 /// Must be implemented by a component that provides functionality of deciding whether
 /// a widget is allowed to use certain capabilities (typically by providing a prompt to the user).
 #[async_trait]
@@ -15,10 +17,23 @@ pub trait PermissionsProvider: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct Permissions {
     /// Types of the messages that a widget wants to be able to fetch.
-    pub read: Vec<MessageType>,
+    pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
-    pub send: Vec<MessageType>,
+    pub send: Vec<EventFilter>,
 }
 
-/// An alias for an actual type of the messages that is going to be used with a permission request.
-pub type MessageType = String;
+/// Different kinds of filters that could be applied to message (whether for sending or for receiving).
+pub enum EventFilter {
+    /// Filters for the timeline events, the `data` field is used to store the `msgtype`.
+    Timeline(FilterContent<TimelineEventFilter>),
+    /// Filters for the state events, the `data` field is used to store the `state_key`.
+    State(FilterContent<StateEventFilter>),
+}
+
+/// The content of a particular event filter.
+pub struct FilterContent<T> {
+    /// The type of the underlying event (typically, an enum).
+    pub event_type: T,
+    /// Additional data associated with a filter.
+    pub data: String,
+}
