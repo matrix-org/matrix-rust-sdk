@@ -95,6 +95,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
+    oidc::CrossProcessRefreshLock,
     store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
@@ -214,6 +215,8 @@ pub(crate) struct ClientInner {
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
+    pub(crate) cross_process_token_refresh_lock: OnceCell<CrossProcessRefreshLock>,
+
     /// Latest "generation" of data known by the crypto store.
     ///
     /// This is a counter that only increments, set in the database (and can
@@ -281,6 +284,7 @@ impl ClientInner {
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
+            cross_process_token_refresh_lock: OnceCell::new(),
         }
     }
 }
@@ -528,6 +532,12 @@ impl Client {
     /// Get a reference to the state store.
     pub fn store(&self) -> &DynStateStore {
         self.base_client().store()
+    }
+
+    /// Get a static reference to the state store.
+    #[doc(hidden)]
+    pub(crate) fn clone_store(&self) -> Arc<DynStateStore> {
+        self.base_client().clone_store()
     }
 
     /// Access the native Matrix authentication API with this client.

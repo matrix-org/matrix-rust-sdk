@@ -225,6 +225,12 @@ impl Store {
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
     }
+
+    /// Get a new reference to the underlying store.
+    #[doc(hidden)]
+    pub fn clone_store(&self) -> Arc<DynStateStore> {
+        self.inner.clone()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

@@ -176,6 +176,11 @@ impl BaseClient {
         &*self.store
     }
 
+    #[doc(hidden)]
+    pub fn clone_store(&self) -> Arc<DynStateStore> {
+        self.store.clone_store()
+    }
+
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
         self.store.session_meta().is_some()

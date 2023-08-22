@@ -351,29 +351,9 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
 /// Error related to the locking API of the store.
 #[derive(Debug, thiserror::Error)]
 pub enum LockStoreError {
-    /// A lock value was to be removed, but it didn't contain the expected lock
-    /// value.
-    #[error("a lock value was to be removed, but it didn't contain the expected lock value")]
-    IncorrectLockValue,
-
-    /// A lock value was to be removed, but it was missing in the database.
-    #[error("a lock value was to be removed, but it was missing in the database")]
-    MissingLockValue,
-
     /// Spent too long waiting for a database lock.
     #[error("a lock timed out")]
     LockTimeout,
-
-    /// The generation counter is missing, and should always be present.
-    // TODO remove?
-    #[error("missing generation counter in the store")]
-    MissingGeneration,
-
-    /// Unexpected format for the generation counter. Is someone tampering the
-    /// database?
-    // TODO remove?
-    #[error("invalid format of the generation counter")]
-    InvalidGenerationFormat,
 
     #[error(transparent)]
     BackingStoreError(#[from] Box<dyn Error + Send + Sync>),
