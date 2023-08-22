@@ -51,7 +51,7 @@ pub struct SlidingSyncListBuilder {
     required_state: Vec<(StateEventType, String)>,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<Bound>,
-    name: String,
+    pub(crate) name: String,
 
     /// Should this list be cached and reloaded from the cache?
     cache_policy: SlidingSyncListCachePolicy,
