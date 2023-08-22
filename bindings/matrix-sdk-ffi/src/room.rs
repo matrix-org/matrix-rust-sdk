@@ -19,7 +19,7 @@ use matrix_sdk::{
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
-                ForwardThread, LocationMessageEventContent, MessageType, Relation,
+                AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
                 RoomMessageEvent, RoomMessageEventContent,
             },
             AnyMessageLikeEventContent,
@@ -422,10 +422,11 @@ impl Room {
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            anyhow::Ok(
-                RoomMessageEventContent::text_markdown(msg)
-                    .make_reply_to(original_message, ForwardThread::Yes),
-            )
+            anyhow::Ok(RoomMessageEventContent::text_markdown(msg).make_reply_to(
+                original_message,
+                ForwardThread::Yes,
+                AddMentions::No,
+            ))
         })?;
 
         RUNTIME.spawn(async move {

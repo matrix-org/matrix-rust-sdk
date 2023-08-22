@@ -29,9 +29,7 @@ use ruma::{
                 self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
                 RoomMessageEventContentWithoutRelation,
             },
-            redaction::{
-                OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
-            },
+            redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
@@ -39,6 +37,7 @@ use ruma::{
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -121,42 +120,21 @@ pub(super) enum TimelineEventKind {
 }
 
 impl TimelineEventKind {
-    pub(super) fn failed_to_parse(
-        event: SyncTimelineEventWithoutContent,
-        error: serde_json::Error,
-    ) -> Self {
-        let error = Arc::new(error);
+    /// Creates a new `TimelineEventKind` with the given event and room version.
+    pub fn from_event(event: AnySyncTimelineEvent, room_version: &RoomVersionId) -> Self {
         match event {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
-            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
-        }
-    }
-}
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
+                if let Some(redacts) = ev.redacts(room_version).map(ToOwned::to_owned) {
+                    let content = match ev {
+                        SyncRoomRedactionEvent::Original(e) => e.content,
+                        SyncRoomRedactionEvent::Redacted(_) => Default::default(),
+                    };
 
-impl From<AnySyncTimelineEvent> for TimelineEventKind {
-    fn from(event: AnySyncTimelineEvent) -> Self {
-        match event {
-            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-                SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
-                    redacts,
-                    content,
-                    ..
-                }),
-            )) => Self::Redaction { redacts, content },
+                    Self::Redaction { redacts, content }
+                } else {
+                    Self::RedactedMessage { event_type: ev.event_type() }
+                }
+            }
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
@@ -181,6 +159,31 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
                     state_key: ev.state_key().to_owned(),
                     content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
                 },
+            },
+        }
+    }
+
+    pub(super) fn failed_to_parse(
+        event: SyncTimelineEventWithoutContent,
+        error: serde_json::Error,
+    ) -> Self {
+        let error = Arc::new(error);
+        match event {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
             },
         }
     }

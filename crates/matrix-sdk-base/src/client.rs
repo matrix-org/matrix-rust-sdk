@@ -28,14 +28,6 @@ use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
     ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::{
-        history_visibility::HistoryVisibility, message::MessageType,
-        redaction::SyncRoomRedactionEvent,
-    },
-    AnySyncMessageLikeEvent, SyncMessageLikeEvent,
-};
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
@@ -51,6 +43,14 @@ use ruma::{
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
+};
+#[cfg(feature = "e2e-encryption")]
+use ruma::{
+    events::{
+        room::{history_visibility::HistoryVisibility, message::MessageType},
+        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+    },
+    RoomVersionId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
@@ -343,17 +343,17 @@ impl BaseClient {
 
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncTimelineEvent::MessageLike(
-                            AnySyncMessageLikeEvent::RoomRedaction(
-                                // Redacted redactions don't have the `redacts` key, so we can't
-                                // know what they were meant to redact. A future room version might
-                                // move the redacts key, replace the current redaction event
-                                // altogether, or have the redacts key survive redaction.
-                                SyncRoomRedactionEvent::Original(r),
-                            ),
+                            AnySyncMessageLikeEvent::RoomRedaction(r),
                         ) => {
-                            room_info.handle_redaction(r, event.event.cast_ref());
-                            let raw_event = event.event.clone().cast();
-                            changes.add_redaction(room.room_id(), &r.redacts, raw_event);
+                            let room_version =
+                                room_info.room_version().unwrap_or(&RoomVersionId::V1);
+
+                            if let Some(redacts) = r.redacts(room_version) {
+                                room_info.handle_redaction(r, event.event.cast_ref());
+                                let raw_event = event.event.clone().cast();
+
+                                changes.add_redaction(room.room_id(), redacts, raw_event);
+                            }
                         }
 
                         #[cfg(feature = "e2e-encryption")]
