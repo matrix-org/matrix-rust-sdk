@@ -25,6 +25,7 @@ pub mod deserialized_responses;
 pub mod executor;
 pub mod ring_buffer;
 pub mod timeout;
+pub mod tracing_timer;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
