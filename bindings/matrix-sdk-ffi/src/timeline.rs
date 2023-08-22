@@ -1316,8 +1316,7 @@ impl From<PollResult> for TimelineItemContentKind {
                 .iter()
                 .map(|i| PollAnswer { id: i.id.clone(), text: i.text.clone() })
                 .collect(),
-            // TODO Why is this iter needed? If using into_iter() I can remove the clone()s, why?
-            votes: value.votes.iter().map(|i| (i.0.clone(), i.1.clone())).collect(),
+            votes: value.votes,
             end_time: value.end_time,
         }
     }
