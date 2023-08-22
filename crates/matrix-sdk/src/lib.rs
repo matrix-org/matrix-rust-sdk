@@ -43,7 +43,10 @@ pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 pub mod room;
+mod store_locks;
 pub mod sync;
+
+pub use store_locks::LEASE_DURATION_MS;
 
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;

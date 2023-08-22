@@ -80,7 +80,6 @@ use crate::{
 
 pub mod caches;
 mod error;
-pub mod locks;
 mod memorystore;
 mod traits;
 
@@ -95,7 +94,6 @@ use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
-use self::locks::CrossProcessStoreLock;
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
 /// A wrapper for our CryptoStore trait object.
@@ -1035,16 +1033,6 @@ impl Store {
         })
     }
 
-    /// Creates a `CryptoStoreLock` for this store, that will contain the given
-    /// key and value when hold.
-    pub fn create_store_lock(
-        &self,
-        lock_key: String,
-        lock_value: String,
-    ) -> CrossProcessStoreLock<Arc<DynCryptoStore>> {
-        CrossProcessStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
-    }
-
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
     ///
@@ -1099,6 +1087,12 @@ impl Store {
                 }
             }
         })
+    }
+
+    /// Get a handle on the underlying raw store.
+    #[doc(hidden)]
+    pub fn clone_store(&self) -> Arc<DynCryptoStore> {
+        self.inner.store.clone()
     }
 }
 

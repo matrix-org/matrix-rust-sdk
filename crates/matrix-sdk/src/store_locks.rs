@@ -39,23 +39,24 @@
 //! automatically after the duration of the last lease, at most.
 
 use std::{
-    fmt::Display,
-    sync::{atomic::AtomicU32, Arc},
+    error::Error,
+    sync::{
+        atomic::{self, AtomicU32},
+        Arc,
+    },
     time::Duration,
 };
 
-use matrix_sdk_common::executor::JoinHandle;
+use matrix_sdk_base::crypto::{store::CryptoStore, CryptoStoreError};
 use tokio::{sync::Mutex, time::sleep};
 use tracing::instrument;
 
-use super::CryptoStore;
-use crate::CryptoStoreError;
+use crate::executor::{spawn, JoinHandle};
 
 /// Backing store for a cross-process lock.
 #[async_trait::async_trait]
 pub trait BackingStore {
-    /// The error type of the backing store, that can be converted into a `LockStoreError`.
-    type Error: Display + From<LockStoreError>;
+    type Error: Error + Send + Sync;
 
     /// Try to take a lock using the given store.
     async fn try_take(
@@ -177,7 +178,9 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, S::Error> {
+    pub async fn try_lock_once(
+        &self,
+    ) -> Result<Option<CrossProcessStoreLockGuard>, LockStoreError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -195,8 +198,11 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
             return Ok(Some(guard));
         }
 
-        let acquired =
-            self.store.try_take(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder).await?;
+        let acquired = self
+            .store
+            .try_take(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
+            .await
+            .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
 
         if !acquired {
             tracing::trace!("Couldn't acquire the lock immediately.");
@@ -224,7 +230,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
         }
 
         // Restart a new one.
-        *renew_task = Some(matrix_sdk_common::executor::spawn(async move {
+        *renew_task = Some(spawn(async move {
             loop {
                 {
                     // First, check if there are still users of this lock.
@@ -281,7 +287,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CrossProcessStoreLockGuard, S::Error> {
+    ) -> Result<CrossProcessStoreLockGuard, LockStoreError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -342,31 +348,38 @@ pub enum LockStoreError {
     LockTimeout,
 
     /// The generation counter is missing, and should always be present.
+    // TODO remove?
     #[error("missing generation counter in the store")]
     MissingGeneration,
 
     /// Unexpected format for the generation counter. Is someone tampering the
     /// database?
+    // TODO remove?
     #[error("invalid format of the generation counter")]
     InvalidGenerationFormat,
+
+    #[error(transparent)]
+    BackingStoreError(#[from] Box<dyn Error + Send + Sync>),
 }
 
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use matrix_sdk_base::crypto::store::{IntoCryptoStore as _, MemoryStore};
     use matrix_sdk_test::async_test;
     use tokio::spawn;
 
     use super::*;
-    use crate::store::{IntoCryptoStore as _, MemoryStore};
 
     async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
         drop(guard);
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
 
+    type TestResult = Result<(), LockStoreError>;
+
     #[async_test]
-    async fn test_simple_lock_unlock() -> Result<(), CryptoStoreError> {
+    async fn test_simple_lock_unlock() -> TestResult {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
@@ -392,7 +405,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_self_recovery() -> Result<(), CryptoStoreError> {
+    async fn test_self_recovery() -> TestResult {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
@@ -420,7 +433,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_multiple_holders_same_process() -> Result<(), CryptoStoreError> {
+    async fn test_multiple_holders_same_process() -> TestResult {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
@@ -446,7 +459,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_multiple_processes() -> Result<(), CryptoStoreError> {
+    async fn test_multiple_processes() -> TestResult {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
@@ -476,10 +489,7 @@ mod tests {
             .expect("lock was obtained after spin-locking");
 
         // Now if lock1 tries to get the lock with a small timeout, it will fail.
-        assert_matches!(
-            lock1.spin_lock(Some(200)).await,
-            Err(CryptoStoreError::Lock(LockStoreError::LockTimeout))
-        );
+        assert_matches!(lock1.spin_lock(Some(200)).await, Err(LockStoreError::LockTimeout));
 
         Ok(())
     }

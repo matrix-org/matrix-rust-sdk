@@ -31,8 +31,7 @@ use std::time::Duration;
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{Client, SlidingSync};
-use matrix_sdk_crypto::store::locks::LEASE_DURATION_MS;
+use matrix_sdk::{Client, SlidingSync, LEASE_DURATION_MS};
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::{debug, trace};
 

@@ -37,8 +37,6 @@ use mas_oidc_client::{
     },
     types::errors::ClientErrorCode,
 };
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::store::locks::CrossProcessStoreLock;
 use matrix_sdk_base::{
     crypto::store::DynCryptoStore, store::DynStateStore, BaseClient, RoomState, RoomStateFilter,
     SendOutsideWasm, SessionMeta, SyncOutsideWasm,
@@ -97,6 +95,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
+    store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -214,6 +213,7 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
+
     /// Latest "generation" of data known by the crypto store.
     ///
     /// This is a counter that only increments, set in the database (and can

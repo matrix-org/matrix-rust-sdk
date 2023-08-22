@@ -28,10 +28,7 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::crypto::{
-    store::locks::CrossProcessStoreLockGuard, OlmMachine, OutgoingRequest, RoomMessageRequest,
-    ToDeviceRequest,
-};
+use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -64,6 +61,7 @@ use crate::{
         verification::{SasVerification, Verification, VerificationRequest},
     },
     error::HttpResult,
+    store_locks::{CrossProcessStoreLock, CrossProcessStoreLockGuard},
     Client, Error, Result, Room, TransmissionProgress,
 };
 
@@ -878,8 +876,11 @@ impl Encryption {
         let olm_machine = self.client.base_client().olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let lock =
-            olm_machine.store().create_store_lock("cross_process_lock".to_owned(), lock_value);
+        let lock = CrossProcessStoreLock::new(
+            olm_machine.store().clone_store(),
+            "cross_process_lock".to_owned(),
+            lock_value,
+        );
 
         // Gently try to initialize the crypto store generation counter.
         //

@@ -37,6 +37,8 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
+use crate::store_locks::LockStoreError;
+
 /// Result type of the matrix-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -199,6 +201,10 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+
+    /// An error occurred with a cross-process store lock.
+    #[error(transparent)]
+    CrossProcessLockError(#[from] LockStoreError),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
