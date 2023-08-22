@@ -1,11 +1,8 @@
-use std::{
-    env::consts::{DLL_PREFIX, DLL_SUFFIX},
-    fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
-};
+use std::fs::{copy, create_dir_all, remove_dir_all, remove_file, rename};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{bindings::TargetLanguage, library_mode::generate_bindings};
+use uniffi_bindgen::bindings::TargetLanguage;
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -57,28 +54,29 @@ impl SwiftArgs {
     }
 }
 
-fn matrix_sdk_ffi_dll_name() -> String {
-    format!("{DLL_PREFIX}matrix_sdk_ffi{DLL_SUFFIX}")
-}
-
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
+
+    let release_type = "debug";
+    let static_lib_filename = "libmatrix_sdk_ffi.a";
 
     let root_directory = workspace::root_path()?;
     let target_directory = workspace::target_path()?;
     let ffi_directory = root_directory.join("bindings/apple/generated/matrix_sdk_ffi");
-    let lib_output_dir = target_directory.join("debug");
+    let library_file = ffi_directory.join(static_lib_filename);
 
     create_dir_all(ffi_directory.as_path())?;
 
     cmd!("cargo build -p matrix-sdk-ffi").run()?;
 
-    let static_lib_filename = "libmatrix_sdk_ffi.a";
-    rename(lib_output_dir.join(static_lib_filename), ffi_directory.join(static_lib_filename))?;
+    rename(
+        target_directory.join(release_type).join(static_lib_filename),
+        ffi_directory.join(static_lib_filename),
+    )?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
     create_dir_all(swift_directory.as_path())?;
 
-    generate_uniffi(&lib_output_dir.join(matrix_sdk_ffi_dll_name()), &ffi_directory)?;
+    generate_uniffi(&library_file, &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
@@ -95,25 +93,28 @@ fn build_library() -> Result<()> {
     Ok(())
 }
 
-fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    generate_bindings(library_path, None, &[TargetLanguage::Swift], ffi_directory, false)?;
+fn generate_uniffi(library_file: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
+    let root_directory = workspace::root_path()?;
+    let udl_file = root_directory.join("bindings/matrix-sdk-ffi/src/api.udl");
+
+    uniffi_bindgen::generate_bindings(
+        udl_file.as_path(),
+        None,
+        vec![TargetLanguage::Swift],
+        Some(ffi_directory),
+        Some(library_file),
+        false,
+    )?;
     Ok(())
 }
 
-/// Build matrix_sdk_ffi for the given target, with the given profile.
-///
-/// Returns the name of the produced shared object (a staticlib is also
-/// created).
 fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
     cmd!("cargo build -p matrix-sdk-ffi --target {target} --profile {profile}").run()?;
 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?
-        .join(target)
-        .join(profile_dir_name)
-        .join(matrix_sdk_ffi_dll_name()))
+    Ok(workspace::target_path()?.join(target).join(profile_dir_name).join("libmatrix_sdk_ffi.a"))
 }
 
 fn build_xcframework(
@@ -134,7 +135,7 @@ fn build_xcframework(
     create_dir_all(headers_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let (libs, uniffi_lib_path) = if let Some(target) = only_target {
+    let (libs, uniff_lib_path) = if let Some(target) = only_target {
         println!("-- Building for {target} 1/1");
         let build_path = build_for_target(target.as_str(), profile)?;
 
@@ -174,7 +175,7 @@ fn build_xcframework(
     };
 
     println!("-- Generating uniffi files");
-    generate_uniffi(&uniffi_lib_path, &generated_dir)?;
+    generate_uniffi(&uniff_lib_path, &generated_dir)?;
 
     rename(generated_dir.join("matrix_sdk_ffiFFI.h"), headers_dir.join("matrix_sdk_ffiFFI.h"))?;
 
