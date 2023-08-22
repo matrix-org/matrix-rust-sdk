@@ -1037,7 +1037,11 @@ impl Store {
 
     /// Creates a `CryptoStoreLock` for this store, that will contain the given
     /// key and value when hold.
-    pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CrossProcessStoreLock {
+    pub fn create_store_lock(
+        &self,
+        lock_key: String,
+        lock_value: String,
+    ) -> CrossProcessStoreLock<Arc<DynCryptoStore>> {
         CrossProcessStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
     }
 

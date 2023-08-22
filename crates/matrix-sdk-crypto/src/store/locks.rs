@@ -39,6 +39,7 @@
 //! automatically after the duration of the last lease, at most.
 
 use std::{
+    fmt::Display,
     sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
@@ -47,8 +48,37 @@ use matrix_sdk_common::executor::JoinHandle;
 use tokio::{sync::Mutex, time::sleep};
 use tracing::instrument;
 
-use super::DynCryptoStore;
+use super::CryptoStore;
 use crate::CryptoStoreError;
+
+/// Backing store for a cross-process lock.
+#[async_trait::async_trait]
+pub trait BackingStore {
+    /// The error type of the backing store, that can be converted into a `LockStoreError`.
+    type Error: Display + From<LockStoreError>;
+
+    /// Try to take a lock using the given store.
+    async fn try_take(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error>;
+}
+
+#[async_trait::async_trait]
+impl<'a> BackingStore for Arc<dyn CryptoStore<Error = CryptoStoreError> + 'a> {
+    type Error = CryptoStoreError;
+
+    async fn try_take(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        self.try_take_leased_lock(lease_duration_ms, key, holder).await
+    }
+}
 
 /// Small state machine to handle wait times.
 #[derive(Clone, Debug)]
@@ -78,9 +108,9 @@ impl Drop for CrossProcessStoreLockGuard {
 ///
 /// See the doc-comment of this module for more information.
 #[derive(Clone, Debug)]
-pub struct CrossProcessStoreLock {
+pub struct CrossProcessStoreLock<S: BackingStore + Clone + Send + 'static> {
     /// The store we're using to lock.
-    store: Arc<DynCryptoStore>,
+    store: S,
 
     /// Number of holders of the lock in this process.
     ///
@@ -108,37 +138,37 @@ pub struct CrossProcessStoreLock {
     backoff: Arc<Mutex<WaitingTime>>,
 }
 
-impl CrossProcessStoreLock {
-    /// Amount of time a lease of the lock should last, in milliseconds.
-    pub const LEASE_DURATION_MS: u32 = 500;
+/// Amount of time a lease of the lock should last, in milliseconds.
+pub const LEASE_DURATION_MS: u32 = 500;
 
-    /// Period of time between two attempts to extend the lease. We'll
-    /// re-request a lease for an entire duration of `LEASE_DURATION_MS`
-    /// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
-    /// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
-    /// that we can miss a deadline without compromising the lock.
-    const EXTEND_LEASE_EVERY_MS: u64 = 50;
+/// Period of time between two attempts to extend the lease. We'll
+/// re-request a lease for an entire duration of `LEASE_DURATION_MS`
+/// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
+/// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
+/// that we can miss a deadline without compromising the lock.
+const EXTEND_LEASE_EVERY_MS: u64 = 50;
 
-    /// Initial backoff, in milliseconds. This is the time we wait the first
-    /// time, if taking the lock initially failed.
-    const INITIAL_BACKOFF_MS: u32 = 10;
+/// Initial backoff, in milliseconds. This is the time we wait the first
+/// time, if taking the lock initially failed.
+const INITIAL_BACKOFF_MS: u32 = 10;
 
-    /// Maximal backoff, in milliseconds. This is the maximum amount of time
-    /// we'll wait for the lock, *between two attempts*.
-    pub const MAX_BACKOFF_MS: u32 = 1000;
+/// Maximal backoff, in milliseconds. This is the maximum amount of time
+/// we'll wait for the lock, *between two attempts*.
+pub const MAX_BACKOFF_MS: u32 = 1000;
 
+impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
     /// Create a new store-based lock implemented as a value in the store.
     ///
     /// # Parameters
     ///
     /// - `lock_key`: key in the key-value store to store the lock's state.
     /// - `lock_holder`: identify the lock's holder with this given value.
-    pub fn new(store: Arc<DynCryptoStore>, lock_key: String, lock_holder: String) -> Self {
+    pub fn new(store: S, lock_key: String, lock_holder: String) -> Self {
         Self {
             store,
             lock_key,
             lock_holder,
-            backoff: Arc::new(Mutex::new(WaitingTime::Some(Self::INITIAL_BACKOFF_MS))),
+            backoff: Arc::new(Mutex::new(WaitingTime::Some(INITIAL_BACKOFF_MS))),
             num_holders: Arc::new(0.into()),
             locking_attempt: Arc::new(Mutex::new(())),
             renew_task: Default::default(),
@@ -147,9 +177,7 @@ impl CrossProcessStoreLock {
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(
-        &self,
-    ) -> Result<Option<CrossProcessStoreLockGuard>, CryptoStoreError> {
+    pub async fn try_lock_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, S::Error> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -167,10 +195,8 @@ impl CrossProcessStoreLock {
             return Ok(Some(guard));
         }
 
-        let acquired = self
-            .store
-            .try_take_leased_lock(Self::LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
-            .await?;
+        let acquired =
+            self.store.try_take(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder).await?;
 
         if !acquired {
             tracing::trace!("Couldn't acquire the lock immediately.");
@@ -183,15 +209,14 @@ impl CrossProcessStoreLock {
         // that will renew the lease.
 
         // Clone data to be owned by the task.
-        let this = self.clone();
+        let this = (*self).clone();
 
         let mut renew_task = self.renew_task.lock().await;
 
         // Cancel the previous task, if any. That's safe to do, because:
         // - either the task was done,
         // - or it was still running, but taking a lock in the db has to be an atomic
-        //   operation
-        // running in a transaction.
+        //   operation running in a transaction.
 
         if let Some(_prev) = renew_task.take() {
             #[cfg(not(target_arch = "wasm32"))]
@@ -219,27 +244,18 @@ impl CrossProcessStoreLock {
 
                         // Cancel the lease with another 0ms lease.
                         // If we don't get the lock, that's (weird but) fine.
-                        let _ = this
-                            .store
-                            .try_take_leased_lock(0, &this.lock_key, &this.lock_holder)
-                            .await;
+                        let fut = this.store.try_take(0, &this.lock_key, &this.lock_holder);
+                        let _ = fut.await;
 
                         // Exit the loop.
                         break;
                     }
                 }
 
-                sleep(Duration::from_millis(Self::EXTEND_LEASE_EVERY_MS)).await;
+                sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
 
-                if let Err(err) = this
-                    .store
-                    .try_take_leased_lock(
-                        Self::LEASE_DURATION_MS,
-                        &this.lock_key,
-                        &this.lock_holder,
-                    )
-                    .await
-                {
+                let fut = this.store.try_take(LEASE_DURATION_MS, &this.lock_key, &this.lock_holder);
+                if let Err(err) = fut.await {
                     tracing::error!("error when extending lock lease: {err:#}");
                     // Exit the loop.
                     break;
@@ -265,8 +281,8 @@ impl CrossProcessStoreLock {
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CrossProcessStoreLockGuard, CryptoStoreError> {
-        let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
+    ) -> Result<CrossProcessStoreLockGuard, S::Error> {
+        let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
         // lock in `try_lock_once` should sequentialize it all.
@@ -274,7 +290,7 @@ impl CrossProcessStoreLock {
         loop {
             if let Some(guard) = self.try_lock_once().await? {
                 // Reset backoff before returning, for the next attempt to lock.
-                *self.backoff.lock().await = WaitingTime::Some(Self::INITIAL_BACKOFF_MS);
+                *self.backoff.lock().await = WaitingTime::Some(INITIAL_BACKOFF_MS);
                 return Ok(guard);
             }
 
@@ -346,7 +362,7 @@ mod tests {
 
     async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
         drop(guard);
-        sleep(Duration::from_millis(CrossProcessStoreLock::EXTEND_LEASE_EVERY_MS)).await;
+        sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
 
     #[async_test]
