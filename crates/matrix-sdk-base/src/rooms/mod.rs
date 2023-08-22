@@ -17,8 +17,8 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent, member::MembershipState,
-            name::RoomNameEventContent, redaction::OriginalSyncRoomRedactionEvent,
-            tombstone::RoomTombstoneEventContent, topic::RoomTopicEventContent,
+            name::RoomNameEventContent, tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedStateEventContent,
         StaticStateEventContent, SyncStateEvent,
@@ -214,27 +214,27 @@ impl BaseRoomInfo {
         true
     }
 
-    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+    pub fn handle_redaction(&mut self, redacts: &EventId) {
         let room_version = self.room_version().unwrap_or(&RoomVersionId::V1).to_owned();
 
         // FIXME: Use let chains once available to get rid of unwrap()s
-        if self.avatar.has_event_id(&event.redacts) {
+        if self.avatar.has_event_id(redacts) {
             self.avatar.as_mut().unwrap().redact(&room_version);
-        } else if self.canonical_alias.has_event_id(&event.redacts) {
+        } else if self.canonical_alias.has_event_id(redacts) {
             self.canonical_alias.as_mut().unwrap().redact(&room_version);
-        } else if self.create.has_event_id(&event.redacts) {
+        } else if self.create.has_event_id(redacts) {
             self.create.as_mut().unwrap().redact(&room_version);
-        } else if self.guest_access.has_event_id(&event.redacts) {
+        } else if self.guest_access.has_event_id(redacts) {
             self.guest_access.as_mut().unwrap().redact(&room_version);
-        } else if self.history_visibility.has_event_id(&event.redacts) {
+        } else if self.history_visibility.has_event_id(redacts) {
             self.history_visibility.as_mut().unwrap().redact(&room_version);
-        } else if self.join_rules.has_event_id(&event.redacts) {
+        } else if self.join_rules.has_event_id(redacts) {
             self.join_rules.as_mut().unwrap().redact(&room_version);
-        } else if self.name.has_event_id(&event.redacts) {
+        } else if self.name.has_event_id(redacts) {
             self.name.as_mut().unwrap().redact(&room_version);
-        } else if self.tombstone.has_event_id(&event.redacts) {
+        } else if self.tombstone.has_event_id(redacts) {
             self.tombstone.as_mut().unwrap().redact(&room_version);
-        } else if self.topic.has_event_id(&event.redacts) {
+        } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
         }
     }

@@ -202,7 +202,7 @@ impl From<&StrippedRoomNameEvent> for MinimalStateEvent<RoomNameEventContent> {
 
 impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateEventContent> {
     fn from(event: &StrippedRoomCreateEvent) -> Self {
-        let content = assign!(RoomCreateEventContent::new(event.content.creator.clone()), {
+        let content = assign!(RoomCreateEventContent::new_v1(event.sender.clone()), {
             federate: event.content.federate,
             room_version: event.content.room_version.clone(),
             predecessor: event.content.predecessor.clone(),

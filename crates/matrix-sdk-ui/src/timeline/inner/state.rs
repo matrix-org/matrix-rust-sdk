@@ -206,12 +206,13 @@ impl TimelineInnerState {
         {
             Ok(event) => {
                 let should_add = should_add_event(&event);
+                let room_version = room_data_provider.room_version();
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    event.into(),
+                    TimelineEventKind::from_event(event, &room_version),
                     should_add,
                 )
             }

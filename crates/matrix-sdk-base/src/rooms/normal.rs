@@ -38,7 +38,7 @@ use ruma::{
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
             name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent,
+            redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
@@ -866,13 +866,18 @@ impl RoomInfo {
     /// Handle the given redaction.
     pub fn handle_redaction(
         &mut self,
-        event: &OriginalSyncRoomRedactionEvent,
-        _raw: &Raw<OriginalSyncRoomRedactionEvent>,
+        event: &SyncRoomRedactionEvent,
+        _raw: &Raw<SyncRoomRedactionEvent>,
     ) {
+        let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+
+        let Some(redacts) = event.redacts(room_version) else {
+            return;
+        };
+
         #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
-            if latest_event.event_id().as_deref() == Some(&*event.redacts) {
-                let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+            if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(&latest_event.event, _raw, room_version) {
                     Some(redacted) => latest_event.event = redacted,
                     None => self.latest_event = None,
@@ -880,7 +885,7 @@ impl RoomInfo {
             }
         }
 
-        self.base_info.handle_redaction(event);
+        self.base_info.handle_redaction(redacts);
     }
 
     /// Update the room name
@@ -970,10 +975,11 @@ impl RoomInfo {
     }
 
     fn creator(&self) -> Option<&UserId> {
-        Some(match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => &ev.content.creator,
-            MinimalStateEvent::Redacted(ev) => &ev.content.creator,
-        })
+        #[allow(deprecated)]
+        match self.base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => ev.content.creator.as_deref(),
+            MinimalStateEvent::Redacted(ev) => ev.content.creator.as_deref(),
+        }
     }
 
     fn guest_access(&self) -> &GuestAccess {
@@ -1013,7 +1019,7 @@ impl RoomInfo {
 #[cfg(feature = "experimental-sliding-sync")]
 fn apply_redaction(
     event: &Raw<AnySyncTimelineEvent>,
-    raw_redaction: &Raw<OriginalSyncRoomRedactionEvent>,
+    raw_redaction: &Raw<SyncRoomRedactionEvent>,
     room_version: &RoomVersionId,
 ) -> Option<Raw<AnySyncTimelineEvent>> {
     use ruma::canonical_json::redact_in_place;

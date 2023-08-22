@@ -22,8 +22,8 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                ForwardThread, OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent,
-                RoomMessageEventContent,
+                AddMentions, ForwardThread, OriginalSyncRoomMessageEvent,
+                RedactedRoomMessageEventContent, RoomMessageEventContent,
             },
             name::RoomNameEventContent,
         },
@@ -87,6 +87,7 @@ async fn redact_replied_to_event() {
             RoomMessageEventContent::text_plain("Hello, alice.").make_reply_to(
                 &first_event.into_full_event(owned_room_id!("!whocares:local.host")),
                 ForwardThread::Yes,
+                AddMentions::No,
             ),
         )
         .await;
