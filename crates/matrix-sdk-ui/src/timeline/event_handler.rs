@@ -541,26 +541,24 @@ impl<'a> TimelineEventHandler<'a> {
                 return None;
             }
 
-            let poll_state = if let TimelineItemContent::Poll(poll_state) = &event_item.content() {
-                poll_state
-            } else {
-                info!(
-                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                    "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
-                );
-                return None;
-            };
+            let TimelineItemContent::Poll(poll_state) = &event_item.content() else {
+                        info!(
+                            original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                            "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
+                        );
+                        return None;
+                    };
 
-            let new_content =
-                if let Ok(edited_poll_state) = poll_state.edit(&replacement.new_content) {
-                    TimelineItemContent::Poll(edited_poll_state)
-                } else {
+            let new_content = match poll_state.edit(&replacement.new_content) {
+                Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
+                Err(e) => {
                     info!(
                         original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                        "This poll can't be edited, discarding"
+                        "Failed to apply poll edit: {e:?}"
                     );
                     return None;
-                };
+                }
+            };
 
             let edit_json = match &self.ctx.flow {
                 Flow::Local { .. } => None,
@@ -577,7 +575,7 @@ impl<'a> TimelineEventHandler<'a> {
         // TODO: If the flow is not remote we're not able to apply the pending events. Is this a problem?
         if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
             self.state.poll_pending_events.apply(&event_id, &mut poll_state);
-        };
+        }
         self.add(should_add, TimelineItemContent::Poll(poll_state));
     }
 

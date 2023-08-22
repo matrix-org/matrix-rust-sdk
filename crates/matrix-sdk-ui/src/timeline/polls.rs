@@ -1,6 +1,5 @@
-/// Polls module.
-///
-/// This module handles rendering of MSC3381 polls in the timeline.
+//! This module handles rendering of MSC3381 polls in the timeline.
+
 use imbl::HashMap;
 use ruma::{
     events::{

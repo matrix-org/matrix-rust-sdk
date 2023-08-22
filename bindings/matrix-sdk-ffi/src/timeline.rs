@@ -29,7 +29,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, PollResult, Profile, TimelineDetails};
 use ruma::{assign, UInt};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     error::{ClientError, TimelineError},
@@ -1291,7 +1291,10 @@ impl From<RumaPollKind> for PollKind {
         match value {
             RumaPollKind::Disclosed => Self::Disclosed,
             RumaPollKind::Undisclosed => Self::Undisclosed,
-            _ => Self::Undisclosed, // TODO Safe default. Should we keep it?
+            _ => {
+                info!("Unknown poll kind, defaulting to undisclosed");
+                Self::Undisclosed
+            }
         }
     }
 }
