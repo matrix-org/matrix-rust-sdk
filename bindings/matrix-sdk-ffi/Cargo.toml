@@ -38,6 +38,7 @@ opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.13.0", features = ["tokio", "reqwest-client", "http-proto"] }
 ruma = { workspace = true, features = ["unstable-sanitize", "unstable-unspecified", "unstable-msc3488"] }
 sanitize-filename-reader-friendly = "2.2.1"
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -62,6 +63,7 @@ default-features = false
 features = [
     "anyhow",
     "e2e-encryption",
+    "experimental-oidc",
     "experimental-sliding-sync",
     "markdown",
     "rustls-tls", # note: differ from block below
@@ -75,6 +77,7 @@ default-features = false
 features = [
     "anyhow",
     "e2e-encryption",
+    "experimental-oidc",
     "experimental-sliding-sync",
     "markdown",
     "native-tls", # note: differ from block above

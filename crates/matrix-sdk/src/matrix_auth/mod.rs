@@ -42,6 +42,7 @@ use tracing::{debug, info, instrument};
 
 use crate::{
     authentication::AuthData,
+    client::SessionChange,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     Client, Error, RefreshTokenError, Result,
@@ -473,7 +474,11 @@ impl MatrixAuth {
 
                     self.set_session_tokens(session_tokens);
 
-                    // TODO: Let ffi client to know that tokens have changed
+                    _ = self
+                        .client
+                        .inner
+                        .session_change_sender
+                        .send(SessionChange::TokensRefreshed);
 
                     Ok(Some(res))
                 }

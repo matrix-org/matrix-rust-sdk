@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    self, encryption::CryptoStoreError, HttpError, IdParseError,
+    self, encryption::CryptoStoreError, oidc::OidcError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync, notification_client, sync_service, timeline};
@@ -92,6 +92,12 @@ impl From<notification_client::Error> for ClientError {
 
 impl From<sync_service::Error> for ClientError {
     fn from(e: sync_service::Error) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<OidcError> for ClientError {
+    fn from(e: OidcError) -> Self {
         Self::new(e)
     }
 }

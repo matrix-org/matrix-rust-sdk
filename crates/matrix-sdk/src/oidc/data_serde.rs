@@ -17,7 +17,7 @@ use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 use super::SessionTokens;
 
 impl Serialize for SessionTokens {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {

@@ -1,3 +1,5 @@
+#[cfg(feature = "experimental-oidc")]
+use std::ops::Deref;
 use std::{
     fmt::Debug,
     future::{Future, IntoFuture},
@@ -8,9 +10,20 @@ use cfg_vis::cfg_vis;
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
+#[cfg(feature = "experimental-oidc")]
+use mas_oidc_client::{
+    error::{
+        Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
+        TokenRefreshError, TokenRequestError,
+    },
+    types::errors::ClientErrorCode,
+};
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
+use tracing::trace;
 
 use super::super::Client;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcError;
 use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
@@ -69,26 +82,65 @@ where
                 Box::pin(client.send_inner(request.clone(), config, None, send_progress.clone()))
                     .await;
 
-            // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
-            // try to refresh the token and retry the request.
-            if client.inner.handle_refresh_tokens {
-                if let Err(Some(ErrorKind::UnknownToken { .. })) =
-                    res.as_ref().map_err(HttpError::client_api_error_kind)
-                {
-                    if let Err(refresh_error) = client.refresh_access_token().await {
-                        match refresh_error {
-                            RefreshTokenError::RefreshTokenRequired => {
-                                // Refreshing access tokens is not supported by
-                                // this `Session`, ignore.
-                            }
-                            _ => {
-                                return Err(refresh_error.into());
-                            }
+            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
+            if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
+                res.as_ref().map_err(HttpError::client_api_error_kind)
+            {
+                trace!("Token refresh: Unknown token error received.");
+                // If automatic token refresh isn't supported, there is nothing more to do.
+                if !client.inner.handle_refresh_tokens {
+                    trace!("Token refresh: Automatic refresh disabled.");
+                    client.broadcast_unknown_token(soft_logout);
+                    return res;
+                }
+
+                // Try to refresh the token and retry the request.
+                if let Err(refresh_error) = client.refresh_access_token().await {
+                    match &refresh_error {
+                        RefreshTokenError::RefreshTokenRequired => {
+                            trace!("Token refresh: The session doesn't have a refresh token.");
+                            // Refreshing access tokens is not supported by this `Session`, ignore.
+                            client.broadcast_unknown_token(soft_logout);
                         }
-                    } else {
-                        return Box::pin(client.send_inner(request, config, None, send_progress))
-                            .await;
+                        #[cfg(feature = "experimental-oidc")]
+                        RefreshTokenError::Oidc(oidc_error) => {
+                            let oidc_error = oidc_error.deref();
+                            match oidc_error {
+                                OidcError::Oidc(OidcClientError::TokenRefresh(
+                                    TokenRefreshError::Token(TokenRequestError::Http(
+                                        OidcHttpError {
+                                            body:
+                                                Some(OidcErrorBody {
+                                                    error: ClientErrorCode::InvalidGrant,
+                                                    ..
+                                                }),
+                                            ..
+                                        },
+                                    )),
+                                )) => {
+                                    trace!("Token refresh: OIDC refresh denied.");
+                                    // The refresh was denied, signal to sign out the user.
+                                    client.broadcast_unknown_token(soft_logout);
+                                }
+                                _ => {
+                                    trace!("Token refresh: OIDC refresh encountered a problem.");
+                                    // The refresh failed for other reasons, no
+                                    // need to sign out.
+                                }
+                            };
+                            return Err(refresh_error.into());
+                        }
+                        _ => {
+                            trace!("Token refresh: Token refresh failed.");
+                            // This isn't necessarily correct, but matches the behaviour when
+                            // implementing OIDC.
+                            client.broadcast_unknown_token(soft_logout);
+                            return Err(refresh_error.into());
+                        }
                     }
+                } else {
+                    trace!("Token refresh: Refresh succeeded, retrying request.");
+                    return Box::pin(client.send_inner(request, config, None, send_progress)).await;
                 }
             }
 

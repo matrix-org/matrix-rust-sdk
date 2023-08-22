@@ -32,6 +32,7 @@ pub struct ClientBuilder {
     sliding_sync_proxy: Option<String>,
     proxy: Option<String>,
     disable_ssl_verification: bool,
+    disable_automatic_token_refresh: bool,
     inner: MatrixClientBuilder,
 }
 
@@ -103,6 +104,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn disable_automatic_token_refresh(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_automatic_token_refresh = true;
+        Arc::new(builder)
+    }
+
     pub fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientError> {
         Ok(self.build_inner()?)
     }
@@ -157,6 +164,10 @@ impl ClientBuilder {
             inner_builder = inner_builder.disable_ssl_verification();
         }
 
+        if !builder.disable_automatic_token_refresh {
+            inner_builder = inner_builder.handle_refresh_tokens();
+        }
+
         if let Some(user_agent) = builder.user_agent {
             inner_builder = inner_builder.user_agent(user_agent);
         }
@@ -208,6 +219,7 @@ impl Default for ClientBuilder {
             sliding_sync_proxy: None,
             proxy: None,
             disable_ssl_verification: false,
+            disable_automatic_token_refresh: false,
             inner: MatrixClient::builder(),
         }
     }
