@@ -34,7 +34,7 @@ use std::{
 
 use async_stream::stream;
 use futures_core::stream::Stream;
-use matrix_sdk_common::ring_buffer::RingBuffer;
+use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
 use ruma::{
     api::client::{
         error::ErrorKind,
@@ -239,6 +239,8 @@ impl SlidingSync {
         &self,
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
+        let _timer = timer!(format!("restoring (loading+processing) list {}", list_builder.name));
+
         let reloaded_rooms =
             list_builder.set_cached_and_reload(&self.inner.client, &self.inner.storage_key).await?;
 

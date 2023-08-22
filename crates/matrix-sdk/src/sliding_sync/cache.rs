@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
+use matrix_sdk_common::timer;
 use ruma::UserId;
 use tracing::{trace, warn};
 
@@ -118,6 +119,8 @@ pub(super) async fn restore_sliding_sync_list(
     storage_key: &str,
     list_name: &str,
 ) -> Result<Option<FrozenSlidingSyncList>> {
+    let _timer = timer!(format!("loading list from DB {list_name}"));
+
     let storage_key_for_list = format_storage_key_for_sliding_sync_list(storage_key, list_name);
 
     match storage
@@ -166,6 +169,8 @@ pub(super) async fn restore_sliding_sync_state(
     delta_token: &mut Option<String>,
     to_device_token: &mut Option<String>,
 ) -> Result<()> {
+    let _timer = timer!(format!("loading sliding sync {storage_key} state from DB"));
+
     #[cfg(feature = "e2e-encryption")]
     if let Some(olm_machine) = &*client.olm_machine().await {
         match olm_machine.store().next_batch_token().await? {

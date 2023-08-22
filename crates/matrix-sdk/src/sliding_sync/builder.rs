@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_common::ring_buffer::RingBuffer;
+use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
 use ruma::{
     api::client::sync::sync_events::v4::{
         self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
@@ -93,6 +93,8 @@ impl SlidingSyncBuilder {
     ///
     /// Replace any list with the same name.
     pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
+        let _timer = timer!(format!("restoring (loading+processing) list {}", list.name));
+
         let reloaded_rooms = list.set_cached_and_reload(&self.client, &self.storage_key).await?;
 
         for (key, frozen) in reloaded_rooms {
