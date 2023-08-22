@@ -588,7 +588,7 @@ impl<'a> TimelineEventHandler<'a> {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.add_response(
                         &self.ctx.sender,
-                        &self.ctx.timestamp,
+                        self.ctx.timestamp,
                         &c,
                     )),
                     None,
@@ -599,7 +599,7 @@ impl<'a> TimelineEventHandler<'a> {
                 self.state.poll_pending_events.add_response(
                     &c.relates_to.event_id,
                     &self.ctx.sender,
-                    &self.ctx.timestamp,
+                    self.ctx.timestamp,
                     &c,
                 );
             }
@@ -612,13 +612,13 @@ impl<'a> TimelineEventHandler<'a> {
             &c.relates_to.event_id,
             found: |event_item| match event_item.content() {
                 TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
-                    TimelineItemContent::Poll(poll_state.end(&self.ctx.timestamp)),
+                    TimelineItemContent::Poll(poll_state.end(self.ctx.timestamp)),
                     None,
                 )),
                 _ => None,
             },
             not_found: || {
-                self.state.poll_pending_events.add_end(&c.relates_to.event_id, &self.ctx.timestamp);
+                self.state.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
             }
         );
     }
