@@ -32,7 +32,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
-use matrix_sdk_crypto::store::locks::CryptoStoreLock;
+use matrix_sdk_crypto::store::locks::CrossProcessStoreLock;
 use ruma::{api::client::sync::sync_events::v4, assign};
 use tracing::{debug, trace};
 
@@ -131,11 +131,11 @@ impl EncryptionSync {
                 // yet. In case it's the latter, wait a bit and retry.
                 tracing::debug!(
                     "Lock was already taken, and we're not the main loop; retrying in {}ms...",
-                    CryptoStoreLock::LEASE_DURATION_MS
+                    CrossProcessStoreLock::LEASE_DURATION_MS
                 );
 
                 tokio::time::sleep(Duration::from_millis(
-                    CryptoStoreLock::LEASE_DURATION_MS.into(),
+                    CrossProcessStoreLock::LEASE_DURATION_MS.into(),
                 ))
                 .await;
 

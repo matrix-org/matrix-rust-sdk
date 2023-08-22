@@ -16,15 +16,16 @@
 //!
 //! This is a per-process lock that may be used only for very specific use
 //! cases, where multiple processes might concurrently write to the same
-//! database at the same time; this would invalidate crypto store caches, so
+//! database at the same time; this would invalidate store caches, so
 //! that should be done mindfully. Such a lock can be acquired multiple times by
 //! the same process, and it remains active as long as there's at least one user
 //! in a given process.
 //!
 //! The lock is implemented using time-based leases to values inserted in a
-//! crypto store. The store maintains the lock identifier (key), who's the
+//! store. The store maintains the lock identifier (key), who's the
 //! current holder (value), and an expiration timestamp on the side; see also
-//! `CryptoStore::try_take_leased_lock` for more details.
+//! `CryptoStore::try_take_leased_lock` / `StateStore::try_take_leased_lock` for
+//! more details.
 //!
 //! The lock is initially acquired for a certain period of time (namely, the
 //! duration of a lease, aka `LEASE_DURATION_MS`), and then a "heartbeat" task
@@ -58,26 +59,26 @@ enum WaitingTime {
     Stop,
 }
 
-/// A guard on the crypto store lock.
+/// A guard on the store lock.
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
 #[derive(Debug)]
-pub struct CryptoStoreLockGuard {
+pub struct CrossProcessStoreLockGuard {
     num_holders: Arc<AtomicU32>,
 }
 
-impl Drop for CryptoStoreLockGuard {
+impl Drop for CrossProcessStoreLockGuard {
     fn drop(&mut self) {
         self.num_holders.fetch_sub(1, atomic::Ordering::SeqCst);
     }
 }
 
-/// A store-based lock for the `CryptoStore`.
+/// A store-based lock for a `Store`.
 ///
 /// See the doc-comment of this module for more information.
 #[derive(Clone, Debug)]
-pub struct CryptoStoreLock {
+pub struct CrossProcessStoreLock {
     /// The store we're using to lock.
     store: Arc<DynCryptoStore>,
 
@@ -107,7 +108,7 @@ pub struct CryptoStoreLock {
     backoff: Arc<Mutex<WaitingTime>>,
 }
 
-impl CryptoStoreLock {
+impl CrossProcessStoreLock {
     /// Amount of time a lease of the lock should last, in milliseconds.
     pub const LEASE_DURATION_MS: u32 = 500;
 
@@ -126,8 +127,7 @@ impl CryptoStoreLock {
     /// we'll wait for the lock, *between two attempts*.
     pub const MAX_BACKOFF_MS: u32 = 1000;
 
-    /// Create a new store-based lock implemented as a value in the
-    /// crypto-store.
+    /// Create a new store-based lock implemented as a value in the store.
     ///
     /// # Parameters
     ///
@@ -147,7 +147,9 @@ impl CryptoStoreLock {
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(&self) -> Result<Option<CryptoStoreLockGuard>, CryptoStoreError> {
+    pub async fn try_lock_once(
+        &self,
+    ) -> Result<Option<CrossProcessStoreLockGuard>, CryptoStoreError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -161,7 +163,7 @@ impl CryptoStoreLock {
             // taken by at least one thread.
             tracing::trace!("We already had the lock, incrementing holder count");
             self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
-            let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+            let guard = CrossProcessStoreLockGuard { num_holders: self.num_holders.clone() };
             return Ok(Some(guard));
         }
 
@@ -247,7 +249,7 @@ impl CryptoStoreLock {
 
         self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
 
-        let guard = CryptoStoreLockGuard { num_holders: self.num_holders.clone() };
+        let guard = CrossProcessStoreLockGuard { num_holders: self.num_holders.clone() };
         Ok(Some(guard))
     }
 
@@ -263,7 +265,7 @@ impl CryptoStoreLock {
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CryptoStoreLockGuard, CryptoStoreError> {
+    ) -> Result<CrossProcessStoreLockGuard, CryptoStoreError> {
         let max_backoff = max_backoff.unwrap_or(Self::MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -307,7 +309,7 @@ impl CryptoStoreLock {
     }
 }
 
-/// Error related to the locking API of the crypto store.
+/// Error related to the locking API of the store.
 #[derive(Debug, thiserror::Error)]
 pub enum LockStoreError {
     /// A lock value was to be removed, but it didn't contain the expected lock
@@ -342,9 +344,9 @@ mod tests {
     use super::*;
     use crate::store::{IntoCryptoStore as _, MemoryStore};
 
-    async fn release_lock(guard: Option<CryptoStoreLockGuard>) {
+    async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
         drop(guard);
-        sleep(Duration::from_millis(CryptoStoreLock::EXTEND_LEASE_EVERY_MS)).await;
+        sleep(Duration::from_millis(CrossProcessStoreLock::EXTEND_LEASE_EVERY_MS)).await;
     }
 
     #[async_test]
@@ -352,7 +354,7 @@ mod tests {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
-        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
 
         // The lock plain works when used with a single holder.
         let acquired = lock.try_lock_once().await?;
@@ -378,7 +380,8 @@ mod tests {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
-        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock =
+            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
 
         // When a lock is acquired...
         let acquired = lock.try_lock_once().await?;
@@ -389,7 +392,8 @@ mod tests {
         drop(lock);
 
         // And when rematerializing the lock with the same key/value...
-        let lock = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock =
+            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
 
         // We still got it.
         let acquired = lock.try_lock_once().await?;
@@ -404,7 +408,7 @@ mod tests {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
-        let lock = CryptoStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
 
         // Taking the lock twice...
         let acquired = lock.try_lock_once().await?;
@@ -430,8 +434,9 @@ mod tests {
         let mem_store = MemoryStore::new();
         let dyn_store = mem_store.into_crypto_store();
 
-        let lock1 = CryptoStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
-        let lock2 = CryptoStoreLock::new(dyn_store, "key".to_owned(), "second".to_owned());
+        let lock1 =
+            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "second".to_owned());
 
         // When the first process takes the lock...
         let acquired1 = lock1.try_lock_once().await?;

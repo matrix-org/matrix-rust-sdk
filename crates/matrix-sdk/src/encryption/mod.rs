@@ -29,7 +29,7 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
-    store::locks::CryptoStoreLockGuard, OlmMachine, OutgoingRequest, RoomMessageRequest,
+    store::locks::CrossProcessStoreLockGuard, OlmMachine, OutgoingRequest, RoomMessageRequest,
     ToDeviceRequest,
 };
 use ruma::{
@@ -930,7 +930,7 @@ impl Encryption {
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CryptoStoreLockGuard>, Error> {
+    ) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
             let guard = lock.spin_lock(max_backoff).await?;
 
@@ -946,7 +946,7 @@ impl Encryption {
     /// attempts to lock it once.
     ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(&self) -> Result<Option<CryptoStoreLockGuard>, Error> {
+    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
             let maybe_guard = lock.try_lock_once().await?;
 
