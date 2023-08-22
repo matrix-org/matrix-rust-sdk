@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    env::consts::{DLL_PREFIX, DLL_SUFFIX},
-};
+use std::collections::BTreeMap;
 
 use clap::{Args, Subcommand};
 use xshell::{cmd, pushd};
@@ -129,22 +126,22 @@ fn check_bindings() -> Result<()> {
     cmd!(
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
-            --library
             --language kotlin
             --language swift
+            --lib-file target/debug/libmatrix_sdk_ffi.a
             --out-dir target/generated-bindings
-            target/debug/{DLL_PREFIX}matrix_sdk_ffi{DLL_SUFFIX}
+            bindings/matrix-sdk-ffi/src/api.udl
         "
     )
     .run()?;
     cmd!(
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
-            --library
             --language kotlin
             --language swift
+            --lib-file target/debug/libmatrix_sdk_crypto_ffi.a
             --out-dir target/generated-bindings
-            target/debug/{DLL_PREFIX}matrix_sdk_crypto_ffi{DLL_SUFFIX}
+            bindings/matrix-sdk-crypto-ffi/src/olm.udl
         "
     )
     .run()?;
