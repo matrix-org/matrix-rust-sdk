@@ -252,7 +252,11 @@ impl Client {
             let oidc_data = serde_json::from_str::<OidcUnvalidatedSessionData>(&oidc_data)?
                 .validate()
                 .context("OIDC metadata validation failed.")?;
-            let latest_id_token = oidc_data.latest_id_token.and_then(|s| s.try_into().ok());
+            let latest_id_token = oidc_data
+                .latest_id_token
+                .map(TryInto::try_into)
+                .transpose()
+                .context("OIDC latest_id_token is invalid.")?;
 
             let user_session = matrix_sdk::oidc::UserSession {
                 meta: matrix_sdk::SessionMeta {

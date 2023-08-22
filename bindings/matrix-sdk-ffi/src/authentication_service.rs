@@ -147,18 +147,18 @@ impl OidcRegistrations {
     /// Returns all of the registrations this client has made as a HashMap of
     /// issuer URL (as a string) to client ID (as a string).
     fn dynamic_registrations(&self) -> HashMap<String, String> {
-        let Some(file) = File::open(&self.file_path).ok() else {
-            return HashMap::new();
-        };
-        let reader = BufReader::new(file);
-
-        let Some(registrations): Option<HashMap<String, String>> =
-            serde_json::from_reader(reader).ok()
-        else {
-            return HashMap::new();
+        let reader = match File::open(&self.file_path) {
+            Ok(file) => BufReader::new(file),
+            Err(e) => {
+                tracing::error!("Failed to open registrations file: {e}");
+                return HashMap::new();
+            }
         };
 
-        registrations
+        serde_json::from_reader(reader).unwrap_or_else(|e| {
+            tracing::error!("Failed to parse registrations file: {e}");
+            HashMap::new()
+        })
     }
 
     /// Returns the client ID registered for a particular issuer or None if a
