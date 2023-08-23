@@ -214,7 +214,7 @@ impl BaseRoomInfo {
         true
     }
 
-    pub fn handle_redaction(&mut self, redacts: &EventId) {
+    fn handle_redaction(&mut self, redacts: &EventId) {
         let room_version = self.room_version().unwrap_or(&RoomVersionId::V1).to_owned();
 
         // FIXME: Use let chains once available to get rid of unwrap()s
