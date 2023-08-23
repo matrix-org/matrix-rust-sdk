@@ -278,7 +278,7 @@ impl RoomListService {
     ///
     /// This is used by [`SyncService`][crate::SyncService].
     ///
-    /// **Warning**: This method **must** be called when the sync-loop isn't
+    /// **Warning**: This method **must not** be called while the sync-loop is
     /// running!
     pub(crate) async fn expire_sync_session(&self) {
         self.sliding_sync.expire_session().await;
