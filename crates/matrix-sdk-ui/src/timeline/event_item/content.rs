@@ -63,8 +63,8 @@ use tracing::{error, warn};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
 use crate::timeline::{
-    traits::RoomDataProvider, Error as TimelineError, ReactionSenderData, TimelineItem,
-    DEFAULT_SANITIZER_MODE,
+    polls::PollState, traits::RoomDataProvider, Error as TimelineError, ReactionSenderData,
+    TimelineItem, DEFAULT_SANITIZER_MODE,
 };
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
@@ -111,6 +111,9 @@ pub enum TimelineItemContent {
         /// The deserialization error.
         error: Arc<serde_json::Error>,
     },
+
+    /// An `m.poll.start` event.
+    Poll(PollState),
 }
 
 impl TimelineItemContent {
@@ -283,6 +286,7 @@ impl TimelineItemContent {
             Self::Message(_)
             | Self::RedactedMessage
             | Self::Sticker(_)
+            | Self::Poll(_)
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),

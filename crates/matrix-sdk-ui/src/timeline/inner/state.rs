@@ -47,6 +47,7 @@ use crate::{
         },
         event_item::EventItemIdentifier,
         item::timeline_item,
+        polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         traits::RoomDataProvider,
         util::{rfind_event_item, timestamp_to_date},
@@ -97,6 +98,7 @@ pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
     next_internal_id: u64,
     pub reactions: Reactions,
+    pub poll_pending_events: PollPendingEvents,
     pub fully_read_event: Option<OwnedEventId>,
     /// Whether the fully-read marker item should try to be updated when an
     /// event is added.
@@ -123,6 +125,7 @@ impl TimelineInnerState {
             items: ObservableVector::with_capacity(32),
             next_internal_id: Default::default(),
             reactions: Default::default(),
+            poll_pending_events: Default::default(),
             fully_read_event: Default::default(),
             event_should_update_fully_read_marker: Default::default(),
             users_read_receipts: Default::default(),

@@ -64,6 +64,7 @@ mod edit;
 mod encryption;
 mod event_filter;
 mod invalid;
+mod polls;
 mod reaction_group;
 mod reactions;
 mod read_receipts;
