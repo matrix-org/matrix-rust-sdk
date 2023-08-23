@@ -1,8 +1,14 @@
 use std::sync::Arc;
 
-use matrix_sdk::RoomState;
+use matrix_sdk::{
+    notification_settings::{IsEncrypted, IsOneToOne},
+    RoomState,
+};
 
-use crate::{room::Membership, room_member::RoomMember, timeline::EventTimelineItem};
+use crate::{
+    notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
+    timeline::EventTimelineItem,
+};
 
 #[derive(uniffi::Record)]
 pub struct RoomInfo {
@@ -24,6 +30,7 @@ pub struct RoomInfo {
     joined_members_count: u64,
     highlight_count: u64,
     notification_count: u64,
+    notification_mode: Option<RoomNotificationMode>,
 }
 
 impl RoomInfo {
@@ -57,6 +64,33 @@ impl RoomInfo {
             joined_members_count: room.joined_members_count(),
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
+            notification_mode: notification_mode(room).await,
         })
     }
+}
+
+/// Get the notification mode for a given `Room`
+async fn notification_mode(room: &matrix_sdk::Room) -> Option<RoomNotificationMode> {
+    if !matches!(room.state(), RoomState::Joined) {
+        return None;
+    }
+    let notification_settings = room.client().notification_settings().await;
+
+    // Get the user-defined mode if available
+    let sdk_mode =
+        notification_settings.get_user_defined_room_notification_mode(room.room_id()).await;
+    if sdk_mode.is_some() {
+        return sdk_mode.map(Into::into);
+    } else if let Ok(is_encrypted) = room.is_encrypted().await {
+        // Otherwise, if encrypted status is available, get the default mode for this
+        // type of room.
+        // From the point of view of notification settings, a `one-to-one` room is one
+        // that involves exactly two people.
+        let is_one_to_one = IsOneToOne::from(room.active_members_count() == 2);
+        let default_mode = notification_settings
+            .get_default_room_notification_mode(IsEncrypted::from(is_encrypted), is_one_to_one)
+            .await;
+        return Some(default_mode.into());
+    }
+    None
 }
