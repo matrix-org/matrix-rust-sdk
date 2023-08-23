@@ -637,6 +637,9 @@ impl<'a> TimelineEventHandler<'a> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
+        // TODO: Apply local redaction of PollReponse and PollEnd events.
+        // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
+
         let id = EventItemIdentifier::EventId(redacts.clone());
         if let Some((_, rel)) = self.state.reactions.map.remove(&id) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
