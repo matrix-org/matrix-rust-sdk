@@ -98,6 +98,26 @@ async fn events_received_before_start_are_cached() {
     assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
 }
 
+#[async_test]
+async fn multiple_end_events_are_discarded() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.end_time.is_some(), true);
+
+    let first_end_time = results.end_time.unwrap();
+
+    // Another poll end event arrives, but it should be discarded
+    // and therefore the poll's end time should not change
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.end_time.unwrap(), first_end_time);
+}
+
 impl TestTimeline {
     async fn events(&self) -> Vec<EventTimelineItem> {
         self.inner

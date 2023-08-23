@@ -69,10 +69,16 @@ impl PollState {
         clone
     }
 
-    pub(super) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Self {
-        let mut clone = self.clone();
-        clone.end_event_timestamp = Some(timestamp);
-        clone
+    /// Marks the poll as ended.
+    /// NB: If the poll has already ended it will return an error.
+    pub(super) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
+        if self.end_event_timestamp.is_none() {
+            let mut clone = self.clone();
+            clone.end_event_timestamp = Some(timestamp);
+            Ok(clone)
+        } else {
+            Err(())
+        }
     }
 
     pub fn fallback_text(&self) -> Option<String> {

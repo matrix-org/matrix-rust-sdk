@@ -611,10 +611,15 @@ impl<'a> TimelineEventHandler<'a> {
             self,
             &c.relates_to.event_id,
             found: |event_item| match event_item.content() {
-                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
-                    TimelineItemContent::Poll(poll_state.end(self.ctx.timestamp)),
-                    None,
-                )),
+                TimelineItemContent::Poll(poll_state) => {
+                    match poll_state.end(self.ctx.timestamp) {
+                        Ok(poll_state) => Some(event_item.with_content(TimelineItemContent::Poll(poll_state), None)),
+                        Err(_) => {
+                            info!("Got multiple poll end events, discarding");
+                            None
+                        },
+                    }
+                },
                 _ => None,
             },
             not_found: || {
