@@ -110,7 +110,7 @@ impl PollState {
                 .collect(),
             votes: results
                 .iter()
-                .map(|i| (i.0.to_string(), i.1.into_iter().map(|i| i.to_string()).collect()))
+                .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
                 .collect(),
             end_time: self.end_event_timestamp.map(|millis| millis.0.into()),
         }
@@ -164,8 +164,8 @@ impl PollPendingEvents {
         if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
             poll_state.response_data.append(pending_responses);
         }
-        if let Some(pending_end) = self.pending_poll_ends.get_mut(start_event_id) {
-            poll_state.end_event_timestamp = Some(pending_end.clone());
+        if let Some(pending_end) = self.pending_poll_ends.get(start_event_id) {
+            poll_state.end_event_timestamp = Some(*pending_end)
         }
     }
 }

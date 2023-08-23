@@ -21,7 +21,7 @@ async fn poll_is_displayed() {
     let poll_state = timeline.poll_state().await;
 
     assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
-    assert_eq!(poll_state.response_data.is_empty(), true);
+    assert!(poll_state.response_data.is_empty());
 }
 
 #[async_test]
@@ -108,7 +108,7 @@ async fn multiple_end_events_are_discarded() {
     // Poll finishes
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.end_time.is_some(), true);
+    assert!(results.end_time.is_some());
 
     let first_end_time = results.end_time.unwrap();
 
@@ -181,15 +181,7 @@ async fn events_received_before_start_are_not_lost() {
 
 impl TestTimeline {
     async fn events(&self) -> Vec<EventTimelineItem> {
-        self.inner
-            .items()
-            .await
-            .iter()
-            .filter_map(|item| match item.as_event() {
-                Some(event) => Some(event.clone()),
-                None => None,
-            })
-            .collect()
+        self.inner.items().await.iter().filter_map(|item| item.as_event().cloned()).collect()
     }
 
     async fn poll_event(&self) -> EventTimelineItem {
