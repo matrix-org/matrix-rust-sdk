@@ -23,14 +23,16 @@ pub struct Permissions {
 }
 
 /// Different kinds of filters that could be applied to message (whether for sending or for receiving).
+#[derive(Debug)]
 pub enum EventFilter {
     /// Filters for the timeline events, the `data` field is used to store the `msgtype`.
-    Timeline(FilterContent<TimelineEventFilter>),
+    Timeline(FilterContent<TimelineEventType>),
     /// Filters for the state events, the `data` field is used to store the `state_key`.
-    State(FilterContent<StateEventFilter>),
+    State(FilterContent<StateEventType>),
 }
 
 /// The content of a particular event filter.
+#[derive(Debug)]
 pub struct FilterContent<T> {
     /// The type of the underlying event (typically, an enum).
     pub event_type: T,
