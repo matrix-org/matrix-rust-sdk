@@ -63,8 +63,8 @@ async fn voting_does_update_a_poll() {
     // Poll finishes
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
 
-    // Now Bob votes again but his vote won't count
-    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    // Now Bob also changes his mind but it's too late, his vote won't count
+    timeline.send_poll_response(&BOB, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
     assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);

@@ -87,7 +87,7 @@ impl PollState {
                 origin_server_ts: response_data.timestamp,
                 selections: &response_data.answers,
             }),
-            None,
+            self.end_event_timestamp,
         );
 
         PollResult {
@@ -165,6 +165,7 @@ impl PollPendingEvents {
     }
 }
 
+#[derive(Debug)]
 pub struct PollResult {
     pub question: String,
     pub kind: PollKind,
@@ -174,6 +175,7 @@ pub struct PollResult {
     pub end_time: Option<u64>,
 }
 
+#[derive(Debug)]
 pub struct PollResultAnswer {
     pub id: String,
     pub text: String,
