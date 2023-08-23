@@ -32,7 +32,7 @@ pub enum EventFilter {
     /// Filters for the timeline events, the `data` field is used to store the
     /// `msgtype`.
     Timeline(FilterContent<TimelineEventType>),
-    /// Filters for the state events, the `data` field is used to store the
+    /// Filters for state events, the `data` field is used to store the
     /// `state_key`.
     State(FilterContent<StateEventType>),
 }
