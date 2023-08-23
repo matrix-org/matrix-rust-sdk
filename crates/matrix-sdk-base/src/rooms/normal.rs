@@ -51,7 +51,7 @@ use ruma::{
     RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
@@ -864,6 +864,7 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
+    #[instrument(skip_all, fields(redacts))]
     pub fn handle_redaction(
         &mut self,
         event: &SyncRoomRedactionEvent,
@@ -872,15 +873,24 @@ impl RoomInfo {
         let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
 
         let Some(redacts) = event.redacts(room_version) else {
+            info!("Can't apply redaction, redacts field is missing");
             return;
         };
+        tracing::Span::current().record("redacts", debug(redacts));
 
         #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
+            trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(&latest_event.event, _raw, room_version) {
-                    Some(redacted) => latest_event.event = redacted,
-                    None => self.latest_event = None,
+                    Some(redacted) => {
+                        latest_event.event = redacted;
+                        debug!("Redacted latest event");
+                    }
+                    None => {
+                        self.latest_event = None;
+                        debug!("Removed latest event");
+                    }
                 }
             }
         }
