@@ -91,13 +91,12 @@ pub(super) async fn store_sliding_sync_state(
             .read()
             .await
             .iter()
-            .filter_map(|(list_name, list)| {
-                matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled).then(|| {
-                    Ok((
-                        format_storage_key_for_sliding_sync_list(storage_key, list_name),
-                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
-                    ))
-                })
+            .filter(|(_, list)| matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled))
+            .map(|(list_name, list)| {
+                Ok((
+                    format_storage_key_for_sliding_sync_list(storage_key, list_name),
+                    serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
+                ))
             })
             .collect::<Result<Vec<_>, crate::Error>>()?
     };
