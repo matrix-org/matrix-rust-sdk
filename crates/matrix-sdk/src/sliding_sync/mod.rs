@@ -660,7 +660,7 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    /// Create a _new_ Sliding Sync sync-loop.
+    /// Create a _new_ Sliding Sync sync loop.
     ///
     /// This method returns a `Stream`, which will send requests and will handle
     /// responses automatically. Lists and rooms are updated automatically.
@@ -714,7 +714,7 @@ impl SlidingSync {
                                 continue;
                             }
 
-                            // Here, errors we **cannot** ignore, and that must stop the sync-loop.
+                            // Here, errors we **cannot** ignore, and that must stop the sync loop.
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
@@ -737,13 +737,13 @@ impl SlidingSync {
         }
     }
 
-    /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
+    /// Force to stop the sync loop ([`Self::sync`]) if it's running.
     ///
     /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
     /// enough to “stop” it, but depending of how this `Stream` is used, it
     /// might not be obvious to drop it immediately (thinking of using this API
     /// over FFI; the foreign-language might not be able to drop a value
-    /// immediately). Thus, calling this method will ensure that the sync-loop
+    /// immediately). Thus, calling this method will ensure that the sync loop
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
@@ -759,7 +759,7 @@ impl SlidingSync {
     /// multiple sliding syncs being run in parallel, and one of them has
     /// expired).
     ///
-    /// This method **MUST** be called when the sync-loop is stopped.
+    /// This method **MUST** be called when the sync loop is stopped.
     #[doc(hidden)]
     pub async fn expire_session(&self) {
         info!("Session expired; resetting `pos` and sticky parameters");
@@ -787,7 +787,7 @@ impl SlidingSyncInner {
     }
 
     /// Send a message over the internal channel if there is a receiver, i.e. if
-    /// the sync-loop is running.
+    /// the sync loop is running.
     #[instrument]
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
@@ -1577,24 +1577,24 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        // Start the sync-loop.
+        // Start the sync loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
-        // The sync-loop is actually running.
+        // The sync loop is actually running.
         assert!(stream.next().await.is_some());
 
-        // Stop the sync-loop.
+        // Stop the sync loop.
         sliding_sync.stop_sync()?;
 
-        // The sync-loop is actually stopped.
+        // The sync loop is actually stopped.
         assert!(stream.next().await.is_none());
 
-        // Start a new sync-loop.
+        // Start a new sync loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
-        // The sync-loop is actually running.
+        // The sync loop is actually running.
         assert!(stream.next().await.is_some());
 
         Ok(())

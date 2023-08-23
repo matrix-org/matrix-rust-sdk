@@ -239,7 +239,7 @@ impl RoomListService {
                         break;
                     }
 
-                    // Sync-loop has terminated.
+                    // Sync loop has terminated.
                     None => {
                         let next_state = State::Terminated { from: Box::new(next_state) };
                         self.state.set(next_state);
@@ -256,7 +256,7 @@ impl RoomListService {
     ///
     /// It's of utter importance to call this method rather than stop polling
     /// the `Stream` returned by [`Self::sync`] because it will force the
-    /// cancellation and exit the sync-loop, i.e. it will cancel any
+    /// cancellation and exit the sync loop, i.e. it will cancel any
     /// in-flight HTTP requests, cancel any pending futures etc. and put the
     /// service into a termination state.
     ///
@@ -278,14 +278,14 @@ impl RoomListService {
     ///
     /// This is used by [`SyncService`][crate::SyncService].
     ///
-    /// **Warning**: This method **must not** be called while the sync-loop is
+    /// **Warning**: This method **must not** be called while the sync loop is
     /// running!
     pub(crate) async fn expire_sync_session(&self) {
         self.sliding_sync.expire_session().await;
 
         // Usually, when the session expires, it leads the state to be `Error`,
         // thus some actions (like refreshing the lists) are executed. However,
-        // if the sync-loop has been stopped manually, the state is `Terminated`, and
+        // if the sync loop has been stopped manually, the state is `Terminated`, and
         // when the session is forced to expire, the state remains `Terminated`, thus
         // the actions aren't executed as expected. Consequently, let's update the
         // state.
