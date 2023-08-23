@@ -589,8 +589,8 @@ impl BaseClient {
 
             #[cfg(feature = "experimental-sliding-sync")]
             for room_key_update in room_key_updates {
-                if let Some(mut room) = self.get_room(&room_key_update.room_id) {
-                    self.decrypt_latest_events(&mut room, changes).await;
+                if let Some(room) = self.get_room(&room_key_update.room_id) {
+                    self.decrypt_latest_events(&room, changes).await;
                 }
             }
             #[cfg(not(feature = "experimental-sliding-sync"))]
@@ -610,7 +610,7 @@ impl BaseClient {
     /// found, and remove any older encrypted events from
     /// latest_encrypted_events.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    async fn decrypt_latest_events(&self, room: &mut Room, changes: &mut StateChanges) {
+    async fn decrypt_latest_events(&self, room: &Room, changes: &mut StateChanges) {
         // Try to find a message we can decrypt and is suitable for using as the latest
         // event. If we found one, set it as the latest and delete any older
         // encrypted events
@@ -1453,7 +1453,7 @@ mod tests {
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
         let client = logged_in_client(user_id).await;
-        let mut room = process_room_join(&client, room_id, "$1", user_id).await;
+        let room = process_room_join(&client, room_id, "$1", user_id).await;
 
         // Sanity: it has no latest_encrypted_events or latest_event
         assert!(room.latest_encrypted_events().is_empty());
@@ -1461,7 +1461,7 @@ mod tests {
 
         // When I tell it to do some decryption
         let mut changes = StateChanges::default();
-        client.decrypt_latest_events(&mut room, &mut changes).await;
+        client.decrypt_latest_events(&room, &mut changes).await;
 
         // Then nothing changed
         assert!(room.latest_encrypted_events().is_empty());

@@ -121,7 +121,7 @@ impl Signatures {
         key_id: OwnedDeviceKeyId,
         signature: Ed25519Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
-        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, Ok(signature.into()))
+        self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given

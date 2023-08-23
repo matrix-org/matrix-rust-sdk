@@ -185,7 +185,7 @@ impl CryptoStore for MemoryStore {
             for (session_id, event) in data {
                 self.direct_withheld_info
                     .entry(room_id.to_owned())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(session_id, event);
             }
         }

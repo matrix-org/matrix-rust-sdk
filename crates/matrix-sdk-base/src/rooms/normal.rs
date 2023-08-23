@@ -405,7 +405,7 @@ impl Room {
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn on_latest_event_decrypted(&mut self, event: SyncTimelineEvent, index: usize) {
+    pub(crate) fn on_latest_event_decrypted(&self, event: SyncTimelineEvent, index: usize) {
         self.set_latest_event(Some(event));
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
     }
@@ -1523,8 +1523,8 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
         // Given a room with an encrypted event
-        let (_store, mut room) = make_room(RoomState::Joined);
-        add_encrypted_event(&mut room, "$A");
+        let (_store, room) = make_room(RoomState::Joined);
+        add_encrypted_event(&room, "$A");
         // Sanity: it has no latest_event
         assert!(room.latest_event().is_none());
 
@@ -1540,12 +1540,12 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
         // Given a room with some encrypted events and a latest event
-        let (_store, mut room) = make_room(RoomState::Joined);
+        let (_store, room) = make_room(RoomState::Joined);
         room.inner.write().unwrap().latest_event = Some(make_event("$A"));
-        add_encrypted_event(&mut room, "$0");
-        add_encrypted_event(&mut room, "$1");
-        add_encrypted_event(&mut room, "$2");
-        add_encrypted_event(&mut room, "$3");
+        add_encrypted_event(&room, "$0");
+        add_encrypted_event(&room, "$1");
+        add_encrypted_event(&room, "$2");
+        add_encrypted_event(&room, "$3");
 
         // When I provide a latest event
         let new_event = make_event("$1");
@@ -1566,11 +1566,11 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn replacing_the_newest_event_leaves_none_left() {
         // Given a room with some encrypted events
-        let (_store, mut room) = make_room(RoomState::Joined);
-        add_encrypted_event(&mut room, "$0");
-        add_encrypted_event(&mut room, "$1");
-        add_encrypted_event(&mut room, "$2");
-        add_encrypted_event(&mut room, "$3");
+        let (_store, room) = make_room(RoomState::Joined);
+        add_encrypted_event(&room, "$0");
+        add_encrypted_event(&room, "$1");
+        add_encrypted_event(&room, "$2");
+        add_encrypted_event(&room, "$3");
 
         // When I provide a latest event and say it was the very latest
         let new_event = make_event("$3");
@@ -1583,7 +1583,7 @@ mod test {
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
-    fn add_encrypted_event(room: &mut Room, event_id: &str) {
+    fn add_encrypted_event(room: &Room, event_id: &str) {
         room.latest_encrypted_events
             .write()
             .unwrap()
