@@ -39,7 +39,88 @@ async fn edited_poll_is_displayed() {
 }
 
 #[async_test]
-async fn voting_does_update_a_poll() {
+async fn voting_adds_the_vote_to_the_results() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Alice votes
+    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+
+    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
+    assert!(results.end_time.is_none());
+}
+
+#[async_test]
+async fn ending_a_poll_sets_end_time_to_results() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    let results = timeline.poll_state().await.results();
+
+    assert!(results.end_time.is_some());
+}
+
+#[async_test]
+async fn only_the_last_vote_from_a_user_is_counted() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Alice votes
+    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
+
+    // Alice changes her mind and votes again
+    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+}
+
+#[async_test]
+async fn votes_after_end_are_discarded() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+
+    // Alice votes but it's too late, her vote won't count
+    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    for (_, votes) in results.votes.iter() {
+        assert!(votes.is_empty());
+    }
+}
+
+#[async_test]
+async fn multiple_end_events_are_discarded() {
+    let timeline = TestTimeline::new();
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
+
+    // Poll finishes
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.end_time.is_some(), true);
+
+    let first_end_time = results.end_time.unwrap();
+
+    // Another poll end event arrives, but it should be discarded
+    // and therefore the poll's end time should not change
+    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    let results = timeline.poll_state().await.results();
+    assert_eq!(results.end_time.unwrap(), first_end_time);
+}
+
+#[async_test]
+async fn a_somewhat_complex_voting_session_yields_the_expected_outcome() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -71,7 +152,7 @@ async fn voting_does_update_a_poll() {
 }
 
 #[async_test]
-async fn events_received_before_start_are_cached() {
+async fn events_received_before_start_are_not_lost() {
     let timeline = TestTimeline::new();
     let poll_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
 
@@ -91,31 +172,11 @@ async fn events_received_before_start_are_cached() {
     timeline.send_poll_start_with_id(&ALICE, &poll_id, fakes::poll_a()).await;
 
     // Now Bob votes again but his vote won't count
-    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(&BOB, vec!["id_down"], &poll_id).await;
 
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
     assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
-}
-
-#[async_test]
-async fn multiple_end_events_are_discarded() {
-    let timeline = TestTimeline::new();
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
-    let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
-
-    // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
-    let results = timeline.poll_state().await.results();
-    assert_eq!(results.end_time.is_some(), true);
-
-    let first_end_time = results.end_time.unwrap();
-
-    // Another poll end event arrives, but it should be discarded
-    // and therefore the poll's end time should not change
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
-    let results = timeline.poll_state().await.results();
-    assert_eq!(results.end_time.unwrap(), first_end_time);
 }
 
 impl TestTimeline {
