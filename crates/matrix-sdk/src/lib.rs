@@ -34,6 +34,8 @@ pub mod attachment;
 mod authentication;
 mod client;
 pub mod config;
+#[cfg(feature = "e2e-encryption")]
+pub mod encryption;
 mod error;
 pub mod event_handler;
 mod http_client;
@@ -43,13 +45,12 @@ pub mod notification_settings;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 pub mod room;
-pub mod sync;
-
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
+pub mod sync;
+#[cfg(feature = "experimental-widget-api")]
+pub mod widget;
 
-#[cfg(feature = "e2e-encryption")]
-pub mod encryption;
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, SessionChange};
