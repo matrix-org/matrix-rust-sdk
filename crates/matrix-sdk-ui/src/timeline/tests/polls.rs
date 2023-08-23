@@ -180,16 +180,16 @@ async fn events_received_before_start_are_not_lost() {
 }
 
 impl TestTimeline {
-    async fn events(&self) -> Vec<EventTimelineItem> {
+    async fn event_items(&self) -> Vec<EventTimelineItem> {
         self.inner.items().await.iter().filter_map(|item| item.as_event().cloned()).collect()
     }
 
     async fn poll_event(&self) -> EventTimelineItem {
-        self.events().await.first().unwrap().clone()
+        self.event_items().await.first().unwrap().clone()
     }
 
     async fn poll_state(&self) -> PollState {
-        self.events().await.first().unwrap().clone().poll_state()
+        self.event_items().await.first().unwrap().clone().poll_state()
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
