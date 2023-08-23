@@ -28,6 +28,11 @@ use matrix_sdk_crypto::{
     store::DynCryptoStore, EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
     ToDeviceRequest,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    room::{history_visibility::HistoryVisibility, message::MessageType},
+    SyncMessageLikeEvent,
+};
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
@@ -37,20 +42,12 @@ use ruma::{
             power_levels::{RoomPowerLevelsEvent, RoomPowerLevelsEventContent},
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType, StateEventType,
+        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
-};
-#[cfg(feature = "e2e-encryption")]
-use ruma::{
-    events::{
-        room::{history_visibility::HistoryVisibility, message::MessageType},
-        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
-    },
-    RoomVersionId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
@@ -341,7 +338,6 @@ impl BaseClient {
                             changes.add_state_event(room.room_id(), s.clone(), raw_event);
                         }
 
-                        #[cfg(feature = "e2e-encryption")]
                         AnySyncTimelineEvent::MessageLike(
                             AnySyncMessageLikeEvent::RoomRedaction(r),
                         ) => {
@@ -385,7 +381,7 @@ impl BaseClient {
                         },
 
                         #[cfg(not(feature = "e2e-encryption"))]
-                        _ => (),
+                        AnySyncTimelineEvent::MessageLike(_) => (),
                     }
 
                     if let Some(context) = &mut push_context {
