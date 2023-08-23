@@ -3,21 +3,17 @@
 use std::collections::HashMap;
 
 use ruma::{
-    events::{
-        poll::{
-            compile_unstable_poll_results,
-            start::PollKind,
-            unstable_response::{
-                OriginalSyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
-            },
-            unstable_start::{
-                UnstablePollStartContentBlock, UnstablePollStartEventContent,
-                UnstablePollStartEventContentWithoutRelation,
-            },
+    events::poll::{
+        compile_unstable_poll_results,
+        start::PollKind,
+        unstable_response::UnstablePollResponseEventContent,
+        unstable_start::{
+            UnstablePollStartContentBlock, UnstablePollStartEventContent,
+            UnstablePollStartEventContentWithoutRelation,
         },
-        MessageLikeUnsigned,
+        PollResponseData,
     },
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 
 /// Holds the state of a poll.
@@ -28,27 +24,27 @@ use ruma::{
 #[derive(Clone, Debug)]
 pub struct PollState {
     pub(super) start_event_content: UnstablePollStartEventContent,
-    pub(super) response_events: Vec<ResponseEvent>,
+    pub(super) response_data: Vec<ResponseData>,
     pub(super) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ResponseEvent {
+pub(super) struct ResponseData {
     pub(super) sender: OwnedUserId,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    pub(super) content: UnstablePollResponseEventContent,
+    pub(super) answers: Vec<String>,
 }
 
 impl PollState {
     pub(super) fn new(content: UnstablePollStartEventContent) -> Self {
-        Self { start_event_content: content, response_events: vec![], end_event_timestamp: None }
+        Self { start_event_content: content, response_data: vec![], end_event_timestamp: None }
     }
 
     pub(super) fn edit(
         &self,
         replacement: &UnstablePollStartEventContentWithoutRelation,
     ) -> Result<Self, ()> {
-        if self.response_events.is_empty() && self.end_event_timestamp.is_none() {
+        if self.response_data.is_empty() && self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
             clone.start_event_content.poll_start = replacement.poll_start.clone();
             clone.start_event_content.text = replacement.text.clone();
@@ -65,10 +61,10 @@ impl PollState {
         content: &UnstablePollResponseEventContent,
     ) -> Self {
         let mut clone = self.clone();
-        clone.response_events.push(ResponseEvent {
+        clone.response_data.push(ResponseData {
             sender: sender.to_owned(),
-            timestamp: timestamp,
-            content: content.clone(),
+            timestamp,
+            answers: content.poll_response.answers.clone(),
         });
         clone
     }
@@ -84,22 +80,13 @@ impl PollState {
     }
 
     pub fn results(&self) -> PollResult {
-        let responses = self
-            .response_events
-            .iter()
-            .map(|e| OriginalSyncUnstablePollResponseEvent {
-                // TODO Concocting an OriginalSyncUnstablePollResponseEvent as I'm not able to get it from the handle_event() fn.
-                content: e.content.clone(),
-                event_id: EventId::new(server_name!("no-server.local")), // TODO better fake server name?
-                sender: e.sender.clone(),
-                origin_server_ts: e.timestamp,
-                unsigned: MessageLikeUnsigned::new(),
-            })
-            .collect::<Vec<OriginalSyncUnstablePollResponseEvent>>();
-
         let results = compile_unstable_poll_results(
             &self.start_event_content.poll_start,
-            responses.iter().map(|i| i).collect::<Vec<&OriginalSyncUnstablePollResponseEvent>>(), // TODO: Why .iter() twice?
+            self.response_data.iter().map(|response_data| PollResponseData {
+                sender: &response_data.sender,
+                origin_server_ts: response_data.timestamp,
+                selections: &response_data.answers,
+            }),
             None,
         );
 
@@ -141,7 +128,7 @@ impl From<PollState> for UnstablePollStartEventContent {
 /// start event has been handled.
 #[derive(Debug, Default)]
 pub(super) struct PollPendingEvents {
-    pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseEvent>>,
+    pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseData>>,
     pub(super) pending_poll_ends: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
 }
 
@@ -154,10 +141,10 @@ impl PollPendingEvents {
         content: &UnstablePollResponseEventContent,
     ) {
         self.pending_poll_responses.entry(start_id.to_owned()).or_insert(vec![]).push(
-            ResponseEvent {
+            ResponseData {
                 sender: sender.to_owned(),
-                timestamp: timestamp,
-                content: content.clone(),
+                timestamp,
+                answers: content.poll_response.answers.clone(),
             },
         );
     }
@@ -170,7 +157,7 @@ impl PollPendingEvents {
     /// the given start_event_id into the given poll_state.
     pub(super) fn apply(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
         if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
-            poll_state.response_events.append(pending_responses)
+            poll_state.response_data.append(pending_responses)
         }
         if let Some(pending_end) = self.pending_poll_ends.get_mut(start_event_id) {
             poll_state.end_event_timestamp = Some(pending_end.clone())

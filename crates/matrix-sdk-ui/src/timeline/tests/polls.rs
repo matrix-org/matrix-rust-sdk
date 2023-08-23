@@ -21,7 +21,7 @@ async fn poll_is_displayed() {
     let poll_state = timeline.poll_state().await;
 
     assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
-    assert_eq!(poll_state.response_events.is_empty(), true);
+    assert_eq!(poll_state.response_data.is_empty(), true);
 }
 
 #[async_test]
