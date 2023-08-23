@@ -221,6 +221,7 @@ impl RoomListService {
 
                 // Do the sync.
                 match sync.next().await {
+                    // Got a successful result while syncing.
                     Some(Ok(_update_summary)) => {
                         // Update the state.
                         self.state.set(next_state);
@@ -228,6 +229,7 @@ impl RoomListService {
                         yield Ok(());
                     }
 
+                    // Got an error while syncing.
                     Some(Err(error)) => {
                         let next_state = State::Error { from: Box::new(next_state) };
                         self.state.set(next_state);
@@ -237,6 +239,7 @@ impl RoomListService {
                         break;
                     }
 
+                    // Sync-loop has terminated.
                     None => {
                         let next_state = State::Terminated { from: Box::new(next_state) };
                         self.state.set(next_state);
@@ -269,6 +272,26 @@ impl RoomListService {
     #[doc(hidden)]
     pub fn stop_sync(&self) -> Result<(), Error> {
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
+    }
+
+    /// Force the sliding sync session to expire.
+    ///
+    /// This is used by [`SyncService`][crate::SyncService].
+    ///
+    /// **Warning**: This method **must** be called when the sync-loop isn't
+    /// running!
+    pub(crate) async fn expire_sync_session(&self) {
+        self.sliding_sync.expire_session().await;
+
+        // Usually, when the session expires, it leads the state to be `Error`,
+        // thus some actions (like refreshing the lists) are executed. However,
+        // if the sync-loop has been stopped manually, the state is `Terminated`, and
+        // when the session is forced to expire, the state remains `Terminated`, thus
+        // the actions aren't executed as expected. Consequently, let's update the
+        // state.
+        if let State::Terminated { from } = self.state.get() {
+            self.state.set(State::Error { from });
+        }
     }
 
     /// Get the [`Client`] that has been used to create [`Self`].
@@ -346,10 +369,6 @@ impl RoomListService {
         self.rooms.write().await.push(room.clone());
 
         Ok(room)
-    }
-
-    pub(crate) async fn expire_sync_session(&self) {
-        self.sliding_sync.expire_session().await;
     }
 
     #[cfg(test)]
