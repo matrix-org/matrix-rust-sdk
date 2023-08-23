@@ -208,7 +208,6 @@ impl Room {
 
     pub fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;
@@ -218,7 +217,6 @@ impl Room {
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;
@@ -229,7 +227,6 @@ impl Room {
 
     pub fn member_display_name(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;

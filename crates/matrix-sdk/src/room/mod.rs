@@ -1800,7 +1800,7 @@ impl Room {
         self.ensure_room_joined()?;
 
         let upload_response = self.client.media().upload(mime, data).await?;
-        let mut info = info.unwrap_or_else(avatar::ImageInfo::new);
+        let mut info = info.unwrap_or_default();
         info.blurhash = upload_response.blurhash;
         info.mimetype = Some(mime.to_string());
 
