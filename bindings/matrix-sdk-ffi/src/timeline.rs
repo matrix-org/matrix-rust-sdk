@@ -1313,8 +1313,8 @@ impl From<PollResult> for TimelineItemContentKind {
             max_selections: value.max_selections,
             answers: value
                 .answers
-                .iter()
-                .map(|i| PollAnswer { id: i.id.clone(), text: i.text.clone() })
+                .into_iter()
+                .map(|i| PollAnswer { id: i.id, text: i.text })
                 .collect(),
             votes: value.votes,
             end_time: value.end_time,

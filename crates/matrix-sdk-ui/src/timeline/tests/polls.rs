@@ -207,10 +207,11 @@ fn assert_poll_start_eq(a: &UnstablePollStartContentBlock, b: &UnstablePollStart
     assert_eq!(a.kind, b.kind);
     assert_eq!(a.max_selections, b.max_selections);
     assert_eq!(a.answers.len(), a.answers.len());
-    assert_eq!(a.answers[0].id, a.answers[0].id);
-    assert_eq!(a.answers[0].text, a.answers[0].text);
-    assert_eq!(a.answers[1].id, a.answers[1].id);
-    assert_eq!(a.answers[1].text, a.answers[1].text);
+    a.answers.iter().zip(b.answers.iter()).all(|(a, b)| {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.text, b.text);
+        true
+    });
 }
 
 mod fakes {

@@ -70,7 +70,8 @@ impl PollState {
     }
 
     /// Marks the poll as ended.
-    /// NB: If the poll has already ended it will return an error.
+    ///
+    /// If the poll has already ended, returns `Err(())`.
     pub(super) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
         if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
@@ -146,27 +147,25 @@ impl PollPendingEvents {
         timestamp: MilliSecondsSinceUnixEpoch,
         content: &UnstablePollResponseEventContent,
     ) {
-        self.pending_poll_responses.entry(start_id.to_owned()).or_insert(vec![]).push(
-            ResponseData {
-                sender: sender.to_owned(),
-                timestamp,
-                answers: content.poll_response.answers.clone(),
-            },
-        );
+        self.pending_poll_responses.entry(start_id.to_owned()).or_default().push(ResponseData {
+            sender: sender.to_owned(),
+            timestamp,
+            answers: content.poll_response.answers.clone(),
+        });
     }
 
     pub(super) fn add_end(&mut self, start_id: &EventId, timestamp: MilliSecondsSinceUnixEpoch) {
         self.pending_poll_ends.insert(start_id.to_owned(), timestamp);
     }
 
-    /// Dumps all response and end events presnet in the cache that belong to
+    /// Dumps all response and end events present in the cache that belong to
     /// the given start_event_id into the given poll_state.
     pub(super) fn apply(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
         if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
-            poll_state.response_data.append(pending_responses)
+            poll_state.response_data.append(pending_responses);
         }
         if let Some(pending_end) = self.pending_poll_ends.get_mut(start_event_id) {
-            poll_state.end_event_timestamp = Some(pending_end.clone())
+            poll_state.end_event_timestamp = Some(pending_end.clone());
         }
     }
 }

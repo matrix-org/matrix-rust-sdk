@@ -542,12 +542,12 @@ impl<'a> TimelineEventHandler<'a> {
             }
 
             let TimelineItemContent::Poll(poll_state) = &event_item.content() else {
-                        info!(
-                            original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                            "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
-                        );
-                        return None;
-                    };
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
+                );
+                return None;
+            };
 
             let new_content = match poll_state.edit(&replacement.new_content) {
                 Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
@@ -573,9 +573,9 @@ impl<'a> TimelineEventHandler<'a> {
     fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
         let mut poll_state = PollState::new(c);
         if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
+            // Applying the cache to remote events only because local echoes
+            // don't have an event ID that could be referenced by responses yet.
             self.state.poll_pending_events.apply(&event_id, &mut poll_state);
-        } else {
-            info!("Can't apply poll pending events to non remote event, discarding");
         }
         self.add(should_add, TimelineItemContent::Poll(poll_state));
     }
