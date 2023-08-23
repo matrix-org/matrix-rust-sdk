@@ -1,17 +1,24 @@
-use crate::timeline::polls::PollState;
-use crate::timeline::tests::{TestTimeline, ALICE, BOB};
-use crate::timeline::{EventTimelineItem, TimelineItemContent};
 use matrix_sdk_test::async_test;
-use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
-use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
-use ruma::events::poll::unstable_start::{
-    UnstablePollStartContentBlock, UnstablePollStartEventContent,
+use ruma::{
+    events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+            unstable_start::{UnstablePollStartContentBlock, UnstablePollStartEventContent},
+        },
+        relation::Replacement,
+        room::message::Relation,
+        AnyMessageLikeEventContent,
+    },
+    serde::Raw,
+    server_name, EventId, OwnedEventId, UserId,
 };
-use ruma::events::relation::Replacement;
-use ruma::events::room::message::Relation;
-use ruma::events::AnyMessageLikeEventContent;
-use ruma::serde::Raw;
-use ruma::{server_name, EventId, OwnedEventId, UserId};
+
+use crate::timeline::{
+    polls::PollState,
+    tests::{TestTimeline, ALICE, BOB},
+    EventTimelineItem, TimelineItemContent,
+};
 
 #[async_test]
 async fn poll_is_displayed() {
