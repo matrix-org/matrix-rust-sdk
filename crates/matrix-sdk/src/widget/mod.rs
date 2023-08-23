@@ -6,10 +6,7 @@ use crate::room::Room as JoinedRoom;
 
 mod permissions;
 
-pub use self::{
-    permissions::{Permissions, PermissionsProvider},
-    widget::{Comm, Info, Widget},
-};
+pub use self::permissions::{Permissions, PermissionsProvider};
 
 /// Describes a widget.
 #[derive(Debug)]
@@ -48,8 +45,8 @@ pub struct Comm {
 /// Not implemented yet, currently always panics.
 pub async fn run_widget_api(
     _room: JoinedRoom,
-    _widget: widget::Widget,
-    _permissions_provider: impl permissions::PermissionsProvider,
+    _widget: Widget,
+    _permissions_provider: impl PermissionsProvider,
 ) -> Result<(), ()> {
     todo!()
 }
