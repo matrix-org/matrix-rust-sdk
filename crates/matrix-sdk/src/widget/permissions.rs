@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 
-use crate::ruma::events::{StateEventType, TimelineEventType};
+use crate::ruma::events::{MessageLikeEventType, StateEventType};
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -25,23 +25,22 @@ pub struct Permissions {
     pub send: Vec<EventFilter>,
 }
 
-/// Different kinds of filters that could be applied to message (whether for
-/// sending or for receiving).
+/// Different kinds of filters that could be applied to the timeline events.
 #[derive(Debug)]
 pub enum EventFilter {
-    /// Filters for the timeline events, the `data` field is used to store the
-    /// `msgtype`.
-    Timeline(FilterContent<TimelineEventType>),
-    /// Filters for state events, the `data` field is used to store the
-    /// `state_key`.
-    State(FilterContent<StateEventType>),
-}
-
-/// The content of a particular event filter.
-#[derive(Debug)]
-pub struct FilterContent<T> {
-    /// The type of the underlying event (typically, an enum).
-    pub event_type: T,
-    /// Additional data associated with a filter.
-    pub data: String,
+    /// Message-like events.
+    MessageLike {
+        /// The type of the message-like event.
+        event_type: MessageLikeEventType,
+        /// Additional filter for the msgtype, currently only used for
+        /// `m.room.message`.
+        msgtype: Option<String>,
+    },
+    /// State events.
+    State {
+        /// The type of the state event.
+        event_type: StateEventType,
+        /// State key that could be `None`, `None` means "any state key".
+        state_key: Option<String>,
+    },
 }
