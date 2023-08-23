@@ -259,10 +259,6 @@ impl EncryptionSync {
 
         Ok(())
     }
-
-    pub(crate) async fn expire_sync_session(&self) {
-        self.sliding_sync.expire_session().await;
-    }
 }
 
 /// Errors for the [`EncryptionSync`].

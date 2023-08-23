@@ -758,10 +758,7 @@ impl SlidingSync {
     /// expire anyways, and should be used only in very specific cases (e.g.
     /// multiple sliding syncs being run in parallel, and one of them has
     /// expired).
-    ///
-    /// This method **MUST** be called when the sync loop is stopped.
-    #[doc(hidden)]
-    pub async fn expire_session(&self) {
+    async fn expire_session(&self) {
         info!("Session expired; resetting `pos` and sticky parameters");
 
         {

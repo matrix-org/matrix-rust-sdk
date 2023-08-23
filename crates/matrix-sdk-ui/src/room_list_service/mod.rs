@@ -274,26 +274,6 @@ impl RoomListService {
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
     }
 
-    /// Force the sliding sync session to expire.
-    ///
-    /// This is used by [`SyncService`][crate::SyncService].
-    ///
-    /// **Warning**: This method **must not** be called while the sync loop is
-    /// running!
-    pub(crate) async fn expire_sync_session(&self) {
-        self.sliding_sync.expire_session().await;
-
-        // Usually, when the session expires, it leads the state to be `Error`,
-        // thus some actions (like refreshing the lists) are executed. However,
-        // if the sync loop has been stopped manually, the state is `Terminated`, and
-        // when the session is forced to expire, the state remains `Terminated`, thus
-        // the actions aren't executed as expected. Consequently, let's update the
-        // state.
-        if let State::Terminated { from } = self.state.get() {
-            self.state.set(State::Error { from });
-        }
-    }
-
     /// Get the [`Client`] that has been used to create [`Self`].
     pub fn client(&self) -> &Client {
         &self.client
@@ -455,8 +435,7 @@ mod tests {
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
     use ruma::{api::MatrixVersion, device_id, user_id};
-    use serde_json::json;
-    use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+    use wiremock::MockServer;
 
     use super::*;
 
@@ -486,15 +465,6 @@ mod tests {
         let (client, _) = new_client().await;
 
         RoomListService::new(client).await
-    }
-
-    struct SlidingSyncMatcher;
-
-    impl Match for SlidingSyncMatcher {
-        fn matches(&self, request: &Request) -> bool {
-            request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
-                && request.method == Method::Post
-        }
     }
 
     #[async_test]
@@ -551,56 +521,6 @@ mod tests {
         let extensions = with_encryption.sliding_sync.extensions_config();
         assert_eq!(extensions.e2ee.enabled, Some(true));
         assert_eq!(extensions.to_device.enabled, Some(true));
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_expire_sliding_sync_session_manually() -> Result<(), Error> {
-        let (client, server) = new_client().await;
-
-        let room_list = RoomListService::new(client).await?;
-
-        let sync = room_list.sync();
-        pin_mut!(sync);
-
-        // Run a first sync.
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(move |_request: &Request| {
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "pos": "0",
-                        "lists": {
-                            ALL_ROOMS_LIST_NAME: {
-                                "count": 0,
-                                "ops": [],
-                            },
-                        },
-                        "rooms": {},
-                    }))
-                })
-                .mount_as_scoped(&server)
-                .await;
-
-            let _ = sync.next().await;
-        }
-
-        assert_eq!(room_list.state().get(), State::SettingUp);
-
-        // Stop the sync.
-        room_list.stop_sync()?;
-
-        // Do another sync.
-        let _ = sync.next().await;
-
-        // State is `Terminated`, as expected!
-        assert_eq!(room_list.state.get(), State::Terminated { from: Box::new(State::Running) });
-
-        // Now, let's make the sliding sync session to expire.
-        room_list.expire_sync_session().await;
-
-        // State is `Error`, as a regular session expiration would generate!
-        assert_eq!(room_list.state.get(), State::Error { from: Box::new(State::Running) });
 
         Ok(())
     }
