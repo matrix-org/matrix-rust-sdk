@@ -558,46 +558,10 @@ impl AuthenticationService {
             .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
         let client_name =
             configuration.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
-        let client_uri = configuration
-            .client_uri
-            .as_deref()
-            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
-                Ok(Localized::new(
-                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
-                    [],
-                ))
-            })
-            .transpose()?;
-        let logo_uri = configuration
-            .logo_uri
-            .as_deref()
-            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
-                Ok(Localized::new(
-                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
-                    [],
-                ))
-            })
-            .transpose()?;
-        let policy_uri = configuration
-            .policy_uri
-            .as_deref()
-            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
-                Ok(Localized::new(
-                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
-                    [],
-                ))
-            })
-            .transpose()?;
-        let tos_uri = configuration
-            .tos_uri
-            .as_deref()
-            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
-                Ok(Localized::new(
-                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
-                    [],
-                ))
-            })
-            .transpose()?;
+        let client_uri = configuration.client_uri.localized_url()?;
+        let logo_uri = configuration.logo_uri.localized_url()?;
+        let policy_uri = configuration.policy_uri.localized_url()?;
+        let tos_uri = configuration.tos_uri.localized_url()?;
 
         ClientMetadata {
             application_type: Some(ApplicationType::Native),
@@ -648,5 +612,24 @@ impl AuthenticationService {
         client.restore_session_inner(session)?;
 
         Ok(client)
+    }
+}
+
+trait OptionExt {
+    /// Convenience method to convert a string to a URL and returns it as a
+    /// Localized URL. No localization is actually performed.
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, AuthenticationError>;
+}
+
+impl OptionExt for Option<String> {
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, AuthenticationError> {
+        self.as_deref()
+            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
+                Ok(Localized::new(
+                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
+                    [],
+                ))
+            })
+            .transpose()
     }
 }
