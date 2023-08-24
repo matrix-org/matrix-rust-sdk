@@ -304,7 +304,7 @@ impl Client {
     }
 
     pub fn enable_cross_process_refresh_lock(&self, process_id: String) -> Result<(), ClientError> {
-        self.inner.enable_cross_process_refresh_lock(process_id)?;
+        self.inner.oidc().enable_cross_process_refresh_lock(process_id)?;
         Ok(())
     }
 }

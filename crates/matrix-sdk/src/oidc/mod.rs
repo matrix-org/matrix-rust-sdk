@@ -680,13 +680,14 @@ impl Oidc {
                 crate::Error::Oidc(CrossProcessRefreshLockError::MissingLock.into())
             })?;
 
-        // Update the session tokens hash in the database too.
+        // First, update the in-memory hash so that we can compute a meaningful hash
+        // mismatch.
         *cross_process_lock.known_session_hash.lock().await = Some(prev_tokens_hash);
 
         let mut guard =
             cross_process_lock.spin_lock().await.map_err(|err| crate::Error::Oidc(err.into()))?;
 
-        // When we got the lock, it's possible that our session doesn't match the one
+        // After we got the lock, it's possible that our session doesn't match the one
         // read from the database, because of a race: another process has
         // refreshed the tokens while we were waiting for the lock.
         //
@@ -1423,7 +1424,7 @@ impl CrossProcessRefreshManager {
             .set_custom_value("oidc_session_hash".as_bytes(), hash.0.to_le_bytes().to_vec())
             .await?;
 
-        // Update the latest known value.
+        // Update the in-memory latest known value.
         lock.update_latest_known(hash);
 
         Ok(())
