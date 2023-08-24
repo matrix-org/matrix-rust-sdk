@@ -229,8 +229,6 @@ impl SlidingSyncBuilder {
     pub async fn build(self) -> Result<SlidingSync> {
         let client = self.client;
 
-        let mut delta_token = None;
-
         let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
         let mut lists = BTreeMap::new();
@@ -242,14 +240,9 @@ impl SlidingSyncBuilder {
         }
 
         // Reload existing state from the cache.
-        restore_sliding_sync_state(
-            &client,
-            &self.storage_key,
-            &lists,
-            &mut delta_token,
-            &mut None, // to_device_token is ignored here
-        )
-        .await?;
+        let restored_fields =
+            restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
+        let delta_token = restored_fields.and_then(|fields| fields.delta_token);
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);

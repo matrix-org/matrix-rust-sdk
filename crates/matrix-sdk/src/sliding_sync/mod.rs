@@ -489,17 +489,12 @@ impl SlidingSync {
         if to_device_enabled {
             let lists = self.inner.lists.read().await;
 
-            let mut to_device_token = None;
-            restore_sliding_sync_state(
-                &self.inner.client,
-                &self.inner.storage_key,
-                &lists,
-                &mut None,
-                &mut to_device_token,
-            )
-            .await?;
-
-            request.extensions.to_device.since = to_device_token;
+            if let Some(restored_fields) =
+                restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key, &lists)
+                    .await?
+            {
+                request.extensions.to_device.since = restored_fields.to_device_token;
+            }
         }
 
         // Apply the transaction id if one was generated.
