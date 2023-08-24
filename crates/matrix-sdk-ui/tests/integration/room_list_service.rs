@@ -323,7 +323,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                     "required_state": [
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
@@ -539,7 +539,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                         "ranges": [[0, 19]],
                     },
                     INVITES: {
-                        "ranges": [[0, 99]],
+                        "ranges": [[0, 19]],
                     },
                 },
             },
@@ -683,7 +683,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // Hello new list.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -720,7 +720,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range hasn't been modified due to previous error.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -731,7 +731,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "count": 410,
                 },
                 INVITES: {
-                    "count": 3,
+                    "count": 30,
                 }
             },
             "rooms": {},
@@ -756,7 +756,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // Despites the error, the range has made progress.
-                    "ranges": [[0, 2]],
+                    "ranges": [[0, 29]],
                 },
             },
         },
@@ -788,8 +788,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // Despites the error, the range is kept.
-                    "ranges": [[0, 2]],
+                    // Due to the error, the range is reset to its initial range.
+                    "ranges": [[0, 19]],
                 }
             },
         },
@@ -800,7 +800,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "count": 410,
                 },
                 INVITES: {
-                    "count": 0,
+                    "count": 4,
                 },
             },
             "rooms": {},
@@ -824,7 +824,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range is making progress.
-                    "ranges": [[0, 0]],
+                    "ranges": [[0, 3]],
                 },
             },
         },
@@ -857,7 +857,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range is kept as it was.
-                    "ranges": [[0, 0]],
+                    "ranges": [[0, 3]],
                 },
             },
         },
@@ -892,7 +892,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range is kept as it was.
-                    "ranges": [[0, 0]],
+                    "ranges": [[0, 3]],
                 },
             },
         },
@@ -969,7 +969,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 },
                 INVITES: {
                     // Hello new list.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -1012,7 +1012,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range hasn't been modified due to previous termination.
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -1338,7 +1338,7 @@ async fn test_entries_stream() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -1486,7 +1486,7 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -1714,7 +1714,7 @@ async fn test_invites_stream() -> Result<(), Error> {
                     "ranges": [[0, 19]],
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -2399,7 +2399,7 @@ async fn test_input_viewport() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
@@ -2435,7 +2435,7 @@ async fn test_input_viewport() -> Result<(), Error> {
                     "ranges": [[10, 15], [20, 25]],
                 },
                 INVITES: {
-                    "ranges": [[0, 99]],
+                    "ranges": [[0, 19]],
                 },
             },
         },
