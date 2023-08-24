@@ -95,7 +95,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    oidc::{CrossProcessRefreshLock, SessionTokens},
+    oidc::{CrossProcessRefreshManager, SessionTokens},
     store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
@@ -220,7 +220,7 @@ pub(crate) struct ClientInner {
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
-    pub(crate) cross_process_token_refresh_lock: OnceCell<CrossProcessRefreshLock>,
+    pub(crate) cross_process_token_refresh_lock: OnceCell<CrossProcessRefreshManager>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
