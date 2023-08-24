@@ -91,6 +91,9 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from.
     storage_key: String,
 
+    /// Should this sliding sync instance try to restore its stream position from the database?
+    restore_pos_from_database: bool,
+
     /// Position markers.
     ///
     /// The `pos` marker represents a progression when exchanging requests and
@@ -459,9 +462,35 @@ impl SlidingSync {
         // has been fully handled successfully, in this case the `pos` is updated, or
         // the response handling has failed, in this case the `pos` hasn't been updated
         // and the same `pos` will be used for this new request.
-        let position_guard = self.inner.position.clone().lock_owned().await;
-        let pos = position_guard.pos.clone();
+        let mut position_guard = self.inner.position.clone().lock_owned().await;
         let delta_token = position_guard.delta_token.clone();
+
+        let to_device_enabled =
+            self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
+
+        let restored_fields = if self.inner.restore_pos_from_database || to_device_enabled {
+            let lists = self.inner.lists.read().await;
+            restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key, &lists).await?
+        } else {
+            None
+        };
+
+        // Update pos: either the one restored from the database, if any and the sliding sync was
+        // configured so, or read it from the memory cache.
+        let pos = if self.inner.restore_pos_from_database {
+            if let Some(fields) = &restored_fields {
+                // Override the memory one with the database one, for consistency.
+                if fields.pos != position_guard.pos {
+                    info!("Pos from previous request ('{:?}') was different from pos in database ('{:?}').", position_guard.pos, fields.pos);
+                    position_guard.pos = fields.pos.clone();
+                }
+                fields.pos.clone()
+            } else {
+                position_guard.pos.clone()
+            }
+        } else {
+            position_guard.pos.clone()
+        };
 
         Span::current().record("pos", &pos);
 
@@ -470,31 +499,20 @@ impl SlidingSync {
 
         let mut request = assign!(v4::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
-            pos,
             delta_token,
+            pos,
             timeout: Some(self.inner.poll_timeout),
             lists: requests_lists,
             unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
 
-        let to_device_enabled = {
-            let mut sticky_params = self.inner.sticky.write().unwrap();
+        // Apply sticky parameters, if needs be.
+        self.inner.sticky.write().unwrap().maybe_apply(&mut request, txn_id);
 
-            sticky_params.maybe_apply(&mut request, txn_id);
-
-            sticky_params.data().extensions.to_device.enabled == Some(true)
-        };
-
-        // Set the to_device token if the extension is enabled.
+        // Set the to-device token if the extension is enabled.
         if to_device_enabled {
-            let lists = self.inner.lists.read().await;
-
-            if let Some(restored_fields) =
-                restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key, &lists)
-                    .await?
-            {
-                request.extensions.to_device.since = restored_fields.to_device_token;
-            }
+            request.extensions.to_device.since =
+                restored_fields.and_then(|fields| fields.to_device_token);
         }
 
         // Apply the transaction id if one was generated.
@@ -760,6 +778,12 @@ impl SlidingSync {
         {
             let mut position = self.inner.position.lock().await;
             position.pos = None;
+
+            if let Err(err) = self.cache_to_storage(&position).await {
+                error!(
+                    "couldn't invalidate sliding sync frozen state when expiring session: {err}"
+                );
+            }
 
             let mut past_positions = self.inner.past_positions.write().unwrap();
             past_positions.clear();
