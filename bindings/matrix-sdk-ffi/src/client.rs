@@ -302,6 +302,11 @@ impl Client {
 
         Ok(())
     }
+
+    pub fn enable_cross_process_refresh_lock(&self, process_id: String) -> Result<(), ClientError> {
+        self.inner.enable_cross_process_refresh_lock(process_id)?;
+        Ok(())
+    }
 }
 
 impl Client {

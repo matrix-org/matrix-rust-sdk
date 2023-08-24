@@ -95,7 +95,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    oidc::CrossProcessRefreshLock,
+    oidc::{CrossProcessRefreshLock, SessionTokens},
     store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
@@ -198,6 +198,11 @@ pub(crate) struct ClientInner {
     handle_refresh_tokens: bool,
     /// Lock making sure we're only doing one token refresh at a time.
     pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
+
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) reload_oidc_session_callback:
+        OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>,
+
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -285,6 +290,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
             cross_process_token_refresh_lock: OnceCell::new(),
+            #[cfg(feature = "experimental-oidc")]
+            reload_oidc_session_callback: OnceCell::new(),
         }
     }
 }
@@ -2072,6 +2079,20 @@ impl Client {
         }
 
         Ok(client)
+    }
+
+    /// Sets a callback to reload OIDC session tokens.
+    ///
+    /// Will cause an error if the callback has already been defined before.
+    #[cfg(feature = "experimental-oidc")]
+    pub fn set_oidc_reload_session_callback(
+        &self,
+        callback: Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>,
+    ) -> Result<()> {
+        self.inner
+            .reload_oidc_session_callback
+            .set(callback)
+            .map_err(|_| OidcError::MultipleReloadCallbacks.into())
     }
 }
 
