@@ -224,11 +224,13 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Should the sliding sync instance restore its stream position from the database?
+    /// Should the sliding sync instance restore its stream position from the
+    /// database?
     ///
-    /// In general, sliding sync instances will cache the stream position (`pos` field in the
-    /// request) in internal fields. It can be useful, in multi-process scenarios, to save it into
-    /// the database so that one sliding sync instance running across two different processes can
+    /// In general, sliding sync instances will cache the stream position (`pos`
+    /// field in the request) in internal fields. It can be useful, in
+    /// multi-process scenarios, to save it into the database so that one
+    /// sliding sync instance running across two different processes can
     /// continue with the same stream position it had before being stopped.
     pub fn restore_pos_from_database(mut self) -> Self {
         self.restore_pos_from_database = true;
