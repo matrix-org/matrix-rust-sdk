@@ -330,7 +330,10 @@ mod tests {
 
     use assert_matches::assert_matches;
 
-    use super::*;
+    use super::{
+        create_range, SlidingSyncListRequestGenerator, SlidingSyncListRequestGeneratorKind,
+    };
+    use crate::{sliding_sync::Error, SlidingSyncMode};
 
     #[test]
     fn test_create_range_from() {

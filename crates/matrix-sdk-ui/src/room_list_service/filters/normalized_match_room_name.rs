@@ -49,7 +49,7 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Fn(&RoomListEntry) -> 
 mod tests {
     use std::ops::Not;
 
-    use super::*;
+    use super::NormalizedMatcher;
 
     #[test]
     fn test_no_pattern() {

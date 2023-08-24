@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use criterion::*;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
     config::StoreConfig,
     matrix_auth::{Session, SessionTokens},

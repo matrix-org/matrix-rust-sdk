@@ -447,10 +447,14 @@ pub enum InputResult {
 
 #[cfg(test)]
 mod tests {
+    use std::future::ready;
+
+    use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
         config::RequestConfig,
         matrix_auth::{Session, SessionTokens},
         reqwest::Url,
+        Client, SlidingSyncMode,
     };
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
@@ -458,7 +462,7 @@ mod tests {
     use serde_json::json;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-    use super::*;
+    use super::{Error, RoomListService, State, ALL_ROOMS_LIST_NAME};
 
     async fn new_client() -> (Client, MockServer) {
         let session = Session {

@@ -56,7 +56,7 @@ mod tests {
     use ruma::room_id;
     use serde_json::json;
 
-    use super::*;
+    use super::RoomListEntry;
 
     macro_rules! assert_json_roundtrip {
         (from $type:ty: $rust_value:expr => $json_value:expr) => {
