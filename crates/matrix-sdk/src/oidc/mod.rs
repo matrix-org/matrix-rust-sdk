@@ -681,6 +681,8 @@ impl Oidc {
             user: UserSession { meta, tokens, issuer_info },
         } = session;
 
+        let prev_tokens_hash = compute_session_hash(&tokens);
+
         let data = OidcAuthData {
             issuer_info,
             credentials,
@@ -696,26 +698,38 @@ impl Oidc {
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");
 
+        // Initialize the cross-process locking by saving our tokens' hash into the database, if
+        // needs be.
+
+        let cross_process_lock =
+            self.client.inner.cross_process_token_refresh_lock.get().ok_or_else(|| {
+                crate::Error::Oidc(CrossProcessRefreshLockError::MissingLock.into())
+            })?;
+
         // Update the session tokens hash in the database too.
-        let mut cross_process_lock = self
-            .client
-            .inner
-            .cross_process_token_refresh_lock
-            .get()
-            .ok_or_else(|| crate::Error::Oidc(CrossProcessRefreshLockError::MissingLock.into()))?
-            .spin_lock()
-            .await
-            .map_err(|err| crate::Error::Oidc(err.into()))?;
+        *cross_process_lock.known_session_hash.lock().await = Some(prev_tokens_hash);
 
-        // XXX(Doug) there will likely be a hash mismatch here:
-        // - if the DB had a different token, then how do we know which one we prefer?
-        // - if the DB had no tokens, the only reason we could have one token is if we
-        //   called
-        // `restore_session` multiple times. Let's hope that didn't happen.
+        let mut guard =
+            cross_process_lock.spin_lock().await.map_err(|err| crate::Error::Oidc(err.into()))?;
 
-        self.notify_new_session(&tokens, &mut cross_process_lock)
-            .await
-            .map_err(|err| crate::Error::Oidc(err.into()))?;
+        // When we got the lock, it's possible that our session doesn't match the one read from the
+        // database, because of a race: another process has refreshed the tokens while we were
+        // waiting for the lock.
+        //
+        // In that case, if there's a mismatch, we reload the session and update the hash.
+        // Otherwise, we save our hash into the database.
+
+        if guard.hash_mismatch {
+            // TODO(Doug) please reload session tokens here.
+            /*
+            let reloaded_from_keychain: SessionTokens = todo!();
+            cross_process_lock.update_hash(compute_session_hash(&reloaded_from_keychain));
+            */
+        } else {
+            self.notify_new_session(&tokens, &mut guard)
+                .await
+                .map_err(|err| crate::Error::Oidc(err.into()))?;
+        }
 
         Ok(())
     }
@@ -1131,7 +1145,7 @@ impl Oidc {
 /// XXX Note to Doug: it doesn't matter what the type of `tokens` is below,
 /// it should be anything that's hashable. Below i transform `tokens`
 /// into something that's hashable.
-fn compute_session_hash(tokens: &SessionTokens) -> u64 {
+fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
     // Subset of `SessionTokens` fit for hashing
     #[derive(Hash)]
     struct HashableSessionTokens {
@@ -1146,7 +1160,7 @@ fn compute_session_hash(tokens: &SessionTokens) -> u64 {
 
     let mut hasher = DefaultHasher::new();
     tokens.hash(&mut hasher);
-    hasher.finish()
+    SessionHash(hasher.finish())
 }
 
 /// A full session for the OpenID Connect API.
@@ -1366,12 +1380,14 @@ struct CrossProcessRefreshLockGuard {
 
     /// Did the hash mismatch? If so, this indicates that another process may
     /// have refreshed the token in the background.
+    ///
+    /// We don't consider it a mismatch if there was no previous value in the database.
     hash_mismatch: bool,
 }
 
 impl CrossProcessRefreshLockGuard {
-    fn update_latest_known(&mut self, hash: u64) {
-        *self.hash_guard = Some(SessionHash(hash));
+    fn update_latest_known(&mut self, hash: SessionHash) {
+        *self.hash_guard = Some(hash);
     }
 }
 
@@ -1403,10 +1419,13 @@ pub enum CrossProcessRefreshLockError {
 }
 
 impl CrossProcessRefreshLock {
-    async fn persist_new_hash(&self, hash: u64) -> Result<(), CrossProcessRefreshLockError> {
+    async fn persist_new_hash(
+        &self,
+        hash: SessionHash,
+    ) -> Result<(), CrossProcessRefreshLockError> {
         // Store the new hash in the database.
         self.store
-            .set_custom_value("oidc_session_hash".as_bytes(), hash.to_le_bytes().to_vec())
+            .set_custom_value("oidc_session_hash".as_bytes(), hash.0.to_le_bytes().to_vec())
             .await?;
         Ok(())
     }
@@ -1440,7 +1459,7 @@ impl CrossProcessRefreshLock {
         };
 
         let hash_mismatch = match (db_hash, *prev_hash) {
-            (None, None) | (None, Some(_)) => false,
+            (None, _) => false,
             (Some(_), None) => true,
             (Some(db), Some(known)) => db == known.0,
         };
