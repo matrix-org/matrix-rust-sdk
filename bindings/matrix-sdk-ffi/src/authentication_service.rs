@@ -109,6 +109,8 @@ pub struct OidcConfiguration {
     pub redirect_uri: String,
     /// A URI that contains information about the client.
     pub client_uri: String,
+    /// A URI that contains the client's logo.
+    pub logo_uri: String,
     /// A URI that contains the client's terms of service.
     pub tos_uri: String,
     /// A URI that contains the client's privacy policy.
@@ -556,6 +558,7 @@ impl AuthenticationService {
             .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
         let client_name = Some(Localized::new(configuration.client_name.to_owned(), []));
         let client_uri = Url::parse(&configuration.client_uri).ok().map(|u| Localized::new(u, []));
+        let logo_uri = Url::parse(&configuration.logo_uri).ok().map(|u| Localized::new(u, []));
         let policy_uri = Url::parse(&configuration.policy_uri).ok().map(|u| Localized::new(u, []));
         let tos_uri = Url::parse(&configuration.tos_uri).ok().map(|u| Localized::new(u, []));
 
@@ -569,6 +572,7 @@ impl AuthenticationService {
             client_name,
             contacts: None,
             client_uri,
+            logo_uri,
             policy_uri,
             tos_uri,
             ..Default::default()
