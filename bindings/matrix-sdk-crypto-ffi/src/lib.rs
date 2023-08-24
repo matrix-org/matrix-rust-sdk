@@ -883,7 +883,7 @@ fn vodozemac_version() -> String {
 uniffi::include_scaffolding!("olm");
 
 #[cfg(test)]
-mod test {
+mod tests {
     use anyhow::Result;
     use serde_json::{json, Value};
     use tempfile::tempdir;

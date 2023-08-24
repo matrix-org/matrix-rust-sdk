@@ -165,7 +165,7 @@ impl<T: Eq + Hash> Default for FailuresCache<T> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::time::Duration;
 
     use proptest::prelude::*;

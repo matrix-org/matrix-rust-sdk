@@ -1112,7 +1112,7 @@ impl RoomStateFilter {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
 
     use assign::assign;

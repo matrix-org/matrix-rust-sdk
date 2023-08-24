@@ -79,7 +79,7 @@ impl EventType for SecretSendContent {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use serde_json::{json, Value};
 
     use super::SecretSendEvent;

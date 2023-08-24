@@ -212,7 +212,7 @@ pub enum Error {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use olm_rs::pk::{OlmPkDecryption, OlmPkEncryption, PkMessage};
     use vodozemac::Curve25519PublicKey;
 

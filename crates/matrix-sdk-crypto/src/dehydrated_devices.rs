@@ -357,7 +357,7 @@ fn expand_pickle_key(key: &[u8; 32], device_id: &DeviceId) -> Box<[u8; 32]> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{collections::BTreeMap, iter};
 
     use matrix_sdk_test::async_test;

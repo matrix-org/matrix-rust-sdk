@@ -465,7 +465,7 @@ pub enum EventItemOrigin {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk::{config::RequestConfig, Client, ClientBuilder, SlidingSyncRoom};
     use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, BaseClient, SessionMeta};

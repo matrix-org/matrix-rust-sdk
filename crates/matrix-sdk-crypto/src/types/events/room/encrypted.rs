@@ -410,7 +410,7 @@ scheme_serialization!(
 );
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
