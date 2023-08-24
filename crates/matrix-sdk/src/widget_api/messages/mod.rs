@@ -30,6 +30,7 @@ impl From<ToWidgetMessage> for Message {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Header {
     pub request_id: String,
     pub widget_id: String,
@@ -37,6 +38,7 @@ pub struct Header {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MessageBody<Req, Resp> {
+    #[serde(flatten)]
     pub header: Header,
     #[serde(rename = "data")]
     pub request: Req,
