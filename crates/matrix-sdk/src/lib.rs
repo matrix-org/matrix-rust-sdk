@@ -48,7 +48,7 @@ pub mod room;
 #[cfg(feature = "experimental-sliding-sync")]
 pub mod sliding_sync;
 pub mod sync;
-#[cfg(feature = "experimental-widget-api")]
+#[cfg(feature = "experimental-widgets")]
 pub mod widget;
 
 pub use account::Account;
