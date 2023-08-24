@@ -99,7 +99,7 @@ impl Serialize for RoomKeyBackupInfo {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use serde_json::json;
 

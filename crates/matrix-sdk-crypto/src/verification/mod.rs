@@ -743,17 +743,21 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use ruma::{
+        device_id,
         events::{AnyToDeviceEventContent, ToDeviceEvent},
-        UserId,
+        user_id, DeviceId, UserId,
     };
+    use tokio::sync::Mutex;
 
-    use super::event_enums::OutgoingContent;
+    use super::{event_enums::OutgoingContent, VerificationStore};
     use crate::{
+        olm::PrivateCrossSigningIdentity,
         requests::{OutgoingRequest, OutgoingRequests},
+        store::{Changes, CryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore},
         types::events::ToDeviceEvents,
-        OutgoingVerificationRequest,
+        OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+        ReadOnlyUserIdentity,
     };
 
     pub(crate) fn request_to_event(
@@ -808,19 +812,6 @@ pub(crate) mod tests {
             _ => unreachable!(),
         }
     }
-}
-
-#[cfg(test)]
-mod test {
-    use ruma::{device_id, user_id, DeviceId, UserId};
-    use tokio::sync::Mutex;
-
-    use super::VerificationStore;
-    use crate::{
-        olm::PrivateCrossSigningIdentity,
-        store::{Changes, CryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore},
-        ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
-    };
 
     pub fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")

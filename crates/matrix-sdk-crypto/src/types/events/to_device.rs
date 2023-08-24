@@ -405,7 +405,7 @@ impl Serialize for ToDeviceEvents {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
 
@@ -515,7 +515,7 @@ mod test {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::test::json => RoomKey,
+            crate::types::events::room_key::tests::json => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
@@ -524,7 +524,7 @@ mod test {
             room_key_request_event => RoomKeyRequest,
 
             // `m.secret.send`
-            crate::types::events::secret_send::test::json => SecretSend,
+            crate::types::events::secret_send::tests::json => SecretSend,
 
             // `m.secret.request`
             secret_request_event => SecretRequest,
@@ -539,7 +539,7 @@ mod test {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
         );
 
         Ok(())
@@ -565,7 +565,7 @@ mod test {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::test::json => RoomKey,
+            crate::types::events::room_key::tests::json => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
@@ -574,7 +574,7 @@ mod test {
             room_key_request_event => RoomKeyRequest,
 
             // `m.secret.send`
-            crate::types::events::secret_send::test::json => SecretSend,
+            crate::types::events::secret_send::tests::json => SecretSend,
 
             // `m.secret.request`
             secret_request_event => SecretRequest,
@@ -586,7 +586,7 @@ mod test {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
+            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
         );
 
         Ok(())

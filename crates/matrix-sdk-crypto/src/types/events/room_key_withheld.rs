@@ -483,7 +483,7 @@ impl Serialize for RoomKeyWithheldContent {
 }
 
 #[cfg(test)]
-pub(super) mod test {
+pub(super) mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;

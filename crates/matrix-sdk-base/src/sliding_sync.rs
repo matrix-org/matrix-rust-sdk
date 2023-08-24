@@ -528,7 +528,7 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{
         collections::{BTreeMap, HashSet},
         sync::{Arc, RwLock as SyncRwLock},
