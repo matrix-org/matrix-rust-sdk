@@ -42,6 +42,7 @@ pub struct AuthenticationService {
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
+    refresh_lock_process_id: Option<String>,
 }
 
 impl Drop for AuthenticationService {
@@ -235,6 +236,7 @@ impl AuthenticationService {
         user_agent: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
+        refresh_lock_process_id: Option<String>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
@@ -244,6 +246,7 @@ impl AuthenticationService {
             homeserver_details: RwLock::new(None),
             oidc_configuration,
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            refresh_lock_process_id,
         })
     }
 
@@ -602,6 +605,10 @@ impl AuthenticationService {
             .sliding_sync_proxy(sliding_sync_proxy)
             .username(user_id.to_string())
             .build_inner()?;
+
+        if let Some(process_id) = self.refresh_lock_process_id.clone() {
+            client.enable_cross_process_refresh_lock(process_id);
+        }
 
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;
