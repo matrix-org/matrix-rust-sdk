@@ -131,12 +131,18 @@ impl Action for AddVisibleRoomsList {
 
 struct SetAllRoomsListToGrowingSyncMode;
 
+/// Default `batch_size` for the growing sync-mode of the `ALL_ROOMS_LIST_NAME`
+/// list.
+pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 200;
+
 #[async_trait]
 impl Action for SetAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(200));
+                list.set_sync_mode(SlidingSyncMode::new_growing(
+                    ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE,
+                ));
 
                 ready(())
             })
@@ -149,13 +155,17 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
 
 struct AddInvitesList;
 
+/// Default `batch_size` for the growing sync-mode of the `INVITES_LIST_NAME`
+/// list.
+pub const INVITES_DEFAULT_GROWING_BATCH_SIZE: u32 = 20;
+
 #[async_trait]
 impl Action for AddInvitesList {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder(INVITES_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_growing(20))
+                    .sync_mode(SlidingSyncMode::new_growing(INVITES_DEFAULT_GROWING_BATCH_SIZE))
                     .timeline_limit(0)
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
@@ -172,6 +182,26 @@ impl Action for AddInvitesList {
             )
             .await
             .map_err(Error::SlidingSync)?;
+
+        Ok(())
+    }
+}
+
+struct ResetInvitesListGrowingSyncMode;
+
+#[async_trait]
+impl Action for ResetInvitesListGrowingSyncMode {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| {
+                list.set_sync_mode(SlidingSyncMode::new_growing(
+                    INVITES_DEFAULT_GROWING_BATCH_SIZE,
+                ));
+
+                ready(())
+            })
+            .await
+            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))?;
 
         Ok(())
     }
@@ -217,7 +247,7 @@ impl Actions {
     actions! {
         none => [],
         first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
-        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
+        refresh_lists => [SetAllRoomsListToGrowingSyncMode, ResetInvitesListGrowingSyncMode],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -380,7 +410,55 @@ mod tests {
             sliding_sync
                 .on_list(INVITES_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 100
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
+                )))
+                .await,
+            Some(true)
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_action_reset_invites_list_growing_sync_mode() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(INVITES_LIST_NAME, |_list| ready(())).await, None);
+
+        // Run the action!
+        AddInvitesList.run(sliding_sync).await?;
+
+        // Change the growing sync-mode.
+        sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| {
+                list.set_sync_mode(SlidingSyncMode::new_growing(42));
+
+                ready(())
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 42
+                )))
+                .await,
+            Some(true)
+        );
+
+        // Run the action!
+        ResetInvitesListGrowingSyncMode.run(sliding_sync).await?;
+
+        // List is still present, and reset.
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
                 )))
                 .await,
             Some(true)
