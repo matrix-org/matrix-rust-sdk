@@ -155,7 +155,7 @@ impl Action for AddInvitesList {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder(INVITES_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_growing(100))
+                    .sync_mode(SlidingSyncMode::new_growing(20))
                     .timeline_limit(0)
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
