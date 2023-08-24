@@ -1,12 +1,12 @@
 //! Client widget API implementation.
 
-use tokio::sync::mpsc::{Receiver, Sender};
+use async_channel::{Receiver, Sender};
 
 use crate::room::Room as JoinedRoom;
 
 mod permissions;
 
-pub use self::permissions::{Permissions, PermissionsProvider};
+pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
 
 /// Describes a widget.
 #[derive(Debug)]
@@ -48,5 +48,5 @@ pub async fn run_widget_api(
     _widget: Widget,
     _permissions_provider: impl PermissionsProvider,
 ) -> Result<(), ()> {
-    todo!()
+    Err(())
 }

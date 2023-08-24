@@ -38,6 +38,7 @@ mod sync_service;
 mod task_handle;
 mod timeline;
 mod tracing;
+mod widget;
 
 use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};

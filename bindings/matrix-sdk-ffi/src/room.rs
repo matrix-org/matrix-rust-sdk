@@ -70,7 +70,7 @@ pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
 #[derive(uniffi::Object)]
 pub struct Room {
-    inner: SdkRoom,
+    pub(super) inner: SdkRoom,
     timeline: TimelineLock,
 }
 

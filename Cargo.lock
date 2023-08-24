@@ -3043,6 +3043,7 @@ dependencies = [
  "anyhow",
  "anymap2",
  "assert_matches",
+ "async-channel",
  "async-stream",
  "async-trait",
  "backoff",
