@@ -947,7 +947,7 @@ impl Oidc {
         refresh_token: String,
         cross_process_manager: &CrossProcessRefreshManager,
         cross_process_lock: &mut CrossProcessRefreshLockGuard,
-    ) -> Result<AccessTokenResponse, OidcError> {
+    ) -> Result<(), OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
 
@@ -982,7 +982,7 @@ impl Oidc {
         self.set_session_tokens(tokens.clone());
         cross_process_manager.notify_new_session(&tokens, cross_process_lock).await?;
 
-        Ok(response)
+        Ok(())
     }
 
     /// Refresh the access token.
@@ -999,9 +999,7 @@ impl Oidc {
     /// or the same [`RefreshTokenError`], if it failed.
     ///
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
-    pub async fn refresh_access_token(
-        &self,
-    ) -> Result<Option<AccessTokenResponse>, RefreshTokenError> {
+    pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         let client = &self.client;
 
         // TODO(Doug/bnjbvr) don't take the refresh_token_lock in this function?
@@ -1020,6 +1018,9 @@ impl Oidc {
 
         if cross_process_lock.hash_mismatch {
             self.handle_session_hash_mismatch(&mut cross_process_lock);
+            // Optimistic exit: assume that the underlying process did update fast enough.
+            // In the worst case, we'll do another refresh Soon™.
+            return Ok(());
         }
 
         if let Ok(mut guard) = lock {
@@ -1043,14 +1044,14 @@ impl Oidc {
                 )
                 .await
             {
-                Ok(response) => {
+                Ok(()) => {
                     *guard = Ok(());
                     _ = self
                         .client
                         .inner
                         .session_change_sender
                         .send(SessionChange::TokensRefreshed);
-                    Ok(Some(response))
+                    Ok(())
                 }
                 Err(error) => {
                     let error = RefreshTokenError::Oidc(error.into());
@@ -1060,7 +1061,7 @@ impl Oidc {
             }
         } else {
             match client.inner.refresh_token_lock.lock().await.as_ref() {
-                Ok(_) => Ok(None),
+                Ok(_) => Ok(()),
                 Err(error) => Err(error.clone()),
             }
         }
