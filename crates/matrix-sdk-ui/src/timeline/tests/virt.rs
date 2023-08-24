@@ -27,7 +27,7 @@ use crate::timeline::{TimelineItemKind, VirtualTimelineItem};
 
 #[async_test]
 async fn day_divider() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -100,7 +100,7 @@ async fn day_divider() {
 
 #[async_test]
 async fn update_read_marker() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("A")).await;

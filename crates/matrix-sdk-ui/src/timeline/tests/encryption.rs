@@ -50,7 +50,7 @@ async fn retry_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -146,7 +146,7 @@ async fn retry_edit_decryption() {
         rHCyB4ElRjU\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let encrypted = EncryptedEventScheme::MegolmV1AesSha2(
         MegolmV1AesSha2ContentInit {
@@ -256,7 +256,7 @@ async fn retry_edit_and_more() {
         )
     }
 
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     timeline
         .handle_live_message_event(
@@ -344,7 +344,7 @@ async fn retry_message_decryption_highlighted() {
         FM8H2PpVkKgrA+tx8LNQD+FWDfp6MyhmEJEvk9r5vU9LtTXtZl4toYvNY0UHUBbZj2xF9U9Z9A\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline

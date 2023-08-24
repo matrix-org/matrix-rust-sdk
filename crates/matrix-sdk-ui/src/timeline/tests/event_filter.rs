@@ -40,7 +40,7 @@ use crate::timeline::{inner::TimelineInnerSettings, TimelineItemContent};
 
 #[async_test]
 async fn default_filter() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // Test edits work.
@@ -103,7 +103,7 @@ async fn default_filter() {
 
 #[async_test]
 async fn filter_always_false() {
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().await.with_settings(TimelineInnerSettings {
         event_filter: Arc::new(|_| false),
         ..Default::default()
     });
@@ -139,7 +139,7 @@ async fn filter_always_false() {
 #[async_test]
 async fn custom_filter() {
     // Filter out all state events.
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().await.with_settings(TimelineInnerSettings {
         event_filter: Arc::new(|ev| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
         ..Default::default()
     });
@@ -178,7 +178,7 @@ async fn custom_filter() {
 
 #[async_test]
 async fn hide_failed_to_parse() {
-    let timeline = TestTimeline::new()
+    let timeline = TestTimeline::new().await
         .with_settings(TimelineInnerSettings { add_failed_to_parse: false, ..Default::default() });
 
     // m.room.message events must have a msgtype and body in content, so this

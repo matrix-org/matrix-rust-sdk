@@ -25,7 +25,7 @@ use crate::timeline::inner::TimelineInnerSettings;
 
 #[async_test]
 async fn read_receipts_updates() {
-    let timeline = TestTimeline::new()
+    let timeline = TestTimeline::new().await
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let mut stream = timeline.subscribe().await;
 

@@ -39,7 +39,7 @@ use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineIt
 
 #[async_test]
 async fn redact_state_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline
@@ -69,7 +69,7 @@ async fn redact_state_event() {
 
 #[async_test]
 async fn redact_replied_to_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline
@@ -115,7 +115,7 @@ async fn redact_replied_to_event() {
 
 #[async_test]
 async fn reaction_redaction() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("hi!")).await;
@@ -140,7 +140,7 @@ async fn reaction_redaction() {
 
 #[async_test]
 async fn reaction_redaction_timeline_filter() {
-    let mut timeline = TestTimeline::new();
+    let mut timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     // Initialise a timeline with a redacted reaction.
@@ -179,7 +179,7 @@ async fn reaction_redaction_timeline_filter() {
 
 #[async_test]
 async fn receive_unredacted() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     // send two events, second one redacted
     timeline

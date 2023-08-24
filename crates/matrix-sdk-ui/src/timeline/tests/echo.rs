@@ -30,7 +30,7 @@ use crate::timeline::event_item::EventSendState;
 
 #[async_test]
 async fn remote_echo_full_trip() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // Given a local event…
@@ -114,7 +114,7 @@ async fn remote_echo_full_trip() {
 
 #[async_test]
 async fn remote_echo_new_position() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // Given a local event…

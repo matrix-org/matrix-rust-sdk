@@ -34,7 +34,7 @@ use crate::timeline::TimelineItemContent;
 
 #[async_test]
 async fn live_redacted() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -58,7 +58,7 @@ async fn live_redacted() {
 
 #[async_test]
 async fn live_sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -108,7 +108,7 @@ async fn live_sanitized() {
 
 #[async_test]
 async fn aggregated_sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let original_event_id = EventId::new(server_name!("dummy.server"));

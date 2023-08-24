@@ -32,7 +32,7 @@ use crate::timeline::TimelineItemContent;
 
 #[async_test]
 async fn invalid_edit() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
@@ -58,7 +58,7 @@ async fn invalid_edit() {
 
 #[async_test]
 async fn invalid_event_content() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     // m.room.message events must have a msgtype and body in content, so this
@@ -114,7 +114,7 @@ async fn invalid_event_content() {
 
 #[async_test]
 async fn invalid_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     // This event is missing the sender field which the homeserver must add to
     // all timeline events. Because the event is malformed, it will be ignored.

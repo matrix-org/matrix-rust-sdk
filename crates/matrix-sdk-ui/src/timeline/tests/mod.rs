@@ -28,9 +28,16 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
-use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
+use matrix_sdk::{
+    config::RequestConfig,
+    deserialized_responses::{SyncTimelineEvent, TimelineEvent},
+    Client, ClientBuilder,
+};
+use matrix_sdk_base::{BaseClient, SessionMeta};
 use once_cell::sync::Lazy;
 use ruma::{
+    api::MatrixVersion,
+    device_id,
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::Annotation,
@@ -80,14 +87,41 @@ fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
     SyncTimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
 }
 
+/// Copied from matrix_sdk_base::sliding_sync::test
+pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
+    let base_client = BaseClient::new();
+    base_client
+        .set_session_meta(SessionMeta {
+            user_id: user_id!("@u:e.uk").to_owned(),
+            device_id: device_id!("XYZ").to_owned(),
+        })
+        .await
+        .expect("Failed to set session meta");
+
+    test_client_builder(homeserver_url)
+        .request_config(RequestConfig::new().disable_retry())
+        .base_client(base_client)
+        .build()
+        .await
+        .unwrap()
+}
+
+fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
+    let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
+    Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+}
+
 struct TestTimeline {
     inner: TimelineInner<TestRoomDataProvider>,
     next_ts: AtomicU64,
 }
 
 impl TestTimeline {
-    fn new() -> Self {
-        Self { inner: TimelineInner::new(TestRoomDataProvider), next_ts: AtomicU64::new(0) }
+    async fn new() -> Self {
+        Self {
+            inner: TimelineInner::new(TestRoomDataProvider(logged_in_client(None).await)),
+            next_ts: AtomicU64::new(0),
+        }
     }
 
     fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
@@ -404,10 +438,14 @@ impl TestTimeline {
 }
 
 #[derive(Clone)]
-struct TestRoomDataProvider;
+struct TestRoomDataProvider(Client);
 
 #[async_trait]
 impl RoomDataProvider for TestRoomDataProvider {
+    fn client(&self) -> Client {
+        self.0.clone()
+    }
+
     fn own_user_id(&self) -> &UserId {
         &ALICE
     }

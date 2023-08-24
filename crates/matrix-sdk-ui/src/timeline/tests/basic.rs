@@ -40,7 +40,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn initial_events() {
-    let mut timeline = TestTimeline::new();
+    let mut timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -65,7 +65,7 @@ async fn initial_events() {
 
 #[async_test]
 async fn sticker() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline
@@ -93,7 +93,7 @@ async fn sticker() {
 
 #[async_test]
 async fn room_member() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let mut first_room_member_content = RoomMemberEventContent::new(MembershipState::Invite);
@@ -163,7 +163,7 @@ async fn room_member() {
 
 #[async_test]
 async fn other_state() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -195,7 +195,7 @@ async fn other_state() {
 
 #[async_test]
 async fn dedup_pagination() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let event = timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
     timeline.handle_live_custom_event(event.clone()).await;
@@ -212,7 +212,7 @@ async fn dedup_pagination() {
 
 #[async_test]
 async fn dedup_initial() {
-    let mut timeline = TestTimeline::new();
+    let mut timeline = TestTimeline::new().await;
 
     let event_a = sync_timeline_event(
         timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
@@ -259,7 +259,7 @@ async fn dedup_initial() {
 
 #[async_test]
 async fn sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -300,7 +300,7 @@ async fn sanitized() {
 
 #[async_test]
 async fn reply() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
@@ -355,7 +355,7 @@ async fn reply() {
 
 #[async_test]
 async fn thread() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     timeline
