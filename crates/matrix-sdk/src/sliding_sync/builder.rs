@@ -40,6 +40,7 @@ pub struct SlidingSyncBuilder {
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     poll_timeout: Duration,
     network_timeout: Duration,
+    restore_pos_from_database: bool,
 }
 
 impl SlidingSyncBuilder {
@@ -62,6 +63,7 @@ impl SlidingSyncBuilder {
                 rooms: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
+                restore_pos_from_database: false,
             })
         }
     }
@@ -222,6 +224,17 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Should the sliding sync instance restore its stream position from the database?
+    ///
+    /// In general, sliding sync instances will cache the stream position (`pos` field in the
+    /// request) in internal fields. It can be useful, in multi-process scenarios, to save it into
+    /// the database so that one sliding sync instance running across two different processes can
+    /// continue with the same stream position it had before being stopped.
+    pub fn restore_pos_from_database(mut self) -> Self {
+        self.restore_pos_from_database = true;
+        self
+    }
+
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -242,7 +255,13 @@ impl SlidingSyncBuilder {
         // Reload existing state from the cache.
         let restored_fields =
             restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
-        let delta_token = restored_fields.and_then(|fields| fields.delta_token);
+        let (delta_token, pos) = if let Some(fields) = restored_fields {
+            (fields.delta_token, fields.pos)
+        } else {
+            (None, None)
+        };
+
+        let pos = if self.restore_pos_from_database { pos } else { None };
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
@@ -257,14 +276,12 @@ impl SlidingSyncBuilder {
 
             client,
             storage_key: self.storage_key,
+            restore_pos_from_database: self.restore_pos_from_database,
 
             lists,
             rooms,
 
-            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers {
-                pos: None,
-                delta_token,
-            })),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos, delta_token })),
             past_positions: StdRwLock::new(RingBuffer::new(20)),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
