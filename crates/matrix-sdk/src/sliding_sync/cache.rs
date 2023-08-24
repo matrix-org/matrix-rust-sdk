@@ -490,8 +490,8 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // After restoring, the delta token, the to-device since token, and stream position could
-        // be read from the state store.
+        // After restoring, the delta token, the to-device since token, and stream
+        // position could be read from the state store.
         assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);

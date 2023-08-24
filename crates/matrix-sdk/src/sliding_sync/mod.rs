@@ -91,7 +91,8 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from.
     storage_key: String,
 
-    /// Should this sliding sync instance try to restore its stream position from the database?
+    /// Should this sliding sync instance try to restore its stream position
+    /// from the database?
     restore_pos_from_database: bool,
 
     /// Position markers.
@@ -475,8 +476,8 @@ impl SlidingSync {
             None
         };
 
-        // Update pos: either the one restored from the database, if any and the sliding sync was
-        // configured so, or read it from the memory cache.
+        // Update pos: either the one restored from the database, if any and the sliding
+        // sync was configured so, or read it from the memory cache.
         let pos = if self.inner.restore_pos_from_database {
             if let Some(fields) = &restored_fields {
                 // Override the memory one with the database one, for consistency.
@@ -1629,7 +1630,7 @@ mod tests {
                 let pos = {
                     let mut pos = server_pos.lock().unwrap();
                     let prev = *pos;
-                    *pos = *pos + 1;
+                    *pos += 1;
                     prev
                 };
 
@@ -1657,8 +1658,8 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        // Sync goes well, and then the position is saved both into the internal memory and the
-        // database.
+        // Sync goes well, and then the position is saved both into the internal memory
+        // and the database.
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
 
@@ -1672,12 +1673,13 @@ mod tests {
         .await?
         .expect("must have restored fields");
 
-        // While it has been saved into the database, it's not necessarily going to be used later!
+        // While it has been saved into the database, it's not necessarily going to be
+        // used later!
         assert_eq!(restored_fields.pos.as_deref(), Some("0"));
 
-        // Now, even if we mess with the position stored in the database, the sliding sync instance
-        // isn't configured to reload the stream position from the database, so it won't be
-        // changed.
+        // Now, even if we mess with the position stored in the database, the sliding
+        // sync instance isn't configured to reload the stream position from the
+        // database, so it won't be changed.
         {
             let other_sync = client.sliding_sync("forgetful-sync")?.build().await?;
 
@@ -1695,7 +1697,8 @@ mod tests {
             assert_eq!(request.pos.as_deref(), Some("0"));
         }
 
-        // Recreating a sliding sync with the same ID doesn't preload the pos, if not asked to.
+        // Recreating a sliding sync with the same ID doesn't preload the pos, if not
+        // asked to.
         {
             let sliding_sync = client.sliding_sync("forgetful-sync")?.build().await?;
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
@@ -1721,7 +1724,7 @@ mod tests {
                 let pos = {
                     let mut pos = server_pos.lock().unwrap();
                     let prev = *pos;
-                    *pos = *pos + 1;
+                    *pos += 1;
                     prev
                 };
 
@@ -1750,8 +1753,8 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        // Sync goes well, and then the position is saved both into the internal memory and the
-        // database.
+        // Sync goes well, and then the position is saved both into the internal memory
+        // and the database.
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
 
@@ -1765,7 +1768,8 @@ mod tests {
         .await?
         .expect("must have restored fields");
 
-        // While it has been saved into the database, it's not necessarily going to be used later!
+        // While it has been saved into the database, it's not necessarily going to be
+        // used later!
         assert_eq!(restored_fields.pos.as_deref(), Some("0"));
 
         // Another process modifies the stream position under our feet...
@@ -1797,7 +1801,8 @@ mod tests {
             assert_eq!(request.pos.as_deref(), Some("42"));
         }
 
-        // Invalidating the session will remove the in-memory value AND the database value.
+        // Invalidating the session will remove the in-memory value AND the database
+        // value.
         sliding_sync.expire_session().await;
 
         {
