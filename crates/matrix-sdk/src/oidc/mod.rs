@@ -281,11 +281,10 @@ impl Oidc {
         Ok(())
     }
 
-    /// Must be called every time a new session has been created, after an
-    /// access token refresh.
+    /// Must be called every time session tokens have been refreshed.
     ///
     /// The cross-process lock must have been acquired before doing this
-    /// operation.
+    /// operation, as shown by the presence of the lock parameter.
     async fn notify_new_session(
         &self,
         tokens: &SessionTokens,
@@ -300,7 +299,7 @@ impl Oidc {
             .get()
             .expect("can't have the lock if this is uninitialized");
 
-        manager.save_new_hash(new_hash).await?;
+        manager.persist_new_hash(new_hash).await?;
 
         // Update the latest known value.
         lock.update_latest_known(new_hash);
@@ -1404,7 +1403,7 @@ pub enum CrossProcessRefreshLockError {
 }
 
 impl CrossProcessRefreshLock {
-    async fn save_new_hash(&self, hash: u64) -> Result<(), CrossProcessRefreshLockError> {
+    async fn persist_new_hash(&self, hash: u64) -> Result<(), CrossProcessRefreshLockError> {
         // Store the new hash in the database.
         self.store
             .set_custom_value("oidc_session_hash".as_bytes(), hash.to_le_bytes().to_vec())
