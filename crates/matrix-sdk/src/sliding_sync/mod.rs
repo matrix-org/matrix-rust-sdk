@@ -33,12 +33,8 @@ use std::{
 };
 
 use async_stream::stream;
-pub use builder::*;
-pub use error::*;
 use futures_core::stream::Stream;
-pub use list::*;
 use matrix_sdk_common::ring_buffer::RingBuffer;
-pub use room::*;
 use ruma::{
     api::client::{
         error::ErrorKind,
@@ -53,15 +49,15 @@ use tokio::{
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
-use utils::JoinHandleExt as _;
 
+pub use self::{builder::*, error::*, list::*, room::*};
 use self::{
     cache::restore_sliding_sync_state,
+    client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
+    utils::JoinHandleExt as _,
 };
-use crate::{
-    config::RequestConfig, sliding_sync::client::SlidingSyncResponseProcessor, Client, Result,
-};
+use crate::{config::RequestConfig, Client, Result};
 
 /// The Sliding Sync instance.
 ///
@@ -993,23 +989,37 @@ fn compute_limited(
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, sync::Mutex};
+    use std::{
+        collections::BTreeMap,
+        ops::Not,
+        sync::{Arc, Mutex},
+    };
 
     use assert_matches::assert_matches;
     use futures_util::{future::join_all, pin_mut, StreamExt};
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4::ToDeviceConfig, owned_room_id, room_id, serde::Raw,
-        uint, DeviceKeyAlgorithm, TransactionId,
+        api::client::{
+            error::ErrorKind,
+            sync::sync_events::v4::{self, ExtensionsConfig, ToDeviceConfig},
+        },
+        assign, owned_room_id, room_id,
+        serde::Raw,
+        uint, DeviceKeyAlgorithm, OwnedRoomId, TransactionId,
     };
+    use serde::Deserialize;
     use serde_json::json;
+    use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-    use super::*;
-    use crate::{
-        sliding_sync::sticky_parameters::SlidingSyncStickyManager, test_utils::logged_in_client,
+    use super::{
+        compute_limited,
+        sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
+        FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+        SlidingSyncRoom, SlidingSyncStickyParameters,
     };
+    use crate::{test_utils::logged_in_client, Result};
 
     #[derive(Copy, Clone)]
     struct SlidingSyncMatcher;

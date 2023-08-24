@@ -228,8 +228,12 @@ mod tests {
     use futures_util::StreamExt;
     use matrix_sdk_test::async_test;
 
-    use super::*;
-    use crate::{test_utils::logged_in_client, Result};
+    use super::{
+        clean_storage, format_storage_key_for_sliding_sync,
+        format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
+        restore_sliding_sync_state, store_sliding_sync_state,
+    };
+    use crate::{test_utils::logged_in_client, Result, SlidingSyncList};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -384,6 +388,8 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
+        use crate::sliding_sync::FrozenSlidingSync;
+
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
 
         let sync_id = "test-sync-id";

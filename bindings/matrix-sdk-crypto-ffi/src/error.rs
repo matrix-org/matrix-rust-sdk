@@ -100,10 +100,10 @@ impl From<InnerStoreError> for DecryptionError {
 
 #[cfg(test)]
 mod tests {
-
     use assert_matches::assert_matches;
+    use matrix_sdk_crypto::MegolmError;
 
-    use super::*;
+    use super::DecryptionError;
 
     #[test]
     fn test_withheld_error_mapping() {

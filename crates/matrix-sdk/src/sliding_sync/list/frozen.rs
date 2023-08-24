@@ -5,10 +5,8 @@ use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
-use super::{
-    super::{FrozenSlidingSyncRoom, SlidingSyncRoom},
-    RoomListEntry, SlidingSyncList,
-};
+use super::{RoomListEntry, SlidingSyncList};
+use crate::sliding_sync::{FrozenSlidingSyncRoom, SlidingSyncRoom};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FrozenSlidingSyncList {
@@ -54,6 +52,8 @@ impl FrozenSlidingSyncList {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use ruma::{
@@ -62,7 +62,8 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::*;
+    use super::FrozenSlidingSyncList;
+    use crate::sliding_sync::{list::RoomListEntry, FrozenSlidingSyncRoom};
 
     #[test]
     fn test_frozen_sliding_sync_list_serialization() {

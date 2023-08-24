@@ -16,7 +16,7 @@ fn normalize_string(str: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::normalize_string;
 
     #[test]
     fn test_normalize_string() {

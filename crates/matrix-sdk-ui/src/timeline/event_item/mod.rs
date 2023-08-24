@@ -467,18 +467,24 @@ pub enum EventItemOrigin {
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
-    use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
-    use matrix_sdk_base::{BaseClient, SessionMeta};
+    use matrix_sdk::{config::RequestConfig, Client, ClientBuilder, SlidingSyncRoom};
+    use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, BaseClient, SessionMeta};
     use matrix_sdk_test::async_test;
     use ruma::{
         api::{client::sync::sync_events::v4, MatrixVersion},
         device_id,
-        events::room::message::MessageFormat,
-        room_id, user_id, RoomId, UInt,
+        events::{
+            room::message::{MessageFormat, MessageType},
+            AnySyncTimelineEvent,
+        },
+        room_id,
+        serde::Raw,
+        user_id, RoomId, UInt, UserId,
     };
     use serde_json::json;
 
-    use super::*;
+    use super::{EventTimelineItem, Profile};
+    use crate::timeline::TimelineDetails;
 
     #[async_test]
     async fn latest_message_event_can_be_wrapped_as_a_timeline_item() {

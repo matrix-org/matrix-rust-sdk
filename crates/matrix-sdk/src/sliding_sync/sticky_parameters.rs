@@ -133,7 +133,7 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
 
     struct EmptyStickyData;
 

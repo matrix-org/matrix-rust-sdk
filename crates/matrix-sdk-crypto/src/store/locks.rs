@@ -335,10 +335,16 @@ pub enum LockStoreError {
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use tokio::spawn;
+    use tokio::{
+        spawn,
+        time::{sleep, Duration},
+    };
 
-    use super::*;
-    use crate::store::{IntoCryptoStore as _, MemoryStore};
+    use super::{CryptoStoreLock, CryptoStoreLockGuard, LockStoreError};
+    use crate::{
+        store::{IntoCryptoStore as _, MemoryStore},
+        CryptoStoreError,
+    };
 
     async fn release_lock(guard: Option<CryptoStoreLockGuard>) {
         drop(guard);

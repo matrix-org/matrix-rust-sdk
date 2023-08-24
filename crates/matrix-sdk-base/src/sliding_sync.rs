@@ -535,9 +535,10 @@ mod test {
     };
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::ring_buffer::RingBuffer;
+    use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::async_test;
     use ruma::{
+        api::client::sync::sync_events::v4,
         device_id, event_id,
         events::{
             direct::DirectEventContent,
@@ -556,8 +557,8 @@ mod test {
     };
     use serde_json::json;
 
-    use super::*;
-    use crate::{store::MemoryStore, SessionMeta};
+    use super::cache_latest_events;
+    use crate::{store::MemoryStore, BaseClient, Room, RoomState, SessionMeta};
 
     #[async_test]
     async fn can_process_empty_sliding_sync_response() {

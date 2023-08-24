@@ -317,16 +317,20 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 mod tests {
     use imbl::vector;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::v4, assign, events::room::message::RoomMessageEventContent,
-        mxc_uri, room_id, uint, RoomId,
+        mxc_uri, room_id, serde::Raw, uint, RoomId,
     };
     use serde_json::json;
     use wiremock::MockServer;
 
-    use super::*;
-    use crate::test_utils::logged_in_client;
+    use super::NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE;
+    use crate::{
+        sliding_sync::{FrozenSlidingSyncRoom, SlidingSyncRoom, SlidingSyncRoomState},
+        test_utils::logged_in_client,
+    };
 
     macro_rules! room_response {
         ( $( $json:tt )+ ) => {

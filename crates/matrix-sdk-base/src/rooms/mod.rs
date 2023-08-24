@@ -379,9 +379,9 @@ impl RoomMemberships {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
+    use super::{calculate_room_name, DisplayName};
 
+    #[test]
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
         assert_eq!(DisplayName::Calculated("a".to_owned()), actual);

@@ -1116,8 +1116,11 @@ mod test {
     use std::sync::Arc;
 
     use assign::assign;
+    #[cfg(feature = "experimental-sliding-sync")]
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
+        api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -1131,14 +1134,16 @@ mod test {
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id,
+        user_id, UserId,
     };
     use serde_json::json;
 
-    use super::*;
+    #[cfg(feature = "experimental-sliding-sync")]
+    use super::SyncInfo;
+    use super::{Room, RoomInfo, RoomState};
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        MinimalStateEvent, OriginalMinimalStateEvent,
+        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
     #[test]
@@ -1146,6 +1151,9 @@ mod test {
     fn room_info_serialization() {
         // This test exists to make sure we don't accidentally change the
         // serialized format for `RoomInfo`.
+
+        use super::RoomSummary;
+        use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
 
         let info = RoomInfo {
             room_id: room_id!("!gda78o:server.tld").into(),
