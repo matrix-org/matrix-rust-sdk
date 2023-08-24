@@ -427,9 +427,11 @@ mod tests {
 
         // Emulate some data to be cached.
         let delta_token = "delta_token".to_owned();
+        let pos = "pos".to_owned();
         {
             let mut position_guard = sliding_sync.inner.position.lock().await;
             position_guard.delta_token = Some(delta_token.clone());
+            position_guard.pos = Some(pos.clone());
 
             // Then, we can correctly cache the sliding sync instance.
             store_sliding_sync_state(&sliding_sync, &position_guard).await?;
@@ -443,6 +445,7 @@ mod tests {
             Some(bytes) => {
                 let deserialized: FrozenSlidingSync = serde_json::from_slice(&bytes)?;
                 assert_eq!(deserialized.delta_token, Some(delta_token.clone()));
+                assert_eq!(deserialized.previous_pos, Some(pos.clone()));
                 assert!(deserialized.to_device_since.is_none());
             }
         );
@@ -456,6 +459,7 @@ mod tests {
 
         // After restoring, the delta token and to-device token could be read.
         assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
+        assert_eq!(restored_fields.pos.unwrap(), pos);
 
         // Test the "migration" path: assume a missing to-device token in crypto store,
         // but present in a former state store.
@@ -477,7 +481,7 @@ mod tests {
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
                     delta_token: Some(delta_token.clone()),
-                    previous_pos: None,
+                    previous_pos: Some(pos.clone()),
                 })?,
             )
             .await?;
@@ -486,10 +490,11 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // After restoring, the delta token and to-device token could be read, even if
-        // they came both from the state store.
+        // After restoring, the delta token, the to-device since token, and stream position could
+        // be read from the state store.
         assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
+        assert_eq!(restored_fields.pos.unwrap(), pos);
 
         Ok(())
     }

@@ -1048,7 +1048,9 @@ mod tests {
         FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
         SlidingSyncRoom, SlidingSyncStickyParameters,
     };
-    use crate::{test_utils::logged_in_client, Result};
+    use crate::{
+        sliding_sync::cache::restore_sliding_sync_state, test_utils::logged_in_client, Result,
+    };
 
     #[derive(Copy, Clone)]
     struct SlidingSyncMatcher;
@@ -1605,6 +1607,216 @@ mod tests {
 
             // `sync` has been stopped.
             assert!(sync.next().await.is_none());
+        }
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_sliding_sync_doesnt_remember_pos() -> Result<()> {
+        let server = MockServer::start().await;
+
+        #[derive(Deserialize)]
+        struct PartialRequest {
+            txn_id: Option<String>,
+        }
+
+        let server_pos = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |request: &Request| {
+                // Repeat the txn_id in the response, if set.
+                let request: PartialRequest = request.body_json().unwrap();
+                let pos = {
+                    let mut pos = server_pos.lock().unwrap();
+                    let prev = *pos;
+                    *pos = *pos + 1;
+                    prev
+                };
+
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "txn_id": request.txn_id,
+                    "pos": pos.to_string(),
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client.sliding_sync("forgetful-sync")?.build().await?;
+
+        // `pos` is `None` to start with.
+        {
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
+
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert!(request.pos.is_none());
+        }
+
+        let sync = sliding_sync.sync();
+        pin_mut!(sync);
+
+        // Sync goes well, and then the position is saved both into the internal memory and the
+        // database.
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("0"));
+
+        let restored_fields = restore_sliding_sync_state(
+            &client,
+            &sliding_sync.inner.storage_key,
+            &*sliding_sync.inner.lists.read().await,
+        )
+        .await?
+        .expect("must have restored fields");
+
+        // While it has been saved into the database, it's not necessarily going to be used later!
+        assert_eq!(restored_fields.pos.as_deref(), Some("0"));
+
+        // Now, even if we mess with the position stored in the database, the sliding sync instance
+        // isn't configured to reload the stream position from the database, so it won't be
+        // changed.
+        {
+            let other_sync = client.sliding_sync("forgetful-sync")?.build().await?;
+
+            let mut position_guard = other_sync.inner.position.lock().await;
+            position_guard.pos = Some("yolo".to_owned());
+
+            other_sync.cache_to_storage(&position_guard).await?;
+        }
+
+        // It's still 0, not "yolo".
+        {
+            assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("0"));
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert_eq!(request.pos.as_deref(), Some("0"));
+        }
+
+        // Recreating a sliding sync with the same ID doesn't preload the pos, if not asked to.
+        {
+            let sliding_sync = client.sliding_sync("forgetful-sync")?.build().await?;
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
+        }
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_sliding_sync_does_remember_pos() -> Result<()> {
+        let server = MockServer::start().await;
+
+        #[derive(Deserialize)]
+        struct PartialRequest {
+            txn_id: Option<String>,
+        }
+
+        let server_pos = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |request: &Request| {
+                // Repeat the txn_id in the response, if set.
+                let request: PartialRequest = request.body_json().unwrap();
+                let pos = {
+                    let mut pos = server_pos.lock().unwrap();
+                    let prev = *pos;
+                    *pos = *pos + 1;
+                    prev
+                };
+
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "txn_id": request.txn_id,
+                    "pos": pos.to_string(),
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync =
+            client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+
+        // `pos` is `None` to start with.
+        {
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+            assert!(request.pos.is_none());
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
+        }
+
+        let sync = sliding_sync.sync();
+        pin_mut!(sync);
+
+        // Sync goes well, and then the position is saved both into the internal memory and the
+        // database.
+        let next = sync.next().await;
+        assert_matches!(next, Some(Ok(_update_summary)));
+
+        assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
+
+        let restored_fields = restore_sliding_sync_state(
+            &client,
+            &sliding_sync.inner.storage_key,
+            &*sliding_sync.inner.lists.read().await,
+        )
+        .await?
+        .expect("must have restored fields");
+
+        // While it has been saved into the database, it's not necessarily going to be used later!
+        assert_eq!(restored_fields.pos.as_deref(), Some("0"));
+
+        // Another process modifies the stream position under our feet...
+        {
+            let other_sync = client.sliding_sync("elephant-sync")?.build().await?;
+
+            let mut position_guard = other_sync.inner.position.lock().await;
+            position_guard.pos = Some("42".to_owned());
+
+            other_sync.cache_to_storage(&position_guard).await?;
+        }
+
+        // It's alright, the next request will load it from the database.
+        {
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert_eq!(request.pos.as_deref(), Some("42"));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
+        }
+
+        // Recreating a sliding sync with the same ID will reload it too.
+        {
+            let sliding_sync =
+                client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+            assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
+
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert_eq!(request.pos.as_deref(), Some("42"));
+        }
+
+        // Invalidating the session will remove the in-memory value AND the database value.
+        sliding_sync.expire_session().await;
+
+        {
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
+
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert!(request.pos.is_none());
+        }
+
+        // And new sliding syncs with the same ID won't find it either.
+        {
+            let sliding_sync =
+                client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
+
+            let (request, _, _, _) =
+                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            assert!(request.pos.is_none());
         }
 
         Ok(())
