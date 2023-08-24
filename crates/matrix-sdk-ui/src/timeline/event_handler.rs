@@ -230,11 +230,6 @@ pub(super) struct TimelineEventHandler<'a> {
 // "see through" it, allowing borrows of TimelineEventHandler fields other than
 // `timeline_items` and `items_updated` in the update closure.
 macro_rules! update_timeline_item {
-    ($this:ident, $event_id:expr, $action:expr, $found:expr) => {
-        update_timeline_item!($this, $event_id, found: $found, not_found: || {
-            debug!("Timeline item not found, discarding {}", $action);
-        });
-    };
     ($this:ident, $event_id:expr, found: $found:expr, not_found: $not_found:expr) => {
         _update_timeline_item(
             &mut $this.state.items,
@@ -243,6 +238,11 @@ macro_rules! update_timeline_item {
             $found,
             $not_found,
         )
+    };
+    ($this:ident, $event_id:expr, $action:expr, $found:expr) => {
+        update_timeline_item!($this, $event_id, found: $found, not_found: || {
+            debug!("Timeline item not found, discarding {}", $action);
+        });
     };
 }
 
