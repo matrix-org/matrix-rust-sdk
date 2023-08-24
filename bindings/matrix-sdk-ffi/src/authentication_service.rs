@@ -561,31 +561,43 @@ impl AuthenticationService {
         let client_uri = configuration
             .client_uri
             .as_deref()
-            .map(Url::parse)
-            .transpose()
-            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
-            .map(|u| Localized::new(u, []));
+            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
+                Ok(Localized::new(
+                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
+                    [],
+                ))
+            })
+            .transpose()?;
         let logo_uri = configuration
             .logo_uri
             .as_deref()
-            .map(Url::parse)
-            .transpose()
-            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
-            .map(|u| Localized::new(u, []));
+            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
+                Ok(Localized::new(
+                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
+                    [],
+                ))
+            })
+            .transpose()?;
         let policy_uri = configuration
             .policy_uri
             .as_deref()
-            .map(Url::parse)
-            .transpose()
-            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
-            .map(|u| Localized::new(u, []));
+            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
+                Ok(Localized::new(
+                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
+                    [],
+                ))
+            })
+            .transpose()?;
         let tos_uri = configuration
             .tos_uri
             .as_deref()
-            .map(Url::parse)
-            .transpose()
-            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
-            .map(|u| Localized::new(u, []));
+            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
+                Ok(Localized::new(
+                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
+                    [],
+                ))
+            })
+            .transpose()?;
 
         ClientMetadata {
             application_type: Some(ApplicationType::Native),
