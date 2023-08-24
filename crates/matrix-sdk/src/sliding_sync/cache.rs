@@ -163,6 +163,7 @@ pub(super) async fn restore_sliding_sync_list(
 pub(super) struct RestoredFields {
     pub delta_token: Option<String>,
     pub to_device_token: Option<String>,
+    pub pos: Option<String>,
 }
 
 /// Restore the `SlidingSync`'s state from what is stored in the storage.
@@ -197,7 +198,11 @@ pub(super) async fn restore_sliding_sync_state(
         .map(|custom_value| serde_json::from_slice::<FrozenSlidingSync>(&custom_value))
     {
         // `SlidingSync` has been found and successfully deserialized.
-        Some(Ok(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token })) => {
+        Some(Ok(FrozenSlidingSync {
+            to_device_since,
+            delta_token: frozen_delta_token,
+            previous_pos: frozen_pos,
+        })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
             // Only update the to-device token if we failed to read it from the crypto store
             // above.
@@ -206,6 +211,7 @@ pub(super) async fn restore_sliding_sync_state(
             }
 
             restored_fields.delta_token = frozen_delta_token;
+            restored_fields.pos = frozen_pos;
         }
 
         // `SlidingSync` has been found, but it wasn't possible to deserialize it. It's
@@ -471,6 +477,7 @@ mod tests {
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
                     delta_token: Some(delta_token.clone()),
+                    previous_pos: None,
                 })?,
             )
             .await?;

@@ -852,12 +852,18 @@ struct FrozenSlidingSync {
     to_device_since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delta_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous_pos: Option<String>,
 }
 
 impl FrozenSlidingSync {
     async fn new(position: &SlidingSyncPositionMarkers) -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
-        Self { delta_token: position.delta_token.clone(), to_device_since: None }
+        Self {
+            delta_token: position.delta_token.clone(),
+            to_device_since: None,
+            previous_pos: position.pos.clone(),
+        }
     }
 }
 
