@@ -27,7 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
     sync::{JoinedRoom, Timeline},
-    Error, Result, Room,
+    Client, Error, Result, Room,
 };
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -70,6 +70,7 @@ use self::state::{TimelineInnerStateLock, TimelineInnerStateLockGuard};
 
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
+    client: Client,
     state: TimelineInnerStateLock,
     room_data_provider: P,
     settings: TimelineInnerSettings,
@@ -126,6 +127,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) fn new(room_data_provider: P) -> Self {
         let state = TimelineInnerState::new(room_data_provider.room_version());
         Self {
+            client: room_data_provider.client(),
             state: TimelineInnerStateLock::new(state),
             room_data_provider,
             settings: TimelineInnerSettings::default(),

@@ -14,9 +14,9 @@
 
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+use matrix_sdk::{Client, Room};
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
@@ -64,6 +64,7 @@ impl RoomExt for Room {
 
 #[async_trait]
 pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
+    fn client(&self) -> Client;
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
     async fn profile(&self, user_id: &UserId) -> Option<Profile>;
@@ -73,6 +74,10 @@ pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
 
 #[async_trait]
 impl RoomDataProvider for Room {
+    fn client(&self) -> Client {
+        self.client()
+    }
+
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }
