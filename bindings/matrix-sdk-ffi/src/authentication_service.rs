@@ -103,18 +103,18 @@ impl From<OidcError> for AuthenticationError {
 #[derive(uniffi::Record)]
 pub struct OidcConfiguration {
     /// The name of the client that will be shown during OIDC authentication.
-    pub client_name: String,
+    pub client_name: Option<String>,
     /// The redirect URI that will be used when OIDC authentication is
     /// successful.
     pub redirect_uri: String,
     /// A URI that contains information about the client.
-    pub client_uri: String,
+    pub client_uri: Option<String>,
     /// A URI that contains the client's logo.
-    pub logo_uri: String,
+    pub logo_uri: Option<String>,
     /// A URI that contains the client's terms of service.
-    pub tos_uri: String,
+    pub tos_uri: Option<String>,
     /// A URI that contains the client's privacy policy.
-    pub policy_uri: String,
+    pub policy_uri: Option<String>,
 
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
@@ -556,11 +556,36 @@ impl AuthenticationService {
     ) -> Result<VerifiedClientMetadata, AuthenticationError> {
         let redirect_uri = Url::parse(&configuration.redirect_uri)
             .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
-        let client_name = Some(Localized::new(configuration.client_name.to_owned(), []));
-        let client_uri = Url::parse(&configuration.client_uri).ok().map(|u| Localized::new(u, []));
-        let logo_uri = Url::parse(&configuration.logo_uri).ok().map(|u| Localized::new(u, []));
-        let policy_uri = Url::parse(&configuration.policy_uri).ok().map(|u| Localized::new(u, []));
-        let tos_uri = Url::parse(&configuration.tos_uri).ok().map(|u| Localized::new(u, []));
+        let client_name =
+            configuration.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
+        let client_uri = configuration
+            .client_uri
+            .as_deref()
+            .map(Url::parse)
+            .transpose()
+            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
+            .map(|u| Localized::new(u, []));
+        let logo_uri = configuration
+            .logo_uri
+            .as_deref()
+            .map(Url::parse)
+            .transpose()
+            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
+            .map(|u| Localized::new(u, []));
+        let policy_uri = configuration
+            .policy_uri
+            .as_deref()
+            .map(Url::parse)
+            .transpose()
+            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
+            .map(|u| Localized::new(u, []));
+        let tos_uri = configuration
+            .tos_uri
+            .as_deref()
+            .map(Url::parse)
+            .transpose()
+            .map_err(|_| AuthenticationError::OidcMetadataInvalid)?
+            .map(|u| Localized::new(u, []));
 
         ClientMetadata {
             application_type: Some(ApplicationType::Native),
