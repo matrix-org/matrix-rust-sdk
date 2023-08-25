@@ -18,8 +18,10 @@ mod command;
 mod rule_commands;
 mod rules;
 
-use crate::{error::NotificationSettingsError, event_handler::EventHandlerHandle, Client, Result};
-use crate::config::RequestConfig;
+use crate::{
+    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerHandle,
+    Client, Result,
+};
 
 /// Enum representing the push notification modes for a room.
 #[derive(Debug, Clone, PartialEq)]
