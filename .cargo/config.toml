@@ -35,6 +35,14 @@ rustflags = [
     "-Wclippy::todo",
 ]
 
+[target.'cfg(target_arch = "wasm32")']
+rustflags = [
+    # We have some types that are !Send and/or !Sync only on wasm, it would be
+    # slightly more efficient, but also pretty annoying, to wrap them in Rc
+    # where we would use Arc on other platforms.
+    "-Aclippy::arc_with_non_send_sync",
+]
+
 # activate the target-applies-to-host feature.
 # Required for `target-applies-to-host` at the top to take effect.
 [unstable]
