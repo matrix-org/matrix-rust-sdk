@@ -198,7 +198,11 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{once_cell::sync::OnceCell, store::DynStateStore, SessionMeta};
+use matrix_sdk_base::{
+    crypto::{store::DynCryptoStore, CryptoStoreError},
+    once_cell::sync::OnceCell,
+    SessionMeta,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use serde::{Deserialize, Serialize};
@@ -253,7 +257,7 @@ impl Oidc {
 
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes accross different processes.
-    pub fn enable_cross_process_refresh_lock(&self, lock_value: String) -> Result<()> {
+    pub async fn enable_cross_process_refresh_lock(&self, lock_value: String) -> Result<()> {
         // If the lock has already been created, don't recreate it from scratch.
         if let Some(prev_lock) = self.client.inner.cross_process_token_refresh_lock.get() {
             let prev_holder = prev_lock.store_lock.lock_holder();
@@ -263,7 +267,12 @@ impl Oidc {
             warn!("recreating cross-process store refresh token lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
         }
 
-        let store = self.client.clone_store();
+        // TODO(bnjbvr) hacky, but wanted to try it out.
+        let olm_machine_lock = self.client.olm_machine().await;
+        let olm_machine =
+            olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
+        let store = olm_machine.store().clone_store();
+
         let lock = CrossProcessStoreLock::new(store.clone(), "session_lock".to_owned(), lock_value);
 
         let manager = CrossProcessRefreshManager {
@@ -1355,8 +1364,10 @@ struct SessionHash(u64);
 
 #[derive(Clone)]
 pub(crate) struct CrossProcessRefreshManager {
-    store: Arc<DynStateStore>,
-    store_lock: CrossProcessStoreLock<Arc<DynStateStore>>,
+    //store: Arc<DynStateStore>,
+    //store_lock: CrossProcessStoreLock<Arc<DynStateStore>>,
+    store: Arc<DynCryptoStore>,
+    store_lock: CrossProcessStoreLock<Arc<DynCryptoStore>>,
     known_session_hash: Arc<Mutex<Option<SessionHash>>>,
 }
 
@@ -1387,7 +1398,7 @@ impl CrossProcessRefreshLockGuard {
 pub enum CrossProcessRefreshLockError {
     /// Underlying error caused by the store.
     #[error(transparent)]
-    StoreError(#[from] matrix_sdk_base::store::StoreError),
+    StoreError(#[from] CryptoStoreError),
 
     /// The locking itself failed.
     #[error(transparent)]
@@ -1421,9 +1432,7 @@ impl CrossProcessRefreshManager {
         let hash = compute_session_hash(tokens);
 
         // Store the new hash in the database.
-        self.store
-            .set_custom_value("oidc_session_hash".as_bytes(), hash.0.to_le_bytes().to_vec())
-            .await?;
+        self.store.set_custom_value("oidc_session_hash", hash.0.to_le_bytes().to_vec()).await?;
 
         // Update the in-memory latest known value.
         lock.update_latest_known(hash);
@@ -1448,8 +1457,7 @@ impl CrossProcessRefreshManager {
         let store_guard = self.store_lock.spin_lock(Some(60000)).await?;
 
         // Read the previous session hash in the database.
-        let current_db_session_bytes =
-            self.store.get_custom_value("oidc_session_hash".as_bytes()).await?;
+        let current_db_session_bytes = self.store.get_custom_value("oidc_session_hash").await?;
 
         let db_hash = if let Some(val) = current_db_session_bytes {
             Some(u64::from_le_bytes(
