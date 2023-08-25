@@ -201,7 +201,7 @@ pub(super) async fn restore_sliding_sync_state(
         Some(Ok(FrozenSlidingSync {
             to_device_since,
             delta_token: frozen_delta_token,
-            previous_pos: frozen_pos,
+            pos: frozen_pos,
         })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
             // Only update the to-device token if we failed to read it from the crypto store
@@ -445,7 +445,7 @@ mod tests {
             Some(bytes) => {
                 let deserialized: FrozenSlidingSync = serde_json::from_slice(&bytes)?;
                 assert_eq!(deserialized.delta_token, Some(delta_token.clone()));
-                assert_eq!(deserialized.previous_pos, Some(pos.clone()));
+                assert_eq!(deserialized.pos, Some(pos.clone()));
                 assert!(deserialized.to_device_since.is_none());
             }
         );
@@ -481,7 +481,7 @@ mod tests {
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
                     delta_token: Some(delta_token.clone()),
-                    previous_pos: Some(pos.clone()),
+                    pos: Some(pos.clone()),
                 })?,
             )
             .await?;

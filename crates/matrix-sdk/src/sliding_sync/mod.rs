@@ -878,7 +878,7 @@ struct FrozenSlidingSync {
     #[serde(skip_serializing_if = "Option::is_none")]
     delta_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    previous_pos: Option<String>,
+    pos: Option<String>,
 }
 
 impl FrozenSlidingSync {
@@ -887,7 +887,7 @@ impl FrozenSlidingSync {
         Self {
             delta_token: position.delta_token.clone(),
             to_device_since: None,
-            previous_pos: position.pos.clone(),
+            pos: position.pos.clone(),
         }
     }
 }
