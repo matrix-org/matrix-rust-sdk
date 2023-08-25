@@ -1,12 +1,14 @@
-//! Client widget API implementation.
+//! Widget API implementation.
 
-use async_channel::{Receiver, Sender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use self::client::{run as client_widget_api, MatrixDriver, Result};
+pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
 use crate::room::Room as JoinedRoom;
 
+mod client;
+mod messages;
 mod permissions;
-
-pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
 
 /// Describes a widget.
 #[derive(Debug)]
@@ -32,21 +34,20 @@ pub struct Info {
 #[derive(Debug)]
 pub struct Comm {
     /// Raw incoming messages from the widget (normally, formatted as JSON).
-    pub from: Receiver<String>,
+    pub from: UnboundedReceiver<String>,
     /// Raw outgoing messages from the client (SDK) to the widget (normally
     /// formatted as JSON).
-    pub to: Sender<String>,
+    pub to: UnboundedSender<String>,
 }
 
-/// Starts a client widget API state machine for a given `widget` in a given
-/// joined `room`. The function returns once the widget is disconnected or any
-/// terminal error occurs.
-///
-/// Not implemented yet, currently always panics.
-pub async fn run_widget_api(
-    _room: JoinedRoom,
-    _widget: Widget,
-    _permissions_provider: impl PermissionsProvider,
-) -> Result<(), ()> {
-    Err(())
+/// Runs client widget API for a given `widget` with a given
+/// `permission_manager` within a given `room`. The function returns once the
+/// API is completed (the widget disconnected etc).
+pub async fn run_client_widget_api(
+    widget: Widget,
+    permission_manager: impl PermissionsProvider,
+    room: JoinedRoom,
+) -> Result<()> {
+    // TODO: define a cancellation mechanism (?).
+    client_widget_api(MatrixDriver::new(room, permission_manager), widget).await
 }

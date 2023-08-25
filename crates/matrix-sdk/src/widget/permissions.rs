@@ -2,6 +2,7 @@
 //! client.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::ruma::events::{MessageLikeEventType, StateEventType};
 
@@ -17,7 +18,7 @@ pub trait PermissionsProvider: Send + Sync + 'static {
 }
 
 /// Permissions that a widget can request from a client.
-#[derive(Debug)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Permissions {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<EventFilter>,
@@ -26,7 +27,7 @@ pub struct Permissions {
 }
 
 /// Different kinds of filters that could be applied to the timeline events.
-#[derive(Debug)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum EventFilter {
     /// Message-like events.
     MessageLike {
