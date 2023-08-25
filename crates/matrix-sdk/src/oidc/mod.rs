@@ -719,7 +719,15 @@ impl Oidc {
         if let Some(callback) = self.client.inner.reload_oidc_session_callback.get() {
             match callback() {
                 Ok(tokens) => {
-                    guard.update_latest_known(compute_session_hash(&tokens));
+                    let new_hash = compute_session_hash(&tokens);
+
+                    if let Some(db_hash) = &guard.db_hash {
+                        if new_hash != *db_hash {
+                            tracing::error!("error: hashed session returned from the app differs from that read from the db");
+                        }
+                    }
+
+                    guard.update_latest_known(new_hash);
                     self.set_session_tokens(tokens.clone());
                     // TODO(Doug) update other internal state here?
                 }
@@ -1359,7 +1367,7 @@ fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SessionHash(u64);
 
 #[derive(Clone)]
@@ -1384,6 +1392,8 @@ struct CrossProcessRefreshLockGuard {
     /// We don't consider it a mismatch if there was no previous value in the
     /// database.
     hash_mismatch: bool,
+
+    db_hash: Option<SessionHash>,
 }
 
 impl CrossProcessRefreshLockGuard {
@@ -1467,16 +1477,19 @@ impl CrossProcessRefreshManager {
             None
         };
 
+        let db_hash = db_hash.map(SessionHash);
+
         let hash_mismatch = match (db_hash, *prev_hash) {
             (None, _) => false,
             (Some(_), None) => true,
-            (Some(db), Some(known)) => db == known.0,
+            (Some(db), Some(known)) => db == known,
         };
 
         let guard = CrossProcessRefreshLockGuard {
             hash_guard: prev_hash,
             _store_guard: store_guard,
             hash_mismatch,
+            db_hash,
         };
 
         Ok(guard)
