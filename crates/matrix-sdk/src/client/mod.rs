@@ -201,7 +201,7 @@ pub(crate) struct ClientInner {
 
     #[cfg(feature = "experimental-oidc")]
     pub(crate) reload_oidc_session_callback:
-        OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>,
+        Arc<OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>>,
 
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
@@ -220,6 +220,7 @@ pub(crate) struct ClientInner {
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
+    #[cfg(feature = "experimental-oidc")]
     pub(crate) cross_process_token_refresh_lock: OnceCell<CrossProcessRefreshManager>,
 
     /// Latest "generation" of data known by the crypto store.
@@ -245,6 +246,10 @@ pub(crate) struct ClientInner {
 }
 
 impl ClientInner {
+    /// Create a new `ClientInner`.
+    ///
+    /// All the fields passed here are those that must be cloned upon instantiation of a
+    /// sub-client, e.g. a client specialized for notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
         homeserver: Url,
@@ -256,6 +261,12 @@ impl ClientInner {
         appservice_mode: bool,
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
+        #[cfg(feature = "experimental-oidc")] cross_process_token_refresh_lock: OnceCell<
+            CrossProcessRefreshManager,
+        >,
+        #[cfg(feature = "experimental-oidc")] reload_oidc_session_callback: Arc<
+            OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>,
+        >,
     ) -> Self {
         let session_change_sender = broadcast::Sender::new(1);
 
@@ -289,9 +300,10 @@ impl ClientInner {
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
-            cross_process_token_refresh_lock: OnceCell::new(),
             #[cfg(feature = "experimental-oidc")]
-            reload_oidc_session_callback: OnceCell::new(),
+            cross_process_token_refresh_lock,
+            #[cfg(feature = "experimental-oidc")]
+            reload_oidc_session_callback,
         }
     }
 }
@@ -2070,6 +2082,10 @@ impl Client {
                 self.inner.appservice_mode,
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
+                #[cfg(feature = "experimental-oidc")]
+                self.inner.cross_process_token_refresh_lock.clone(),
+                #[cfg(feature = "experimental-oidc")]
+                self.inner.reload_oidc_session_callback.clone(),
             )),
         };
 

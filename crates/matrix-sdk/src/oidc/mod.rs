@@ -1353,6 +1353,7 @@ fn rng() -> Result<StdRng, OidcError> {
 #[derive(Clone, Copy)]
 struct SessionHash(u64);
 
+#[derive(Clone)]
 pub(crate) struct CrossProcessRefreshManager {
     store: Arc<DynStateStore>,
     store_lock: CrossProcessStoreLock<Arc<DynStateStore>>,
