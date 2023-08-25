@@ -91,9 +91,9 @@ pub(super) struct SlidingSyncInner {
     /// The storage key to keep this cache at and load it from.
     storage_key: String,
 
-    /// Should this sliding sync instance try to restore its stream position
+    /// Should this sliding sync instance try to restore its sync position
     /// from the database?
-    restore_pos_from_database: bool,
+    share_pos: bool,
 
     /// Position markers.
     ///
@@ -469,7 +469,7 @@ impl SlidingSync {
         let to_device_enabled =
             self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
 
-        let restored_fields = if self.inner.restore_pos_from_database || to_device_enabled {
+        let restored_fields = if self.inner.share_pos || to_device_enabled {
             let lists = self.inner.lists.read().await;
             restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key, &lists).await?
         } else {
@@ -478,7 +478,7 @@ impl SlidingSync {
 
         // Update pos: either the one restored from the database, if any and the sliding
         // sync was configured so, or read it from the memory cache.
-        let pos = if self.inner.restore_pos_from_database {
+        let pos = if self.inner.share_pos {
             if let Some(fields) = &restored_fields {
                 // Override the memory one with the database one, for consistency.
                 if fields.pos != position_guard.pos {
@@ -1738,8 +1738,7 @@ mod tests {
 
         let client = logged_in_client(Some(server.uri())).await;
 
-        let sliding_sync =
-            client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+        let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
 
         // `pos` is `None` to start with.
         {
@@ -1792,8 +1791,7 @@ mod tests {
 
         // Recreating a sliding sync with the same ID will reload it too.
         {
-            let sliding_sync =
-                client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+            let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
 
             let (request, _, _, _) =
@@ -1815,8 +1813,7 @@ mod tests {
 
         // And new sliding syncs with the same ID won't find it either.
         {
-            let sliding_sync =
-                client.sliding_sync("elephant-sync")?.restore_pos_from_database().build().await?;
+            let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
             let (request, _, _, _) =
