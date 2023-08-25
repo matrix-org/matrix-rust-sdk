@@ -40,7 +40,7 @@ pub struct SlidingSyncBuilder {
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     poll_timeout: Duration,
     network_timeout: Duration,
-    restore_pos_from_database: bool,
+    share_pos: bool,
 }
 
 impl SlidingSyncBuilder {
@@ -63,7 +63,7 @@ impl SlidingSyncBuilder {
                 rooms: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
-                restore_pos_from_database: false,
+                share_pos: false,
             })
         }
     }
@@ -224,16 +224,16 @@ impl SlidingSyncBuilder {
         self
     }
 
-    /// Should the sliding sync instance restore its stream position from the
-    /// database?
+    /// Should the sliding sync instance share its sync position through
+    /// storage?
     ///
-    /// In general, sliding sync instances will cache the stream position (`pos`
-    /// field in the request) in internal fields. It can be useful, in
-    /// multi-process scenarios, to save it into the database so that one
+    /// In general, sliding sync instances will cache the sync position (`pos`
+    /// field in the request) in internal memory. It can be useful, in
+    /// multi-process scenarios, to save it into some shared storage so that one
     /// sliding sync instance running across two different processes can
-    /// continue with the same stream position it had before being stopped.
-    pub fn restore_pos_from_database(mut self) -> Self {
-        self.restore_pos_from_database = true;
+    /// continue with the same sync position it had before being stopped.
+    pub fn share_pos(mut self) -> Self {
+        self.share_pos = true;
         self
     }
 
@@ -263,7 +263,7 @@ impl SlidingSyncBuilder {
             (None, None)
         };
 
-        let pos = if self.restore_pos_from_database { pos } else { None };
+        let pos = if self.share_pos { pos } else { None };
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
@@ -278,7 +278,7 @@ impl SlidingSyncBuilder {
 
             client,
             storage_key: self.storage_key,
-            restore_pos_from_database: self.restore_pos_from_database,
+            share_pos: self.share_pos,
 
             lists,
             rooms,
