@@ -177,7 +177,7 @@ where
             }
 
             if let Some(scope) = ctx.event_scope() {
-                writer.write_str(" | stack: ")?;
+                writer.write_str(" | spans: ")?;
                 let mut first = true;
 
                 for span in scope.from_root() {
