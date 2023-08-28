@@ -30,6 +30,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
+use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use tokio::{
     sync::{Mutex, RwLock},
@@ -469,6 +470,32 @@ impl Room {
             UnstablePollResponseEventContent::new(answers, poll_start_event_id.to_owned());
         let event_content =
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
+    }
+
+    pub fn end_poll(
+        &self,
+        poll_start_id: String,
+        text: String,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't end the poll").into());
+            }
+        };
+
+        let poll_start_event_id: &EventId =
+            poll_start_id.as_str().try_into().context("Failed to create EventId.")?;
+        let poll_end_event_content =
+            UnstablePollEndEventContent::new(text, poll_start_event_id.to_owned());
+        let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
         RUNTIME.spawn(async move {
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
