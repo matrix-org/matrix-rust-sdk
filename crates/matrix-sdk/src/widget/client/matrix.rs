@@ -1,6 +1,5 @@
 use std::result::Result as StdResult;
 
-use async_trait::async_trait;
 use ruma::{
     api::client::{
         account::request_openid_token::v3::Request as MatrixOpenIdRequest, filter::RoomEventFilter,
@@ -10,10 +9,7 @@ use ruma::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-use super::handler::{
-    Capabilities, Error, EventReader as Reader, EventSender as Sender, Filtered, OpenIdDecision,
-    OpenIdStatus, Result,
-};
+use super::handler::{Capabilities, Error, Filtered, OpenIdDecision, OpenIdStatus, Result};
 use crate::{
     event_handler::EventHandlerDropGuard,
     room::{MessagesOptions, Room},
@@ -53,16 +49,10 @@ impl<T> Driver<T> {
         Capabilities {
             listener: Filters::new(permissions.read.clone())
                 .map(|filters| self.setup_event_listener(filters)),
-            reader: Filters::new(permissions.read).map(|filters| {
-                let reader: Box<dyn Reader> =
-                    Box::new(EventServerProxy::new(self.room.clone(), filters));
-                reader
-            }),
-            sender: Filters::new(permissions.send).map(|filters| {
-                let sender: Box<dyn Sender> =
-                    Box::new(EventServerProxy::new(self.room.clone(), filters));
-                sender
-            }),
+            reader: Filters::new(permissions.read)
+                .map(|filters| EventServerProxy::new(self.room.clone(), filters)),
+            sender: Filters::new(permissions.send)
+                .map(|filters| EventServerProxy::new(self.room.clone(), filters)),
         }
     }
 
@@ -113,6 +103,7 @@ impl<T> Driver<T> {
     }
 }
 
+// TODO: Should this be two types? (one for reading, one for sending)
 #[derive(Debug)]
 pub struct EventServerProxy {
     room: Room,
@@ -123,11 +114,8 @@ impl EventServerProxy {
     fn new(room: Room, filter: Filters) -> Self {
         Self { room, filter }
     }
-}
 
-#[async_trait]
-impl Reader for EventServerProxy {
-    async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
+    pub(crate) async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
         let options = {
             let mut o = MessagesOptions::backward();
             o.limit = req.limit.into();
@@ -157,11 +145,8 @@ impl Reader for EventServerProxy {
                 .collect(),
         })
     }
-}
 
-#[async_trait]
-impl Sender for EventServerProxy {
-    async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
+    pub(crate) async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
         // Run the request through the filter.
         if !self.filter.allow(&req.event_type) {
             return Err(Error::custom("Message not allowed by filter"));

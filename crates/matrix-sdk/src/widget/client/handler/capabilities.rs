@@ -3,6 +3,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::Result;
 use crate::widget::{
+    client::matrix::EventServerProxy,
     messages::{
         from_widget::{ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse},
         MatrixEvent,
@@ -14,8 +15,8 @@ use crate::widget::{
 #[derive(Default)]
 pub struct Capabilities {
     pub listener: Option<UnboundedReceiver<MatrixEvent>>,
-    pub reader: Option<Box<dyn EventReader>>,
-    pub sender: Option<Box<dyn EventSender>>,
+    pub reader: Option<EventServerProxy>,
+    pub sender: Option<EventServerProxy>,
 }
 
 #[async_trait]

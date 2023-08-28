@@ -8,6 +8,7 @@ use std::{
 use async_channel::Sender;
 use serde_json::{from_str as from_json, to_string as to_json};
 use tokio::sync::oneshot;
+use tracing::warn;
 use uuid::Uuid;
 
 use self::handler::{IncomingRequest, MessageHandler, Outgoing, Reply, Response};
@@ -38,27 +39,28 @@ pub async fn run<T: PermissionsProvider>(client: MatrixDriver<T>, widget: Widget
         MessageHandler::new(client, widget)
     };
 
-    // Receives plain JSON string messages from a widget, parses it and passes it to
-    // the handler.
+    // Receives plain JSON string messages from a widget, parses it and passes
+    // it to the handler.
     while let Ok(raw) = widget.comm.from.recv().await {
         match from_json::<Message>(&raw) {
             Ok(msg) => match msg.action {
                 // This is an incoming request from a widget.
-                Action::FromWidget(a) => {
-                    handler.handle(IncomingRequest { header: msg.header, action: a }).await?;
+                Action::FromWidget(action) => {
+                    handler.handle(IncomingRequest { header: msg.header, action }).await?;
                 }
-                // This is a response from the widget to our request (i.e. response to the outgoing
-                // request from our perspective).
-                Action::ToWidget(a) => {
+                // This is a response from the widget to a request from the
+                // client / driver (i.e. response to the outgoing request from
+                // our perspective).
+                Action::ToWidget(action) => {
                     let pending = state
                         .lock()
                         .expect("Pending mutex poisoned")
                         .remove(&msg.header.request_id);
 
                     if let Some(tx) = pending {
-                        // It's ok if it fails here, it just means that the handler died and the
-                        // handler only dies once the widget disconnects.
-                        let _ = tx.send(a);
+                        // It's ok if send fails here, it just means that the
+                        // widget has disconnected.
+                        let _ = tx.send(action);
                     }
 
                     // TODO: We don't seem to have an error response for the
@@ -68,11 +70,12 @@ pub async fn run<T: PermissionsProvider>(client: MatrixDriver<T>, widget: Widget
                     // by us **to** the widget). Clarify that later.
                 }
             },
-            Err(..) => {
+            Err(e) => {
                 // TODO: We need to construct a message to inform the widget
                 // about the incorrectly formatted message, but it does not look
                 // like we have a well-defined error mechanism for such cases.
                 // Clarify that later.
+                warn!("Failed to parse message from widget: {e}");
             }
         }
     }
