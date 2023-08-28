@@ -78,6 +78,8 @@ pub enum AuthenticationError {
     OidcCancelled,
     #[error("An error occurred with OIDC: {message}")]
     OidcError { message: String },
+    #[error("An error caused by the cross-process OIDC refresh lock: {message}")]
+    OidcCrossProcessLockError { message: String },
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
@@ -607,7 +609,9 @@ impl AuthenticationService {
             .build_inner()?;
 
         if let Some(process_id) = self.refresh_lock_process_id.clone() {
-            client.enable_cross_process_refresh_lock(process_id);
+            client.enable_cross_process_refresh_lock(process_id).map_err(|err| {
+                AuthenticationError::OidcCrossProcessLockError { message: err.to_string() }
+            })?;
         }
 
         // Restore the client using the session from the login request.

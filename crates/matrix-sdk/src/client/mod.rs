@@ -84,7 +84,7 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{Oidc, OidcError};
+use crate::oidc::{CrossProcessRefreshManager, Oidc, OidcError, SessionTokens};
 use crate::{
     authentication::AuthData,
     config::RequestConfig,
@@ -95,7 +95,6 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    oidc::{CrossProcessRefreshManager, SessionTokens},
     store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
@@ -221,7 +220,9 @@ pub(crate) struct ClientInner {
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
     #[cfg(feature = "experimental-oidc")]
-    pub(crate) cross_process_token_refresh_lock: OnceCell<CrossProcessRefreshManager>,
+    pub(crate) cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -262,11 +263,14 @@ impl ClientInner {
         appservice_mode: bool,
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
-        #[cfg(feature = "experimental-oidc")] cross_process_token_refresh_lock: OnceCell<
+        #[cfg(feature = "experimental-oidc")] cross_process_token_refresh_manager: OnceCell<
             CrossProcessRefreshManager,
         >,
         #[cfg(feature = "experimental-oidc")] reload_oidc_session_callback: Arc<
             OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>,
+        >,
+        #[cfg(feature = "experimental-oidc")] deferred_cross_process_lock_init: Arc<
+            Mutex<Option<String>>,
         >,
     ) -> Self {
         let session_change_sender = broadcast::Sender::new(1);
@@ -302,7 +306,9 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
             #[cfg(feature = "experimental-oidc")]
-            cross_process_token_refresh_lock,
+            cross_process_token_refresh_manager,
+            #[cfg(feature = "experimental-oidc")]
+            deferred_cross_process_lock_init,
             #[cfg(feature = "experimental-oidc")]
             reload_oidc_session_callback,
         }
@@ -2084,9 +2090,11 @@ impl Client {
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
                 #[cfg(feature = "experimental-oidc")]
-                self.inner.cross_process_token_refresh_lock.clone(),
+                self.inner.cross_process_token_refresh_manager.clone(),
                 #[cfg(feature = "experimental-oidc")]
                 self.inner.reload_oidc_session_callback.clone(),
+                #[cfg(feature = "experimental-oidc")]
+                self.inner.deferred_cross_process_lock_init.clone(),
             )),
         };
 

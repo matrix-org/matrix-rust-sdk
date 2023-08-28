@@ -243,6 +243,8 @@ impl fmt::Debug for OidcAuthData {
     }
 }
 
+const CROSS_PROCESS_LOCK_KEY: &str = "oidc_session_hash";
+
 /// A high-level authentication API to interact with an OpenID Connect Provider.
 #[derive(Debug, Clone)]
 pub struct Oidc {
@@ -258,8 +260,26 @@ impl Oidc {
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes accross different processes.
     pub async fn enable_cross_process_refresh_lock(&self, lock_value: String) -> Result<()> {
+        let mut lock = self.client.inner.deferred_cross_process_lock_init.lock().await;
+        if lock.is_some() {
+            return Err(crate::Error::Oidc(CrossProcessRefreshLockError::DuplicatedLock.into()));
+        }
+        *lock = Some(lock_value);
+        Ok(())
+    }
+
+    /// Performs a deferred cross-process refresh-lock, if needs be, after an olm machine has been
+    /// initialized.
+    ///
+    /// Must be called after `set_session_meta`.
+    pub(crate) async fn deferred_enable_cross_process_refresh_lock(&self) -> Result<()> {
+        let deferred_init_lock = self.client.inner.deferred_cross_process_lock_init.lock().await;
+        let Some(lock_value) = deferred_init_lock.as_ref() else {
+            return Ok(());
+        };
+
         // If the lock has already been created, don't recreate it from scratch.
-        if let Some(prev_lock) = self.client.inner.cross_process_token_refresh_lock.get() {
+        if let Some(prev_lock) = self.client.inner.cross_process_token_refresh_manager.get() {
             let prev_holder = prev_lock.store_lock.lock_holder();
             if prev_holder == lock_value {
                 return Ok(());
@@ -267,13 +287,17 @@ impl Oidc {
             warn!("recreating cross-process store refresh token lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
         }
 
-        // TODO(bnjbvr) hacky, but wanted to try it out.
+        // FIXME TERRIBLE HACK, see also https://github.com/matrix-org/matrix-rust-sdk/issues/2472
         let olm_machine_lock = self.client.olm_machine().await;
         let olm_machine =
             olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
         let store = olm_machine.store().clone_store();
 
-        let lock = CrossProcessStoreLock::new(store.clone(), "session_lock".to_owned(), lock_value);
+        let lock = CrossProcessStoreLock::new(
+            store.clone(),
+            "oidc_session_refresh_lock".to_owned(),
+            lock_value.clone(),
+        );
 
         let manager = CrossProcessRefreshManager {
             store,
@@ -283,7 +307,7 @@ impl Oidc {
 
         self.client
             .inner
-            .cross_process_token_refresh_lock
+            .cross_process_token_refresh_manager
             .set(manager)
             .map_err(|_| crate::Error::Oidc(CrossProcessRefreshLockError::DuplicatedLock.into()))?;
 
@@ -664,8 +688,6 @@ impl Oidc {
             user: UserSession { meta, tokens, issuer_info },
         } = session;
 
-        let prev_tokens_hash = compute_session_hash(&tokens);
-
         let data = OidcAuthData {
             issuer_info,
             credentials,
@@ -675,6 +697,8 @@ impl Oidc {
         };
 
         self.client.base_client().set_session_meta(meta).await?;
+        self.deferred_enable_cross_process_refresh_lock().await?;
+
         self.client
             .inner
             .auth_data
@@ -682,34 +706,37 @@ impl Oidc {
             .expect("Client authentication data was already set");
 
         // Initialize the cross-process locking by saving our tokens' hash into the
-        // database, if needs be.
+        // database, if we've enabled the cross-process lock.
 
-        let cross_process_lock =
-            self.client.inner.cross_process_token_refresh_lock.get().ok_or_else(|| {
-                crate::Error::Oidc(CrossProcessRefreshLockError::MissingLock.into())
-            })?;
+        if let Some(cross_process_lock) =
+            self.client.inner.cross_process_token_refresh_manager.get()
+        {
+            // First, update the in-memory hash so that we can compute a meaningful hash
+            // mismatch.
+            let prev_tokens_hash = compute_session_hash(&tokens);
 
-        // First, update the in-memory hash so that we can compute a meaningful hash
-        // mismatch.
-        *cross_process_lock.known_session_hash.lock().await = Some(prev_tokens_hash);
+            *cross_process_lock.known_session_hash.lock().await = Some(prev_tokens_hash);
 
-        let mut guard =
-            cross_process_lock.spin_lock().await.map_err(|err| crate::Error::Oidc(err.into()))?;
-
-        // After we got the lock, it's possible that our session doesn't match the one
-        // read from the database, because of a race: another process has
-        // refreshed the tokens while we were waiting for the lock.
-        //
-        // In that case, if there's a mismatch, we reload the session and update the
-        // hash. Otherwise, we save our hash into the database.
-
-        if guard.hash_mismatch {
-            self.handle_session_hash_mismatch(&mut guard);
-        } else {
-            cross_process_lock
-                .notify_new_session(&tokens, &mut guard)
+            let mut guard = cross_process_lock
+                .spin_lock()
                 .await
                 .map_err(|err| crate::Error::Oidc(err.into()))?;
+
+            // After we got the lock, it's possible that our session doesn't match the one
+            // read from the database, because of a race: another process has
+            // refreshed the tokens while we were waiting for the lock.
+            //
+            // In that case, if there's a mismatch, we reload the session and update the
+            // hash. Otherwise, we save our hash into the database.
+
+            if guard.hash_mismatch {
+                self.handle_session_hash_mismatch(&mut guard);
+            } else {
+                cross_process_lock
+                    .notify_new_session(&tokens, &mut guard)
+                    .await
+                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+            }
         }
 
         Ok(())
@@ -853,7 +880,24 @@ impl Oidc {
             user_id: whoami_res.user_id,
             device_id: whoami_res.device_id.ok_or(OidcError::MissingDeviceId)?,
         };
+
         self.client.base_client().set_session_meta(session).await.map_err(crate::Error::from)?;
+        self.deferred_enable_cross_process_refresh_lock().await?;
+
+        if let Some(cross_process_manager) =
+            self.client.inner.cross_process_token_refresh_manager.get()
+        {
+            if let Some(tokens) = self.session_tokens() {
+                let mut cross_process_lock = cross_process_manager
+                    .spin_lock()
+                    .await
+                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+                cross_process_manager
+                    .notify_new_session(&tokens, &mut cross_process_lock)
+                    .await
+                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+            }
+        }
 
         Ok(())
     }
@@ -935,7 +979,7 @@ impl Oidc {
             refresh_token: response.refresh_token.clone(),
             latest_id_token: id_token,
         };
-        self.set_session_tokens(tokens);
+        self.set_session_tokens(tokens.clone());
 
         Ok(response)
     }
@@ -1002,8 +1046,7 @@ impl Oidc {
         &self,
         response_tokens: SessionTokens,
         latest_id_token: Option<IdToken<'static>>,
-        cross_process_manager: &CrossProcessRefreshManager,
-        cross_process_lock: &mut CrossProcessRefreshLockGuard,
+        cross_process_ctx: Option<CrossProcessRefreshCtx<'_>>,
     ) -> Result<(), OidcError> {
         let tokens = SessionTokens {
             access_token: response_tokens.access_token,
@@ -1012,7 +1055,9 @@ impl Oidc {
         };
 
         self.set_session_tokens(tokens.clone());
-        cross_process_manager.notify_new_session(&tokens, cross_process_lock).await?;
+        if let Some(mut ctx) = cross_process_ctx {
+            ctx.manager.notify_new_session(&tokens, &mut ctx.lock).await?;
+        }
 
         Ok(())
     }
@@ -1034,26 +1079,24 @@ impl Oidc {
     pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         let client = &self.client;
 
-        // TODO(Doug/bnjbvr) don't take the refresh_token_lock in this function?
-        let lock = client.inner.refresh_token_lock.try_lock();
+        let cross_process_ctx =
+            if let Some(manager) = self.client.inner.cross_process_token_refresh_manager.get() {
+                let mut cross_process_lock = manager
+                    .spin_lock()
+                    .await
+                    .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
 
-        // TODO(bnjbvr) make the cross-process locking optional (for Android)
-        let cross_process_manager =
-            self.client.inner.cross_process_token_refresh_lock.get().ok_or_else(|| {
-                RefreshTokenError::Oidc(Arc::new(CrossProcessRefreshLockError::MissingLock.into()))
-            })?;
+                if cross_process_lock.hash_mismatch {
+                    self.handle_session_hash_mismatch(&mut cross_process_lock);
+                    // Optimistic exit: assume that the underlying process did update fast enough.
+                    // In the worst case, we'll do another refresh Soon™.
+                    return Ok(());
+                }
 
-        let mut cross_process_lock = cross_process_manager
-            .spin_lock()
-            .await
-            .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
-
-        if cross_process_lock.hash_mismatch {
-            self.handle_session_hash_mismatch(&mut cross_process_lock);
-            // Optimistic exit: assume that the underlying process did update fast enough.
-            // In the worst case, we'll do another refresh Soon™.
-            return Ok(());
-        }
+                Some(CrossProcessRefreshCtx { manager, lock: cross_process_lock })
+            } else {
+                None
+            };
 
         macro_rules! fail {
             ($lock:expr, $err:expr) => {
@@ -1062,6 +1105,9 @@ impl Oidc {
                 return Err(error);
             };
         }
+
+        // TODO(Doug/bnjbvr) don't take the refresh_token_lock in this function?
+        let lock = client.inner.refresh_token_lock.try_lock();
 
         if let Ok(mut guard) = lock {
             let Some(session_tokens) = self.session_tokens() else {
@@ -1085,8 +1131,7 @@ impl Oidc {
                 .finish_refreshing_access_token(
                     response,
                     session_tokens.latest_id_token,
-                    cross_process_manager,
-                    &mut cross_process_lock,
+                    cross_process_ctx,
                 )
                 .await
             {
@@ -1162,6 +1207,15 @@ impl Oidc {
                     client_credentials.client_id().to_owned(),
                 )
             });
+
+        if let Some(manager) = self.client.inner.cross_process_token_refresh_manager.get() {
+            manager
+                .store
+                .remove_custom_value(CROSS_PROCESS_LOCK_KEY)
+                .await
+                .map_err(CrossProcessRefreshLockError::StoreError)?;
+            *manager.known_session_hash.lock().await = None;
+        }
 
         Ok(end_session_builder)
     }
@@ -1393,8 +1447,13 @@ fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SessionHash(u64);
+
+struct CrossProcessRefreshCtx<'a> {
+    manager: &'a CrossProcessRefreshManager,
+    lock: CrossProcessRefreshLockGuard,
+}
 
 #[derive(Clone)]
 pub(crate) struct CrossProcessRefreshManager {
@@ -1419,6 +1478,7 @@ struct CrossProcessRefreshLockGuard {
     /// database.
     hash_mismatch: bool,
 
+    /// Session hash previously stored in the DB. Used for debugging and testing purposes.
     db_hash: Option<SessionHash>,
 }
 
@@ -1468,7 +1528,7 @@ impl CrossProcessRefreshManager {
         let hash = compute_session_hash(tokens);
 
         // Store the new hash in the database.
-        self.store.set_custom_value("oidc_session_hash", hash.0.to_le_bytes().to_vec()).await?;
+        self.store.set_custom_value(CROSS_PROCESS_LOCK_KEY, hash.0.to_le_bytes().to_vec()).await?;
 
         // Update the in-memory latest known value.
         lock.update_latest_known(hash);
@@ -1493,7 +1553,7 @@ impl CrossProcessRefreshManager {
         let store_guard = self.store_lock.spin_lock(Some(60000)).await?;
 
         // Read the previous session hash in the database.
-        let current_db_session_bytes = self.store.get_custom_value("oidc_session_hash").await?;
+        let current_db_session_bytes = self.store.get_custom_value(CROSS_PROCESS_LOCK_KEY).await?;
 
         let db_hash = if let Some(val) = current_db_session_bytes {
             Some(u64::from_le_bytes(
@@ -1508,7 +1568,7 @@ impl CrossProcessRefreshManager {
         let hash_mismatch = match (db_hash, *prev_hash) {
             (None, _) => false,
             (Some(_), None) => true,
-            (Some(db), Some(known)) => db == known,
+            (Some(db), Some(known)) => db != known,
         };
 
         let guard = CrossProcessRefreshLockGuard {
@@ -1519,5 +1579,85 @@ impl CrossProcessRefreshManager {
         };
 
         Ok(guard)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_session_hash;
+    use crate::{test_utils::test_client_builder, Error};
+    use mas_oidc_client::types::{
+        client_credentials::ClientCredentials, iana::oauth::OAuthClientAuthenticationMethod,
+        registration::ClientMetadata,
+    };
+    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_test::async_test;
+    use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
+
+    use crate::oidc::{FullSession, RegisteredClientData, SessionTokens, UserSession};
+
+    fn fake_session(tokens: SessionTokens) -> FullSession {
+        FullSession {
+            client: RegisteredClientData {
+                credentials: ClientCredentials::None { client_id: "test_client_id".to_owned() },
+                metadata: {
+                    let mut metadata = ClientMetadata::default();
+                    metadata.redirect_uris = Some(vec![]);
+                    metadata.token_endpoint_auth_method =
+                        Some(OAuthClientAuthenticationMethod::None);
+                    metadata
+                }
+                .validate()
+                .expect("validate client metadata"),
+            },
+            user: UserSession {
+                meta: SessionMeta {
+                    user_id: ruma::user_id!("@u:e.uk").to_owned(),
+                    device_id: ruma::device_id!("XYZ").to_owned(),
+                },
+                tokens,
+                issuer_info: AuthenticationServerInfo::new("issuer".to_owned(), None),
+            },
+        }
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_oidc_restore_session_lock() -> Result<(), Error> {
+        // Create a client that will use sqlite databases.
+
+        let tmp_dir = tempfile::tempdir()?;
+        let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await.unwrap();
+
+        client.set_oidc_reload_session_callback(Box::new(|| {
+            panic!("reload_oidc_session_callback shouldn't be called here")
+        }))?;
+
+        client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
+
+        let tokens = SessionTokens {
+            access_token: "prev-access-token".to_owned(),
+            refresh_token: Some("prev-refresh-token".to_owned()),
+            latest_id_token: None,
+        };
+        let session_hash = compute_session_hash(&tokens);
+        client.oidc().restore_session(fake_session(tokens.clone())).await?;
+
+        assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
+
+        let xp_manager = client.inner.cross_process_token_refresh_manager.get().unwrap();
+
+        {
+            let known_session = xp_manager.known_session_hash.lock().await;
+            assert_eq!(known_session.unwrap(), session_hash);
+        }
+
+        {
+            let lock = xp_manager.spin_lock().await.unwrap();
+            assert!(!lock.hash_mismatch);
+            assert_eq!(lock.db_hash.unwrap(), session_hash);
+        }
+
+        Ok(())
     }
 }

@@ -21,6 +21,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
+use tokio::sync::Mutex;
 #[cfg(feature = "experimental-oidc")]
 use tokio::sync::OnceCell;
 use tracing::{debug, field::debug, instrument, Span};
@@ -466,6 +467,8 @@ impl ClientBuilder {
             OnceCell::new(),
             #[cfg(feature = "experimental-oidc")]
             Arc::new(OnceCell::new()),
+            #[cfg(feature = "experimental-oidc")]
+            Arc::new(Mutex::new(None)),
         ));
 
         debug!("Done building the Client");

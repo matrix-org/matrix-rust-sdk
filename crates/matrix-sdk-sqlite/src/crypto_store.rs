@@ -1182,6 +1182,16 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(())
     }
 
+    async fn remove_custom_value(&self, key: &str) -> Result<()> {
+        let key = key.to_owned();
+        self.acquire()
+            .await?
+            .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
+            .await
+            .unwrap()?;
+        Ok(())
+    }
+
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
