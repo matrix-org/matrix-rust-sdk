@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{config::SyncSettings, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{
     async_test, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder,
@@ -27,6 +27,7 @@ use matrix_sdk_ui::timeline::{
 };
 use ruma::{event_id, events::room::message::MessageType, room_id, uint, user_id};
 use serde_json::json;
+use stream_assert::assert_next_matches;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -57,7 +58,11 @@ async fn edit() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -171,7 +176,11 @@ async fn reaction() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -269,7 +278,11 @@ async fn redacted_message() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -332,7 +345,11 @@ async fn read_marker() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({
@@ -407,7 +424,11 @@ async fn in_reply_to_details() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // The event doesn't exist.
     assert_matches!(
@@ -568,7 +589,11 @@ async fn sync_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         TimelineTestEvent::Custom(json!({

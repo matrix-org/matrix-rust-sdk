@@ -16,7 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::future::join;
+use futures_util::{future::join, pin_mut};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{
     async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
@@ -53,7 +53,12 @@ async fn back_pagination() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let mut back_pagination_status = timeline.back_pagination_status();
 
     Mock::given(method("GET"))
@@ -159,7 +164,11 @@ async fn back_pagination_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let response_json = json!({
         "chunk": [

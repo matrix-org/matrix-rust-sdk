@@ -16,7 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
 use matrix_sdk_ui::timeline::{
@@ -51,7 +51,11 @@ async fn echo() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
@@ -203,7 +207,11 @@ async fn dedup_by_event_id_late() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await);
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();

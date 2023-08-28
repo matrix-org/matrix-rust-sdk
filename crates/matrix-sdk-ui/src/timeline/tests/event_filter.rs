@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -41,7 +42,11 @@ use crate::timeline::{inner::TimelineInnerSettings, TimelineItemContent};
 #[async_test]
 async fn default_filter() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // Test edits work.
     timeline
@@ -143,7 +148,11 @@ async fn custom_filter() {
         event_filter: Arc::new(|ev| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
         ..Default::default()
     });
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
@@ -178,7 +187,8 @@ async fn custom_filter() {
 
 #[async_test]
 async fn hide_failed_to_parse() {
-    let timeline = TestTimeline::new().await
+    let timeline = TestTimeline::new()
+        .await
         .with_settings(TimelineInnerSettings { add_failed_to_parse: false, ..Default::default() });
 
     // m.room.message events must have a msgtype and body in content, so this

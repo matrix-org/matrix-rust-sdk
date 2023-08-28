@@ -14,6 +14,7 @@
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use imbl::vector;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -41,7 +42,8 @@ use crate::timeline::{
 #[async_test]
 async fn initial_events() {
     let mut timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
 
     timeline
         .inner
@@ -55,12 +57,28 @@ async fn initial_events() {
         ])
         .await;
 
-    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
-    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.as_event().unwrap().sender(), *ALICE);
+    let items = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert_eq!(items.len(), 3);
+    assert_matches!(&items[0].kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_eq!(items[1].as_event().unwrap().sender(), *ALICE);
+    assert_eq!(items[2].as_event().unwrap().sender(), *BOB);
+
+    timeline
+        .inner
+        .add_initial_events(vector![
+            sync_timeline_event(
+                timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("C")),
+            ),
+            sync_timeline_event(
+                timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("D")),
+            ),
+        ])
+        .await;
+
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.as_event().unwrap().sender(), *BOB);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_eq!(item.as_event().unwrap().sender(), *ALICE);
 }
 
 #[async_test]
@@ -164,7 +182,11 @@ async fn room_member() {
 #[async_test]
 async fn other_state() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_state_event(
@@ -260,7 +282,11 @@ async fn dedup_initial() {
 #[async_test]
 async fn sanitized() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(
@@ -301,7 +327,11 @@ async fn sanitized() {
 #[async_test]
 async fn reply() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(
@@ -356,7 +386,11 @@ async fn reply() {
 #[async_test]
 async fn thread() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(

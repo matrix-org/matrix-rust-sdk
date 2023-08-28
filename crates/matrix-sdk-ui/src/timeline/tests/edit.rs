@@ -14,6 +14,7 @@
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use matrix_sdk_test::async_test;
 use ruma::{
     assign,
@@ -35,7 +36,11 @@ use crate::timeline::TimelineItemContent;
 #[async_test]
 async fn live_redacted() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
@@ -59,7 +64,11 @@ async fn live_redacted() {
 #[async_test]
 async fn live_sanitized() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(
@@ -109,7 +118,11 @@ async fn live_sanitized() {
 #[async_test]
 async fn aggregated_sanitized() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let original_event_id = EventId::new(server_name!("dummy.server"));
     let ev = json!({

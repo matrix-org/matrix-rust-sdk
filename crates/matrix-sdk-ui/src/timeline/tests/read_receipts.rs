@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use matrix_sdk_test::async_test;
 use ruma::events::{
     receipt::{ReceiptThread, ReceiptType},
@@ -25,9 +26,14 @@ use crate::timeline::inner::TimelineInnerSettings;
 
 #[async_test]
 async fn read_receipts_updates() {
-    let timeline = TestTimeline::new().await
+    let timeline = TestTimeline::new()
+        .await
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
     timeline.handle_live_message_event(*BOB, RoomMessageEventContent::text_plain("B")).await;

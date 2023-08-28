@@ -17,6 +17,7 @@ use std::{ops::RangeInclusive, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use futures_util::pin_mut;
 use imbl::vector;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -41,7 +42,12 @@ const REACTION_KEY: &str = "👍";
 #[async_test]
 async fn add_reaction_failed() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
@@ -61,7 +67,12 @@ async fn add_reaction_failed() {
 #[async_test]
 async fn add_reaction_on_non_existent_event() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let msg_id = EventId::new(server_name!("example.org")); // non existent event
     let reaction = create_reaction(&msg_id);
 
@@ -73,7 +84,12 @@ async fn add_reaction_on_non_existent_event() {
 #[async_test]
 async fn add_reaction_success() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
@@ -97,7 +113,12 @@ async fn add_reaction_success() {
 #[async_test]
 async fn redact_reaction_success() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
@@ -119,7 +140,12 @@ async fn redact_reaction_success() {
 #[async_test]
 async fn redact_reaction_failure() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
@@ -145,7 +171,12 @@ async fn redact_reaction_failure() {
 #[async_test]
 async fn redact_reaction_from_non_existent_event() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let reaction_id = EventId::new(server_name!("example.org")); // non existent event
 
     timeline
@@ -158,7 +189,12 @@ async fn redact_reaction_from_non_existent_event() {
 #[async_test]
 async fn toggle_during_request_resolves_new_action() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
@@ -209,7 +245,12 @@ async fn toggle_during_request_resolves_new_action() {
 #[async_test]
 async fn reactions_store_timestamp() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
+
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 

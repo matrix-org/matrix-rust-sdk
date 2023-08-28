@@ -27,6 +27,7 @@ use matrix_sdk_ui::timeline::{
 };
 use ruma::{room_id, RoomId};
 use serde_json::json;
+use stream_assert::assert_next_matches;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
 use crate::logged_in_client;
@@ -246,7 +247,7 @@ async fn create_one_room(
 async fn timeline(
     sliding_sync: &SlidingSync,
     room_id: &RoomId,
-) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
+) -> Result<impl Stream<Item = VectorDiff<Arc<TimelineItem>>>> {
     Ok(sliding_sync
         .get_room(room_id)
         .await
@@ -254,8 +255,7 @@ async fn timeline(
         .timeline()
         .await
         .context("`timeline`")?
-        .subscribe()
-        .await)
+        .subscribe())
 }
 
 struct SlidingSyncMatcher;
@@ -280,8 +280,11 @@ async fn test_timeline_basic() -> Result<()> {
 
     create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
 
-    let (timeline_items, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
-    assert!(timeline_items.is_empty());
+    let timeline_stream = timeline(&sliding_sync, room_id).await?;
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // Receiving a bunch of events.
     {
@@ -326,7 +329,11 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
 
-    let (_, mut timeline_stream) = timeline(&sliding_sync, room_id).await?;
+    let timeline_stream = timeline(&sliding_sync, room_id).await?;
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // Receiving events.
     {

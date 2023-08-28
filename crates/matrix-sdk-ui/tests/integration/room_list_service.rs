@@ -2266,7 +2266,30 @@ async fn test_room_timeline() -> Result<(), Error> {
     let room = room_list.room(room_id).await?;
     let timeline = room.timeline().await;
 
-    let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
+    let timeline_items_stream = timeline.subscribe();
+    pin_mut!(timeline_items_stream);
+
+    // Previous timeline items.
+    assert_matches!(
+        timeline_items_stream.next().now_or_never(),
+        Some(Some(VectorDiff::Reset { values })) => {
+            assert_eq!(values.len(), 2);
+
+            assert_matches!(
+                &**values[0],
+                TimelineItemKind::Virtual(
+                    VirtualTimelineItem::DayDivider(_)
+                )
+            );
+
+            assert_matches!(
+                &**values[1],
+                TimelineItemKind::Event(item) => {
+                    assert_eq!(item.event_id().unwrap().as_str(), "$x0:bar.org");
+                }
+            );
+        }
+    );
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2284,18 +2307,6 @@ async fn test_room_timeline() -> Result<(), Error> {
             },
         },
     };
-
-    // Previous timeline items.
-    assert_matches!(
-        **previous_timeline_items[0],
-        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
-    );
-    assert_matches!(
-        &**previous_timeline_items[1],
-        TimelineItemKind::Event(item) => {
-            assert_eq!(item.event_id().unwrap().as_str(), "$x0:bar.org");
-        }
-    );
 
     // Timeline items stream.
     assert_timeline_stream! {

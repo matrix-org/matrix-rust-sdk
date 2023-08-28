@@ -16,12 +16,13 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
 use ruma::{event_id, events::room::message::MessageType, room_id};
 use serde_json::json;
+use stream_assert::assert_next_matches;
 
 use crate::{logged_in_client, mock_sync};
 
@@ -40,11 +41,19 @@ async fn batched() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_| true).build().await;
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let timeline_stream = timeline.subscribe_batched();
 
     let hdl = tokio::spawn(async move {
+        pin_mut!(timeline_stream);
         let next_batch = timeline_stream.next().await.unwrap();
-        // One day divider, three event items
+        // One `VectorDiff::Reset`…
+        assert_eq!(next_batch.len(), 1);
+        assert_matches!(&next_batch[0], VectorDiff::Reset { values } => {
+            // … which is empty.
+            assert_eq!(values.len(), 0);
+        });
+        let next_batch = timeline_stream.next().await.unwrap();
+        // One day divider, and three event items.
         assert_eq!(next_batch.len(), 4);
     });
 
@@ -76,7 +85,11 @@ async fn event_filter() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_| true).build().await;
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
+
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let first_event_id = event_id!("$YTQwYl2ply");
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(

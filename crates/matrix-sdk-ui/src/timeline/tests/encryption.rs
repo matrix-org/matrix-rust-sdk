@@ -18,6 +18,7 @@ use std::{io::Cursor, iter};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use matrix_sdk::crypto::{decrypt_room_key_export, OlmMachine};
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -51,7 +52,11 @@ async fn retry_message_decryption() {
         -----END MEGOLM SESSION DATA-----";
 
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(
@@ -345,7 +350,11 @@ async fn retry_message_decryption_highlighted() {
         -----END MEGOLM SESSION DATA-----";
 
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     timeline
         .handle_live_message_event(

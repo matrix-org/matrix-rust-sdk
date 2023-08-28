@@ -16,7 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
@@ -227,7 +227,11 @@ async fn clear_with_echoes() {
 
     // Send a message without mocking the server response.
     {
-        let (_, mut timeline_stream) = timeline.subscribe().await;
+        let timeline_stream = timeline.subscribe();
+        pin_mut!(timeline_stream);
+
+        let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+        assert!(reset.is_empty());
 
         timeline.send(RoomMessageEventContent::text_plain("Send failure").into(), None).await;
 

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{config::SyncSettings, room::Receipts};
 use matrix_sdk_test::{
     async_test, EphemeralTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent,
@@ -28,6 +28,7 @@ use ruma::{
     events::receipt::ReceiptThread, room_id, user_id,
 };
 use serde_json::json;
+use stream_assert::assert_next_matches;
 use wiremock::{
     matchers::{body_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -57,9 +58,11 @@ async fn read_receipts_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await;
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let timeline_stream = timeline.subscribe();
+    pin_mut!(timeline_stream);
 
-    assert!(items.is_empty());
+    let reset = assert_next_matches!(timeline_stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     let own_receipt = timeline.latest_user_read_receipt(own_user_id).await;
     assert_matches!(own_receipt, None);

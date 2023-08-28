@@ -129,9 +129,10 @@ impl TestTimeline {
         self
     }
 
-    async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
-        let (items, stream) = self.inner.subscribe().await;
-        assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
+    fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
+        let stream = self.inner.subscribe();
+        // assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding
+        // items to it");
         stream
     }
 

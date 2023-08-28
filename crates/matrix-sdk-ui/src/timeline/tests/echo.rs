@@ -16,6 +16,7 @@ use std::{io, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use futures_util::pin_mut;
 use matrix_sdk::Error;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -31,7 +32,11 @@ use crate::timeline::event_item::EventSendState;
 #[async_test]
 async fn remote_echo_full_trip() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // Given a local event…
     let txn_id = timeline
@@ -115,7 +120,11 @@ async fn remote_echo_full_trip() {
 #[async_test]
 async fn remote_echo_new_position() {
     let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let reset = assert_next_matches!(stream, VectorDiff::Reset { values } => values);
+    assert!(reset.is_empty());
 
     // Given a local event…
     let txn_id = timeline
