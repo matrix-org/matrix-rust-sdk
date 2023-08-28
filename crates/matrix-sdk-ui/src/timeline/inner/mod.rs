@@ -14,12 +14,14 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
-use std::{fmt, sync::Arc};
+use std::{fmt, future::ready, sync::Arc};
 
 use async_rx::StreamExt as _;
-use eyeball_im::{ObservableVectorEntry, VectorDiff, VectorSubscriber};
+use async_stream::stream;
+use eyeball_im::{ObservableVectorEntry, VectorDiff};
 use eyeball_im_util::{FilterMapVectorSubscriber, VectorExt};
 use futures_core::Stream;
+use futures_util::{pin_mut, stream, StreamExt as _};
 use imbl::Vector;
 use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -146,23 +148,42 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.lock().await.items.clone()
     }
 
-    pub(super) async fn subscribe(
-        &self,
-    ) -> (Vector<Arc<TimelineItem>>, VectorSubscriber<Arc<TimelineItem>>) {
+    pub(super) fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
         trace!("Creating timeline items signal");
-        let state = self.state.lock().await;
-        // auto-deref to the inner vector's clone method
-        let items = state.items.clone();
-        let stream = state.items.subscribe();
-        (items, stream)
+        let state = self.state.clone();
+        let ignore_user_list_stream = self.client.subscribe_to_ignore_user_list_changes();
+
+        let stream = stream! {
+            pin_mut!(ignore_user_list_stream);
+
+            loop {
+                let (timeline_items, timeline_stream) = {
+                    let state = state.lock().await;
+
+                    (state.items.clone(), state.items.subscribe())
+                };
+
+                yield stream::once(
+                    // Reset the stream with all its items.
+                    ready(VectorDiff::Reset { values: timeline_items } ),
+                )
+                .chain(
+                    timeline_stream
+                );
+
+                // When this is fired, let's loop.
+                let _ = ignore_user_list_stream.next().await;
+            }
+        }
+        .switch();
+
+        stream
     }
 
-    pub(super) async fn subscribe_batched(
+    pub(super) fn subscribe_batched(
         &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
-        let (items, stream) = self.subscribe().await;
-        let stream = stream.batch_with(self.state.subscribe_lock_release());
-        (items, stream)
+    ) -> impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>> {
+        self.subscribe().batch_with(self.state.subscribe_lock_release())
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
