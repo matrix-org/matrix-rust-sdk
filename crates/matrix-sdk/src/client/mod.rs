@@ -674,17 +674,13 @@ impl Client {
     ///     todo!("Display the token");
     /// });
     ///
-    /// // Adding your custom data to the handler can be done as well
-    /// let data = "MyCustomIdentifier".to_owned();
+    /// // Event handler closures can also capture local variables.
+    /// // Make sure they are cheap to clone though, because they will be cloned
+    /// // every time the closure is called.
+    /// let data: std::sync::Arc<str> = "MyCustomIdentifier".into();
     ///
-    /// client.add_event_handler({
-    ///     let data = data.clone();
-    ///     move |ev: SyncRoomMessageEvent | {
-    ///         let data = data.clone();
-    ///         async move {
-    ///             println!("Calling the handler with identifier {data}");
-    ///         }
-    ///     }
+    /// client.add_event_handler(move |ev: SyncRoomMessageEvent | async move {
+    ///     println!("Calling the handler with identifier {data}");
     /// });
     /// # });
     /// ```

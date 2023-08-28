@@ -149,14 +149,11 @@ impl Client {
         > = Default::default();
         let ctrl = session_verification_controller.clone();
 
-        sdk_client.add_event_handler(move |ev: AnyToDeviceEvent| {
-            let ctrl = ctrl.clone();
-            async move {
-                if let Some(session_verification_controller) = &*ctrl.clone().read().await {
-                    session_verification_controller.process_to_device_message(ev).await;
-                } else {
-                    debug!("received to-device message, but verification controller isn't ready");
-                }
+        sdk_client.add_event_handler(move |ev: AnyToDeviceEvent| async move {
+            if let Some(session_verification_controller) = &*ctrl.clone().read().await {
+                session_verification_controller.process_to_device_message(ev).await;
+            } else {
+                debug!("received to-device message, but verification controller isn't ready");
             }
         });
 
