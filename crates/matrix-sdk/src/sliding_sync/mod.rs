@@ -877,19 +877,19 @@ struct FrozenSlidingSync {
     to_device_since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delta_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pos: Option<String>,
 }
 
 impl FrozenSlidingSync {
     async fn new(position: &SlidingSyncPositionMarkers) -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
-        Self {
-            delta_token: position.delta_token.clone(),
-            to_device_since: None,
-            pos: position.pos.clone(),
-        }
+        Self { delta_token: position.delta_token.clone(), to_device_since: None }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct FrozenSlidingSyncPos {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pos: Option<String>,
 }
 
 /// A summary of the updates received after a sync (like in
@@ -1613,6 +1613,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_doesnt_remember_pos() -> Result<()> {
         let server = MockServer::start().await;
@@ -1707,6 +1708,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_does_remember_pos() -> Result<()> {
         let server = MockServer::start().await;
