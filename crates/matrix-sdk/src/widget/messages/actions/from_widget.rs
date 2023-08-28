@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::widget::messages::{
-    Empty, EventType, MatrixEvent, MessageKind, OpenIDRequest, OpenIDResponse,
+    Empty, EventType, MatrixEvent, MessageKind, OpenIdRequest, OpenIdResponse,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -12,7 +12,7 @@ pub enum Action {
     #[serde(rename = "content_loaded")]
     ContentLoaded(MessageKind<Empty, Empty>),
     #[serde(rename = "get_openid")]
-    GetOpenID(MessageKind<OpenIDRequest, OpenIDResponse>),
+    GetOpenId(MessageKind<OpenIdRequest, OpenIdResponse>),
     #[serde(rename = "send_events")]
     SendEvent(MessageKind<SendEventRequest, SendEventResponse>),
     #[serde(rename = "org.matrix.msc2876.read_events")]

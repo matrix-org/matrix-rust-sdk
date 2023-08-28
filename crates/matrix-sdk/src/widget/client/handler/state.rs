@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::{outgoing, Capabilities, Error, OpenIDResponse, OpenIdStatus, Reply, Result};
+use super::{outgoing, Capabilities, Error, OpenIdResponse, OpenIdStatus, Reply, Result};
 use crate::widget::{
     client::{MatrixDriver, WidgetProxy},
     messages::{
@@ -81,18 +81,18 @@ impl<T: PermissionsProvider> State<T> {
                 self.reply(header, Action::GetSupportedApiVersion(response)).await?;
             }
 
-            Action::GetOpenID(Kind::Request(req)) => {
+            Action::GetOpenId(Kind::Request(req)) => {
                 let (reply, handle) = match self.client.get_openid(req.content.clone()) {
                     OpenIdStatus::Resolved(decision) => (decision.into(), None),
-                    OpenIdStatus::Pending(handle) => (OpenIDResponse::Pending, Some(handle)),
+                    OpenIdStatus::Pending(handle) => (OpenIdResponse::Pending, Some(handle)),
                 };
 
                 let response = req.map(Ok(reply));
-                self.reply(header, Action::GetOpenID(response)).await?;
+                self.reply(header, Action::GetOpenId(response)).await?;
                 if let Some(handle) = handle {
                     let status = handle.await.map_err(|_| Error::WidgetDisconnected)?;
                     self.widget
-                        .send(outgoing::OpenIDUpdated(status.into()))
+                        .send(outgoing::OpenIdUpdated(status.into()))
                         .await?
                         .map_err(Error::WidgetErrorReply)?;
                 }

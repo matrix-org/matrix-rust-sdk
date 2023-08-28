@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::widget::{
-    messages::{Empty, MatrixEvent, MessageKind, OpenIDResponse},
+    messages::{Empty, MatrixEvent, MessageKind, OpenIdResponse},
     Permissions as Capabilities,
 };
 
@@ -13,7 +13,7 @@ pub enum Action {
     #[serde(rename = "notify_capabilities")]
     CapabilitiesUpdate(MessageKind<CapabilitiesUpdatedRequest, Empty>),
     #[serde(rename = "openid_credentials")]
-    OpenIdCredentialsUpdate(MessageKind<OpenIDResponse, Empty>),
+    OpenIdCredentialsUpdate(MessageKind<OpenIdResponse, Empty>),
     #[serde(rename = "send_event")]
     SendEvent(MessageKind<MatrixEvent, Empty>),
 }

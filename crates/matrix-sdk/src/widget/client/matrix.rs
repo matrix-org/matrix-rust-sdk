@@ -22,7 +22,7 @@ use crate::{
             from_widget::{
                 ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
             },
-            EventType, MatrixEvent, OpenIDRequest, OpenIDState,
+            EventType, MatrixEvent, OpenIdRequest, OpenIdState,
         },
         EventFilter, Permissions, PermissionsProvider,
     },
@@ -66,7 +66,7 @@ impl<T> Driver<T> {
         }
     }
 
-    pub(crate) fn get_openid(&self, req: OpenIDRequest) -> OpenIdStatus {
+    pub(crate) fn get_openid(&self, req: OpenIdRequest) -> OpenIdStatus {
         let user_id = self.room.own_user_id().to_owned();
         let client = self.room.client.clone();
         let (tx, rx) = oneshot::channel();
@@ -76,7 +76,7 @@ impl<T> Driver<T> {
                     .send(MatrixOpenIdRequest::new(user_id), None)
                     .await
                     .map(|res| {
-                        OpenIdDecision::Allowed(OpenIDState {
+                        OpenIdDecision::Allowed(OpenIdState {
                             id: req.id,
                             token: res.access_token,
                             expires_in_seconds: res.expires_in.as_secs() as usize,
@@ -88,7 +88,7 @@ impl<T> Driver<T> {
             );
         });
 
-        // TODO: getting an OpenID token generally has multiple phases as per the JS
+        // TODO: getting an OpenId token generally has multiple phases as per the JS
         // implementation of the `ClientWidgetAPI`, e.g. the `MatrixDriver`
         // would normally have some state, so that if a token is requested
         // multiple times, it may return/resolve the token right away.

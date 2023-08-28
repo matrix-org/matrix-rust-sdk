@@ -17,7 +17,7 @@ use super::{MatrixDriver, WidgetProxy};
 use crate::widget::{
     messages::{
         from_widget::{Action, SupportedApiVersionsResponse},
-        Header, MessageKind, OpenIDResponse, OpenIDState,
+        Header, MessageKind, OpenIdResponse, OpenIdState,
     },
     PermissionsProvider,
 };
@@ -78,7 +78,7 @@ pub struct Reply {
 }
 
 mod openid {
-    use super::{OpenIDResponse, OpenIDState, Receiver};
+    use super::{OpenIdResponse, OpenIdState, Receiver};
 
     #[derive(Debug)]
     pub enum OpenIdStatus {
@@ -90,14 +90,14 @@ mod openid {
     #[derive(Debug, Clone)]
     pub enum OpenIdDecision {
         Blocked,
-        Allowed(OpenIDState),
+        Allowed(OpenIdState),
     }
 
-    impl From<OpenIdDecision> for OpenIDResponse {
+    impl From<OpenIdDecision> for OpenIdResponse {
         fn from(decision: OpenIdDecision) -> Self {
             match decision {
-                OpenIdDecision::Allowed(resolved) => OpenIDResponse::Allowed(resolved),
-                OpenIdDecision::Blocked => OpenIDResponse::Blocked,
+                OpenIdDecision::Allowed(resolved) => OpenIdResponse::Allowed(resolved),
+                OpenIdDecision::Blocked => OpenIdResponse::Blocked,
             }
         }
     }

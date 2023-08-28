@@ -1,6 +1,6 @@
 use crate::widget::messages::{
     to_widget::{Action, CapabilitiesResponse, CapabilitiesUpdatedRequest},
-    Empty, MessageKind as Kind, OpenIDResponse,
+    Empty, MessageKind as Kind, OpenIdResponse,
 };
 
 pub type Response<T> = Result<T, String>;
@@ -53,8 +53,8 @@ impl Request for CapabilitiesUpdate {
     }
 }
 
-pub struct OpenIDUpdated(pub OpenIDResponse);
-impl Request for OpenIDUpdated {
+pub struct OpenIdUpdated(pub OpenIdResponse);
+impl Request for OpenIdUpdated {
     type Response = Empty;
 
     fn into_action(self) -> Action {
