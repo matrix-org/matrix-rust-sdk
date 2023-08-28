@@ -247,9 +247,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [
-                        [0, 19],
-                    ],
+                    "ranges": [[0, 19]],
                     "required_state": [
                         ["m.room.avatar", ""],
                         ["m.room.encryption", ""],
@@ -266,7 +264,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         "m.sticker",
                     ],
                     "sort": ["by_recency", "by_name"],
-                    "timeline_limit": 1,
+                    "timeline_limit": 0,
                 },
             },
             "extensions": {
@@ -299,9 +297,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [
-                        [0, 199],
-                    ],
+                    "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
                     "ranges": [[0, 19]],
