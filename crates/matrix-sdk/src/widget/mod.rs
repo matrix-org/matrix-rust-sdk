@@ -2,7 +2,7 @@
 
 use async_channel::{Receiver, Sender};
 
-use self::client::{run as client_widget_api, MatrixDriver, Result};
+pub use self::client::{run as client_widget_api, MatrixDriver, Result};
 pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
 use crate::room::Room;
 

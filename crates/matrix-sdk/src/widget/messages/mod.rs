@@ -16,6 +16,7 @@ mod openid;
 pub struct Message {
     #[serde(flatten)]
     pub header: Header,
+    #[serde(flatten)]
     pub action: Action,
 }
 

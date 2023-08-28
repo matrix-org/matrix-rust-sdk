@@ -33,13 +33,13 @@ impl<T> Request<T> {
 
 impl Request<Empty> {
     pub const fn empty() -> Self {
-        Self { content: Empty }
+        Self { content: Empty {} }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response<Req, Resp> {
-    #[serde(flatten)]
+    #[serde(rename = "data")]
     pub request: Request<Req>,
     pub response: ResponseBody<Resp>,
 }
@@ -83,7 +83,7 @@ pub struct ErrorMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Empty;
+pub struct Empty {}
 
 impl<T> Request<T> {
     pub fn map<R>(self, response: Result<R, String>) -> Kind<T, R> {
