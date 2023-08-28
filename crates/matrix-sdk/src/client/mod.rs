@@ -248,8 +248,9 @@ pub(crate) struct ClientInner {
 impl ClientInner {
     /// Create a new `ClientInner`.
     ///
-    /// All the fields passed here are those that must be cloned upon instantiation of a
-    /// sub-client, e.g. a client specialized for notifications.
+    /// All the fields passed here are those that must be cloned upon
+    /// instantiation of a sub-client, e.g. a client specialized for
+    /// notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
         homeserver: Url,

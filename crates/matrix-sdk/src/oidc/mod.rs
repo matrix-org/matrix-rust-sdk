@@ -732,9 +732,11 @@ impl Oidc {
                     // TODO(Doug) update other internal state here?
                 }
                 Err(err) => {
-                    tracing::error!("When reloading OIDC session tokens from callback: {err}");
+                    tracing::error!("when reloading OIDC session tokens from callback: {err}");
                 }
             }
+        } else {
+            tracing::warn!("no reload_oidc_session_callback when handling hash mismatch; we may run into authentication conflicts with other processes");
         }
     }
 
@@ -959,13 +961,11 @@ impl Oidc {
         }
     }
 
-    async fn refresh_access_token_inner(
+    async fn request_new_access_token(
         &self,
-        mut tokens: SessionTokens,
         refresh_token: String,
-        cross_process_manager: &CrossProcessRefreshManager,
-        cross_process_lock: &mut CrossProcessRefreshLockGuard,
-    ) -> Result<(), OidcError> {
+        latest_id_token: Option<&IdToken<'_>>,
+    ) -> Result<SessionTokens, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
 
@@ -981,21 +981,35 @@ impl Oidc {
             &self.http_service(),
             data.credentials.clone(),
             provider_metadata.token_endpoint(),
-            refresh_token.clone(),
+            refresh_token,
             None,
             Some(id_token_verification_data),
-            tokens.latest_id_token.as_ref(),
+            latest_id_token,
             Utc::now(),
             &mut rng()?,
         )
         .await
         .map_err(OidcError::from)?;
 
-        tokens.access_token = response.access_token.clone();
+        Ok(SessionTokens {
+            access_token: response.access_token,
+            refresh_token: response.refresh_token,
+            latest_id_token: None,
+        })
+    }
 
-        if let Some(refresh_token) = &response.refresh_token {
-            tokens.refresh_token = Some(refresh_token.clone());
-        }
+    async fn finish_refreshing_access_token(
+        &self,
+        response_tokens: SessionTokens,
+        latest_id_token: Option<IdToken<'static>>,
+        cross_process_manager: &CrossProcessRefreshManager,
+        cross_process_lock: &mut CrossProcessRefreshLockGuard,
+    ) -> Result<(), OidcError> {
+        let tokens = SessionTokens {
+            access_token: response_tokens.access_token,
+            refresh_token: response_tokens.refresh_token,
+            latest_id_token,
+        };
 
         self.set_session_tokens(tokens.clone());
         cross_process_manager.notify_new_session(&tokens, cross_process_lock).await?;
@@ -1041,22 +1055,36 @@ impl Oidc {
             return Ok(());
         }
 
-        if let Ok(mut guard) = lock {
-            let Some(session_tokens) = self.session_tokens() else {
-                let error = RefreshTokenError::RefreshTokenRequired;
-                *guard = Err(error.clone());
+        macro_rules! fail {
+            ($lock:expr, $err:expr) => {
+                let error = $err;
+                *$lock = Err(error.clone());
                 return Err(error);
             };
-            let Some(refresh_token) = session_tokens.refresh_token.clone() else {
-                let error = RefreshTokenError::RefreshTokenRequired;
-                *guard = Err(error.clone());
-                return Err(error);
+        }
+
+        if let Ok(mut guard) = lock {
+            let Some(session_tokens) = self.session_tokens() else {
+                fail!(guard, RefreshTokenError::RefreshTokenRequired);
+            };
+            let Some(refresh_token) = session_tokens.refresh_token else {
+                fail!(guard, RefreshTokenError::RefreshTokenRequired);
+            };
+
+            let response = match self
+                .request_new_access_token(refresh_token, session_tokens.latest_id_token.as_ref())
+                .await
+            {
+                Ok(resp) => resp,
+                Err(error) => {
+                    fail!(guard, RefreshTokenError::Oidc(error.into()));
+                }
             };
 
             match self
-                .refresh_access_token_inner(
-                    session_tokens,
-                    refresh_token,
+                .finish_refreshing_access_token(
+                    response,
+                    session_tokens.latest_id_token,
                     cross_process_manager,
                     &mut cross_process_lock,
                 )
@@ -1072,9 +1100,7 @@ impl Oidc {
                     Ok(())
                 }
                 Err(error) => {
-                    let error = RefreshTokenError::Oidc(error.into());
-                    *guard = Err(error.clone());
-                    Err(error)
+                    fail!(guard, RefreshTokenError::Oidc(error.into()));
                 }
             }
         } else {
