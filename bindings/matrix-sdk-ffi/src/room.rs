@@ -30,8 +30,9 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
-use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
-use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
+use ruma::events::poll::{
+    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
+};
 use tokio::{
     sync::{Mutex, RwLock},
     task::{AbortHandle, JoinHandle},
