@@ -8,7 +8,7 @@ use tokio::sync::{
 pub(crate) use self::state::IncomingRequest;
 use self::state::{State, Task as StateTask};
 pub use self::{
-    capabilities::{Capabilities, EventReader, EventSender, Filtered},
+    capabilities::Capabilities,
     error::{Error, Result},
     openid::{OpenIdDecision, OpenIdStatus},
     outgoing::{Request as Outgoing, Response},

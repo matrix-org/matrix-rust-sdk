@@ -9,7 +9,7 @@ use ruma::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-use super::handler::{Capabilities, Error, Filtered, OpenIdDecision, OpenIdStatus, Result};
+use super::handler::{Capabilities, Error, OpenIdDecision, OpenIdStatus, Result};
 use crate::{
     event_handler::EventHandlerDropGuard,
     room::{MessagesOptions, Room},
@@ -180,10 +180,8 @@ impl EventServerProxy {
             event_id: event_id.to_string(),
         })
     }
-}
 
-impl Filtered for EventServerProxy {
-    fn filters(&self) -> &[EventFilter] {
+    pub(crate) fn filters(&self) -> &[EventFilter] {
         &self.filter.filters
     }
 }
