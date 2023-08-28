@@ -6,12 +6,11 @@ use std::{
 };
 
 use async_channel::Sender;
-use async_trait::async_trait;
 use serde_json::{from_str as from_json, to_string as to_json};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use self::handler::{IncomingRequest, MessageHandler, Outgoing, Reply, Response, WidgetProxy};
+use self::handler::{IncomingRequest, MessageHandler, Outgoing, Reply, Response};
 pub use self::{
     handler::{Error, Result},
     matrix::Driver as MatrixDriver,
@@ -35,7 +34,7 @@ pub async fn run<T: PermissionsProvider>(client: MatrixDriver<T>, widget: Widget
 
     // Create a message handler (handles incoming requests from the widget).
     let handler = {
-        let widget = WidgetSink::new(widget.info, widget.comm.to, state.clone());
+        let widget = WidgetProxy::new(widget.info, widget.comm.to, state.clone());
         MessageHandler::new(client, widget)
     };
 
@@ -85,20 +84,17 @@ pub async fn run<T: PermissionsProvider>(client: MatrixDriver<T>, widget: Widget
 /// **we** send to the widget).
 type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction>>>>;
 
-struct WidgetSink {
+pub(crate) struct WidgetProxy {
     info: WidgetInfo,
     sink: Sender<String>,
     pending: PendingResponses,
 }
 
-impl WidgetSink {
+impl WidgetProxy {
     fn new(info: WidgetInfo, sink: Sender<String>, pending: PendingResponses) -> Self {
         Self { info, sink, pending }
     }
-}
 
-#[async_trait]
-impl WidgetProxy for WidgetSink {
     async fn send<T: Outgoing>(&self, msg: T) -> Result<Response<T::Response>> {
         let id = Uuid::new_v4().to_string();
         let message = {
@@ -111,7 +107,7 @@ impl WidgetProxy for WidgetSink {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().expect("Pending mutex poisoned").insert(id, tx);
         let reply = rx.await.map_err(|_| Error::WidgetDisconnected)?;
-        Ok(T::extract_response(reply).ok_or(Error::custom("Widget sent invalid response"))?)
+        T::extract_response(reply).ok_or(Error::custom("Widget sent invalid response"))
     }
 
     async fn reply(&self, reply: Reply) -> Result<()> {

@@ -2,11 +2,9 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::{
-    outgoing, Capabilities, Error, OpenIDResponse, OpenIdStatus, Reply, Result, WidgetProxy,
-};
+use super::{outgoing, Capabilities, Error, OpenIDResponse, OpenIdStatus, Reply, Result};
 use crate::widget::{
-    client::MatrixDriver,
+    client::{MatrixDriver, WidgetProxy},
     messages::{
         from_widget::{Action, ApiVersion, SupportedApiVersionsResponse},
         to_widget::{CapabilitiesResponse, CapabilitiesUpdatedRequest},
@@ -15,25 +13,25 @@ use crate::widget::{
     Permissions, PermissionsProvider,
 };
 
-pub struct State<W, T> {
+pub(crate) struct State<T> {
     capabilities: Option<Capabilities>,
-    widget: Arc<W>,
+    widget: Arc<WidgetProxy>,
     client: MatrixDriver<T>,
 }
 
-pub enum Task {
+pub(crate) enum Task {
     NegotiateCapabilities,
     HandleIncoming(IncomingRequest),
 }
 
 #[derive(Debug, Clone)]
-pub struct IncomingRequest {
+pub(crate) struct IncomingRequest {
     pub header: Header,
     pub action: Action,
 }
 
-impl<W: WidgetProxy, T: PermissionsProvider> State<W, T> {
-    pub fn new(widget: Arc<W>, client: MatrixDriver<T>) -> Self {
+impl<T: PermissionsProvider> State<T> {
+    pub(crate) fn new(widget: Arc<WidgetProxy>, client: MatrixDriver<T>) -> Self {
         Self { capabilities: None, widget, client }
     }
 

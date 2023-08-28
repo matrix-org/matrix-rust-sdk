@@ -1,20 +1,19 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedSender},
     oneshot::Receiver,
 };
 
+pub(crate) use self::state::IncomingRequest;
 use self::state::{State, Task as StateTask};
 pub use self::{
     capabilities::{Capabilities, EventReader, EventSender, Filtered},
     error::{Error, Result},
     openid::{OpenIdDecision, OpenIdStatus},
     outgoing::{Request as Outgoing, Response},
-    state::IncomingRequest,
 };
-use super::MatrixDriver;
+use super::{MatrixDriver, WidgetProxy};
 use crate::widget::{
     messages::{
         from_widget::{Action, SupportedApiVersionsResponse},
@@ -28,21 +27,14 @@ mod error;
 mod outgoing;
 mod state;
 
-#[async_trait]
-pub trait WidgetProxy: Send + Sync + 'static {
-    async fn send<T: Outgoing>(&self, req: T) -> Result<Response<T::Response>>;
-    async fn reply(&self, reply: Reply) -> Result<()>;
-    fn init_on_load(&self) -> bool;
-}
-
 #[allow(missing_debug_implementations)]
-pub struct MessageHandler<W> {
+pub struct MessageHandler {
     state_tx: UnboundedSender<StateTask>,
-    widget: Arc<W>,
+    widget: Arc<WidgetProxy>,
 }
 
-impl<W: WidgetProxy> MessageHandler<W> {
-    pub fn new(client: MatrixDriver<impl PermissionsProvider>, widget: W) -> Self {
+impl MessageHandler {
+    pub(crate) fn new(client: MatrixDriver<impl PermissionsProvider>, widget: WidgetProxy) -> Self {
         let widget = Arc::new(widget);
 
         let (state_tx, state_rx) = unbounded_channel();
@@ -55,7 +47,7 @@ impl<W: WidgetProxy> MessageHandler<W> {
         Self { widget, state_tx }
     }
 
-    pub async fn handle(&self, req: IncomingRequest) -> Result<()> {
+    pub(crate) async fn handle(&self, req: IncomingRequest) -> Result<()> {
         match req.action {
             Action::GetSupportedApiVersion(MessageKind::Request(r)) => {
                 let response = r.map(Ok(SupportedApiVersionsResponse::new()));
