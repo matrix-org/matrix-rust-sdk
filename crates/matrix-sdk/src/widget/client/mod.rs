@@ -5,21 +5,20 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use async_channel::Sender;
 use async_trait::async_trait;
 use serde_json::{from_str as from_json, to_string as to_json};
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use self::handler::{
-    Client, IncomingRequest, MessageHandler, Outgoing, Reply, Response, WidgetProxy,
-};
+use self::handler::{IncomingRequest, MessageHandler, Outgoing, Reply, Response, WidgetProxy};
 pub use self::{
     handler::{Error, Result},
     matrix::Driver as MatrixDriver,
 };
 use super::{
     messages::{to_widget::Action as ToWidgetAction, Action, Header, Message},
-    Info as WidgetInfo, Widget,
+    PermissionsProvider, Widget, WidgetSettings as WidgetInfo,
 };
 
 mod handler;
@@ -28,7 +27,7 @@ mod matrix;
 /// Runs the client widget API handler for a given widget with a provided
 /// `client`. Returns once the widget is disconnected or some terminal error
 /// occurs.
-pub async fn run<T: Client>(client: T, mut widget: Widget) -> Result<()> {
+pub async fn run<T: PermissionsProvider>(client: MatrixDriver<T>, widget: Widget) -> Result<()> {
     // A map of outgoing requests that we are waiting a response for, i.e. a
     // requests that we sent to the widget and that we're expecting an answer
     // from.
@@ -42,12 +41,12 @@ pub async fn run<T: Client>(client: T, mut widget: Widget) -> Result<()> {
 
     // Receives plain JSON string messages from a widget, parses it and passes it to
     // the handler.
-    while let Some(raw) = widget.comm.from.recv().await {
+    while let Ok(raw) = widget.comm.from.recv().await {
         match from_json::<Message>(&raw) {
             Ok(msg) => match msg.action {
                 // This is an incoming request from a widget.
                 Action::FromWidget(a) => {
-                    handler.handle(IncomingRequest { header: msg.header, action: a })?;
+                    handler.handle(IncomingRequest { header: msg.header, action: a }).await?;
                 }
                 // This is a response from the widget to our request (i.e. response to the outgoing
                 // request from our perspective).
@@ -88,12 +87,12 @@ type PendingResponses = Arc<Mutex<HashMap<String, oneshot::Sender<ToWidgetAction
 
 struct WidgetSink {
     info: WidgetInfo,
-    sink: UnboundedSender<String>,
+    sink: Sender<String>,
     pending: PendingResponses,
 }
 
 impl WidgetSink {
-    fn new(info: WidgetInfo, sink: UnboundedSender<String>, pending: PendingResponses) -> Self {
+    fn new(info: WidgetInfo, sink: Sender<String>, pending: PendingResponses) -> Self {
         Self { info, sink, pending }
     }
 }
@@ -107,7 +106,7 @@ impl WidgetProxy for WidgetSink {
             let action = Action::ToWidget(msg.into_action());
             to_json(&Message::new(header, action)).expect("Bug: can't serialise a message")
         };
-        self.sink.send(message).map_err(|_| Error::WidgetDisconnected)?;
+        self.sink.send(message).await.map_err(|_| Error::WidgetDisconnected)?;
 
         let (tx, rx) = oneshot::channel();
         self.pending.lock().expect("Pending mutex poisoned").insert(id, tx);
@@ -115,10 +114,10 @@ impl WidgetProxy for WidgetSink {
         Ok(T::extract_response(reply).ok_or(Error::custom("Widget sent invalid response"))?)
     }
 
-    fn reply(&self, reply: Reply) -> Result<()> {
+    async fn reply(&self, reply: Reply) -> Result<()> {
         let message = to_json(&Message::new(reply.header, Action::FromWidget(reply.action)))
             .expect("Bug: can't serialise a message");
-        self.sink.send(message).map_err(|_| Error::WidgetDisconnected)
+        self.sink.send(message).await.map_err(|_| Error::WidgetDisconnected)
     }
 
     fn init_on_load(&self) -> bool {

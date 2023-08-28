@@ -3,7 +3,7 @@ use std::result::Result as StdResult;
 use async_trait::async_trait;
 use ruma::{
     api::client::{
-        account::request_openid_token::v3::Request as MatrixOpenIDRequest, filter::RoomEventFilter,
+        account::request_openid_token::v3::Request as MatrixOpenIdRequest, filter::RoomEventFilter,
     },
     events::AnySyncTimelineEvent,
     serde::Raw,
@@ -11,12 +11,12 @@ use ruma::{
 use tokio::sync::{mpsc, oneshot};
 
 use super::handler::{
-    Capabilities, Client, Error, EventReader as Reader, EventSender as Sender, Filtered,
-    OpenIDDecision, OpenIDStatus, Result,
+    Capabilities, Error, EventReader as Reader, EventSender as Sender, Filtered, OpenIdDecision,
+    OpenIdStatus, Result,
 };
 use crate::{
     event_handler::EventHandlerDropGuard,
-    room::{MessagesOptions, Room as Joined},
+    room::{MessagesOptions, Room},
     widget::{
         messages::{
             from_widget::{
@@ -30,20 +30,24 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Driver<T> {
-    room: Joined,
+    /// The room this driver is attached to.
+    ///
+    /// Expected to be a room the user is a member of (not a room in invited or
+    /// left state).
+    room: Room,
     permissions_provider: T,
     event_handler_handle: Option<EventHandlerDropGuard>,
 }
 
 impl<T> Driver<T> {
-    pub fn new(room: Joined, permissions_provider: T) -> Self {
+    pub fn new(room: Room, permissions_provider: T) -> Self {
         Self { room, permissions_provider, event_handler_handle: None }
     }
-}
 
-#[async_trait]
-impl<T: PermissionsProvider> Client for Driver<T> {
-    async fn initialise(&mut self, permissions: Permissions) -> Capabilities {
+    pub(crate) async fn initialize(&mut self, permissions: Permissions) -> Capabilities
+    where
+        T: PermissionsProvider,
+    {
         let permissions = self.permissions_provider.acquire_permissions(permissions).await;
 
         Capabilities {
@@ -62,17 +66,17 @@ impl<T: PermissionsProvider> Client for Driver<T> {
         }
     }
 
-    fn get_openid(&self, req: OpenIDRequest) -> OpenIDStatus {
+    pub(crate) fn get_openid(&self, req: OpenIDRequest) -> OpenIdStatus {
         let user_id = self.room.own_user_id().to_owned();
         let client = self.room.client.clone();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
             let _ = tx.send(
                 client
-                    .send(MatrixOpenIDRequest::new(user_id), None)
+                    .send(MatrixOpenIdRequest::new(user_id), None)
                     .await
                     .map(|res| {
-                        OpenIDDecision::Allowed(OpenIDState {
+                        OpenIdDecision::Allowed(OpenIDState {
                             id: req.id,
                             token: res.access_token,
                             expires_in_seconds: res.expires_in.as_secs() as usize,
@@ -80,7 +84,7 @@ impl<T: PermissionsProvider> Client for Driver<T> {
                             kind: res.token_type.to_string(),
                         })
                     })
-                    .unwrap_or(OpenIDDecision::Blocked),
+                    .unwrap_or(OpenIdDecision::Blocked),
             );
         });
 
@@ -89,11 +93,9 @@ impl<T: PermissionsProvider> Client for Driver<T> {
         // would normally have some state, so that if a token is requested
         // multiple times, it may return/resolve the token right away.
         // Currently, we assume that we always request a new token. Fix it later.
-        OpenIDStatus::Pending(rx)
+        OpenIdStatus::Pending(rx)
     }
-}
 
-impl<W> Driver<W> {
     fn setup_event_listener(&mut self, filter: Filters) -> mpsc::UnboundedReceiver<MatrixEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
         let callback = move |ev: Raw<AnySyncTimelineEvent>| {
@@ -113,12 +115,12 @@ impl<W> Driver<W> {
 
 #[derive(Debug)]
 pub struct EventServerProxy {
-    room: Joined,
+    room: Room,
     filter: Filters,
 }
 
 impl EventServerProxy {
-    fn new(room: Joined, filter: Filters) -> Self {
+    fn new(room: Room, filter: Filters) -> Self {
         Self { room, filter }
     }
 }

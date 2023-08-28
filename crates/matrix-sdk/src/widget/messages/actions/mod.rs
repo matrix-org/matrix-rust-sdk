@@ -6,7 +6,7 @@ pub mod to_widget;
 
 pub use self::message::{Empty, Kind as MessageKind, Request, Response};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "api")]
 pub enum Action {
     FromWidget(from_widget::Action),

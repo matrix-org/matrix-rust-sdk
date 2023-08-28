@@ -10,16 +10,17 @@ use self::state::{State, Task as StateTask};
 pub use self::{
     capabilities::{Capabilities, EventReader, EventSender, Filtered},
     error::{Error, Result},
-    openid::{OpenIDDecision, OpenIDStatus},
+    openid::{OpenIdDecision, OpenIdStatus},
     outgoing::{Request as Outgoing, Response},
     state::IncomingRequest,
 };
+use super::MatrixDriver;
 use crate::widget::{
     messages::{
         from_widget::{Action, SupportedApiVersionsResponse},
-        Header, MessageKind, OpenIDRequest, OpenIDResponse, OpenIDState,
+        Header, MessageKind, OpenIDResponse, OpenIDState,
     },
-    Permissions,
+    PermissionsProvider,
 };
 
 mod capabilities;
@@ -30,14 +31,8 @@ mod state;
 #[async_trait]
 pub trait WidgetProxy: Send + Sync + 'static {
     async fn send<T: Outgoing>(&self, req: T) -> Result<Response<T::Response>>;
-    fn reply(&self, reply: Reply) -> Result<()>;
+    async fn reply(&self, reply: Reply) -> Result<()>;
     fn init_on_load(&self) -> bool;
-}
-
-#[async_trait]
-pub trait Client: Send + Sync + 'static {
-    async fn initialise(&mut self, req: Permissions) -> Capabilities;
-    fn get_openid(&self, req: OpenIDRequest) -> OpenIDStatus;
 }
 
 #[allow(missing_debug_implementations)]
@@ -47,7 +42,7 @@ pub struct MessageHandler<W> {
 }
 
 impl<W: WidgetProxy> MessageHandler<W> {
-    pub fn new(client: impl Client, widget: W) -> Self {
+    pub fn new(client: MatrixDriver<impl PermissionsProvider>, widget: W) -> Self {
         let widget = Arc::new(widget);
 
         let (state_tx, state_rx) = unbounded_channel();
@@ -60,14 +55,16 @@ impl<W: WidgetProxy> MessageHandler<W> {
         Self { widget, state_tx }
     }
 
-    pub fn handle(&self, req: IncomingRequest) -> Result<()> {
+    pub async fn handle(&self, req: IncomingRequest) -> Result<()> {
         match req.action {
             Action::GetSupportedApiVersion(MessageKind::Request(r)) => {
                 let response = r.map(Ok(SupportedApiVersionsResponse::new()));
-                self.widget.reply(Reply {
-                    header: req.header,
-                    action: Action::GetSupportedApiVersion(response),
-                })?;
+                self.widget
+                    .reply(Reply {
+                        header: req.header,
+                        action: Action::GetSupportedApiVersion(response),
+                    })
+                    .await?;
             }
 
             _ => {
@@ -92,23 +89,23 @@ mod openid {
     use super::{OpenIDResponse, OpenIDState, Receiver};
 
     #[derive(Debug)]
-    pub enum OpenIDStatus {
+    pub enum OpenIdStatus {
         #[allow(dead_code)]
-        Resolved(OpenIDDecision),
-        Pending(Receiver<OpenIDDecision>),
+        Resolved(OpenIdDecision),
+        Pending(Receiver<OpenIdDecision>),
     }
 
     #[derive(Debug, Clone)]
-    pub enum OpenIDDecision {
+    pub enum OpenIdDecision {
         Blocked,
         Allowed(OpenIDState),
     }
 
-    impl From<OpenIDDecision> for OpenIDResponse {
-        fn from(decision: OpenIDDecision) -> Self {
+    impl From<OpenIdDecision> for OpenIDResponse {
+        fn from(decision: OpenIdDecision) -> Self {
             match decision {
-                OpenIDDecision::Allowed(resolved) => OpenIDResponse::Allowed(resolved),
-                OpenIDDecision::Blocked => OpenIDResponse::Blocked,
+                OpenIdDecision::Allowed(resolved) => OpenIDResponse::Allowed(resolved),
+                OpenIdDecision::Blocked => OpenIDResponse::Blocked,
             }
         }
     }

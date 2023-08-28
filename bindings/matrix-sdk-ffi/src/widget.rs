@@ -33,7 +33,7 @@ pub struct WidgetInfo {
     pub init_on_load: bool,
 }
 
-impl From<WidgetInfo> for matrix_sdk::widget::Info {
+impl From<WidgetInfo> for matrix_sdk::widget::WidgetSettings {
     fn from(value: WidgetInfo) -> Self {
         let WidgetInfo { id, init_on_load } = value;
         Self { id, init_on_load }

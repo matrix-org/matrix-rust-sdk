@@ -3,27 +3,22 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::{
-    outgoing, Capabilities, Client, Error, OpenIDResponse, OpenIDStatus, Reply, Result, WidgetProxy,
+    outgoing, Capabilities, Error, OpenIDResponse, OpenIdStatus, Reply, Result, WidgetProxy,
 };
 use crate::widget::{
+    client::MatrixDriver,
     messages::{
         from_widget::{Action, ApiVersion, SupportedApiVersionsResponse},
         to_widget::{CapabilitiesResponse, CapabilitiesUpdatedRequest},
         Empty, Header, MessageKind as Kind,
     },
-    Permissions,
+    Permissions, PermissionsProvider,
 };
 
-pub struct State<W, C> {
+pub struct State<W, T> {
     capabilities: Option<Capabilities>,
     widget: Arc<W>,
-    client: C,
-}
-
-impl<W, C> State<W, C> {
-    pub fn new(widget: Arc<W>, client: C) -> Self {
-        Self { capabilities: None, widget, client }
-    }
+    client: MatrixDriver<T>,
 }
 
 pub enum Task {
@@ -37,12 +32,16 @@ pub struct IncomingRequest {
     pub action: Action,
 }
 
-impl<W: WidgetProxy, C: Client> State<W, C> {
+impl<W: WidgetProxy, T: PermissionsProvider> State<W, T> {
+    pub fn new(widget: Arc<W>, client: MatrixDriver<T>) -> Self {
+        Self { capabilities: None, widget, client }
+    }
+
     pub async fn listen(mut self, mut rx: UnboundedReceiver<Task>) {
         while let Some(msg) = rx.recv().await {
             match msg {
                 Task::HandleIncoming(req) => {
-                    if let Err(..) = self.handle(req.clone()).await {
+                    if let Err(_e) = self.handle(req.clone()).await {
                         // TODO: We need to send an error to the widget if the
                         // error was "normal",
                         // i.e. a `Error::Other`. However, a
@@ -57,7 +56,7 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
                     }
                 }
                 Task::NegotiateCapabilities => {
-                    let _ = self.initialise().await;
+                    let _ = self.initialize().await;
                 }
             }
         }
@@ -73,25 +72,25 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
                         _ => (Ok(Empty {}), false),
                     };
 
-                self.reply(header, Action::ContentLoaded(req.map(response)))?;
+                self.reply(header, Action::ContentLoaded(req.map(response))).await?;
                 if negotiate {
-                    self.initialise().await?;
+                    self.initialize().await?;
                 }
             }
 
             Action::GetSupportedApiVersion(Kind::Request(req)) => {
                 let response = req.map(Ok(SupportedApiVersionsResponse::new()));
-                self.reply(header, Action::GetSupportedApiVersion(response))?;
+                self.reply(header, Action::GetSupportedApiVersion(response)).await?;
             }
 
             Action::GetOpenID(Kind::Request(req)) => {
                 let (reply, handle) = match self.client.get_openid(req.content.clone()) {
-                    OpenIDStatus::Resolved(decision) => (decision.into(), None),
-                    OpenIDStatus::Pending(handle) => (OpenIDResponse::Pending, Some(handle)),
+                    OpenIdStatus::Resolved(decision) => (decision.into(), None),
+                    OpenIdStatus::Pending(handle) => (OpenIDResponse::Pending, Some(handle)),
                 };
 
                 let response = req.map(Ok(reply));
-                self.reply(header, Action::GetOpenID(response))?;
+                self.reply(header, Action::GetOpenID(response)).await?;
                 if let Some(handle) = handle {
                     let status = handle.await.map_err(|_| Error::WidgetDisconnected)?;
                     self.widget
@@ -109,7 +108,7 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
                     .ok_or(Error::custom("No permissions to read events"))?
                     .read(req.content.clone());
                 let response = req.map(Ok(fut.await?));
-                self.reply(header, Action::ReadEvent(response))?;
+                self.reply(header, Action::ReadEvent(response)).await?;
             }
 
             Action::SendEvent(Kind::Request(req)) => {
@@ -120,7 +119,7 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
                     .ok_or(Error::custom("No permissions to send events"))?
                     .send(req.content.clone());
                 let response = req.map(Ok(fut.await?));
-                self.reply(header, Action::SendEvent(response))?;
+                self.reply(header, Action::SendEvent(response)).await?;
             }
 
             _ => {
@@ -140,14 +139,14 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
         Ok(())
     }
 
-    async fn initialise(&mut self) -> Result<()> {
+    async fn initialize(&mut self) -> Result<()> {
         let CapabilitiesResponse { capabilities: desired } = self
             .widget
             .send(outgoing::CapabilitiesRequest)
             .await?
             .map_err(Error::WidgetErrorReply)?;
 
-        let capabilities = self.client.initialise(desired.clone()).await;
+        let capabilities = self.client.initialize(desired.clone()).await;
         let approved: Permissions = (&capabilities).into();
         self.capabilities = Some(capabilities);
 
@@ -160,8 +159,8 @@ impl<W: WidgetProxy, C: Client> State<W, C> {
         Ok(())
     }
 
-    fn reply(&self, header: Header, action: Action) -> Result<()> {
-        self.widget.reply(Reply { header, action })
+    async fn reply(&self, header: Header, action: Action) -> Result<()> {
+        self.widget.reply(Reply { header, action }).await
     }
 
     fn caps(&mut self) -> Result<&mut Capabilities> {

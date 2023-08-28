@@ -1,10 +1,10 @@
 //! Widget API implementation.
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use async_channel::{Receiver, Sender};
 
 use self::client::{run as client_widget_api, MatrixDriver, Result};
 pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
-use crate::room::Room as JoinedRoom;
+use crate::room::Room;
 
 mod client;
 mod messages;
@@ -14,14 +14,14 @@ mod permissions;
 #[derive(Debug)]
 pub struct Widget {
     /// Information about the widget.
-    pub info: Info,
+    pub info: WidgetSettings,
     /// Communication channels with a widget.
     pub comm: Comm,
 }
 
 /// Information about a widget.
 #[derive(Debug)]
-pub struct Info {
+pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
     /// Whether or not the widget should be initialized on load message
@@ -34,10 +34,18 @@ pub struct Info {
 #[derive(Debug)]
 pub struct Comm {
     /// Raw incoming messages from the widget (normally, formatted as JSON).
-    pub from: UnboundedReceiver<String>,
+    ///
+    /// These can be both requests and responses. Users of this API should not
+    /// care what's what though because they are only supposed to forward
+    /// messages between the webview / iframe, and the SDK's widget driver.
+    pub from: Receiver<String>,
     /// Raw outgoing messages from the client (SDK) to the widget (normally
     /// formatted as JSON).
-    pub to: UnboundedSender<String>,
+    ///
+    /// These can be both requests and responses. Users of this API should not
+    /// care what's what though because they are only supposed to forward
+    /// messages between the webview / iframe, and the SDK's widget driver.
+    pub to: Sender<String>,
 }
 
 /// Runs client widget API for a given `widget` with a given
@@ -46,7 +54,7 @@ pub struct Comm {
 pub async fn run_client_widget_api(
     widget: Widget,
     permission_manager: impl PermissionsProvider,
-    room: JoinedRoom,
+    room: Room,
 ) -> Result<()> {
     // TODO: define a cancellation mechanism (?).
     client_widget_api(MatrixDriver::new(room, permission_manager), widget).await

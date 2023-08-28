@@ -19,12 +19,12 @@ pub struct Capabilities {
 }
 
 #[async_trait]
-pub trait EventReader: Filtered + Send {
+pub trait EventReader: Filtered + Send + Sync {
     async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse>;
 }
 
 #[async_trait]
-pub trait EventSender: Filtered + Send {
+pub trait EventSender: Filtered + Send + Sync {
     async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse>;
 }
 
