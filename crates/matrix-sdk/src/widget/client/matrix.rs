@@ -1,26 +1,27 @@
-use std::result::Result as StdResult;
-
 use ruma::{
     api::client::{
         account::request_openid_token::v3::Request as MatrixOpenIdRequest, filter::RoomEventFilter,
     },
+    assign,
     events::AnySyncTimelineEvent,
     serde::Raw,
 };
 use tokio::sync::{mpsc, oneshot};
+use tracing::warn;
 
 use super::handler::{Capabilities, Error, OpenIdDecision, OpenIdStatus, Result};
 use crate::{
     event_handler::EventHandlerDropGuard,
     room::{MessagesOptions, Room},
     widget::{
+        filter::{EventDeHelperForFilter, EventFilter},
         messages::{
             from_widget::{
                 ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
             },
-            EventType, MatrixEvent, OpenIdRequest, OpenIdState,
+            OpenIdRequest, OpenIdState,
         },
-        EventFilter, Permissions, PermissionsProvider,
+        Permissions, PermissionsProvider,
     },
 };
 
@@ -48,7 +49,7 @@ impl<T> Driver<T> {
 
         Capabilities {
             listener: Filters::new(permissions.read.clone())
-                .map(|filters| self.setup_event_listener(filters)),
+                .map(|filters| self.setup_matrix_event_handler(filters)),
             reader: Filters::new(permissions.read)
                 .map(|filters| EventServerProxy::new(self.room.clone(), filters)),
             sender: Filters::new(permissions.send)
@@ -86,12 +87,15 @@ impl<T> Driver<T> {
         OpenIdStatus::Pending(rx)
     }
 
-    fn setup_event_listener(&mut self, filter: Filters) -> mpsc::UnboundedReceiver<MatrixEvent> {
+    fn setup_matrix_event_handler(
+        &mut self,
+        filter: Filters,
+    ) -> mpsc::UnboundedReceiver<Raw<AnySyncTimelineEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let callback = move |ev: Raw<AnySyncTimelineEvent>| {
+        let callback = move |raw_ev: Raw<AnySyncTimelineEvent>| {
             let (filter, tx) = (filter.clone(), tx.clone());
-            if let Ok(msg) = ev.deserialize_as::<MatrixEvent>() {
-                filter.allow(&msg.event_type).then(|| tx.send(msg));
+            if let Ok(ev) = raw_ev.deserialize_as::<EventDeHelperForFilter>() {
+                filter.any_matches(&ev).then(|| tx.send(raw_ev));
             }
             async {}
         };
@@ -107,48 +111,53 @@ impl<T> Driver<T> {
 #[derive(Debug)]
 pub struct EventServerProxy {
     room: Room,
-    filter: Filters,
+    filters: Filters,
 }
 
 impl EventServerProxy {
     fn new(room: Room, filter: Filters) -> Self {
-        Self { room, filter }
+        Self { room, filters: filter }
     }
 
     pub(crate) async fn read(&self, req: ReadEventRequest) -> Result<ReadEventResponse> {
-        let options = {
-            let mut o = MessagesOptions::backward();
-            o.limit = req.limit.into();
-            o.filter = {
-                let mut f = RoomEventFilter::default();
-                f.types = Some(vec![req.event_type.event_type().to_string()]);
-                f
-            };
-            o
-        };
+        let options = assign!(MessagesOptions::backward(), {
+            limit: req.limit.into(),
+            filter: assign!(RoomEventFilter::default(), {
+                types: Some(vec![req.event_type.to_string()])
+            })
+        });
 
         // Fetch messages from the server.
         let messages = self.room.messages(options).await.map_err(Error::other)?;
 
-        // Iterator over deserialized state messages.
-        let state = messages.state.into_iter().map(|s| s.deserialize_as::<MatrixEvent>());
+        // TODO: These are not the events we requested, just extra context
+        // Make sure we don't need this, and delete these three lines.
+        //let state = messages.state.into_iter().map(|s|
+        // s.deserialize_as::<MatrixEvent>());
 
-        // Iterator over deserialized timeline messages.
-        let timeline = messages.chunk.into_iter().map(|m| m.event.deserialize_as());
+        // Run the timeline events through the filter.
+        let events = messages
+            .chunk
+            .into_iter()
+            .map(|ev| ev.event.cast())
+            // TODO: Log events that failed to decrypt?
+            .filter(|raw| match raw.deserialize_as() {
+                Ok(de_helper) => self.filters.any_matches(&de_helper),
+                Err(e) => {
+                    warn!("Failed to deserialize timeline event: {e}");
+                    false
+                }
+            })
+            .collect();
 
-        // Chain two iterators together and run them through the filter.
-        Ok(ReadEventResponse {
-            events: state
-                .chain(timeline)
-                .filter_map(StdResult::ok)
-                .filter(|m| self.filter.allow(&m.event_type))
-                .collect(),
-        })
+        Ok(ReadEventResponse { events })
     }
 
     pub(crate) async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
+        let de_helper = EventDeHelperForFilter::from_send_event_request(req.clone());
+
         // Run the request through the filter.
-        if !self.filter.allow(&req.event_type) {
+        if !self.filters.any_matches(&de_helper) {
             return Err(Error::custom("Message not allowed by filter"));
         }
 
@@ -158,17 +167,17 @@ impl EventServerProxy {
         // the `MatrixEvent`. I feel like stronger types would suit better here,
         // but that's how it was originally implemented by @toger5, clarify it
         // later once @jplatte reviews it.
-        let event_id = match req.event_type {
-            EventType::State { event_type, state_key } => {
+        let event_id = match req.state_key {
+            Some(state_key) => {
                 self.room
-                    .send_state_event_raw(req.content, &event_type.to_string(), &state_key)
+                    .send_state_event_raw(req.content, &req.event_type.to_string(), &state_key)
                     .await
                     .map_err(Error::other)?
                     .event_id
             }
-            EventType::MessageLike { event_type, .. } => {
+            None => {
                 self.room
-                    .send_raw(req.content, &event_type.to_string(), None)
+                    .send_raw(req.content, &req.event_type.to_string(), None)
                     .await
                     .map_err(Error::other)?
                     .event_id
@@ -182,7 +191,7 @@ impl EventServerProxy {
     }
 
     pub(crate) fn filters(&self) -> &[EventFilter] {
-        &self.filter.filters
+        &self.filters.filters
     }
 }
 
@@ -196,7 +205,7 @@ impl Filters {
         (!filters.is_empty()).then_some(Self { filters })
     }
 
-    fn allow(&self, event_type: &EventType) -> bool {
-        self.filters.iter().any(|f| event_type.matches(f))
+    fn any_matches(&self, event: &EventDeHelperForFilter) -> bool {
+        self.filters.iter().any(|f| f.matches(event))
     }
 }

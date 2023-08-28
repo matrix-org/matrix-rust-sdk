@@ -1,8 +1,10 @@
+use ruma::{
+    events::{AnySyncTimelineEvent, TimelineEventType},
+    serde::Raw,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::widget::messages::{
-    Empty, EventType, MatrixEvent, MessageKind, OpenIdRequest, OpenIdResponse,
-};
+use crate::widget::messages::{Empty, MessageKind, OpenIdRequest, OpenIdResponse};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "action")]
@@ -57,8 +59,9 @@ pub enum ApiVersion {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SendEventRequest {
-    #[serde(flatten)]
-    pub event_type: EventType,
+    #[serde(rename = "type")]
+    pub event_type: TimelineEventType,
+    pub state_key: Option<String>,
     pub content: serde_json::Value,
 }
 
@@ -70,12 +73,12 @@ pub struct SendEventResponse {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventRequest {
-    #[serde(flatten)]
-    pub event_type: EventType,
+    #[serde(rename = "type")]
+    pub event_type: TimelineEventType,
     pub limit: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReadEventResponse {
-    pub events: Vec<MatrixEvent>,
+    pub events: Vec<Raw<AnySyncTimelineEvent>>,
 }

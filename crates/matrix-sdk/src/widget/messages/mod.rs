@@ -4,12 +4,10 @@ use serde::{Deserialize, Serialize};
 
 pub use self::{
     actions::{from_widget, to_widget, Action, Empty, MessageKind, Request, Response},
-    event::{EventType, MatrixEvent},
     openid::{Request as OpenIdRequest, Response as OpenIdResponse, State as OpenIdState},
 };
 
 mod actions;
-mod event;
 mod openid;
 
 #[derive(Serialize, Deserialize, Debug)]

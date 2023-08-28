@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::ruma::events::{MessageLikeEventType, StateEventType};
+use super::filter::EventFilter;
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -24,24 +24,4 @@ pub struct Permissions {
     pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<EventFilter>,
-}
-
-/// Different kinds of filters that could be applied to the timeline events.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum EventFilter {
-    /// Message-like events.
-    MessageLike {
-        /// The type of the message-like event.
-        event_type: MessageLikeEventType,
-        /// Additional filter for the msgtype, currently only used for
-        /// `m.room.message`.
-        msgtype: Option<String>,
-    },
-    /// State events.
-    State {
-        /// The type of the state event.
-        event_type: StateEventType,
-        /// State key that could be `None`, `None` means "any state key".
-        state_key: Option<String>,
-    },
 }

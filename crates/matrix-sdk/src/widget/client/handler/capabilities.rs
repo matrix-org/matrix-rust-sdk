@@ -1,11 +1,12 @@
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::widget::{client::matrix::EventServerProxy, messages::MatrixEvent, Permissions};
+use crate::widget::{client::matrix::EventServerProxy, Permissions};
 
 #[allow(missing_debug_implementations)]
 #[derive(Default)]
 pub struct Capabilities {
-    pub listener: Option<UnboundedReceiver<MatrixEvent>>,
+    pub listener: Option<UnboundedReceiver<Raw<AnySyncTimelineEvent>>>,
     pub reader: Option<EventServerProxy>,
     pub sender: Option<EventServerProxy>,
 }

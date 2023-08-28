@@ -1,12 +1,18 @@
 //! Widget API implementation.
 
+//#![warn(unreachable_pub)]
+
 use async_channel::{Receiver, Sender};
 
-pub use self::client::{run as client_widget_api, MatrixDriver, Result};
-pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
+pub use self::{
+    client::{run as client_widget_api, MatrixDriver, Result},
+    filter::EventFilter,
+    permissions::{Permissions, PermissionsProvider},
+};
 use crate::room::Room;
 
 mod client;
+mod filter;
 mod messages;
 mod permissions;
 

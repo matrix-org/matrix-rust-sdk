@@ -2,7 +2,7 @@ use std::{borrow::Cow, error::Error as StdError, result::Result as StdResult};
 
 use thiserror::Error as ThisError;
 
-pub type Result<T> = StdResult<T, Error>;
+pub type Result<T, E = Error> = StdResult<T, E>;
 
 #[derive(Debug, ThisError)]
 pub enum Error {

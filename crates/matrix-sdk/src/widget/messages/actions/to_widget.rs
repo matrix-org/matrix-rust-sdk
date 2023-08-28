@@ -1,11 +1,12 @@
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::{Deserialize, Serialize};
 
 use crate::widget::{
-    messages::{Empty, MatrixEvent, MessageKind, OpenIdResponse},
+    messages::{Empty, MessageKind, OpenIdResponse},
     Permissions as Capabilities,
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action")]
 pub enum Action {
     #[serde(rename = "capabilities")]
@@ -15,15 +16,15 @@ pub enum Action {
     #[serde(rename = "openid_credentials")]
     OpenIdCredentialsUpdate(MessageKind<OpenIdResponse, Empty>),
     #[serde(rename = "send_event")]
-    SendEvent(MessageKind<MatrixEvent, Empty>),
+    SendEvent(MessageKind<Raw<AnySyncTimelineEvent>, Empty>),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CapabilitiesResponse {
     pub capabilities: Capabilities,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CapabilitiesUpdatedRequest {
     pub requested: Capabilities,
     pub approved: Capabilities,
