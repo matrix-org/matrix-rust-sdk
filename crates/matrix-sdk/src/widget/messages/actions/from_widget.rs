@@ -23,6 +23,7 @@ pub enum Action {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SupportedApiVersionsResponse {
+    #[serde(rename = "supported_versions")]
     pub versions: Vec<ApiVersion>,
 }
 
