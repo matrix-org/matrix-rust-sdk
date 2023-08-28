@@ -19,8 +19,8 @@ use matrix_sdk::{
                 LocationMessageEventContent as RumaLocationMessageEventContent,
                 MessageType as RumaMessageType,
                 NoticeMessageEventContent as RumaNoticeMessageEventContent,
-                RoomMessageEventContent, TextMessageEventContent as RumaTextMessageEventContent,
-                VideoInfo as RumaVideoInfo,
+                RoomMessageEventContentWithoutRelation,
+                TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
                 VideoMessageEventContent as RumaVideoMessageEventContent,
             },
             ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
@@ -43,21 +43,27 @@ pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
 }
 
 #[uniffi::export]
-pub fn message_event_content_new(msgtype: MessageType) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::new(msgtype.into()))
+pub fn message_event_content_new(
+    msgtype: MessageType,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.into()))
 }
 
 #[uniffi::export]
-pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::text_markdown(md))
+pub fn message_event_content_from_markdown(
+    md: String,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
 }
 
 #[uniffi::export]
 pub fn message_event_content_from_html(
     body: String,
     html_body: String,
-) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::text_html(body, html_body))
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
+        body, html_body,
+    )))
 }
 
 #[uniffi::export(callback_interface)]

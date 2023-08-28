@@ -20,7 +20,7 @@ use matrix_sdk::{
             relation::{Annotation, Replacement},
             room::message::{
                 AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
-                RoomMessageEvent, RoomMessageEventContent,
+                RoomMessageEvent, RoomMessageEventContentWithoutRelation,
             },
             AnyMessageLikeEventContent,
         },
@@ -386,7 +386,7 @@ impl Room {
         })
     }
 
-    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) {
+    pub fn send(&self, msg: Arc<RoomMessageEventContentWithoutRelation>, txn_id: Option<String>) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
@@ -396,7 +396,12 @@ impl Room {
         };
 
         RUNTIME.spawn(async move {
-            timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
+            timeline
+                .send(
+                    (*msg).to_owned().with_relation(None).into(),
+                    txn_id.as_deref().map(Into::into),
+                )
+                .await;
         });
     }
 
@@ -446,7 +451,7 @@ impl Room {
 
     pub fn send_reply(
         &self,
-        msg: String,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
         in_reply_to_event_id: String,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
@@ -470,7 +475,7 @@ impl Room {
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            anyhow::Ok(RoomMessageEventContent::text_markdown(msg).make_reply_to(
+            anyhow::Ok((*msg).to_owned().with_relation(None).make_reply_to(
                 original_message,
                 ForwardThread::Yes,
                 AddMentions::No,
@@ -485,7 +490,7 @@ impl Room {
 
     pub fn edit(
         &self,
-        new_msg: String,
+        new_msg: Arc<RoomMessageEventContentWithoutRelation>,
         original_event_id: String,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
@@ -510,12 +515,10 @@ impl Room {
                 bail!("Can't edit an event not sent by own user");
             }
 
-            let replacement = Replacement::new(
-                event_id.to_owned(),
-                MessageType::text_markdown(new_msg.to_owned()).into(),
-            );
+            let replacement: Replacement<RoomMessageEventContentWithoutRelation> =
+                Replacement::new(event_id.to_owned(), (*new_msg).clone().to_owned());
 
-            let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);
+            let mut edited_content = (*new_msg).clone().with_relation(None);
             edited_content.relates_to = Some(Relation::Replacement(replacement));
             Ok(edited_content)
         })?;
@@ -854,8 +857,9 @@ impl Room {
         location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
         location_event_message_content.location = Some(location_content);
 
-        let room_message_event_content =
-            RoomMessageEventContent::new(MessageType::Location(location_event_message_content));
+        let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
+            MessageType::Location(location_event_message_content),
+        );
         self.send(Arc::new(room_message_event_content), txn_id)
     }
 
@@ -878,7 +882,7 @@ impl Room {
     pub fn get_timeline_event_content_by_event_id(
         &self,
         event_id: String,
-    ) -> Result<Arc<RoomMessageEventContent>, ClientError> {
+    ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
         RUNTIME.block_on(async move {
             let timeline = self
                 .timeline
@@ -901,7 +905,7 @@ impl Room {
                 .msgtype()
                 .to_owned();
 
-            Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
+            Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
         })
     }
 
