@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{future::ready, pin_mut, StreamExt as _};
+use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
 use ruma::{
@@ -206,7 +206,7 @@ impl NotificationClient {
         let cloned_notif = notification.clone();
         let target_event_id = event_id.to_owned();
         let timeline_event_handler =
-            self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
+            self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| async move {
                 match raw.get_field::<OwnedEventId>("event_id") {
                     Ok(Some(event_id)) => {
                         if event_id == target_event_id {
@@ -220,13 +220,12 @@ impl NotificationClient {
                         tracing::warn!("could not get event id");
                     }
                 }
-                ready(())
             });
 
         let cloned_notif = notification.clone();
         let target_event_id = event_id.to_owned();
         let stripped_member_handler =
-            self.client.add_event_handler(move |raw: Raw<StrippedRoomMemberEvent>| {
+            self.client.add_event_handler(move |raw: Raw<StrippedRoomMemberEvent>| async move {
                 match raw.get_field::<OwnedEventId>("event_id") {
                     Ok(Some(event_id)) => {
                         if event_id == target_event_id {
@@ -239,7 +238,6 @@ impl NotificationClient {
                         tracing::warn!("could not get event id");
                     }
                 }
-                ready(())
             });
 
         // Room power levels are necessary to build the push context.

@@ -106,16 +106,14 @@ impl Drop for NotificationSettings {
 impl NotificationSettings {
     pub fn set_delegate(&self, delegate: Option<Box<dyn NotificationSettingsDelegate>>) {
         if let Some(delegate) = delegate {
-            let delegate = Arc::new(delegate);
-            // Declare an event handler to listen to `PushRulesEvent`
-            let handler = move |_: PushRulesEvent| {
-                let delegate = delegate.clone();
-                async move {
+            let delegate: Arc<dyn NotificationSettingsDelegate> = Arc::from(delegate);
+
+            // Add an event handler to listen to `PushRulesEvent`
+            let event_handler =
+                self.sdk_client.add_event_handler(move |_: PushRulesEvent| async move {
                     delegate.settings_did_change();
-                }
-            };
-            // Add the event handler
-            let event_handler = self.sdk_client.add_event_handler(handler);
+                });
+
             RUNTIME.block_on(async move {
                 *self.pushrules_event_handler.write().await = Some(event_handler);
             });

@@ -42,7 +42,7 @@ async fn login_and_sync(
 
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    client.add_event_handler(move |ev, room| on_room_message(ev, room, image.clone()));
+    client.add_event_handler(move |ev, room| on_room_message(ev, room, image));
 
     let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?;

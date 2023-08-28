@@ -60,17 +60,14 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
         let found_event = Arc::new(Mutex::new(false));
 
         let found_event_handler = found_event.clone();
-        user.add_event_handler(move |event: SyncRoomMessageEvent| {
-            warn!("Found a message \\o/ {:?}", event);
-            let found_event = found_event_handler.clone();
-            async move {
-                let MessageType::Text(text_content) = &event.as_original().unwrap().content.msgtype
-                else {
-                    return;
-                };
-                if text_content.body == "Hello world!" {
-                    *found_event.lock().unwrap() = true;
-                }
+        user.add_event_handler(move |event: SyncRoomMessageEvent| async move {
+            warn!("Found a message \\o/ {event:?}");
+            let MessageType::Text(text_content) = &event.as_original().unwrap().content.msgtype
+            else {
+                return;
+            };
+            if text_content.body == "Hello world!" {
+                *found_event_handler.lock().unwrap() = true;
             }
         });
 

@@ -539,10 +539,7 @@ impl AppService {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        future,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use http::{Method, Request};
     use hyper::Body;
@@ -664,9 +661,8 @@ mod tests {
         let on_state_member = Arc::new(Mutex::new(false));
         appservice.user(None).await?.add_event_handler({
             let on_state_member = on_state_member.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 *on_state_member.lock().unwrap() = true;
-                future::ready(())
             }
         });
 
@@ -816,9 +812,8 @@ mod tests {
         let on_state_member = Arc::new(Mutex::new(false));
         appservice.user(None).await?.add_event_handler({
             let on_state_member = on_state_member.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 *on_state_member.lock().unwrap() = true;
-                future::ready(())
             }
         });
 
