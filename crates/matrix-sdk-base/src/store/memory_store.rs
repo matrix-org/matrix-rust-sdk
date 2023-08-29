@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
-    canonical_json::redact,
+    canonical_json::{redact, RedactedBecause},
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -335,7 +335,7 @@ impl MemoryStore {
                                 let redacted = redact(
                                     raw_evt.deserialize_as::<CanonicalJsonObject>()?,
                                     room_version.get_or_insert_with(|| make_room_version(room_id)),
-                                    Some(redaction.try_into()?),
+                                    Some(RedactedBecause::from_raw_event(redaction)?),
                                 )
                                 .map_err(StoreError::Redaction)?;
                                 *raw_evt = Raw::new(&redacted)?.cast();

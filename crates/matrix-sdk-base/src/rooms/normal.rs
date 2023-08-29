@@ -1040,7 +1040,7 @@ fn apply_redaction(
     raw_redaction: &Raw<SyncRoomRedactionEvent>,
     room_version: &RoomVersionId,
 ) -> Option<Raw<AnySyncTimelineEvent>> {
-    use ruma::canonical_json::redact_in_place;
+    use ruma::canonical_json::{redact_in_place, RedactedBecause};
 
     let mut event_json = match event.deserialize_as() {
         Ok(json) => json,
@@ -1050,7 +1050,7 @@ fn apply_redaction(
         }
     };
 
-    let redacted_because = match raw_redaction.try_into() {
+    let redacted_because = match RedactedBecause::from_raw_event(raw_redaction) {
         Ok(rb) => rb,
         Err(e) => {
             warn!("Redaction event is not valid canonical JSON: {e}");

@@ -32,16 +32,14 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
-            message::{
-                self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
-            },
+            message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
+    html::RemoveReplyFallback,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId,
