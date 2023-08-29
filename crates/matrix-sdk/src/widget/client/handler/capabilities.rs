@@ -16,6 +16,7 @@ impl<'t> From<&'t Capabilities> for Permissions {
         Self {
             send: c.sender.as_ref().map(|e| e.filters().to_owned()).unwrap_or_default(),
             read: c.reader.as_ref().map(|e| e.filters().to_owned()).unwrap_or_default(),
+            ..Self::default()
         }
     }
 }

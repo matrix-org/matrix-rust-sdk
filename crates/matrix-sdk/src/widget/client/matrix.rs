@@ -14,7 +14,7 @@ use crate::{
     event_handler::EventHandlerDropGuard,
     room::{MessagesOptions, Room},
     widget::{
-        filter::{EventDeHelperForFilter, EventFilter},
+        filter::{MatrixEventFilterInput, EventFilter},
         messages::{
             from_widget::{
                 ReadEventRequest, ReadEventResponse, SendEventRequest, SendEventResponse,
@@ -94,7 +94,7 @@ impl<T> Driver<T> {
         let (tx, rx) = mpsc::unbounded_channel();
         let callback = move |raw_ev: Raw<AnySyncTimelineEvent>| {
             let (filter, tx) = (filter.clone(), tx.clone());
-            if let Ok(ev) = raw_ev.deserialize_as::<EventDeHelperForFilter>() {
+            if let Ok(ev) = raw_ev.deserialize_as::<MatrixEventFilterInput>() {
                 filter.any_matches(&ev).then(|| tx.send(raw_ev));
             }
             async {}
@@ -154,7 +154,7 @@ impl EventServerProxy {
     }
 
     pub(crate) async fn send(&self, req: SendEventRequest) -> Result<SendEventResponse> {
-        let de_helper = EventDeHelperForFilter::from_send_event_request(req.clone());
+        let de_helper = MatrixEventFilterInput::from_send_event_request(req.clone());
 
         // Run the request through the filter.
         if !self.filters.any_matches(&de_helper) {
@@ -205,7 +205,7 @@ impl Filters {
         (!filters.is_empty()).then_some(Self { filters })
     }
 
-    fn any_matches(&self, event: &EventDeHelperForFilter) -> bool {
+    fn any_matches(&self, event: &MatrixEventFilterInput) -> bool {
         self.filters.iter().any(|f| f.matches(event))
     }
 }
