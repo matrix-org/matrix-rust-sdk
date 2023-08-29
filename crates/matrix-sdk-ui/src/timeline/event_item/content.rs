@@ -38,10 +38,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{
-                self, sanitize::RemoveReplyFallback, MessageType, Relation,
-                RoomMessageEventContent, SyncRoomMessageEvent,
-            },
+            message::{self, MessageType, Relation, RoomMessageEventContent, SyncRoomMessageEvent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -56,6 +53,7 @@ use ruma::{
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent,
         MessageLikeEventType, OriginalSyncMessageLikeEvent, StateEventType,
     },
+    html::RemoveReplyFallback,
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, RoomVersionId,
     UserId,
 };

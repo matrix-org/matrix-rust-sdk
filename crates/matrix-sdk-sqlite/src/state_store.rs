@@ -20,7 +20,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    canonical_json::redact,
+    canonical_json::{redact, RedactedBecause},
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -1097,7 +1097,7 @@ impl StateStore for SqliteStateStore {
                             let redacted = redact(
                                 raw_event.deserialize_as::<CanonicalJsonObject>()?,
                                 room_version.get_or_insert_with(make_room_version),
-                                Some((&redaction).try_into()?),
+                                Some(RedactedBecause::from_raw_event(&redaction)?),
                             )
                             .map_err(Error::Redaction)?;
                             let data = this.serialize_json(&redacted)?;

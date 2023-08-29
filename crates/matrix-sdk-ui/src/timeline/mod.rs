@@ -40,9 +40,10 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
-        room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
+        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent,
     },
+    html::HtmlSanitizerMode,
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;

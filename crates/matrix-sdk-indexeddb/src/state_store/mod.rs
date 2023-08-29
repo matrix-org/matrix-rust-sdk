@@ -30,7 +30,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
-    canonical_json::redact,
+    canonical_json::{redact, RedactedBecause},
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -770,7 +770,7 @@ impl_state_store!({
                             let redacted = redact(
                                 raw_evt.deserialize_as::<CanonicalJsonObject>()?,
                                 version,
-                                Some(redaction.try_into()?),
+                                Some(RedactedBecause::from_raw_event(redaction)?),
                             )
                             .map_err(StoreError::Redaction)?;
                             state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
