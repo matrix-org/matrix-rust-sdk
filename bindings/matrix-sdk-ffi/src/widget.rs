@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use matrix_sdk::async_trait;
+use matrix_sdk::{
+    async_trait,
+    widget::{MessageLikeEventFilter, StateEventFilter},
+};
 
 use crate::room::Room;
 
@@ -74,31 +77,30 @@ impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
 /// Different kinds of filters that could be applied to the timeline events.
 #[derive(uniffi::Enum)]
 pub enum WidgetEventFilter {
-    /// Message-like events.
-    MessageLike {
-        /// The type of the message-like event.
-        event_type: String,
-        /// Additional filter for the msgtype, currently only used for
-        /// `m.room.message`.
-        msgtype: Option<String>,
-    },
-    /// State events.
-    State {
-        /// The type of the state event.
-        event_type: String,
-        /// State key that could be `None`, `None` means "any state key".
-        state_key: Option<String>,
-    },
+    /// Matches message-like events with the given `type`.
+    MessageLikeWithType { event_type: String },
+    /// Matches `m.room.message` events with the given `msgtype`.
+    RoomMessageWithMsgtype { msgtype: String },
+    /// Matches state events with the given `type`, regardless of `state_key`.
+    StateWithType { event_type: String },
+    /// Matches state events with the given `type` and `state_key`.
+    StateWithTypeAndStateKey { event_type: String, state_key: String },
 }
 
 impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
     fn from(value: WidgetEventFilter) -> Self {
         match value {
-            WidgetEventFilter::MessageLike { event_type, msgtype } => {
-                Self::MessageLike { event_type: event_type.into(), msgtype }
+            WidgetEventFilter::MessageLikeWithType { event_type } => {
+                Self::MessageLike(MessageLikeEventFilter::WithType(event_type.into()))
             }
-            WidgetEventFilter::State { event_type, state_key } => {
-                Self::State { event_type: event_type.into(), state_key }
+            WidgetEventFilter::RoomMessageWithMsgtype { msgtype } => {
+                Self::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype))
+            }
+            WidgetEventFilter::StateWithType { event_type } => {
+                Self::State(StateEventFilter::WithType(event_type.into()))
+            }
+            WidgetEventFilter::StateWithTypeAndStateKey { event_type, state_key } => {
+                Self::State(StateEventFilter::WithTypeAndStateKey(event_type.into(), state_key))
             }
         }
     }
@@ -109,11 +111,17 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
         use matrix_sdk::widget::EventFilter as F;
 
         match value {
-            F::MessageLike { event_type, msgtype } => {
-                Self::MessageLike { event_type: event_type.to_string(), msgtype }
+            F::MessageLike(MessageLikeEventFilter::WithType(event_type)) => {
+                Self::MessageLikeWithType { event_type: event_type.to_string() }
             }
-            F::State { event_type, state_key } => {
-                Self::State { event_type: event_type.to_string(), state_key }
+            F::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype)) => {
+                Self::RoomMessageWithMsgtype { msgtype }
+            }
+            F::State(StateEventFilter::WithType(event_type)) => {
+                Self::StateWithType { event_type: event_type.to_string() }
+            }
+            F::State(StateEventFilter::WithTypeAndStateKey(event_type, state_key)) => {
+                Self::StateWithTypeAndStateKey { event_type: event_type.to_string(), state_key }
             }
         }
     }

@@ -4,9 +4,13 @@ use async_channel::{Receiver, Sender};
 
 use crate::room::Room as JoinedRoom;
 
+mod filter;
 mod permissions;
 
-pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
+pub use self::{
+    filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
+    permissions::{Permissions, PermissionsProvider},
+};
 
 /// Describes a widget.
 #[derive(Debug)]
