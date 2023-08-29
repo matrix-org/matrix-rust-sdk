@@ -208,7 +208,7 @@ use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
-use tracing::warn;
+use tracing::{trace, warn};
 use url::Url;
 
 mod auth_code_builder;
@@ -770,6 +770,8 @@ impl Oidc {
         &self,
         guard: &mut CrossProcessRefreshLockGuard,
     ) -> Result<(), CrossProcessRefreshLockError> {
+        trace!("Handling hash mismatch.");
+
         let callback = self
             .ctx()
             .reload_oidc_session_callback
@@ -779,6 +781,11 @@ impl Oidc {
         match callback() {
             Ok(tokens) => {
                 let new_hash = compute_session_hash(&tokens);
+                trace!(
+                    "Reload OIDC session callback returned hash {:?}; db contained {:?}",
+                    new_hash,
+                    guard.db_hash
+                );
 
                 if let Some(db_hash) = &guard.db_hash {
                     if new_hash != *db_hash {
@@ -921,6 +928,15 @@ impl Oidc {
                     .spin_lock()
                     .await
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
+
+                if cross_process_lock.hash_mismatch {
+                    // At this point, we're finishing a login while another process had written
+                    // something in the database. It's likely the information in the database it
+                    // just outdated and wasn't properly updated, but display a warning, just in
+                    // case this happens frequently.
+                    warn!("cross-process hash mismatch when finishing login (see comment)");
+                }
+
                 cross_process_manager
                     .notify_new_session(&tokens, &mut cross_process_lock)
                     .await
@@ -1573,10 +1589,12 @@ impl CrossProcessRefreshManager {
     ) -> Result<CrossProcessRefreshLockGuard, CrossProcessRefreshLockError> {
         // Acquire the intra-process mutex, to avoid multiple requests across threads in
         // the current process.
+        trace!("Waiting for intra-process lock...");
         let prev_hash = self.known_session_hash.clone().lock_owned().await;
 
         // Acquire the cross-process mutex, to avoid multiple requests across different
         // processus.
+        trace!("Waiting for inter-process lock...");
         let store_guard = self.store_lock.spin_lock(Some(60000)).await?;
 
         // Read the previous session hash in the database.
@@ -1597,6 +1615,13 @@ impl CrossProcessRefreshManager {
             (Some(_), None) => true,
             (Some(db), Some(known)) => db != known,
         };
+
+        trace!(
+            "Hash mismatch? {:?} (prev. known={:?}, db={:?})",
+            hash_mismatch,
+            *prev_hash,
+            db_hash
+        );
 
         let guard = CrossProcessRefreshLockGuard {
             hash_guard: prev_hash,
