@@ -11,15 +11,15 @@ pub use self::permissions::{EventFilter, Permissions, PermissionsProvider};
 /// Describes a widget.
 #[derive(Debug)]
 pub struct Widget {
-    /// Information about the widget.
-    pub info: Info,
+    /// Settings for the widget.
+    pub settings: WidgetSettings,
     /// Communication channels with a widget.
     pub comm: Comm,
 }
 
 /// Information about a widget.
 #[derive(Debug)]
-pub struct Info {
+pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
     /// Whether or not the widget should be initialized on load message

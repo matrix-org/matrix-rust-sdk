@@ -6,8 +6,8 @@ use crate::room::Room;
 
 #[derive(uniffi::Record)]
 pub struct Widget {
-    /// Information about the widget.
-    pub info: WidgetInfo,
+    /// Settings for the widget.
+    pub settings: WidgetSettings,
     /// Communication channels with a widget.
     pub comm: Arc<WidgetComm>,
 }
@@ -16,7 +16,7 @@ impl From<Widget> for matrix_sdk::widget::Widget {
     fn from(value: Widget) -> Self {
         let comm = &value.comm.0;
         Self {
-            info: value.info.into(),
+            settings: value.settings.into(),
             comm: matrix_sdk::widget::Comm { from: comm.from.clone(), to: comm.to.clone() },
         }
     }
@@ -24,7 +24,7 @@ impl From<Widget> for matrix_sdk::widget::Widget {
 
 /// Information about a widget.
 #[derive(uniffi::Record)]
-pub struct WidgetInfo {
+pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
     /// Whether or not the widget should be initialized on load message
@@ -33,9 +33,9 @@ pub struct WidgetInfo {
     pub init_on_load: bool,
 }
 
-impl From<WidgetInfo> for matrix_sdk::widget::Info {
-    fn from(value: WidgetInfo) -> Self {
-        let WidgetInfo { id, init_on_load } = value;
+impl From<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
+    fn from(value: WidgetSettings) -> Self {
+        let WidgetSettings { id, init_on_load } = value;
         Self { id, init_on_load }
     }
 }
