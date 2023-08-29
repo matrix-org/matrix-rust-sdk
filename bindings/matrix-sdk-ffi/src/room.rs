@@ -452,10 +452,10 @@ impl Room {
         Ok(())
     }
 
-    pub fn send_poll_vote(
+    pub fn send_poll_response(
         &self,
-        answers: Vec<String>,
         poll_start_id: String,
+        answers: Vec<String>,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
