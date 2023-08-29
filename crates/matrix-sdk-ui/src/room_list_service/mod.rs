@@ -82,7 +82,8 @@ pub use room::*;
 pub use room_list::*;
 use ruma::{
     api::client::sync::sync_events::v4::{
-        AccountDataConfig, E2EEConfig, SyncRequestListFilters, ToDeviceConfig,
+        AccountDataConfig, E2EEConfig, ReceiptsConfig, RoomReceiptConfig, SyncRequestListFilters,
+        ToDeviceConfig,
     },
     assign,
     events::{StateEventType, TimelineEventType},
@@ -149,7 +150,11 @@ impl RoomListService {
             .map_err(Error::SlidingSync)?
             .with_account_data_extension(
                 assign!(AccountDataConfig::default(), { enabled: Some(true) }),
-            );
+            )
+            .with_receipt_extension(assign!(ReceiptsConfig::default(), {
+                enabled: Some(true),
+                rooms: Some(vec![RoomReceiptConfig::AllSubscribed])
+            }));
 
         if with_encryption {
             builder = builder
