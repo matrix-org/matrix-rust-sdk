@@ -75,6 +75,7 @@ use crate::{
     error::WrongRoomState,
     event_handler::{EventHandler, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
+    notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     sync::RoomUpdate,
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomState, TransmissionProgress,
 };
@@ -2357,6 +2358,33 @@ impl Room {
             Ok(())
         } else {
             Err(Error::WrongRoomState(WrongRoomState::new("Joined", state)))
+        }
+    }
+
+    /// Get the notification mode
+    pub async fn notification_mode(&self) -> Option<RoomNotificationMode> {
+        if !matches!(self.state(), RoomState::Joined) {
+            return None;
+        }
+        let notification_settings = self.client().notification_settings().await;
+
+        // Get the user-defined mode if available
+        let notification_mode =
+            notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
+        if notification_mode.is_some() {
+            notification_mode
+        } else if let Ok(is_encrypted) = self.is_encrypted().await {
+            // Otherwise, if encrypted status is available, get the default mode for this
+            // type of room.
+            // From the point of view of notification settings, a `one-to-one` room is one
+            // that involves exactly two people.
+            let is_one_to_one = IsOneToOne::from(self.active_members_count() == 2);
+            let default_mode = notification_settings
+                .get_default_room_notification_mode(IsEncrypted::from(is_encrypted), is_one_to_one)
+                .await;
+            Some(default_mode)
+        } else {
+            None
         }
     }
 }
