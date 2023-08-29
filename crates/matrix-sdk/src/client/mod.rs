@@ -259,10 +259,9 @@ impl ClientInner {
         appservice_mode: bool,
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
+        session_change_sender: broadcast::Sender<SessionChange>,
         #[cfg(feature = "experimental-oidc")] oidc_context: Arc<OidcContext>,
     ) -> Self {
-        let session_change_sender = broadcast::Sender::new(1);
-
         Self {
             homeserver: RwLock::new(homeserver),
             authentication_server_info,
@@ -2073,6 +2072,7 @@ impl Client {
                 self.inner.appservice_mode,
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
+                self.inner.session_change_sender.clone(),
                 #[cfg(feature = "experimental-oidc")]
                 self.inner.oidc_context.clone(),
             )),

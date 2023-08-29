@@ -452,6 +452,7 @@ impl ClientBuilder {
 
         let homeserver = Url::parse(&homeserver)?;
 
+        let session_change_sender = tokio::sync::broadcast::Sender::new(1);
         let inner = Arc::new(ClientInner::new(
             homeserver,
             authentication_server_info,
@@ -463,6 +464,7 @@ impl ClientBuilder {
             self.appservice_mode,
             self.respect_login_well_known,
             self.handle_refresh_tokens,
+            session_change_sender,
             #[cfg(feature = "experimental-oidc")]
             Arc::new(OidcContext::default()),
         ));
