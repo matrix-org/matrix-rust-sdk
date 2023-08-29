@@ -32,9 +32,17 @@ pub struct WidgetSettings {
 #[derive(Debug)]
 pub struct Comm {
     /// Raw incoming messages from the widget (normally, formatted as JSON).
+    ///
+    /// These can be both requests and responses. Users of this API should not
+    /// care what's what though because they are only supposed to forward
+    /// messages between the webview / iframe, and the SDK's widget driver.
     pub from: Receiver<String>,
     /// Raw outgoing messages from the client (SDK) to the widget (normally
     /// formatted as JSON).
+    ///
+    /// These can be both requests and responses. Users of this API should not
+    /// care what's what though because they are only supposed to forward
+    /// messages between the webview / iframe, and the SDK's widget driver.
     pub to: Sender<String>,
 }
 
