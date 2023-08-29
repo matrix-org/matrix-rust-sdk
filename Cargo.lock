@@ -3048,6 +3048,7 @@ version = "0.6.2"
 dependencies = [
  "anyhow",
  "anymap2",
+ "assert-json-diff",
  "assert_matches",
  "async-channel",
  "async-stream",

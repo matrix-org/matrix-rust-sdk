@@ -138,6 +138,7 @@ tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+assert-json-diff = "2.0"
 assert_matches = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }

@@ -993,8 +993,10 @@ fn compute_limited(
 mod tests {
     use std::{
         collections::BTreeMap,
+        future::ready,
         ops::Not,
         sync::{Arc, Mutex},
+        time::Duration,
     };
 
     use assert_matches::assert_matches;
@@ -1975,6 +1977,118 @@ mod tests {
         for result in requests.await {
             result?;
         }
+
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // b/o tokio::time::sleep
+    #[async_test]
+    async fn test_aborted_request_doesnt_update_future_requests() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let pos = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |_: &Request| {
+                let mut pos = pos.lock().unwrap();
+                *pos += 1;
+                // Respond slowly enough that we can skip one iteration.
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "pos": pos.to_string(),
+                        "lists": {},
+                        "rooms": {}
+                    }))
+                    .set_delay(Duration::from_secs(2))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let sliding_sync =
+            client
+                .sliding_sync("test")?
+                .add_list(SlidingSyncList::builder("room-list").sync_mode(
+                    SlidingSyncMode::new_growing(10).maximum_number_of_rooms_to_fetch(100),
+                ))
+                .add_list(
+                    SlidingSyncList::builder("another-list")
+                        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                )
+                .build()
+                .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        let cloned_sync = sliding_sync.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            cloned_sync
+                .on_list("another-list", |list| {
+                    list.set_sync_mode(SlidingSyncMode::new_selective().add_range(10..=20));
+                    ready(())
+                })
+                .await;
+        });
+
+        assert_matches!(stream.next().await, Some(Ok(_)));
+
+        sliding_sync.stop_sync().unwrap();
+
+        assert_matches!(stream.next().await, None);
+
+        let mut num_requests = 0;
+
+        for request in server.received_requests().await.unwrap() {
+            if !SlidingSyncMatcher.matches(&request) {
+                continue;
+            }
+
+            let another_list_ranges = if num_requests == 0 {
+                // First request
+                json!([[0, 10]])
+            } else {
+                // Second request
+                json!([[10, 20]])
+            };
+
+            num_requests += 1;
+            assert!(num_requests <= 2, "more than one request hit the server");
+
+            let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+            if let Err(err) = assert_json_diff::assert_json_matches_no_panic(
+                &json_value,
+                &json!({
+                    "conn_id": "test",
+                    "lists": {
+                        "room-list": {
+                            "ranges": [[0, 9]],
+                            "required_state": [
+                                ["m.room.encryption", ""],
+                                ["m.room.tombstone", ""]
+                            ],
+                            "sort": ["by_recency", "by_name"]
+                        },
+                        "another-list": {
+                            "ranges": another_list_ranges,
+                            "required_state": [
+                                ["m.room.encryption", ""],
+                                ["m.room.tombstone", ""]
+                            ],
+                            "sort": ["by_recency", "by_name"]
+                        },
+                    }
+                }),
+                assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
+            ) {
+                dbg!(json_value);
+                panic!("json differ: {err}");
+            }
+        }
+
+        assert_eq!(num_requests, 2);
 
         Ok(())
     }
