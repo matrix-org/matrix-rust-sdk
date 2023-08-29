@@ -270,6 +270,10 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "extensions": {
                 "account_data": {
                     "enabled": true
+                },
+                "receipts": {
+                    "enabled": true,
+                    "rooms": ["*"]
                 }
             },
         },
