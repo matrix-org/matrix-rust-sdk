@@ -21,16 +21,16 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
-#[cfg(feature = "experimental-oidc")]
-use tokio::sync::OnceCell;
 use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
 use super::{Client, ClientInner};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
-use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
+use crate::{
+    config::RequestConfig, error::RumaApiError, http_client::HttpClient, oidc::OidcContext,
+    HttpError,
+};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
@@ -464,11 +464,7 @@ impl ClientBuilder {
             self.respect_login_well_known,
             self.handle_refresh_tokens,
             #[cfg(feature = "experimental-oidc")]
-            OnceCell::new(),
-            #[cfg(feature = "experimental-oidc")]
-            Arc::new(OnceCell::new()),
-            #[cfg(feature = "experimental-oidc")]
-            Arc::new(Mutex::new(None)),
+            Arc::new(OidcContext::default()),
         ));
 
         debug!("Done building the Client");

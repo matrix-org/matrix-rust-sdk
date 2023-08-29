@@ -84,7 +84,9 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{CrossProcessRefreshManager, Oidc, OidcError, SessionTokens};
+use crate::oidc::OidcContext;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::{Oidc, OidcError};
 use crate::{
     authentication::AuthData,
     config::RequestConfig,
@@ -198,10 +200,6 @@ pub(crate) struct ClientInner {
     /// Lock making sure we're only doing one token refresh at a time.
     pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
 
-    #[cfg(feature = "experimental-oidc")]
-    pub(crate) reload_oidc_session_callback:
-        Arc<OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>>,
-
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -220,9 +218,7 @@ pub(crate) struct ClientInner {
         OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
     #[cfg(feature = "experimental-oidc")]
-    pub(crate) cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
-    #[cfg(feature = "experimental-oidc")]
-    pub(crate) deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    pub(crate) oidc_context: Arc<OidcContext>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -263,15 +259,7 @@ impl ClientInner {
         appservice_mode: bool,
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
-        #[cfg(feature = "experimental-oidc")] cross_process_token_refresh_manager: OnceCell<
-            CrossProcessRefreshManager,
-        >,
-        #[cfg(feature = "experimental-oidc")] reload_oidc_session_callback: Arc<
-            OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>,
-        >,
-        #[cfg(feature = "experimental-oidc")] deferred_cross_process_lock_init: Arc<
-            Mutex<Option<String>>,
-        >,
+        #[cfg(feature = "experimental-oidc")] oidc_context: Arc<OidcContext>,
     ) -> Self {
         let session_change_sender = broadcast::Sender::new(1);
 
@@ -306,11 +294,7 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
             #[cfg(feature = "experimental-oidc")]
-            cross_process_token_refresh_manager,
-            #[cfg(feature = "experimental-oidc")]
-            deferred_cross_process_lock_init,
-            #[cfg(feature = "experimental-oidc")]
-            reload_oidc_session_callback,
+            oidc_context,
         }
     }
 }
@@ -2090,11 +2074,7 @@ impl Client {
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
                 #[cfg(feature = "experimental-oidc")]
-                self.inner.cross_process_token_refresh_manager.clone(),
-                #[cfg(feature = "experimental-oidc")]
-                self.inner.reload_oidc_session_callback.clone(),
-                #[cfg(feature = "experimental-oidc")]
-                self.inner.deferred_cross_process_lock_init.clone(),
+                self.inner.oidc_context.clone(),
             )),
         };
 
@@ -2104,20 +2084,6 @@ impl Client {
         }
 
         Ok(client)
-    }
-
-    /// Sets a callback to reload OIDC session tokens.
-    ///
-    /// Will cause an error if the callback has already been defined before.
-    #[cfg(feature = "experimental-oidc")]
-    pub fn set_oidc_reload_session_callback(
-        &self,
-        callback: Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>,
-    ) -> Result<()> {
-        self.inner
-            .reload_oidc_session_callback
-            .set(callback)
-            .map_err(|_| OidcError::MultipleReloadCallbacks.into())
     }
 }
 

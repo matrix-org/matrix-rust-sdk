@@ -182,14 +182,6 @@ impl Client {
             }
         });
 
-        let client_clone = client.clone();
-        if let Err(err) = client
-            .inner
-            .set_oidc_reload_session_callback(Box::new(move || client_clone.retrieve_session()))
-        {
-            error!("unable to set_oidc_reload_session_callback: {err}");
-        }
-
         client
     }
 }
@@ -263,7 +255,14 @@ impl Client {
 
     pub fn enable_cross_process_refresh_lock(&self, process_id: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async {
-            self.inner.oidc().enable_cross_process_refresh_lock(process_id).await
+            let client_clone = self.clone();
+            self.inner
+                .oidc()
+                .enable_cross_process_refresh_lock(
+                    process_id,
+                    Box::new(move || client_clone.retrieve_session()),
+                )
+                .await
         })?;
         Ok(())
     }

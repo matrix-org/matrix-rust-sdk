@@ -226,6 +226,14 @@ use crate::{
     Client, RefreshTokenError, Result,
 };
 
+#[derive(Default)]
+pub(crate) struct OidcContext {
+    pub cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
+    pub deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    pub reload_oidc_session_callback:
+        Arc<OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>>,
+}
+
 pub(crate) struct OidcAuthData {
     pub(crate) issuer_info: AuthenticationServerInfo,
     pub(crate) credentials: ClientCredentials,
@@ -257,29 +265,47 @@ impl Oidc {
         Self { client }
     }
 
+    fn ctx(&self) -> &OidcContext {
+        &self.client.inner.oidc_context
+    }
+
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes accross different processes.
-    pub async fn enable_cross_process_refresh_lock(&self, lock_value: String) -> Result<()> {
-        let mut lock = self.client.inner.deferred_cross_process_lock_init.lock().await;
+    pub async fn enable_cross_process_refresh_lock(
+        &self,
+        lock_value: String,
+        reload_oidc_session_callback: Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>,
+    ) -> Result<(), OidcError> {
+        // FIXME: it must be deferred only because we're using the crypto store and it's
+        // initialized only in `set_session_meta`, not if we use a dedicated
+        // store.
+        let mut lock = self.ctx().deferred_cross_process_lock_init.lock().await;
         if lock.is_some() {
-            return Err(crate::Error::Oidc(CrossProcessRefreshLockError::DuplicatedLock.into()));
+            return Err(CrossProcessRefreshLockError::DuplicatedLock.into());
         }
         *lock = Some(lock_value);
+
+        self.ctx()
+            .reload_oidc_session_callback
+            .set(reload_oidc_session_callback)
+            .map_err(|_| CrossProcessRefreshLockError::DuplicatedLock)?;
+
         Ok(())
     }
 
-    /// Performs a deferred cross-process refresh-lock, if needs be, after an olm machine has been
-    /// initialized.
+    /// Performs a deferred cross-process refresh-lock, if needs be, after an
+    /// olm machine has been initialized.
     ///
     /// Must be called after `set_session_meta`.
-    pub(crate) async fn deferred_enable_cross_process_refresh_lock(&self) -> Result<()> {
-        let deferred_init_lock = self.client.inner.deferred_cross_process_lock_init.lock().await;
+    async fn deferred_enable_cross_process_refresh_lock(&self) -> Result<()> {
+        let deferred_init_lock =
+            self.client.inner.oidc_context.deferred_cross_process_lock_init.lock().await;
         let Some(lock_value) = deferred_init_lock.as_ref() else {
             return Ok(());
         };
 
         // If the lock has already been created, don't recreate it from scratch.
-        if let Some(prev_lock) = self.client.inner.cross_process_token_refresh_manager.get() {
+        if let Some(prev_lock) = self.ctx().cross_process_token_refresh_manager.get() {
             let prev_holder = prev_lock.store_lock.lock_holder();
             if prev_holder == lock_value {
                 return Ok(());
@@ -305,8 +331,7 @@ impl Oidc {
             known_session_hash: Arc::new(Mutex::new(None)),
         };
 
-        self.client
-            .inner
+        self.ctx()
             .cross_process_token_refresh_manager
             .set(manager)
             .map_err(|_| crate::Error::Oidc(CrossProcessRefreshLockError::DuplicatedLock.into()))?;
@@ -708,9 +733,7 @@ impl Oidc {
         // Initialize the cross-process locking by saving our tokens' hash into the
         // database, if we've enabled the cross-process lock.
 
-        if let Some(cross_process_lock) =
-            self.client.inner.cross_process_token_refresh_manager.get()
-        {
+        if let Some(cross_process_lock) = self.ctx().cross_process_token_refresh_manager.get() {
             // First, update the in-memory hash so that we can compute a meaningful hash
             // mismatch.
             let prev_tokens_hash = compute_session_hash(&tokens);
@@ -730,7 +753,8 @@ impl Oidc {
             // hash. Otherwise, we save our hash into the database.
 
             if guard.hash_mismatch {
-                self.handle_session_hash_mismatch(&mut guard);
+                self.handle_session_hash_mismatch(&mut guard)
+                    .map_err(|err| crate::Error::Oidc(err.into()))?;
             } else {
                 cross_process_lock
                     .notify_new_session(&tokens, &mut guard)
@@ -742,29 +766,36 @@ impl Oidc {
         Ok(())
     }
 
-    fn handle_session_hash_mismatch(&self, guard: &mut CrossProcessRefreshLockGuard) {
-        if let Some(callback) = self.client.inner.reload_oidc_session_callback.get() {
-            match callback() {
-                Ok(tokens) => {
-                    let new_hash = compute_session_hash(&tokens);
+    fn handle_session_hash_mismatch(
+        &self,
+        guard: &mut CrossProcessRefreshLockGuard,
+    ) -> Result<(), CrossProcessRefreshLockError> {
+        let callback = self
+            .ctx()
+            .reload_oidc_session_callback
+            .get()
+            .ok_or(CrossProcessRefreshLockError::MissingLock)?;
 
-                    if let Some(db_hash) = &guard.db_hash {
-                        if new_hash != *db_hash {
-                            tracing::error!("error: hashed session returned from the app differs from that read from the db");
-                        }
+        match callback() {
+            Ok(tokens) => {
+                let new_hash = compute_session_hash(&tokens);
+
+                if let Some(db_hash) = &guard.db_hash {
+                    if new_hash != *db_hash {
+                        tracing::error!("error: hashed session returned from the app differs from that read from the db");
                     }
+                }
 
-                    guard.update_latest_known(new_hash);
-                    self.set_session_tokens(tokens.clone());
-                    // TODO(Doug) update other internal state here?
-                }
-                Err(err) => {
-                    tracing::error!("when reloading OIDC session tokens from callback: {err}");
-                }
+                guard.update_latest_known(new_hash);
+                self.set_session_tokens(tokens.clone());
+                // TODO(Doug) update other internal state here?
             }
-        } else {
-            tracing::warn!("no reload_oidc_session_callback when handling hash mismatch; we may run into authentication conflicts with other processes");
+            Err(err) => {
+                tracing::error!("when reloading OIDC session tokens from callback: {err}");
+            }
         }
+
+        Ok(())
     }
 
     /// Login via OpenID Connect with the Authorization Code flow.
@@ -884,9 +915,7 @@ impl Oidc {
         self.client.base_client().set_session_meta(session).await.map_err(crate::Error::from)?;
         self.deferred_enable_cross_process_refresh_lock().await?;
 
-        if let Some(cross_process_manager) =
-            self.client.inner.cross_process_token_refresh_manager.get()
-        {
+        if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {
                 let mut cross_process_lock = cross_process_manager
                     .spin_lock()
@@ -1080,14 +1109,15 @@ impl Oidc {
         let client = &self.client;
 
         let cross_process_ctx =
-            if let Some(manager) = self.client.inner.cross_process_token_refresh_manager.get() {
+            if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
                 let mut cross_process_lock = manager
                     .spin_lock()
                     .await
                     .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
 
                 if cross_process_lock.hash_mismatch {
-                    self.handle_session_hash_mismatch(&mut cross_process_lock);
+                    self.handle_session_hash_mismatch(&mut cross_process_lock)
+                        .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
                     // Optimistic exit: assume that the underlying process did update fast enough.
                     // In the worst case, we'll do another refresh Soon™.
                     return Ok(());
@@ -1208,7 +1238,7 @@ impl Oidc {
                 )
             });
 
-        if let Some(manager) = self.client.inner.cross_process_token_refresh_manager.get() {
+        if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager
                 .store
                 .remove_custom_value(CROSS_PROCESS_LOCK_KEY)
@@ -1425,10 +1455,6 @@ pub enum OidcError {
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
 
-    /// The reload-callback has been set multiple times in the Client.
-    #[error("the reload-session callback has been set multiple times")]
-    MultipleReloadCallbacks,
-
     /// An unknown error occurred.
     #[error("unknown error")]
     UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -1478,7 +1504,8 @@ struct CrossProcessRefreshLockGuard {
     /// database.
     hash_mismatch: bool,
 
-    /// Session hash previously stored in the DB. Used for debugging and testing purposes.
+    /// Session hash previously stored in the DB. Used for debugging and testing
+    /// purposes.
     db_hash: Option<SessionHash>,
 }
 
@@ -1584,8 +1611,6 @@ impl CrossProcessRefreshManager {
 
 #[cfg(test)]
 mod tests {
-    use super::compute_session_hash;
-    use crate::{test_utils::test_client_builder, Error};
     use mas_oidc_client::types::{
         client_credentials::ClientCredentials, iana::oauth::OAuthClientAuthenticationMethod,
         registration::ClientMetadata,
@@ -1594,7 +1619,12 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 
-    use crate::oidc::{FullSession, RegisteredClientData, SessionTokens, UserSession};
+    use super::compute_session_hash;
+    use crate::{
+        oidc::{FullSession, RegisteredClientData, SessionTokens, UserSession},
+        test_utils::test_client_builder,
+        Error,
+    };
 
     fn fake_session(tokens: SessionTokens) -> FullSession {
         FullSession {
@@ -1629,11 +1659,13 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await.unwrap();
 
-        client.set_oidc_reload_session_callback(Box::new(|| {
-            panic!("reload_oidc_session_callback shouldn't be called here")
-        }))?;
-
-        client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
+        client
+            .oidc()
+            .enable_cross_process_refresh_lock(
+                "test".to_owned(),
+                Box::new(|| panic!("reload_oidc_session_callback shouldn't be called here")),
+            )
+            .await?;
 
         let tokens = SessionTokens {
             access_token: "prev-access-token".to_owned(),
@@ -1645,7 +1677,8 @@ mod tests {
 
         assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
 
-        let xp_manager = client.inner.cross_process_token_refresh_manager.get().unwrap();
+        let oidc = client.oidc();
+        let xp_manager = oidc.ctx().cross_process_token_refresh_manager.get().unwrap();
 
         {
             let known_session = xp_manager.known_session_hash.lock().await;
