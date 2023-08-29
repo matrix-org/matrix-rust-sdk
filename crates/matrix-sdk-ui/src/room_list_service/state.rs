@@ -14,7 +14,7 @@
 
 //! States and actions for the `RoomList` state machine.
 
-use std::future::ready;
+use std::{future::ready, ops::RangeInclusive};
 
 use async_trait::async_trait;
 use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncList, SlidingSyncMode};
@@ -47,6 +47,10 @@ pub enum State {
 
     /// At this state, the sync has been stopped because it was requested.
     Terminated { from: Box<State> },
+
+    /// The sync was stopped, and it is now restarting; this is somewhat
+    /// equivalent to `SettingUp` but after a restart.
+    Resurrecting,
 }
 
 impl State {
@@ -59,6 +63,7 @@ impl State {
             Init => (SettingUp, Actions::none()),
             SettingUp => (Running, Actions::first_rooms_are_loaded()),
             Running => (Running, Actions::none()),
+            Resurrecting => (Running, Actions::refresh_lists()),
 
             // If the state was `Error` or `Terminated`, the next state is calculated again, because
             // it means the sync has been restarted. In this case, let's jump back on
@@ -71,6 +76,9 @@ impl State {
                     );
                 }
 
+                // Resurrect the lists incrementally.
+                Running => (Resurrecting, Actions::resurrect_lists()),
+
                 // Do nothing.
                 state => (state.to_owned(), Actions::none()),
             },
@@ -81,7 +89,7 @@ impl State {
                 }
 
                 // Refresh the lists.
-                Running => (Running, Actions::refresh_lists()),
+                Running => (Resurrecting, Actions::resurrect_lists()),
 
                 // Do nothing.
                 state => (state.to_owned(), Actions::none()),
@@ -124,6 +132,29 @@ impl Action for AddVisibleRoomsList {
             ))
             .await
             .map_err(Error::SlidingSync)?;
+
+        Ok(())
+    }
+}
+
+struct ResetAllRoomsListToSelectiveSyncMode;
+
+/// Default range for the selective sync-mode of the `ALL_ROOMS_LIST_NAME` list.
+pub const ALL_ROOMS_DEFAULT_INITIAL_RANGE: RangeInclusive<u32> = 0..=19;
+
+#[async_trait]
+impl Action for ResetAllRoomsListToSelectiveSyncMode {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| {
+                list.set_sync_mode(
+                    SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_INITIAL_RANGE),
+                );
+
+                ready(())
+            })
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
 
         Ok(())
     }
@@ -247,7 +278,8 @@ impl Actions {
     actions! {
         none => [],
         first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
-        refresh_lists => [SetAllRoomsListToGrowingSyncMode, ResetInvitesListGrowingSyncMode],
+        resurrect_lists => [ResetAllRoomsListToSelectiveSyncMode, ResetInvitesListGrowingSyncMode],
+        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -306,6 +338,10 @@ mod tests {
         // Hypothetical error.
         {
             let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Resurrecting);
+
+            // Next state.
+            let state = state.next(sliding_sync).await?;
             assert_eq!(state, State::Running);
         }
 
@@ -313,6 +349,10 @@ mod tests {
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Resurrecting);
+
+            // Next state.
+            let state = state.next(sliding_sync).await?;
             assert_eq!(state, State::Running);
         }
 
@@ -323,6 +363,10 @@ mod tests {
         // Hypothetical error.
         {
             let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Resurrecting);
+
+            // Next state.
+            let state = state.next(sliding_sync).await?;
             assert_eq!(state, State::Running);
         }
 
@@ -330,6 +374,10 @@ mod tests {
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            assert_eq!(state, State::Resurrecting);
+
+            // Next state.
+            let state = state.next(sliding_sync).await?;
             assert_eq!(state, State::Running);
         }
 
