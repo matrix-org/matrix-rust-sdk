@@ -2372,7 +2372,7 @@ impl Room {
         let notification_mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
         if notification_mode.is_some() {
-            return notification_mode;
+            notification_mode
         } else if let Ok(is_encrypted) = self.is_encrypted().await {
             // Otherwise, if encrypted status is available, get the default mode for this
             // type of room.
@@ -2382,9 +2382,10 @@ impl Room {
             let default_mode = notification_settings
                 .get_default_room_notification_mode(IsEncrypted::from(is_encrypted), is_one_to_one)
                 .await;
-            return Some(default_mode);
+            Some(default_mode)
+        } else {
+            None
         }
-        None
     }
 }
 
