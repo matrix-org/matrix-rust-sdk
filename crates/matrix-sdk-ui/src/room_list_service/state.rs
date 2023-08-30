@@ -19,9 +19,7 @@ use std::future::ready;
 use async_trait::async_trait;
 use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncList, SlidingSyncMode};
 use once_cell::sync::Lazy;
-use ruma::{
-    api::client::sync::sync_events::v4::SyncRequestListFilters, assign, events::StateEventType,
-};
+use ruma::events::StateEventType;
 
 use super::Error;
 
@@ -35,7 +33,7 @@ pub enum State {
     /// That's the first initial state.
     Init,
 
-    /// At this state, the first rooms are starting to sync.
+    /// At this state, the first rooms have been synced.
     SettingUp,
 
     /// At this state, the system is recovering from `Error` or `Terminated`.
@@ -63,7 +61,7 @@ impl State {
         let (next_state, actions) = match self {
             Init => (SettingUp, Actions::none()),
 
-            SettingUp => (Running, Actions::setup_lists()),
+            SettingUp => (Running, Actions::first_rooms_loaded()),
 
             Recovering => (Running, Actions::recover_lists()),
 
@@ -132,7 +130,7 @@ struct SetAllRoomsListToSelectiveSyncMode;
 
 /// Default `batch_size` for the selective sync-mode of the
 /// `ALL_ROOMS_LIST_NAME` list.
-pub const ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE: Range = 0..=19;
+pub const ALL_ROOMS_DEFAULT_SELECTIVE_RANGE: Range = 0..=19;
 
 #[async_trait]
 impl Action for SetAllRoomsListToSelectiveSyncMode {
@@ -140,8 +138,7 @@ impl Action for SetAllRoomsListToSelectiveSyncMode {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
                 list.set_sync_mode(
-                    SlidingSyncMode::new_selective()
-                        .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE),
+                    SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                 );
 
                 ready(())
@@ -177,44 +174,37 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
     }
 }
 
-struct AddInvitesList;
+struct SetInvitesListToSelectiveSyncMode;
+
+/// Default `range` for the selective sync-mode of the `INVITES_LIST_NAME` list.
+pub const INVITES_DEFAULT_SELECTIVE_RANGE: Range = 0..=0;
+
+#[async_trait]
+impl Action for SetInvitesListToSelectiveSyncMode {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| {
+                list.set_sync_mode(
+                    SlidingSyncMode::new_selective().add_range(INVITES_DEFAULT_SELECTIVE_RANGE),
+                );
+
+                ready(())
+            })
+            .await
+            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))?;
+
+        Ok(())
+    }
+}
+
+struct SetInvitesListToGrowingSyncMode;
 
 /// Default `batch_size` for the growing sync-mode of the `INVITES_LIST_NAME`
 /// list.
 pub const INVITES_DEFAULT_GROWING_BATCH_SIZE: u32 = 20;
 
 #[async_trait]
-impl Action for AddInvitesList {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .add_list(
-                SlidingSyncList::builder(INVITES_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_growing(INVITES_DEFAULT_GROWING_BATCH_SIZE))
-                    .timeline_limit(0)
-                    .required_state(vec![
-                        (StateEventType::RoomAvatar, "".to_owned()),
-                        (StateEventType::RoomEncryption, "".to_owned()),
-                        (StateEventType::RoomMember, "$ME".to_owned()),
-                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
-                    ])
-                    .filters(Some(assign!(SyncRequestListFilters::default(), {
-                        is_invite: Some(true),
-                        is_tombstoned: Some(false),
-                        not_room_types: vec!["m.space".to_owned()],
-
-                    }))),
-            )
-            .await
-            .map_err(Error::SlidingSync)?;
-
-        Ok(())
-    }
-}
-
-struct ResetInvitesListGrowingSyncMode;
-
-#[async_trait]
-impl Action for ResetInvitesListGrowingSyncMode {
+impl Action for SetInvitesListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(INVITES_LIST_NAME, |list| {
@@ -270,9 +260,9 @@ macro_rules! actions {
 impl Actions {
     actions! {
         none => [],
-        setup_lists => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
-        recover_lists => [SetAllRoomsListToGrowingSyncMode],
-        reset_lists => [SetAllRoomsListToSelectiveSyncMode, ResetInvitesListGrowingSyncMode],
+        first_rooms_loaded => [SetAllRoomsListToGrowingSyncMode, SetInvitesListToGrowingSyncMode, AddVisibleRoomsList],
+        recover_lists => [SetAllRoomsListToGrowingSyncMode, SetInvitesListToGrowingSyncMode],
+        reset_lists => [SetAllRoomsListToSelectiveSyncMode, SetInvitesListToSelectiveSyncMode],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -395,7 +385,7 @@ mod tests {
         // Run the action!
         AddVisibleRoomsList.run(sliding_sync).await?;
 
-        // List is present!
+        // List is present.
         assert_eq!(
             sliding_sync
                 .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(matches!(
@@ -420,7 +410,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE]
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_RANGE]
                 )))
                 .await,
             Some(true)
@@ -434,7 +424,9 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 100, .. }
+                    SlidingSyncMode::Growing {
+                        batch_size, ..
+                    } if batch_size == ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE
                 )))
                 .await,
             Some(true)
@@ -448,7 +440,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE]
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_RANGE]
                 )))
                 .await,
             Some(true)
@@ -458,70 +450,44 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_action_add_invitess_list() -> Result<(), Error> {
+    async fn test_action_set_invite_list_to_growing_and_selective_sync_mode() -> Result<(), Error> {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(INVITES_LIST_NAME, |_list| ready(())).await, None);
-
-        // Run the action!
-        AddInvitesList.run(sliding_sync).await?;
-
-        // List is present!
+        // List is present, in Selective mode.
         assert_eq!(
             sliding_sync
                 .on_list(INVITES_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
-                )))
-                .await,
-            Some(true)
-        );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_action_reset_invites_list_growing_sync_mode() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(INVITES_LIST_NAME, |_list| ready(())).await, None);
-
-        // Run the action!
-        AddInvitesList.run(sliding_sync).await?;
-
-        // Change the growing sync-mode.
-        sliding_sync
-            .on_list(INVITES_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(42));
-
-                ready(())
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(
-            sliding_sync
-                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
-                    list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 42
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![INVITES_DEFAULT_SELECTIVE_RANGE]
                 )))
                 .await,
             Some(true)
         );
 
         // Run the action!
-        ResetInvitesListGrowingSyncMode.run(sliding_sync).await?;
+        SetInvitesListToGrowingSyncMode.run(sliding_sync).await.unwrap();
 
-        // List is still present, and reset.
+        // List is still present, in Growing mode.
         assert_eq!(
             sliding_sync
                 .on_list(INVITES_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == INVITES_DEFAULT_GROWING_BATCH_SIZE
+                )))
+                .await,
+            Some(true)
+        );
+
+        // Run the other action!
+        SetInvitesListToSelectiveSyncMode.run(sliding_sync).await.unwrap();
+
+        // List is still present, in Selective mode.
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![INVITES_DEFAULT_SELECTIVE_RANGE]
                 )))
                 .await,
             Some(true)

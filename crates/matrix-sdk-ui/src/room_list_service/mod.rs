@@ -164,7 +164,7 @@ impl RoomListService {
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective()
-                            .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE),
+                            .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
                     .timeline_limit(1)
                     .required_state(vec![
@@ -173,6 +173,27 @@ impl RoomListService {
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ]),
             ))
+            .await
+            .map_err(Error::SlidingSync)?
+            .add_cached_list(
+                SlidingSyncList::builder(INVITES_LIST_NAME)
+                    .sync_mode(
+                        SlidingSyncMode::new_selective().add_range(INVITES_DEFAULT_SELECTIVE_RANGE),
+                    )
+                    .timeline_limit(0)
+                    .required_state(vec![
+                        (StateEventType::RoomAvatar, "".to_owned()),
+                        (StateEventType::RoomEncryption, "".to_owned()),
+                        (StateEventType::RoomMember, "$ME".to_owned()),
+                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
+                    ])
+                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                        is_invite: Some(true),
+                        is_tombstoned: Some(false),
+                        not_room_types: vec!["m.space".to_owned()],
+
+                    }))),
+            )
             .await
             .map_err(Error::SlidingSync)?
             .build()
