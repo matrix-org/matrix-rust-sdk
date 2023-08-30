@@ -203,6 +203,10 @@ where
     let file_layer = config.write_to_files.map(|c| {
         fmt::layer()
             .event_format(EventFormatter::new())
+            // EventFormatter doesn't support ANSI colors anyways, but the
+            // default field formatter does, which is unhelpful for iOS +
+            // Android logs, but enabled by default.
+            .with_ansi(false)
             .with_writer(tracing_appender::rolling::hourly(c.path, c.file_prefix))
     });
 
