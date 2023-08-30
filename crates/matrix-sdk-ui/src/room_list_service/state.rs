@@ -133,7 +133,7 @@ struct SetAllRoomsListToGrowingSyncMode;
 
 /// Default `batch_size` for the growing sync-mode of the `ALL_ROOMS_LIST_NAME`
 /// list.
-pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 200;
+pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
 
 #[async_trait]
 impl Action for SetAllRoomsListToGrowingSyncMode {
@@ -385,7 +385,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 200, .. }
+                    SlidingSyncMode::Growing { batch_size: 100, .. }
                 )))
                 .await,
             Some(true)
