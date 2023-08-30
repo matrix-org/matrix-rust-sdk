@@ -1,7 +1,7 @@
-#![allow(dead_code)] // temporary
-
 use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 use serde::Deserialize;
+
+use super::messages::from_widget::SendEventRequest;
 
 /// Different kinds of filters for timeline events.
 #[derive(Clone, Debug)]
@@ -88,6 +88,19 @@ pub(super) struct MatrixEventFilterInput {
 #[derive(Debug, Default, Deserialize)]
 pub(super) struct MatrixEventContent {
     pub(super) msgtype: Option<String>,
+}
+
+impl MatrixEventFilterInput {
+    pub(super) fn from_send_event_request(req: SendEventRequest) -> Self {
+        let SendEventRequest { event_type, state_key, content } = req;
+        Self {
+            event_type,
+            state_key,
+            // If content fails to deserialize (msgtype is not a string),
+            // pretend that there is no msgtype as far as filters are concerned
+            content: serde_json::from_value(content).unwrap_or_default(),
+        }
+    }
 }
 
 #[cfg(test)]

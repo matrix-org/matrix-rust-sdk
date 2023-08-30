@@ -54,6 +54,9 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
+    /// If a widget requests this capability, the client is not allowed
+    /// to open the widget in a seperated browser.
+    pub requires_client: bool,
 }
 
 impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
@@ -61,6 +64,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -70,6 +74,7 @@ impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -152,14 +157,19 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
 }
 
 #[uniffi::export]
-pub async fn run_widget_api(
+pub async fn run_client_widget_api(
     room: Arc<Room>,
     widget: Widget,
     permissions_provider: Box<dyn WidgetPermissionsProvider>,
 ) {
     let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-    if let Err(()) =
-        matrix_sdk::widget::run_widget_api(room.inner.clone(), widget.into(), permissions_provider)
-            .await
-    {}
+    if let Err(e) = matrix_sdk::widget::run_client_widget_api(
+        widget.into(),
+        permissions_provider,
+        room.inner.clone(),
+    )
+    .await
+    {
+        panic!("{e}");
+    }
 }

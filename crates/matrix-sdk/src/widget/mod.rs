@@ -1,10 +1,15 @@
-//! Client widget API implementation.
+//! Widget API implementation.
+
+//#![warn(unreachable_pub)]
 
 use async_channel::{Receiver, Sender};
 
-use crate::room::Room as JoinedRoom;
+use self::client::{run as client_widget_api, MatrixDriver, Result};
+use crate::room::Room;
 
+mod client;
 mod filter;
+mod messages;
 mod permissions;
 
 pub use self::{
@@ -50,15 +55,14 @@ pub struct Comm {
     pub to: Sender<String>,
 }
 
-/// Starts a client widget API state machine for a given `widget` in a given
-/// joined `room`. The function returns once the widget is disconnected or any
-/// terminal error occurs.
-///
-/// Not implemented yet, currently always panics.
-pub async fn run_widget_api(
-    _room: JoinedRoom,
-    _widget: Widget,
-    _permissions_provider: impl PermissionsProvider,
-) -> Result<(), ()> {
-    Err(())
+/// Runs client widget API for a given `widget` with a given
+/// `permission_manager` within a given `room`. The function returns once the
+/// API is completed (the widget disconnected etc).
+pub async fn run_client_widget_api(
+    widget: Widget,
+    permission_manager: impl PermissionsProvider,
+    room: Room,
+) -> Result<()> {
+    // TODO: define a cancellation mechanism (?).
+    client_widget_api(MatrixDriver::new(room, permission_manager), widget).await
 }

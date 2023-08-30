@@ -3090,6 +3090,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",
