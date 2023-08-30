@@ -67,7 +67,7 @@ fn build_library() -> Result<()> {
 
     create_dir_all(ffi_directory.as_path())?;
 
-    cmd!("cargo build -p matrix-sdk-ffi").run()?;
+    cmd!("rustup run stable cargo build -p matrix-sdk-ffi").run()?;
 
     rename(
         target_directory.join(release_type).join(static_lib_filename),
@@ -109,7 +109,8 @@ fn generate_uniffi(library_file: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
 }
 
 fn build_for_target(target: &str, profile: &str) -> Result<Utf8PathBuf> {
-    cmd!("cargo build -p matrix-sdk-ffi --target {target} --profile {profile}").run()?;
+    cmd!("rustup run stable cargo build -p matrix-sdk-ffi --target {target} --profile {profile}")
+        .run()?;
 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
