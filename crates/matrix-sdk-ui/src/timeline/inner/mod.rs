@@ -153,7 +153,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let state = self.state.clone();
         let ignore_user_list_stream = self.client.subscribe_to_ignore_user_list_changes();
 
-        let stream = stream! {
+        stream! {
             pin_mut!(ignore_user_list_stream);
 
             loop {
@@ -178,9 +178,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 state.lock().await.clear();
             }
         }
-        .switch();
-
-        stream
+        .switch()
     }
 
     pub(super) fn subscribe_batched(

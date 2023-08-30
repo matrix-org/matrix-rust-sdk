@@ -19,7 +19,7 @@ use assert_matches::assert_matches;
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::{future::join_all, StreamExt};
+use futures_util::{future::join_all, pin_mut, StreamExt};
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
@@ -46,7 +46,10 @@ async fn test_toggling_reaction() -> Result<()> {
     let room_id = room.room_id();
     let timeline = room.timeline().await;
     let reaction_key = "👍";
-    let (_items, mut stream) = timeline.subscribe().await;
+    let stream = timeline.subscribe();
+    pin_mut!(stream);
+
+    let _reset = assert_matches!(stream.next().await, Some(VectorDiff::Reset { values }) => values);
 
     // Send message
     timeline.send(RoomMessageEventContent::text_plain("hi!").into(), None).await;
@@ -90,7 +93,7 @@ async fn test_toggling_reaction() -> Result<()> {
     let reaction = Annotation::new(event_id.clone(), reaction_key.into());
 
     // Toggle reaction multiple times
-    for _ in 0..3 {
+    for _nth in 0..3 {
         // Add
         timeline.toggle_reaction(&reaction).await?;
         assert_local_added(&mut stream, user_id, &event_id, &reaction, message_position).await;
