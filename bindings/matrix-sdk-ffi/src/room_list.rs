@@ -208,6 +208,7 @@ pub enum RoomListServiceState {
     // as of 2023-08-21.
     Initial,
     SettingUp,
+    Recovering,
     Running,
     Error,
     Terminated,
@@ -220,6 +221,7 @@ impl From<matrix_sdk_ui::room_list_service::State> for RoomListServiceState {
         match value {
             Init => Self::Initial,
             SettingUp => Self::SettingUp,
+            Recovering => Self::Recovering,
             Running => Self::Running,
             Error { .. } => Self::Error,
             Terminated { .. } => Self::Terminated,
