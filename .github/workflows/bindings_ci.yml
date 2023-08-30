@@ -75,6 +75,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install aarch64-apple-ios target
+        run: rustup target install aarch64-apple-ios
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
