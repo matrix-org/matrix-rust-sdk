@@ -465,10 +465,10 @@ impl Room {
             }
         };
 
-        let poll_start_event_id: &EventId =
-            poll_start_id.as_str().try_into().context("Failed to create EventId.")?;
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
         let poll_response_event_content =
-            UnstablePollResponseEventContent::new(answers, poll_start_event_id.to_owned());
+            UnstablePollResponseEventContent::new(answers, poll_start_event_id);
         let event_content =
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
 
@@ -492,10 +492,9 @@ impl Room {
             }
         };
 
-        let poll_start_event_id: &EventId =
-            poll_start_id.as_str().try_into().context("Failed to create EventId.")?;
-        let poll_end_event_content =
-            UnstablePollEndEventContent::new(text, poll_start_event_id.to_owned());
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
+        let poll_end_event_content = UnstablePollEndEventContent::new(text, poll_start_event_id);
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
         RUNTIME.spawn(async move {
