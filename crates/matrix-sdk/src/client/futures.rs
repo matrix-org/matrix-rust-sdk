@@ -1,8 +1,10 @@
 #[cfg(feature = "experimental-oidc")]
 use std::ops::Deref;
 use std::{
+    collections::hash_map::DefaultHasher,
     fmt::Debug,
     future::{Future, IntoFuture},
+    hash::{Hash, Hasher},
     pin::Pin,
 };
 
@@ -19,7 +21,7 @@ use mas_oidc_client::{
     types::errors::ClientErrorCode,
 };
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::super::Client;
 #[cfg(feature = "experimental-oidc")]
@@ -94,6 +96,9 @@ where
                     return res;
                 }
 
+                let refresh_token =
+                    client.session().clone().and_then(|s| s.refresh_token().clone());
+
                 // Try to refresh the token and retry the request.
                 if let Err(refresh_error) = client.refresh_access_token().await {
                     match &refresh_error {
@@ -118,7 +123,13 @@ where
                                         },
                                     )),
                                 )) => {
-                                    trace!("Token refresh: OIDC refresh denied.");
+                                    let hash = refresh_token.map(|t| {
+                                        let mut hasher = DefaultHasher::new();
+                                        t.hash(&mut hasher);
+                                        hasher.finish()
+                                    });
+
+                                    error!("Token refresh: OIDC refresh_token rejected {:?}", hash);
                                     // The refresh was denied, signal to sign out the user.
                                     client.broadcast_unknown_token(soft_logout);
                                 }

@@ -165,7 +165,11 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc-cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc-cli
 
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use chrono::Utc;
 use eyeball::SharedObservable;
@@ -885,9 +889,12 @@ impl Oidc {
 
         tokens.access_token = response.access_token.clone();
 
-        if let Some(refresh_token) = &response.refresh_token {
-            tokens.refresh_token = Some(refresh_token.clone());
-        }
+        let hash = &response.refresh_token.as_ref().map(|t| {
+            let mut hasher = DefaultHasher::new();
+            t.hash(&mut hasher);
+            hasher.finish()
+        });
+        tracing::info!("Token refresh: New refresh_token hash: {:?}", hash);
 
         self.set_session_tokens(tokens);
 

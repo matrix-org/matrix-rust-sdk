@@ -19,9 +19,10 @@ use std::ops::Deref;
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
     fmt::{self, Debug},
     future::Future,
+    hash::{Hash, Hasher},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -1336,6 +1337,8 @@ impl Client {
                 return res;
             }
 
+            let refresh_token = self.session().clone().and_then(|s| s.refresh_token().clone());
+
             // Try to refresh the token and retry the request.
             if let Err(refresh_error) = self.refresh_access_token().await {
                 match &refresh_error {
@@ -1357,7 +1360,13 @@ impl Client {
                                     ..
                                 })),
                             )) => {
-                                trace!("Token refresh: OIDC refresh denied.");
+                                let hash = refresh_token.map(|t| {
+                                    let mut hasher = DefaultHasher::new();
+                                    t.hash(&mut hasher);
+                                    hasher.finish()
+                                });
+
+                                error!("Token refresh: OIDC refresh_token rejected {:?}", hash);
                                 // The refresh was denied, signal to sign out the user.
                                 self.broadcast_unknown_token(soft_logout);
                             }
