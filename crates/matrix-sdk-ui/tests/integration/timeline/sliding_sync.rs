@@ -16,7 +16,7 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Context, Result};
 use assert_matches::assert_matches;
-use eyeball_im::{Vector, VectorDiff};
+use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
     SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
