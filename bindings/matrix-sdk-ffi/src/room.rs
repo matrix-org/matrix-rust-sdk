@@ -30,6 +30,9 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
+use ruma::events::poll::{
+    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
+};
 use tokio::{
     sync::{Mutex, RwLock},
     task::{AbortHandle, JoinHandle},
@@ -441,6 +444,58 @@ impl Room {
         let poll_start_event_content =
             UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
+    }
+
+    pub fn send_poll_response(
+        &self,
+        poll_start_id: String,
+        answers: Vec<String>,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't send the poll vote").into());
+            }
+        };
+
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
+        let poll_response_event_content =
+            UnstablePollResponseEventContent::new(answers, poll_start_event_id);
+        let event_content =
+            AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
+    }
+
+    pub fn end_poll(
+        &self,
+        poll_start_id: String,
+        text: String,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't end the poll").into());
+            }
+        };
+
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
+        let poll_end_event_content = UnstablePollEndEventContent::new(text, poll_start_event_id);
+        let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
         RUNTIME.spawn(async move {
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
