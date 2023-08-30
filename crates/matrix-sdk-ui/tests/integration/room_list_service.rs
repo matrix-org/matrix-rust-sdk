@@ -702,26 +702,59 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
     // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Error { .. } => Running,
+        states = Error { .. } => Recovering,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // In `Running`, the sync-mode is still growing, but the range
-                    // hasn't been modified due to previous error.
-                    "ranges": [[0, 99]],
+                    // Due to previous error, the sync-mode is back to selective, with its initial range.
+                    "ranges": [[0, 19]],
                 },
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // The range hasn't been modified due to previous error.
+                    // Due to previous error, the range has been reset.
                     "ranges": [[0, 19]],
                 },
             },
         },
         respond with = {
             "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 210,
+                },
+                INVITES: {
+                    "count": 30,
+                }
+            },
+            "rooms": {},
+        },
+    };
+
+    // Do a regular sync from the `Recovering` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Recovering => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is now growing.
+                    "ranges": [[0, 99]],
+                },
+                VISIBLE_ROOMS: {
+                    // Viewport hasn't changed.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range has reached its maximum.
+                    "ranges": [[0, 29]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "3",
             "lists": {
                 ALL_ROOMS: {
                     "count": 210,
@@ -747,11 +780,11 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                     "ranges": [[0, 199]],
                 },
                 VISIBLE_ROOMS: {
-                    // Despites the error, the range is kept.
+                    // The range is kept.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // Despites the error, the range has made progress.
+                    // The range is kept.
                     "ranges": [[0, 29]],
                 },
             },
@@ -772,32 +805,66 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
     // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Error { .. } => Running,
+        states = Error { .. } => Recovering,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // Due to the error, the range is reset to its initial value.
-                    "ranges": [[0, 99]],
+                    // Due to previous error, the sync-mode is back to selective, with its initial range.
+                    "ranges": [[0, 19]],
                 },
                 VISIBLE_ROOMS: {
-                    // Despites the error, the range is kept.
+                    // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // Due to the error, the range is reset to its initial range.
+                    // Due to previous error, the range has been reset.
                     "ranges": [[0, 19]],
-                }
+                },
             },
         },
         respond with = {
-            "pos": "3",
+            "pos": "4",
             "lists": {
                 ALL_ROOMS: {
                     "count": 210,
                 },
                 INVITES: {
                     "count": 4,
+                }
+            },
+            "rooms": {},
+        },
+    };
+
+    // Do a regular sync from the `Recovering` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Recovering => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is now growing.
+                    "ranges": [[0, 99]],
                 },
+                VISIBLE_ROOMS: {
+                    // Viewport hasn't changed.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range has reached its maximum.
+                    "ranges": [[0, 3]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "5",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 210,
+                },
+                INVITES: {
+                    "count": 4,
+                }
             },
             "rooms": {},
         },
@@ -825,11 +892,14 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "4",
+            "pos": "6",
             "lists": {
                 ALL_ROOMS: {
                     "count": 210,
                 },
+                INVITES: {
+                    "count": 30,
+                }
             },
             "rooms": {},
         },
@@ -853,7 +923,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 },
                 INVITES: {
                     // The range is kept as it was.
-                    "ranges": [[0, 3]],
+                    "ranges": [[0, 29]],
                 },
             },
         },
@@ -873,35 +943,72 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
     // Do a regular sync from the `Error` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Error { .. } => Running,
+        states = Error { .. } => Recovering,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // An error was received at the previous sync iteration.
-                    // The list is still in growing sync-mode, but its range has
-                    // been reset.
-                    "ranges": [[0, 99]],
+                    // Due to previous error, the sync-mode is back to selective, with its initial range.
+                    "ranges": [[0, 19]],
                 },
                 VISIBLE_ROOMS: {
-                    // The range is still here.
+                    // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // The range is kept as it was.
+                    // Due to previous error, the range has been reset.
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "7",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 210,
+                },
+                INVITES: {
+                    "count": 4,
+                }
+            },
+            "rooms": {},
+        },
+    };
+
+    // Do a regular sync from the `Recovering` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Recovering => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is now growing.
+                    "ranges": [[0, 99]],
+                },
+                VISIBLE_ROOMS: {
+                    // Viewport hasn't changed.
+                    "ranges": [[5, 10]],
+                },
+                INVITES: {
+                    // The range has reached its maximum.
                     "ranges": [[0, 3]],
                 },
             },
         },
         respond with = {
-            "pos": "5",
+            "pos": "8",
             "lists": {
                 ALL_ROOMS: {
                     "count": 210,
                 },
+                INVITES: {
+                    "count": 4,
+                }
             },
             "rooms": {},
         },
     };
+
+    // etc.
 
     Ok(())
 }
@@ -933,7 +1040,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "0",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1000,
+                    "count": 150,
                 },
             },
             "rooms": {},
@@ -951,13 +1058,12 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Terminated { .. } => Recovering,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // In `SettingUp`, the sync-mode has changed to growing, with
-                    // its initial range.
-                    "ranges": [[0, 99]],
+                    // Due to previous error, the sync-mode is back to selective with its initial range.
+                    "ranges": [[0, 19]],
                 },
                 VISIBLE_ROOMS: {
                     // Hello new list.
@@ -973,7 +1079,38 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1000,
+                    "count": 150,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Do a regular sync from the `Recovering` state.
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Recovering => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    // In `Running`, the sync-mode is now growing, with its initial range.
+                    "ranges": [[0, 99]],
+                },
+                VISIBLE_ROOMS: {
+                    // Hello new list.
+                    "ranges": [[0, 19]],
+                },
+                INVITES: {
+                    // Hello new list.
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 150,
                 },
             },
             "rooms": {},
@@ -994,64 +1131,20 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Terminated { .. } => Recovering,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // In `Running`, the sync-mode is still growing, the previous termination
-                    // didn't restart the whole growing.
-                    "ranges": [[0, 199]],
+                    // Due to the previous termination, the sync-mode is back to selective.
+                    "ranges": [[0, 19]],
                 },
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // The range hasn't been modified due to previous termination.
+                    // Due to the previous termination, the range is reset.
                     "ranges": [[0, 19]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 1000,
-                },
-                INVITES: {
-                    "count": 3,
-                }
-            },
-            "rooms": {},
-        },
-    };
-
-    // Stop the sync.
-    room_list.stop_sync()?;
-    assert!(sync.next().await.is_none());
-
-    // Start a new sync.
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    // Do a regular sync from the `Terminated` state.
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Terminated { .. } => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    // In `Running`, the sync-mode is still growing, the previous termination
-                    // didn't restart the whole growing.
-                    "ranges": [[0, 299]],
-                },
-                VISIBLE_ROOMS: {
-                    // Despites the termination, the range is kept.
-                    "ranges": [[5, 10]],
-                },
-                INVITES: {
-                    // Despites the error, the range has made progress.
-                    "ranges": [[0, 2]],
                 },
             },
         },
@@ -1059,34 +1152,33 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "3",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1000,
+                    "count": 150,
                 },
                 INVITES: {
-                    "count": 0,
+                    "count": 4,
                 }
             },
             "rooms": {},
         },
     };
 
-    // Do a regular sync from the `Running` state to update the `ALL_ROOMS` list
-    // again.
+    // Do a regular sync from the `Recovering` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Running => Running,
+        states = Recovering => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // No termination.
-                    "ranges": [[0, 399]],
+                    // Now, back to growing sync-mode with its initial range.
+                    "ranges": [[0, 99]],
                 },
                 VISIBLE_ROOMS: {
-                    // No termination. The range is still here.
+                    // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // The range is making progress.
-                    "ranges": [[0, 0]],
+                    // Range has reached its maximum.
+                    "ranges": [[0, 3]],
                 },
             },
         },
@@ -1094,39 +1186,33 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "4",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1000,
+                    "count": 150,
                 },
+                INVITES: {
+                    "count": 4,
+                }
             },
             "rooms": {},
         },
     };
 
-    // Stop the sync.
-    room_list.stop_sync()?;
-    assert!(sync.next().await.is_none());
-
-    // Start a new sync.
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    // Do a regular sync from the `Terminated` state.
+    // Do a regular sync from the `Running` state.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Terminated { .. } => Running,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
-                    // The termination doesn't invalidate the range, we're still in the stable
-                    // state.
-                    "ranges": [[0, 499]],
+                    // Range is making progress, and has reached its maximum.
+                    "ranges": [[0, 149]],
                 },
                 VISIBLE_ROOMS: {
-                    // The range is still here.
+                    // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
                 },
                 INVITES: {
-                    // The range is kept as it was.
-                    "ranges": [[0, 0]],
+                    // Range has reached its maximum.
+                    "ranges": [[0, 3]],
                 },
             },
         },
@@ -1134,8 +1220,11 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
             "pos": "5",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1000,
+                    "count": 150,
                 },
+                INVITES: {
+                    "count": 4,
+                }
             },
             "rooms": {},
         },

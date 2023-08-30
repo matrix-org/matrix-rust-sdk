@@ -162,7 +162,10 @@ impl RoomListService {
         let sliding_sync = builder
             .add_cached_list(configure_all_or_visible_rooms_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=19))
+                    .sync_mode(
+                        SlidingSyncMode::new_selective()
+                            .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE),
+                    )
                     .timeline_limit(1)
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
