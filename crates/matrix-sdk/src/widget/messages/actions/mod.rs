@@ -4,7 +4,7 @@ pub mod from_widget;
 mod message;
 pub mod to_widget;
 
-pub use self::message::{Empty, Kind as MessageKind, Request, Response};
+pub use self::message::{Empty, Kind as MessageKind, Request, Response, ResponseBody};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "api")]

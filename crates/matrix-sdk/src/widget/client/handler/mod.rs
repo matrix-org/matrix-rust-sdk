@@ -9,21 +9,22 @@ use self::state::{State, Task as StateTask};
 pub(crate) use self::{
     capabilities::Capabilities,
     error::{Error, Result},
+    incoming::{Request as IncomingRequest, Response as IncomingResponse},
     openid::{OpenIdDecision, OpenIdStatus},
-    outgoing::{Request as Outgoing, Response},
-    state::IncomingRequest,
+    outgoing::{Request as OutgoingRequest, Response as OutgoingResponse},
 };
 use super::{MatrixDriver, WidgetProxy};
 use crate::widget::{
     messages::{
         from_widget::{Action, SupportedApiVersionsResponse},
-        Header, MessageKind, OpenIdResponse, OpenIdState,
+        Header, OpenIdResponse, OpenIdState,
     },
     PermissionsProvider,
 };
 
 mod capabilities;
 mod error;
+mod incoming;
 mod openid;
 mod outgoing;
 mod state;
@@ -48,32 +49,17 @@ impl MessageHandler {
         Self { widget, state_tx }
     }
 
-    pub(crate) async fn handle(&self, req: IncomingRequest) -> Result<()> {
-        match req.action {
-            Action::GetSupportedApiVersion(MessageKind::Request(r)) => {
-                let response = r.map(Ok(SupportedApiVersionsResponse::new()));
-                self.widget
-                    .reply(Reply {
-                        header: req.header,
-                        action: Action::GetSupportedApiVersion(response),
-                    })
-                    .await?;
-            }
-
-            _ => {
-                self.state_tx
-                    .send(StateTask::HandleIncoming(req))
-                    .map_err(|_| Error::WidgetDisconnected)?;
-            }
+    pub(crate) async fn handle(&self, header: Header, action: Action) -> Result<()> {
+        match IncomingRequest::new(header, action).ok_or(Error::custom("Invalid message"))? {
+            IncomingRequest::GetSupportedApiVersion(req) => self
+                .widget
+                .reply(req.map(Ok(SupportedApiVersionsResponse::new())))
+                .await
+                .map_err(|_| Error::WidgetDisconnected),
+            request => self
+                .state_tx
+                .send(StateTask::HandleIncoming(request))
+                .map_err(|_| Error::WidgetDisconnected),
         }
-
-        Ok(())
     }
-}
-
-pub(crate) struct Reply {
-    pub(crate) header: Header,
-    // TODO: Define a new type, so that we can guarantee on compile time that we can only send
-    // `Action(Kind::Response)` here and not `Action(Kind::Request)`.
-    pub(crate) action: Action,
 }

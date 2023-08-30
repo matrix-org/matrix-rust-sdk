@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    result::Result as StdResult,
     sync::{Arc, Mutex},
 };
 
@@ -13,7 +14,7 @@ use tokio::sync::oneshot;
 use tracing::warn;
 use uuid::Uuid;
 
-use self::handler::{IncomingRequest, MessageHandler, Outgoing, Reply, Response};
+use self::handler::{IncomingResponse, MessageHandler, OutgoingRequest, OutgoingResponse};
 pub(crate) use self::{
     handler::{Error, Result},
     matrix::Driver as MatrixDriver,
@@ -40,7 +41,7 @@ pub(super) async fn run<T: PermissionsProvider>(
 
     // Create a message handler (handles incoming requests from the widget).
     let handler = {
-        let widget = WidgetProxy::new(widget.info, widget.comm.to, state.clone());
+        let widget = WidgetProxy::new(widget.settings, widget.comm.to, state.clone());
         MessageHandler::new(client, widget)
     };
 
@@ -51,7 +52,7 @@ pub(super) async fn run<T: PermissionsProvider>(
             Ok(msg) => match msg.action {
                 // This is an incoming request from a widget.
                 Action::FromWidget(action) => {
-                    handler.handle(IncomingRequest { header: msg.header, action }).await?;
+                    handler.handle(msg.header, action).await?;
                 }
                 // This is a response from the widget to a request from the
                 // client / driver (i.e. response to the outgoing request from
@@ -103,7 +104,7 @@ impl WidgetProxy {
         Self { info, sink, pending }
     }
 
-    async fn send<T: Outgoing>(&self, msg: T) -> Result<Response<T::Response>> {
+    async fn send<T: OutgoingRequest>(&self, msg: T) -> Result<OutgoingResponse<T::Response>> {
         let id = Uuid::new_v4().to_string();
         let message = {
             let header = Header::new(&id, &self.info.id);
@@ -118,10 +119,10 @@ impl WidgetProxy {
         T::extract_response(reply).ok_or(Error::custom("Widget sent invalid response"))
     }
 
-    async fn reply(&self, reply: Reply) -> Result<()> {
-        let message = to_json(&Message::new(reply.header, Action::FromWidget(reply.action)))
-            .expect("Bug: can't serialise a message");
-        self.sink.send(message).await.map_err(|_| Error::WidgetDisconnected)
+    async fn reply(&self, response: IncomingResponse) -> StdResult<(), ()> {
+        let message: Message = response.into();
+        let json = to_json(&message).expect("Bug: can't serialise a message");
+        self.sink.send(json).await.map_err(|_| ())
     }
 
     fn init_on_load(&self) -> bool {
