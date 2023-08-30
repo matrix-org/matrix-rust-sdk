@@ -48,7 +48,7 @@ use crate::{
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
         AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
-        TimelineItem, TimelineListener, VideoInfo,
+        TimelineListener, VideoInfo,
     },
     TaskHandle,
 };
@@ -253,7 +253,7 @@ impl Room {
             })
             .clone();
 
-        let (timeline_items, timeline_stream) = timeline.subscribe_batched().await;
+        let timeline_stream = timeline.subscribe_batched();
         let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(timeline_stream);
 
@@ -263,10 +263,7 @@ impl Room {
             }
         }));
 
-        RoomTimelineListenerResult {
-            items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-            items_stream: Arc::new(timeline_stream),
-        }
+        RoomTimelineListenerResult { items_stream: Arc::new(timeline_stream) }
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
@@ -1091,7 +1088,6 @@ impl SendAttachmentJoinHandle {
 
 #[derive(uniffi::Record)]
 pub struct RoomTimelineListenerResult {
-    pub items: Vec<Arc<TimelineItem>>,
     pub items_stream: Arc<TaskHandle>,
 }
 
