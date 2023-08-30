@@ -173,6 +173,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 // When this is fired, let's loop.
                 let _ = ignore_user_list_stream.next().await;
+
+                // A user has been ignored/unignored? Let's clear the timeline.
+                state.lock().await.clear();
             }
         }
         .switch();

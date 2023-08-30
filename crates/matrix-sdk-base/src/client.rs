@@ -929,14 +929,14 @@ impl BaseClient {
     }
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
+        if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
+            self.ignore_user_list_changes.set(());
+        }
+
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
             }
-        }
-
-        if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            self.ignore_user_list_changes.set(());
         }
     }
 
