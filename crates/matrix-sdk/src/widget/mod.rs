@@ -71,7 +71,7 @@ impl WidgetSettings {
     /// * `room` - A matrix room which is used to query the logged in username
     /// * `parent_url` - The parent url is used as the target for the postMessages send by the widget
     /// Should be the url of the app hosting the widget.
-    /// In case the app hosting the widget is not a webapp the platfrom specific 
+    /// In case the app hosting the widget is not a webapp the platform specific 
     /// value needs to be used or `"*"` a wildcard.
     /// Be aware that this means the widget will receive its own postmessage messages.
     /// The (js) matrix-widget-api ignores those however so this works but it might break
@@ -81,7 +81,7 @@ impl WidgetSettings {
     /// * `lang` - the language e.g. en-us
     /// * `analytics_id` - This can be used in case the widget wants to connect to the 
     /// same analytics provider as the client app only set this value on widgets which are known.
-    pub fn get_widget_url(
+    pub fn get_url(
         &self,
         room: JoinedRoom,        
         parent_url: String,
