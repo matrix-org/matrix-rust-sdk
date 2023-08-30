@@ -135,16 +135,16 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
+#[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
-    delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
+    delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
 
 impl Client {
-    pub fn new(sdk_client: MatrixClient) -> Self {
+    pub fn new(sdk_client: MatrixClient) -> Arc<Self> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -161,11 +161,11 @@ impl Client {
             }
         });
 
-        let client = Client {
+        let client = Arc::new(Client {
             inner: sdk_client,
-            delegate: Arc::new(RwLock::new(None)),
+            delegate: RwLock::new(None),
             session_verification_controller,
-        };
+        });
 
         let mut session_change_receiver = client.inner.subscribe_to_session_changes();
         let client_clone = client.clone();
@@ -253,16 +253,17 @@ impl Client {
         Ok(())
     }
 
-    pub fn enable_cross_process_refresh_lock(&self, process_id: String) -> Result<(), ClientError> {
+    pub fn enable_cross_process_refresh_lock(
+        self: Arc<Self>,
+        process_id: String,
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async {
-            let client_clone = self.clone();
-            self.inner
-                .oidc()
-                .enable_cross_process_refresh_lock(
-                    process_id,
-                    Box::new(move || client_clone.retrieve_session()),
-                )
-                .await
+            let oidc = self.inner.oidc();
+            oidc.enable_cross_process_refresh_lock(
+                process_id,
+                Box::new(move || self.retrieve_session()),
+            )
+            .await
         })?;
         Ok(())
     }
@@ -320,7 +321,7 @@ impl Client {
 #[uniffi::export]
 impl Client {
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
-        *self.delegate.write().unwrap() = delegate;
+        *self.delegate.write().unwrap() = delegate.map(Arc::from);
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
@@ -670,15 +671,15 @@ impl From<&search_users::v3::User> for UserProfile {
 
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
-        if let Some(delegate) = &*self.delegate.read().unwrap() {
-            match session_change {
+        if let Some(delegate) = self.delegate.read().unwrap().clone() {
+            RUNTIME.spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
                 }
                 SessionChange::TokensRefreshed => {
                     delegate.did_refresh_tokens();
                 }
-            }
+            });
         }
     }
 
