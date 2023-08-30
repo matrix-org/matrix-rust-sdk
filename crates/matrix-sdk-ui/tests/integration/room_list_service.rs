@@ -264,7 +264,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         "m.sticker",
                     ],
                     "sort": ["by_recency", "by_name"],
-                    "timeline_limit": 0,
+                    "timeline_limit": 1,
                 },
             },
             "extensions": {
