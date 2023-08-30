@@ -15,12 +15,12 @@ uniffi-bindgen = "run --package uniffi-bindgen --"
 [doc.extern-map.registries]
 crates-io = "https://docs.rs/"
 
-# Exclude android and ios from extra lints since on stable, without the
-# nightly-only target-applies-to-host setting at the top, cross compilation
-# is very bad for caching with extra rustflags. These should never be the
-# default either and don't have much target-specific code that would benefit
-# from the extra lints.
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))']
+# Exclude tarpaulin, android and ios from extra lints since on stable, without
+# the nightly-only target-applies-to-host setting at the top, cross compilation
+# and otherwise changing cfg's can be very bad for caching. These should never
+# be the default either and don't have much target-specific code that would
+# benefit from the extra lints.
+[target.'cfg(not(any(tarpaulin, target_os = "android", target_os = "ios")))']
 rustflags = [
     "-Wrust_2018_idioms",
     "-Wsemicolon_in_expressions_from_macros",
