@@ -53,37 +53,37 @@ pub struct WidgetSettings {
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
     pub init_on_load: bool,
-    /// This contains the url from the widget state event
-    /// In this url placeholders can be used to pass information from the client to the widget
-    /// Possible values are: `$widgetId`, `$parentUrl`, `$userId`, `$lang`, `$fontScale`, `$analyticsID`
-    /// 
+    /// This contains the url from the widget state event.
+    /// In this url placeholders can be used to pass information from the client to the widget.
+    /// Possible values are: `$widgetId`, `$parentUrl`, `$userId`, `$lang`, `$fontScale`, `$analyticsID`.
+    ///
     /// # Examples
-    /// 
+    ///
     /// e.g `http://widget.domain?username=$userId`
-    /// will become: `http://widget.domain?username=@user_matrix_id:server.domain`
+    /// will become: `http://widget.domain?username=@user_matrix_id:server.domain`.
     raw_url: Url,
 }
 impl WidgetSettings {
     /// Create the actual Url that can be used to setup the WebView or IFrame that contains the widget.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `room` - A matrix room which is used to query the logged in username
     /// * `parent_url` - The parent url is used as the target for the postMessages send by the widget
     /// Should be the url of the app hosting the widget.
-    /// In case the app hosting the widget is not a webapp the platform specific 
+    /// In case the app hosting the widget is not a webapp the platform specific
     /// value needs to be used or `"*"` a wildcard.
     /// Be aware that this means the widget will receive its own postmessage messages.
     /// The (js) matrix-widget-api ignores those however so this works but it might break
     /// custom implementations. So always keep this in mind.
-    /// * `font_scale` - The font scale used in the widget. 
+    /// * `font_scale` - The font scale used in the widget.
     /// This should be in sync with the current client app configuration
     /// * `lang` - the language e.g. en-us
-    /// * `analytics_id` - This can be used in case the widget wants to connect to the 
+    /// * `analytics_id` - This can be used in case the widget wants to connect to the
     /// same analytics provider as the client app only set this value on widgets which are known.
     pub fn get_url(
         &self,
-        room: JoinedRoom,        
+        room: JoinedRoom,
         parent_url: String,
         font_scale: f64,
         lang: String,
