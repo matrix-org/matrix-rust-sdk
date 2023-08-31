@@ -14,15 +14,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-oidc")]
-use std::ops::Deref;
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
+#[cfg(feature = "experimental-oidc")]
 use std::{
-    collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    ops::Deref,
+};
+use std::{
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
-    hash::{Hash, Hasher},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -1337,7 +1340,9 @@ impl Client {
                 return res;
             }
 
-            let refresh_token = self.session().clone().and_then(|s| s.refresh_token().clone());
+            #[cfg(feature = "experimental-oidc")]
+            let refresh_token =
+                self.session().as_ref().and_then(|s| s.get_refresh_token().map(ToOwned::to_owned));
 
             // Try to refresh the token and retry the request.
             if let Err(refresh_error) = self.refresh_access_token().await {

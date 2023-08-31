@@ -1,10 +1,12 @@
 #[cfg(feature = "experimental-oidc")]
-use std::ops::Deref;
 use std::{
     collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    ops::Deref,
+};
+use std::{
     fmt::Debug,
     future::{Future, IntoFuture},
-    hash::{Hash, Hasher},
     pin::Pin,
 };
 
@@ -21,7 +23,9 @@ use mas_oidc_client::{
     types::errors::ClientErrorCode,
 };
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
-use tracing::{error, trace};
+#[cfg(feature = "experimental-oidc")]
+use tracing::error;
+use tracing::trace;
 
 use super::super::Client;
 #[cfg(feature = "experimental-oidc")]
@@ -96,8 +100,11 @@ where
                     return res;
                 }
 
-                let refresh_token =
-                    client.session().clone().and_then(|s| s.refresh_token().clone());
+                #[cfg(feature = "experimental-oidc")]
+                let refresh_token = client
+                    .session()
+                    .as_ref()
+                    .and_then(|s| s.get_refresh_token().map(ToOwned::to_owned));
 
                 // Try to refresh the token and retry the request.
                 if let Err(refresh_error) = client.refresh_access_token().await {
