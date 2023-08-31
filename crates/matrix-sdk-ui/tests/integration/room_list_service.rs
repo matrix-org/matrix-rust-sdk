@@ -687,6 +687,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Hello new list.
                     "ranges": [[0, 19]],
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // The sync-mode has changed to growing, with its initial range.
@@ -722,6 +723,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been set to zero.
+                    "timeline_limit": 0,
                 },
                 INVITES: {
                     // Due to previous error, the sync-mode is back to selective, with its initial range.
@@ -755,6 +758,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Viewport hasn't changed.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been restored.
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // Sync-mode is now growing.
@@ -789,6 +794,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // The range is kept.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
                 INVITES: {
                     // The sync-mode is still growing, and the range has made progress.
@@ -821,6 +827,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been set to 0.
+                    "timeline_limit": 0,
                 },
                 INVITES: {
                     // Due to previous error, the range has been reset.
@@ -854,6 +862,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Viewport hasn't changed.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been restored.
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // The sync-mode is now growing, and has reached its maximum.
@@ -887,6 +897,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // No error. The range is still here.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
                 INVITES: {
                     // The range has reached its maximum.
@@ -922,6 +933,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // The range is still here.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
                 INVITES: {
                     // The range has reached a new maximum.
@@ -954,6 +966,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been set to 0.
+                    "timeline_limit": 0,
                 },
                 INVITES: {
                     // Due to previous error, the range is back to selective, with its initial range.
@@ -987,6 +1001,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Viewport hasn't changed.
                     "ranges": [[5, 10]],
+                    // The `timeline_limit` has been restored.
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // Sync-mode is now growing, and has reached its maximum.
@@ -1070,6 +1086,8 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // Hello new list.
                     "ranges": [[0, 19]],
+                    // `timeline_limit` has been set to zero.
+                    "timeline_limit": 0,
                 },
                 INVITES: {
                     // The sync-mode is still selective, with its initial range.
@@ -1102,8 +1120,9 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                     "ranges": [[0, 99]],
                 },
                 VISIBLE_ROOMS: {
-                    // Hello new list.
                     "ranges": [[0, 19]],
+                    // `timeline_limit` has been restored.
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // The sync-mode is now growing, with its initial range.
@@ -1149,6 +1168,8 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` has been set to zero.
+                    "timeline_limit": 0,
                 },
                 INVITES: {
                     // The sync-mode is back to selective..
@@ -1183,6 +1204,8 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` has been restored.
+                    "timeline_limit": 20,
                 },
                 INVITES: {
                     // Sync-mode is growing, and has reached its maximum.
@@ -1217,6 +1240,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
                 VISIBLE_ROOMS: {
                     // We have set a viewport, which reflects here.
                     "ranges": [[5, 10]],
+                    // `timeline_limit` is a sticky parameter, so it's absent now.
                 },
                 INVITES: {
                     // Range has reached its maximum.
