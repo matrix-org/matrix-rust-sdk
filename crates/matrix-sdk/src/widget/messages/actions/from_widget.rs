@@ -19,8 +19,9 @@ pub(crate) enum Action {
     SendEvent(MessageKind<SendEventRequest, SendEventResponse>),
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(MessageKind<ReadEventRequest, ReadEventResponse>),
+    #[serde()]
+    Unknown,
 }
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SupportedApiVersionsResponse {
     #[serde(rename = "supported_versions")]
