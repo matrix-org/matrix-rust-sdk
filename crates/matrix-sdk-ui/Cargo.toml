@@ -45,7 +45,7 @@ unicode-normalization = "0.1.22"
 
 [dev-dependencies]
 anyhow = { workspace = true }
-assert-json-diff = "2.0"
+assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 ctor = { workspace = true }
 eyeball-im-util = { workspace = true }
