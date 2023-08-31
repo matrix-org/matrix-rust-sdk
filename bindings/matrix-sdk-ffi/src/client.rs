@@ -112,7 +112,10 @@ impl From<PushFormat> for RumaPushFormat {
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
     fn did_refresh_tokens(&self);
+}
 
+#[uniffi::export(callback_interface)]
+pub trait ClientSessionDelegate: Sync + Send {
     fn retrieve_session_from_keychain(&self) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
@@ -137,16 +140,26 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
+#[derive(Clone, uniffi::Object)]
+pub struct CrossProcessRefreshLockCtx {
+    pub process_id: String,
+    pub session_delegate: Arc<dyn ClientSessionDelegate>,
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
+    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
 
 impl Client {
-    pub fn new(sdk_client: MatrixClient) -> Arc<Self> {
+    pub fn new(
+        sdk_client: MatrixClient,
+        cross_process_refresh_lock_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
+    ) -> Result<Arc<Self>, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -163,9 +176,13 @@ impl Client {
             }
         });
 
+        let session_delegate =
+            cross_process_refresh_lock_ctx.as_ref().map(|ctx| ctx.session_delegate.clone());
+
         let client = Arc::new(Client {
             inner: sdk_client,
             delegate: RwLock::new(None),
+            session_delegate,
             session_verification_controller,
         });
 
@@ -184,7 +201,26 @@ impl Client {
             }
         });
 
-        client
+        if let Some(ctx) = cross_process_refresh_lock_ctx {
+            RUNTIME.block_on(async {
+                let oidc = client.inner.oidc();
+
+                oidc.enable_cross_process_refresh_lock(
+                    ctx.process_id.clone(),
+                    {
+                        let client = client.clone();
+                        Box::new(move || client.retrieve_session())
+                    },
+                    {
+                        let client = client.clone();
+                        Box::new(move || client.save_session())
+                    },
+                )
+                .await
+            })?;
+        }
+
+        Ok(client)
     }
 }
 
@@ -252,23 +288,6 @@ impl Client {
             self.inner.set_sliding_sync_proxy(Some(sliding_sync_proxy));
         }
 
-        Ok(())
-    }
-
-    pub fn enable_cross_process_refresh_lock(
-        self: Arc<Self>,
-        process_id: String,
-    ) -> Result<(), ClientError> {
-        RUNTIME.block_on(async {
-            let oidc = self.inner.oidc();
-            let self2 = self.clone();
-            oidc.enable_cross_process_refresh_lock(
-                process_id,
-                Box::new(move || self.retrieve_session()),
-                Box::new(move || self2.save_session()),
-            )
-            .await
-        })?;
         Ok(())
     }
 }
@@ -688,7 +707,7 @@ impl Client {
     }
 
     fn retrieve_session(&self) -> Result<SessionTokens, String> {
-        let Some(delegate) = &*self.delegate.read().unwrap() else {
+        let Some(delegate) = self.session_delegate.as_ref() else {
             return Err("A delegate hasn't been set.".to_owned());
         };
 
@@ -701,7 +720,7 @@ impl Client {
     }
 
     fn save_session(&self) -> Result<(), String> {
-        let Some(delegate) = &*self.delegate.read().unwrap() else {
+        let Some(delegate) = self.session_delegate.as_ref() else {
             return Err("A delegate hasn't been set.".to_owned());
         };
 

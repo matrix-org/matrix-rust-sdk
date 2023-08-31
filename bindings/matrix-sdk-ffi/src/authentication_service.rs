@@ -31,7 +31,7 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client_builder::UrlScheme, error::ClientError};
+use crate::{client::CrossProcessRefreshLockCtx, client_builder::UrlScheme, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -42,7 +42,7 @@ pub struct AuthenticationService {
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
-    refresh_lock_process_id: Option<String>,
+    cross_process_refresh_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
 }
 
 impl Drop for AuthenticationService {
@@ -78,8 +78,6 @@ pub enum AuthenticationError {
     OidcCancelled,
     #[error("An error occurred with OIDC: {message}")]
     OidcError { message: String },
-    #[error("An error caused by the cross-process OIDC refresh lock: {message}")]
-    OidcCrossProcessLockError { message: String },
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
@@ -240,7 +238,7 @@ impl AuthenticationService {
         user_agent: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
-        refresh_lock_process_id: Option<String>,
+        cross_process_refresh_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
@@ -250,7 +248,7 @@ impl AuthenticationService {
             homeserver_details: RwLock::new(None),
             oidc_configuration,
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
-            refresh_lock_process_id,
+            cross_process_refresh_ctx,
         })
     }
 
@@ -605,19 +603,18 @@ impl AuthenticationService {
             sliding_sync_proxy = None;
         }
 
-        let client = self
+        let mut client = self
             .new_client_builder()
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
-            .username(user_id.to_string())
-            .build_inner()?;
+            .username(user_id.to_string());
 
-        if let Some(process_id) = self.refresh_lock_process_id.clone() {
-            client.clone().enable_cross_process_refresh_lock(process_id).map_err(|err| {
-                AuthenticationError::OidcCrossProcessLockError { message: err.to_string() }
-            })?;
+        if let Some(ctx) = self.cross_process_refresh_ctx.clone() {
+            client = client.enable_cross_process_refresh_lock(ctx);
         }
+
+        let client = client.build_inner()?;
 
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;

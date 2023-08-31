@@ -12,7 +12,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
-use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
+use crate::{client::CrossProcessRefreshLockCtx, error::ClientError, helpers::unwrap_or_clone_arc};
 
 #[derive(Clone)]
 pub(crate) enum UrlScheme {
@@ -34,6 +34,7 @@ pub struct ClientBuilder {
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     inner: MatrixClientBuilder,
+    cross_process_refresh_lock_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
 }
 
 #[uniffi::export]
@@ -41,6 +42,15 @@ impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    pub fn enable_cross_process_refresh_lock(
+        self: Arc<Self>,
+        ctx: Arc<CrossProcessRefreshLockCtx>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.cross_process_refresh_lock_ctx = Some(ctx);
+        Arc::new(builder)
     }
 
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
@@ -200,7 +210,7 @@ impl ClientBuilder {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
         }
 
-        Ok(Client::new(sdk_client))
+        Ok(Client::new(sdk_client, builder.cross_process_refresh_lock_ctx)?)
     }
 }
 
@@ -219,6 +229,7 @@ impl Default for ClientBuilder {
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             inner: MatrixClient::builder(),
+            cross_process_refresh_lock_ctx: None,
         }
     }
 }
