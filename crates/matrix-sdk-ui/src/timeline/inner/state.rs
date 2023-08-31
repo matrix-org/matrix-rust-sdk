@@ -34,7 +34,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
     UserId,
 };
-use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
+use tokio::sync::{OwnedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{ReactionState, TimelineInnerSettings};
@@ -58,29 +58,33 @@ use crate::{
 
 #[derive(Clone)]
 pub(in crate::timeline) struct TimelineInnerStateLock {
-    inner: Arc<Mutex<TimelineInnerState>>,
+    inner: Arc<RwLock<TimelineInnerState>>,
     lock_release_ob: SharedObservable<()>,
 }
 
 impl TimelineInnerStateLock {
     pub(super) fn new(state: TimelineInnerState) -> Self {
-        Self { inner: Arc::new(Mutex::new(state)), lock_release_ob: Default::default() }
+        Self { inner: Arc::new(RwLock::new(state)), lock_release_ob: Default::default() }
     }
 
     pub(super) fn subscribe_lock_release(&self) -> Subscriber<()> {
         self.lock_release_ob.subscribe()
     }
 
-    pub async fn lock(&self) -> TimelineInnerStateLockGuard<'_> {
-        TimelineInnerStateLockGuard {
-            inner: self.inner.lock().await,
+    pub async fn read(&self) -> RwLockReadGuard<'_, TimelineInnerState> {
+        self.inner.read().await
+    }
+
+    pub async fn write(&self) -> TimelineInnerStateWriteGuard<'_> {
+        TimelineInnerStateWriteGuard {
+            inner: self.inner.write().await,
             lock_release_ob: self.lock_release_ob.clone(),
         }
     }
 
-    pub async fn lock_owned(&self) -> TimelineInnerStateOwnedLockGuard {
-        TimelineInnerStateOwnedLockGuard {
-            inner: self.inner.clone().lock_owned().await,
+    pub async fn write_owned(&self) -> TimelineInnerStateOwnedWriteGuard {
+        TimelineInnerStateOwnedWriteGuard {
+            inner: self.inner.clone().write_owned().await,
             lock_release_ob: self.lock_release_ob.clone(),
         }
     }
@@ -477,12 +481,12 @@ impl TimelineInnerState {
     }
 }
 
-pub(in crate::timeline) struct TimelineInnerStateLockGuard<'a> {
-    inner: MutexGuard<'a, TimelineInnerState>,
+pub(in crate::timeline) struct TimelineInnerStateWriteGuard<'a> {
+    inner: RwLockWriteGuard<'a, TimelineInnerState>,
     lock_release_ob: SharedObservable<()>,
 }
 
-impl Deref for TimelineInnerStateLockGuard<'_> {
+impl Deref for TimelineInnerStateWriteGuard<'_> {
     type Target = TimelineInnerState;
 
     fn deref(&self) -> &Self::Target {
@@ -490,24 +494,24 @@ impl Deref for TimelineInnerStateLockGuard<'_> {
     }
 }
 
-impl DerefMut for TimelineInnerStateLockGuard<'_> {
+impl DerefMut for TimelineInnerStateWriteGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl Drop for TimelineInnerStateLockGuard<'_> {
+impl Drop for TimelineInnerStateWriteGuard<'_> {
     fn drop(&mut self) {
         self.lock_release_ob.set(());
     }
 }
 
-pub(in crate::timeline) struct TimelineInnerStateOwnedLockGuard {
-    inner: OwnedMutexGuard<TimelineInnerState>,
+pub(in crate::timeline) struct TimelineInnerStateOwnedWriteGuard {
+    inner: OwnedRwLockWriteGuard<TimelineInnerState>,
     lock_release_ob: SharedObservable<()>,
 }
 
-impl Deref for TimelineInnerStateOwnedLockGuard {
+impl Deref for TimelineInnerStateOwnedWriteGuard {
     type Target = TimelineInnerState;
 
     fn deref(&self) -> &Self::Target {
@@ -515,13 +519,13 @@ impl Deref for TimelineInnerStateOwnedLockGuard {
     }
 }
 
-impl DerefMut for TimelineInnerStateOwnedLockGuard {
+impl DerefMut for TimelineInnerStateOwnedWriteGuard {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl Drop for TimelineInnerStateOwnedLockGuard {
+impl Drop for TimelineInnerStateOwnedWriteGuard {
     fn drop(&mut self) {
         self.lock_release_ob.set(());
     }

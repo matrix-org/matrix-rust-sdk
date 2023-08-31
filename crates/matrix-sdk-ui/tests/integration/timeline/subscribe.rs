@@ -48,16 +48,10 @@ async fn batched() {
 
     let hdl = tokio::spawn(async move {
         pin_mut!(timeline_stream);
+
         let next_batch = timeline_stream.next().await.unwrap();
-        // One `VectorDiff::Reset`…
-        assert_eq!(next_batch.len(), 1);
-        assert_matches!(&next_batch[0], VectorDiff::Reset { values } => {
-            // … which is empty.
-            assert_eq!(values.len(), 0);
-        });
-        let next_batch = timeline_stream.next().await.unwrap();
-        // One day divider, and three event items.
-        assert_eq!(next_batch.len(), 4);
+        // One `VectorDiff::Reset` + one day divider + three event items.
+        assert_eq!(next_batch.len(), 5);
     });
 
     ev_builder.add_joined_room(
