@@ -40,6 +40,7 @@ pub struct SlidingSyncBuilder {
     rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     poll_timeout: Duration,
     network_timeout: Duration,
+    #[cfg(feature = "e2e-encryption")]
     share_pos: bool,
 }
 
@@ -63,6 +64,7 @@ impl SlidingSyncBuilder {
                 rooms: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
+                #[cfg(feature = "e2e-encryption")]
                 share_pos: false,
             })
         }
@@ -232,6 +234,7 @@ impl SlidingSyncBuilder {
     /// multi-process scenarios, to save it into some shared storage so that one
     /// sliding sync instance running across two different processes can
     /// continue with the same sync position it had before being stopped.
+    #[cfg(feature = "e2e-encryption")]
     pub fn share_pos(mut self) -> Self {
         self.share_pos = true;
         self
@@ -257,13 +260,22 @@ impl SlidingSyncBuilder {
         // Reload existing state from the cache.
         let restored_fields =
             restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
+
         let (delta_token, pos) = if let Some(fields) = restored_fields {
-            (fields.delta_token, fields.pos)
+            #[cfg(feature = "e2e-encryption")]
+            let pos = if self.share_pos { fields.pos } else { None };
+            #[cfg(not(feature = "e2e-encryption"))]
+            let pos = None;
+
+            (fields.delta_token, pos)
         } else {
             (None, None)
         };
 
-        let pos = if self.share_pos { pos } else { None };
+        #[cfg(feature = "e2e-encryption")]
+        let share_pos = self.share_pos;
+        #[cfg(not(feature = "e2e-encryption"))]
+        let share_pos = false;
 
         let rooms = AsyncRwLock::new(self.rooms);
         let lists = AsyncRwLock::new(lists);
@@ -278,7 +290,7 @@ impl SlidingSyncBuilder {
 
             client,
             storage_key: self.storage_key,
-            share_pos: self.share_pos,
+            share_pos,
 
             lists,
             rooms,

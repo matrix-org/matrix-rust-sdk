@@ -93,6 +93,10 @@ pub(super) struct SlidingSyncInner {
 
     /// Should this sliding sync instance try to restore its sync position
     /// from the database?
+    ///
+    /// Note: in non-cfg(e2e-encryption) builds, it's always set to false. We
+    /// keep it even so, to avoid sparkling cfg statements everywhere
+    /// throughout this file.
     share_pos: bool,
 
     /// Position markers.
