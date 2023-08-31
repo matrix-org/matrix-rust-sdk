@@ -1108,6 +1108,8 @@ impl Oidc {
             lock.notify_new_session(&tokens).await?;
         }
 
+        _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
+
         Ok(())
     }
 
@@ -1188,11 +1190,6 @@ impl Oidc {
             {
                 Ok(()) => {
                     *guard = Ok(());
-                    _ = self
-                        .client
-                        .inner
-                        .session_change_sender
-                        .send(SessionChange::TokensRefreshed);
                     Ok(())
                 }
                 Err(error) => {
