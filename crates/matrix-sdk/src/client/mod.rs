@@ -14,10 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-oidc")]
-use std::ops::Deref;
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
+#[cfg(feature = "experimental-oidc")]
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    ops::Deref,
+};
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
@@ -1336,6 +1340,10 @@ impl Client {
                 return res;
             }
 
+            #[cfg(feature = "experimental-oidc")]
+            let refresh_token =
+                self.session().as_ref().and_then(|s| s.get_refresh_token().map(ToOwned::to_owned));
+
             // Try to refresh the token and retry the request.
             if let Err(refresh_error) = self.refresh_access_token().await {
                 match &refresh_error {
@@ -1357,7 +1365,13 @@ impl Client {
                                     ..
                                 })),
                             )) => {
-                                trace!("Token refresh: OIDC refresh denied.");
+                                let hash = refresh_token.map(|t| {
+                                    let mut hasher = DefaultHasher::new();
+                                    t.hash(&mut hasher);
+                                    hasher.finish()
+                                });
+
+                                error!("Token refresh: OIDC refresh_token rejected {:?}", hash);
                                 // The refresh was denied, signal to sign out the user.
                                 self.broadcast_unknown_token(soft_logout);
                             }
