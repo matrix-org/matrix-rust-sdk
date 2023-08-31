@@ -8,7 +8,7 @@ use crate::widget::messages::{Empty, MessageKind, OpenIdRequest, OpenIdResponse}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "action")]
-pub enum Action {
+pub(crate) enum Action {
     #[serde(rename = "supported_api_versions")]
     GetSupportedApiVersion(MessageKind<Empty, SupportedApiVersionsResponse>),
     #[serde(rename = "content_loaded")]
@@ -17,7 +17,7 @@ pub enum Action {
     GetOpenId(MessageKind<OpenIdRequest, OpenIdResponse>),
     #[serde(rename = "send_event")]
     SendEvent(MessageKind<SendEventRequest, SendEventResponse>),
-    #[serde(rename = "read_events")]
+    #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(MessageKind<ReadEventRequest, ReadEventResponse>),
 }
 
@@ -47,7 +47,7 @@ pub enum ApiVersion {
     /// Supports capabilities renegotiation.
     #[serde(rename = "org.matrix.msc2974")]
     MSC2974,
-    /// Supports reading eventsi in a room (deprecated).
+    /// Supports reading events in a room (deprecated).
     #[serde(rename = "org.matrix.msc2876")]
     MSC2876,
     /// Supports sending and receiving of to-device events.
@@ -73,10 +73,19 @@ pub struct SendEventResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ReadEventRequest {
+#[serde(untagged)]
+pub(crate) enum StateKeySelector {
+    Key(String),
+    Any(bool),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct ReadEventRequest {
     #[serde(rename = "type")]
     pub event_type: TimelineEventType,
-    pub limit: u32,
+    pub limit: Option<u32>,
+    pub state_key: Option<StateKeySelector>,
+    pub room_ids: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

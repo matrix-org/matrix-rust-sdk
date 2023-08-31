@@ -9,7 +9,7 @@ pub use self::message::{Empty, Kind as MessageKind, Request, Response, ResponseB
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "api")]
 #[serde(rename_all = "camelCase")]
-pub enum Action {
+pub(crate) enum Action {
     FromWidget(from_widget::Action),
     ToWidget(to_widget::Action),
 }

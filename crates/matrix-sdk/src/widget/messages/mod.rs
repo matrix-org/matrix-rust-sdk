@@ -2,10 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use self::{
-    actions::{
-        from_widget, to_widget, Action, Empty, MessageKind, Request, Response, ResponseBody,
-    },
+pub(crate) use self::{
+    actions::{from_widget, to_widget, Action, Empty, MessageKind, Request},
     openid::{Request as OpenIdRequest, Response as OpenIdResponse, State as OpenIdState},
 };
 
@@ -13,15 +11,15 @@ mod actions;
 mod openid;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Message {
+pub(crate) struct Message {
     #[serde(flatten)]
     pub header: Header,
     #[serde(flatten)]
-    pub action: Action,
+    pub(crate) action: Action,
 }
 
 impl Message {
-    pub fn new(header: Header, action: Action) -> Self {
+    pub(crate) fn new(header: Header, action: Action) -> Self {
         Self { header, action }
     }
 }
