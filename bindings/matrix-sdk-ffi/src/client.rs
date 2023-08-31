@@ -253,16 +253,17 @@ impl Client {
         Ok(())
     }
 
-    pub fn enable_cross_process_refresh_lock(&self, process_id: String) -> Result<(), ClientError> {
+    pub fn enable_cross_process_refresh_lock(
+        self: Arc<Self>,
+        process_id: String,
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async {
-            let client_clone = self.clone();
-            self.inner
-                .oidc()
-                .enable_cross_process_refresh_lock(
-                    process_id,
-                    Box::new(move || client_clone.retrieve_session()),
-                )
-                .await
+            let oidc = self.inner.oidc();
+            oidc.enable_cross_process_refresh_lock(
+                process_id,
+                Box::new(move || self.retrieve_session()),
+            )
+            .await
         })?;
         Ok(())
     }

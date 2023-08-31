@@ -614,7 +614,7 @@ impl AuthenticationService {
             .build_inner()?;
 
         if let Some(process_id) = self.refresh_lock_process_id.clone() {
-            client.enable_cross_process_refresh_lock(process_id).map_err(|err| {
+            client.clone().enable_cross_process_refresh_lock(process_id).map_err(|err| {
                 AuthenticationError::OidcCrossProcessLockError { message: err.to_string() }
             })?;
         }
