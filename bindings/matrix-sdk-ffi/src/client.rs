@@ -112,7 +112,9 @@ impl From<PushFormat> for RumaPushFormat {
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
     fn did_refresh_tokens(&self);
-    fn retrieve_session(&self) -> Result<Session, ClientError>;
+
+    fn retrieve_session_from_keychain(&self) -> Result<Session, ClientError>;
+    fn save_session_in_keychain(&self, session: Session);
 }
 
 #[uniffi::export(callback_interface)]
@@ -259,9 +261,11 @@ impl Client {
     ) -> Result<(), ClientError> {
         RUNTIME.block_on(async {
             let oidc = self.inner.oidc();
+            let self2 = self.clone();
             oidc.enable_cross_process_refresh_lock(
                 process_id,
                 Box::new(move || self.retrieve_session()),
+                Box::new(move || self2.save_session()),
             )
             .await
         })?;
@@ -688,12 +692,24 @@ impl Client {
             return Err("A delegate hasn't been set.".to_owned());
         };
 
-        let session = delegate.retrieve_session().map_err(|e| e.to_string())?;
+        let session = delegate.retrieve_session_from_keychain().map_err(|e| e.to_string())?;
         let auth_session = TryInto::<AuthSession>::try_into(session).map_err(|e| e.to_string())?;
         match auth_session {
             AuthSession::Oidc(session) => Ok(session.user.tokens),
             _ => Err("Unexpected session kind.".to_owned()),
         }
+    }
+
+    fn save_session(&self) -> Result<(), String> {
+        let Some(delegate) = &*self.delegate.read().unwrap() else {
+            return Err("A delegate hasn't been set.".to_owned());
+        };
+
+        let session = self.session().map_err(|err| err.to_string())?;
+
+        delegate.save_session_in_keychain(session);
+
+        Ok(())
     }
 }
 

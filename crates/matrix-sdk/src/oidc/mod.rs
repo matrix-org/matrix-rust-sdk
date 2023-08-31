@@ -226,12 +226,18 @@ use crate::{
     Client, RefreshTokenError, Result,
 };
 
+type SaveSessionCallback = dyn Send + Sync + Fn() -> Result<(), String>;
+type ReloadSessionCallback = dyn Send + Sync + Fn() -> Result<SessionTokens, String>;
+
 #[derive(Default)]
 pub(crate) struct OidcContext {
-    pub cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
-    pub deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
-    pub reload_oidc_session_callback:
-        Arc<OnceCell<Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>>>,
+    cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
+    deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
+    /// A callback to save a session back into the app's secure storage.
+    ///
+    /// This must be called only after `set_session_tokens` has been called, not before.
+    save_session_callback: Arc<OnceCell<Box<SaveSessionCallback>>>,
 }
 
 pub(crate) struct OidcAuthData {
@@ -274,7 +280,8 @@ impl Oidc {
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
-        reload_oidc_session_callback: Box<dyn Send + Sync + Fn() -> Result<SessionTokens, String>>,
+        reload_session_callback: Box<ReloadSessionCallback>,
+        save_session_callback: Box<SaveSessionCallback>,
     ) -> Result<(), OidcError> {
         // FIXME: it must be deferred only because we're using the crypto store and it's
         // initialized only in `set_session_meta`, not if we use a dedicated
@@ -286,8 +293,13 @@ impl Oidc {
         *lock = Some(lock_value);
 
         self.ctx()
-            .reload_oidc_session_callback
-            .set(reload_oidc_session_callback)
+            .reload_session_callback
+            .set(reload_session_callback)
+            .map_err(|_| CrossProcessRefreshLockError::DuplicatedLock)?;
+
+        self.ctx()
+            .save_session_callback
+            .set(save_session_callback)
             .map_err(|_| CrossProcessRefreshLockError::DuplicatedLock)?;
 
         Ok(())
@@ -737,7 +749,6 @@ impl Oidc {
             // First, update the in-memory hash so that we can compute a meaningful hash
             // mismatch.
             let prev_tokens_hash = compute_session_hash(&tokens);
-
             *cross_process_lock.known_session_hash.lock().await = Some(prev_tokens_hash);
 
             let mut guard = cross_process_lock
@@ -758,9 +769,33 @@ impl Oidc {
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
             } else {
                 guard
-                    .notify_new_session(&tokens)
+                    .update_and_persist_new_session(&tokens)
                     .await
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
+
+                // No need to call the save_session_callback here; it was the source of the
+                // session, so it's already in sync with what we had.
+                {
+                    // TODO(bnjbvr): is the above true? adding some extra logs to maintain sanity,
+                    // we can remove them later.
+                    let Some(reload_session_callback) = self.ctx().reload_session_callback.get()
+                    else {
+                        tracing::warn!("missing reload_session_callback in restore_session");
+                        return Ok(());
+                    };
+                    let app_tokens = match reload_session_callback() {
+                        Ok(t) => t,
+                        Err(err) => {
+                            tracing::warn!(
+                                "reload_session_callback error'd in restore_session: {err}"
+                            );
+                            return Ok(());
+                        }
+                    };
+                    if app_tokens != tokens {
+                        tracing::error!("restore_session gave us tokens that are different from those of the app");
+                    }
+                }
             }
         }
 
@@ -775,7 +810,7 @@ impl Oidc {
 
         let callback = self
             .ctx()
-            .reload_oidc_session_callback
+            .reload_session_callback
             .get()
             .ok_or(CrossProcessRefreshLockError::MissingLock)?;
 
@@ -800,6 +835,9 @@ impl Oidc {
 
                 guard.update_in_memory(new_hash);
                 self.set_session_tokens(tokens.clone());
+
+                // The app's callback acted as authoritative here, so we're not saving the data
+                // back into the app, as that would have no effect.
             }
             Err(err) => {
                 tracing::error!("when reloading OIDC session tokens from callback: {err}");
@@ -928,12 +966,12 @@ impl Oidc {
 
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
             if let Some(tokens) = self.session_tokens() {
-                let mut cross_process_lock = cross_process_manager
+                let mut lock = cross_process_manager
                     .spin_lock()
                     .await
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
 
-                if cross_process_lock.hash_mismatch {
+                if lock.hash_mismatch {
                     // At this point, we're finishing a login while another process had written
                     // something in the database. It's likely the information in the database it
                     // just outdated and wasn't properly updated, but display a warning, just in
@@ -941,8 +979,7 @@ impl Oidc {
                     warn!("cross-process hash mismatch when finishing login (see comment)");
                 }
 
-                cross_process_lock
-                    .notify_new_session(&tokens)
+                lock.update_and_persist_new_session(&tokens)
                     .await
                     .map_err(|err| crate::Error::Oidc(err.into()))?;
             }
@@ -1104,8 +1141,22 @@ impl Oidc {
         };
 
         self.set_session_tokens(tokens.clone());
+
         if let Some(mut lock) = lock {
-            lock.notify_new_session(&tokens).await?;
+            let save_session_callback = &self
+                .ctx()
+                .save_session_callback
+                .get()
+                .ok_or(CrossProcessRefreshLockError::MissingLock)?;
+
+            // Satisfies the save_session_callback invariant: set_session_tokens has been called
+            // just above.
+            if let Err(err) = save_session_callback() {
+                // TODO promote to actual error bubbling up?
+                tracing::error!("error when saving session after refresh: {err}");
+            }
+
+            lock.update_and_persist_new_session(&tokens).await?;
         }
 
         _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
@@ -1528,7 +1579,7 @@ impl CrossProcessRefreshLockGuard {
         *self.hash_guard = Some(hash);
     }
 
-    /// Store the new hash in the database.
+    /// Store the new hash in the database only.
     async fn persist_latest_know(
         &self,
         hash: SessionHash,
@@ -1541,14 +1592,16 @@ impl CrossProcessRefreshLockGuard {
     ///
     /// The cross-process lock must have been acquired before doing this
     /// operation, as shown by the presence of the lock parameter.
-    async fn notify_new_session(
+    async fn update_and_persist_new_session(
         &mut self,
         tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
 
+        // Save in DB.
         self.persist_latest_know(hash).await?;
 
+        // Save in memory.
         self.update_in_memory(hash);
 
         Ok(())
@@ -1693,7 +1746,8 @@ mod tests {
             .oidc()
             .enable_cross_process_refresh_lock(
                 "test".to_owned(),
-                Box::new(|| panic!("reload_oidc_session_callback shouldn't be called here")),
+                Box::new(|| panic!("reload_session_callback shouldn't be called here")),
+                Box::new(|| panic!("save_session_callback shouldn't be called here")),
             )
             .await?;
 
