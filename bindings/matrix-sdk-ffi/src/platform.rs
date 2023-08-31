@@ -214,12 +214,20 @@ where
         file_layer,
         config.write_to_stdout_or_system.then(|| {
             #[cfg(not(target_os = "android"))]
-            return fmt::layer().event_format(EventFormatter::new()).with_writer(std::io::stderr);
+            return fmt::layer()
+                .event_format(EventFormatter::new())
+                // See comment above.
+                .with_ansi(false)
+                .with_writer(std::io::stderr);
 
             #[cfg(target_os = "android")]
-            return fmt::layer().event_format(EventFormatter::for_logcat()).with_writer(
-                paranoid_android::AndroidLogMakeWriter::new("org.matrix.rust.sdk".to_owned()),
-            );
+            return fmt::layer()
+                .event_format(EventFormatter::for_logcat())
+                // See comment above.
+                .with_ansi(false)
+                .with_writer(paranoid_android::AndroidLogMakeWriter::new(
+                    "org.matrix.rust.sdk".to_owned(),
+                ));
         }),
     )
 }
