@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+use std::sync::RwLock as SyncRwLock;
 use std::{
     collections::{BTreeMap, HashSet},
-    sync::{Arc, RwLock as SyncRwLock},
+    mem,
+    sync::Arc,
 };
 
 use bitflags::bitflags;
+use eyeball::{SharedObservable, Subscriber};
 use futures_util::stream::{self, StreamExt};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -38,7 +42,7 @@ use ruma::{
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
             name::RoomNameEventContent,
-            redaction::OriginalSyncRoomRedactionEvent,
+            redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
@@ -51,7 +55,7 @@ use ruma::{
     RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
@@ -70,7 +74,7 @@ use crate::{
 pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
-    inner: Arc<SyncRwLock<RoomInfo>>,
+    inner: SharedObservable<RoomInfo>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -150,7 +154,7 @@ impl Room {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
-            inner: Arc::new(SyncRwLock::new(room_info)),
+            inner: SharedObservable::new(room_info),
             #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
@@ -170,17 +174,17 @@ impl Room {
 
     /// Get the state of the room.
     pub fn state(&self) -> RoomState {
-        self.inner.read().unwrap().room_state
+        self.inner.read().room_state
     }
 
     /// Whether this room's [`RoomType`] is `m.space`.
     pub fn is_space(&self) -> bool {
-        self.inner.read().unwrap().room_type().is_some_and(|t| *t == RoomType::Space)
+        self.inner.read().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
     /// Get the unread notification counts.
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
-        self.inner.read().unwrap().notification_counts
+        self.inner.read().notification_counts
     }
 
     /// Check if the room has its members fully synced.
@@ -190,12 +194,15 @@ impl Room {
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
-        self.inner.read().unwrap().members_synced
+        self.inner.read().members_synced
     }
 
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&self) {
-        self.inner.write().unwrap().mark_members_missing()
+        self.inner.update_if(|info| {
+            // notify observable subscribers only if the previous value was false
+            mem::replace(&mut info.members_synced, false)
+        })
     }
 
     /// Check if the room states have been synced
@@ -206,7 +213,7 @@ impl Room {
     ///
     /// Returns true if the state is fully synced, false otherwise.
     pub fn is_state_fully_synced(&self) -> bool {
-        self.inner.read().unwrap().sync_info == SyncInfo::FullySynced
+        self.inner.read().sync_info == SyncInfo::FullySynced
     }
 
     /// Check if the room has its encryption event synced.
@@ -216,20 +223,19 @@ impl Room {
     ///
     /// Returns true if the encryption state is synced, false otherwise.
     pub fn is_encryption_state_synced(&self) -> bool {
-        self.inner.read().unwrap().encryption_state_synced
+        self.inner.read().encryption_state_synced
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
     /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
-        self.inner.read().unwrap().last_prev_batch.clone()
+        self.inner.read().last_prev_batch.clone()
     }
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner
             .read()
-            .unwrap()
             .base_info
             .avatar
             .as_ref()
@@ -238,12 +244,12 @@ impl Room {
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
-        self.inner.read().unwrap().canonical_alias().map(ToOwned::to_owned)
+        self.inner.read().canonical_alias().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
     pub fn alt_aliases(&self) -> Vec<OwnedRoomAliasId> {
-        self.inner.read().unwrap().alt_aliases().to_owned()
+        self.inner.read().alt_aliases().to_owned()
     }
 
     /// Get the `m.room.create` content of this room.
@@ -257,7 +263,6 @@ impl Room {
     pub fn create_content(&self) -> Option<RoomCreateEventContent> {
         self.inner
             .read()
-            .unwrap()
             .base_info
             .create
             .as_ref()
@@ -269,7 +274,7 @@ impl Room {
     pub async fn is_direct(&self) -> StoreResult<bool> {
         match self.state() {
             RoomState::Joined | RoomState::Left => {
-                Ok(!self.inner.read().unwrap().base_info.dm_targets.is_empty())
+                Ok(!self.inner.read().base_info.dm_targets.is_empty())
             }
             RoomState::Invited => {
                 let member = self.get_member(self.own_user_id()).await?;
@@ -302,28 +307,28 @@ impl Room {
     /// us to re-find a DM with a user even if they have left, since we may
     /// want to re-invite them.
     pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
-        self.inner.read().unwrap().base_info.dm_targets.clone()
+        self.inner.read().base_info.dm_targets.clone()
     }
 
     /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
-        self.inner.read().unwrap().is_encrypted()
+        self.inner.read().is_encrypted()
     }
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
     /// in the room.
     pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
-        self.inner.read().unwrap().base_info.encryption.clone()
+        self.inner.read().base_info.encryption.clone()
     }
 
     /// Get the guest access policy of this room.
     pub fn guest_access(&self) -> GuestAccess {
-        self.inner.read().unwrap().guest_access().clone()
+        self.inner.read().guest_access().clone()
     }
 
     /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
-        self.inner.read().unwrap().history_visibility().clone()
+        self.inner.read().history_visibility().clone()
     }
 
     /// Is the room considered to be public.
@@ -333,7 +338,7 @@ impl Room {
 
     /// Get the join rule policy of this room.
     pub fn join_rule(&self) -> JoinRule {
-        self.inner.read().unwrap().join_rule().clone()
+        self.inner.read().join_rule().clone()
     }
 
     /// Get the maximum power level that this room contains.
@@ -341,27 +346,27 @@ impl Room {
     /// This is useful if one wishes to normalize the power levels, e.g. from
     /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
-        self.inner.read().unwrap().base_info.max_power_level
+        self.inner.read().base_info.max_power_level
     }
 
     /// Get the `m.room.name` of this room.
     pub fn name(&self) -> Option<String> {
-        self.inner.read().unwrap().name().map(ToOwned::to_owned)
+        self.inner.read().name().map(ToOwned::to_owned)
     }
 
     /// Has the room been tombstoned.
     pub fn is_tombstoned(&self) -> bool {
-        self.inner.read().unwrap().base_info.tombstone.is_some()
+        self.inner.read().base_info.tombstone.is_some()
     }
 
     /// Get the `m.room.tombstone` content of this room if there is one.
     pub fn tombstone(&self) -> Option<RoomTombstoneEventContent> {
-        self.inner.read().unwrap().tombstone().cloned()
+        self.inner.read().tombstone().cloned()
     }
 
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
-        self.inner.read().unwrap().topic().map(ToOwned::to_owned)
+        self.inner.read().topic().map(ToOwned::to_owned)
     }
 
     /// Return the cached display name of the room if it was provided via sync,
@@ -379,13 +384,13 @@ impl Room {
     /// sliding sync.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn latest_event(&self) -> Option<SyncTimelineEvent> {
-        self.inner.read().unwrap().latest_event.clone()
+        self.inner.read().latest_event.clone()
     }
 
     /// Update the last event in the room
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub(crate) fn set_latest_event(&self, latest_event: Option<SyncTimelineEvent>) {
-        self.inner.write().unwrap().latest_event = latest_event;
+        self.inner.update(|info| info.latest_event = latest_event);
     }
 
     /// Return the most recent few encrypted events. When the keys come through
@@ -405,7 +410,7 @@ impl Room {
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    pub(crate) fn on_latest_event_decrypted(&mut self, event: SyncTimelineEvent, index: usize) {
+    pub(crate) fn on_latest_event_decrypted(&self, event: SyncTimelineEvent, index: usize) {
         self.set_latest_event(Some(event));
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
     }
@@ -483,24 +488,24 @@ impl Room {
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {
-        self.inner.read().unwrap().active_members_count()
+        self.inner.read().active_members_count()
     }
 
     /// Returns the number of members who have been invited to the room.
     pub fn invited_members_count(&self) -> u64 {
-        self.inner.read().unwrap().invited_members_count()
+        self.inner.read().invited_members_count()
     }
 
     /// Returns the number of members who have joined the room.
     pub fn joined_members_count(&self) -> u64 {
-        self.inner.read().unwrap().joined_members_count()
+        self.inner.read().joined_members_count()
     }
 
     async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
-            let inner = self.inner.read().unwrap();
+            let inner = self.inner.read();
 
-            if let Some(name) = &inner.name() {
+            if let Some(name) = inner.name() {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
             }
@@ -560,19 +565,22 @@ impl Room {
             "Calculating name for a room",
         );
 
-        let inner = self.inner.read().unwrap();
-        Ok(inner.base_info.calculate_room_name(joined, invited, members))
+        Ok(self.inner.read().base_info.calculate_room_name(joined, invited, members))
     }
 
-    /// Clone the inner RoomInfo
+    /// Subscribe to the inner `RoomInfo`.
+    pub fn subscribe_info(&self) -> Subscriber<RoomInfo> {
+        self.inner.subscribe()
+    }
+
+    /// Clone the inner `RoomInfo`.
     pub fn clone_info(&self) -> RoomInfo {
-        (*self.inner.read().unwrap()).clone()
+        self.inner.get()
     }
 
     /// Update the summary with given RoomInfo
     pub fn update_summary(&self, summary: RoomInfo) {
-        let mut inner = self.inner.write().unwrap();
-        *inner = summary;
+        self.inner.set(summary);
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -612,7 +620,7 @@ impl Room {
         display_names: &'a [String],
     ) -> StoreResult<MemberRoomInfo<'a>> {
         let max_power_level = self.max_power_level();
-        let room_creator = self.inner.read().unwrap().creator().map(ToOwned::to_owned);
+        let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
 
         trace!("Fetching power levels");
         let power_levels = self
@@ -864,23 +872,38 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
+    #[instrument(skip_all, fields(redacts))]
     pub fn handle_redaction(
         &mut self,
-        event: &OriginalSyncRoomRedactionEvent,
-        _raw: &Raw<OriginalSyncRoomRedactionEvent>,
+        event: &SyncRoomRedactionEvent,
+        _raw: &Raw<SyncRoomRedactionEvent>,
     ) {
+        let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+
+        let Some(redacts) = event.redacts(room_version) else {
+            info!("Can't apply redaction, redacts field is missing");
+            return;
+        };
+        tracing::Span::current().record("redacts", debug(redacts));
+
         #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
-            if latest_event.event_id().as_deref() == Some(&*event.redacts) {
-                let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+            trace!("Checking if redaction applies to latest event");
+            if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(&latest_event.event, _raw, room_version) {
-                    Some(redacted) => latest_event.event = redacted,
-                    None => self.latest_event = None,
+                    Some(redacted) => {
+                        latest_event.event = redacted;
+                        debug!("Redacted latest event");
+                    }
+                    None => {
+                        self.latest_event = None;
+                        debug!("Removed latest event");
+                    }
                 }
             }
         }
 
-        self.base_info.handle_redaction(event);
+        self.base_info.handle_redaction(redacts);
     }
 
     /// Update the room name
@@ -970,10 +993,11 @@ impl RoomInfo {
     }
 
     fn creator(&self) -> Option<&UserId> {
-        Some(match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => &ev.content.creator,
-            MinimalStateEvent::Redacted(ev) => &ev.content.creator,
-        })
+        #[allow(deprecated)]
+        match self.base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => ev.content.creator.as_deref(),
+            MinimalStateEvent::Redacted(ev) => ev.content.creator.as_deref(),
+        }
     }
 
     fn guest_access(&self) -> &GuestAccess {
@@ -1013,10 +1037,10 @@ impl RoomInfo {
 #[cfg(feature = "experimental-sliding-sync")]
 fn apply_redaction(
     event: &Raw<AnySyncTimelineEvent>,
-    raw_redaction: &Raw<OriginalSyncRoomRedactionEvent>,
+    raw_redaction: &Raw<SyncRoomRedactionEvent>,
     room_version: &RoomVersionId,
 ) -> Option<Raw<AnySyncTimelineEvent>> {
-    use ruma::canonical_json::redact_in_place;
+    use ruma::canonical_json::{redact_in_place, RedactedBecause};
 
     let mut event_json = match event.deserialize_as() {
         Ok(json) => json,
@@ -1026,7 +1050,7 @@ fn apply_redaction(
         }
     };
 
-    let redacted_because = match raw_redaction.try_into() {
+    let redacted_because = match RedactedBecause::from_raw_event(raw_redaction) {
         Ok(rb) => rb,
         Err(e) => {
             warn!("Redaction event is not valid canonical JSON: {e}");
@@ -1096,12 +1120,15 @@ impl RoomStateFilter {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
 
     use assign::assign;
+    #[cfg(feature = "experimental-sliding-sync")]
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
+        api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -1115,14 +1142,16 @@ mod test {
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id,
+        user_id, UserId,
     };
     use serde_json::json;
 
-    use super::*;
+    #[cfg(feature = "experimental-sliding-sync")]
+    use super::SyncInfo;
+    use super::{Room, RoomInfo, RoomState};
     use crate::{
         store::{MemoryStore, StateChanges, StateStore},
-        MinimalStateEvent, OriginalMinimalStateEvent,
+        DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
     #[test]
@@ -1130,6 +1159,9 @@ mod test {
     fn room_info_serialization() {
         // This test exists to make sure we don't accidentally change the
         // serialized format for `RoomInfo`.
+
+        use super::RoomSummary;
+        use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
 
         let info = RoomInfo {
             room_id: room_id!("!gda78o:server.tld").into(),
@@ -1302,16 +1334,18 @@ mod test {
     #[async_test]
     async fn display_name_for_joined_room_uses_canonical_alias_if_available() {
         let (_, room) = make_room(RoomState::Joined);
-        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        room.inner
+            .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
     }
 
     #[async_test]
     async fn display_name_for_joined_room_prefers_name_over_alias() {
         let (_, room) = make_room(RoomState::Joined);
-        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        room.inner
+            .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-        room.inner.write().unwrap().base_info.name = Some(make_name_event());
+        room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
@@ -1325,16 +1359,18 @@ mod test {
     #[async_test]
     async fn display_name_for_invited_room_uses_canonical_alias_if_available() {
         let (_, room) = make_room(RoomState::Invited);
-        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        room.inner
+            .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
     }
 
     #[async_test]
     async fn display_name_for_invited_room_prefers_name_over_alias() {
         let (_, room) = make_room(RoomState::Invited);
-        room.inner.write().unwrap().base_info.canonical_alias = Some(make_canonical_alias_event());
+        room.inner
+            .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
-        room.inner.write().unwrap().base_info.name = Some(make_name_event());
+        room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
@@ -1374,7 +1410,7 @@ mod test {
         changes.add_stripped_member(room_id, me, make_stripped_member_event(me, "Me"));
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.write().unwrap().update_summary(&summary);
+        room.inner.update_if(|info| info.update_summary(&summary));
         assert_eq!(
             room.display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
@@ -1426,7 +1462,7 @@ mod test {
 
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.write().unwrap().update_summary(&summary);
+        room.inner.update_if(|info| info.update_summary(&summary));
         assert_eq!(
             room.display_name().await.unwrap(),
             DisplayName::Calculated("Matthew".to_owned())
@@ -1481,7 +1517,7 @@ mod test {
 
         store.save_changes(&changes).await.unwrap();
 
-        room.inner.write().unwrap().update_summary(&summary);
+        room.inner.update_if(|info| info.update_summary(&summary));
         assert_eq!(room.display_name().await.unwrap(), DisplayName::EmptyWas("Matthew".to_owned()));
     }
 
@@ -1517,8 +1553,8 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
         // Given a room with an encrypted event
-        let (_store, mut room) = make_room(RoomState::Joined);
-        add_encrypted_event(&mut room, "$A");
+        let (_store, room) = make_room(RoomState::Joined);
+        add_encrypted_event(&room, "$A");
         // Sanity: it has no latest_event
         assert!(room.latest_event().is_none());
 
@@ -1534,12 +1570,12 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
         // Given a room with some encrypted events and a latest event
-        let (_store, mut room) = make_room(RoomState::Joined);
-        room.inner.write().unwrap().latest_event = Some(make_event("$A"));
-        add_encrypted_event(&mut room, "$0");
-        add_encrypted_event(&mut room, "$1");
-        add_encrypted_event(&mut room, "$2");
-        add_encrypted_event(&mut room, "$3");
+        let (_store, room) = make_room(RoomState::Joined);
+        room.inner.update(|info| info.latest_event = Some(make_event("$A")));
+        add_encrypted_event(&room, "$0");
+        add_encrypted_event(&room, "$1");
+        add_encrypted_event(&room, "$2");
+        add_encrypted_event(&room, "$3");
 
         // When I provide a latest event
         let new_event = make_event("$1");
@@ -1560,11 +1596,11 @@ mod test {
     #[cfg(feature = "experimental-sliding-sync")]
     fn replacing_the_newest_event_leaves_none_left() {
         // Given a room with some encrypted events
-        let (_store, mut room) = make_room(RoomState::Joined);
-        add_encrypted_event(&mut room, "$0");
-        add_encrypted_event(&mut room, "$1");
-        add_encrypted_event(&mut room, "$2");
-        add_encrypted_event(&mut room, "$3");
+        let (_store, room) = make_room(RoomState::Joined);
+        add_encrypted_event(&room, "$0");
+        add_encrypted_event(&room, "$1");
+        add_encrypted_event(&room, "$2");
+        add_encrypted_event(&room, "$3");
 
         // When I provide a latest event and say it was the very latest
         let new_event = make_event("$3");
@@ -1577,7 +1613,7 @@ mod test {
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
-    fn add_encrypted_event(room: &mut Room, event_id: &str) {
+    fn add_encrypted_event(room: &Room, event_id: &str) {
         room.latest_encrypted_events
             .write()
             .unwrap()

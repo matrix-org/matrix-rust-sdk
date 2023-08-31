@@ -237,11 +237,11 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
 
-    use super::*;
+    use super::AnyDecryptedOlmEvent;
 
     const ED25519_KEY: &str = "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk";
 

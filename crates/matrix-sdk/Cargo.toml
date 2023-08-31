@@ -55,12 +55,14 @@ experimental-sliding-sync = [
     "reqwest/gzip",
     "dep:eyeball-im-util",
 ]
+experimental-widgets = []
 
 docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
+async-channel = "1.9.0"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = "1.1.0"
@@ -136,6 +138,7 @@ tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }

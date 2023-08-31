@@ -565,7 +565,7 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::*;
+    use crate::{AppService, AppServiceBuilder, AppServiceRegistration, Result};
 
     fn registration_string() -> String {
         include_str!("../tests/registration.yaml").to_owned()

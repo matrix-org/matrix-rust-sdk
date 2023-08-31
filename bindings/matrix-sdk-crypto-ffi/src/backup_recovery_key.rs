@@ -169,11 +169,11 @@ impl BackupRecoveryKey {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
-    use super::*;
+    use super::BackupRecoveryKey;
 
     #[test]
     fn test_decrypt_key() {

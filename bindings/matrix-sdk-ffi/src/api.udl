@@ -1,6 +1,6 @@
 namespace matrix_sdk_ffi {};
 
-interface RoomMessageEventContent {};
+interface RoomMessageEventContentWithoutRelation {};
 
 [Error]
 interface ClientError {

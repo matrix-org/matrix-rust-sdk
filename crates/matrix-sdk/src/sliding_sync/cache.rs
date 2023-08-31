@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
+use matrix_sdk_common::timer;
 use ruma::UserId;
 use tracing::{trace, warn};
 
@@ -91,13 +92,12 @@ pub(super) async fn store_sliding_sync_state(
             .read()
             .await
             .iter()
-            .filter_map(|(list_name, list)| {
-                matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled).then(|| {
-                    Ok((
-                        format_storage_key_for_sliding_sync_list(storage_key, list_name),
-                        serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
-                    ))
-                })
+            .filter(|(_, list)| matches!(list.cache_policy(), SlidingSyncListCachePolicy::Enabled))
+            .map(|(list_name, list)| {
+                Ok((
+                    format_storage_key_for_sliding_sync_list(storage_key, list_name),
+                    serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
+                ))
             })
             .collect::<Result<Vec<_>, crate::Error>>()?
     };
@@ -119,6 +119,8 @@ pub(super) async fn restore_sliding_sync_list(
     storage_key: &str,
     list_name: &str,
 ) -> Result<Option<FrozenSlidingSyncList>> {
+    let _timer = timer!(format!("loading list from DB {list_name}"));
+
     let storage_key_for_list = format_storage_key_for_sliding_sync_list(storage_key, list_name);
 
     match storage
@@ -167,6 +169,8 @@ pub(super) async fn restore_sliding_sync_state(
     delta_token: &mut Option<String>,
     to_device_token: &mut Option<String>,
 ) -> Result<()> {
+    let _timer = timer!(format!("loading sliding sync {storage_key} state from DB"));
+
     #[cfg(feature = "e2e-encryption")]
     if let Some(olm_machine) = &*client.olm_machine().await {
         match olm_machine.store().next_batch_token().await? {
@@ -229,8 +233,12 @@ mod tests {
     use futures_util::StreamExt;
     use matrix_sdk_test::async_test;
 
-    use super::*;
-    use crate::{test_utils::logged_in_client, Result};
+    use super::{
+        clean_storage, format_storage_key_for_sliding_sync,
+        format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
+        restore_sliding_sync_state, store_sliding_sync_state,
+    };
+    use crate::{test_utils::logged_in_client, Result, SlidingSyncList};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -385,6 +393,8 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
+        use crate::sliding_sync::FrozenSlidingSync;
+
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
 
         let sync_id = "test-sync-id";

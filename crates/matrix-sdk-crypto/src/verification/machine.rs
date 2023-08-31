@@ -539,8 +539,7 @@ mod tests {
         verification::{
             cache::VerificationCache,
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
-            test::{alice_device_id, alice_id, setup_stores},
-            tests::wrap_any_to_device_content,
+            tests::{alice_device_id, alice_id, setup_stores, wrap_any_to_device_content},
             FlowId, VerificationStore,
         },
         ReadOnlyAccount, VerificationRequest,

@@ -364,9 +364,14 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::crypto::store::{IntoCryptoStore as _, MemoryStore};
     use matrix_sdk_test::async_test;
-    use tokio::spawn;
+    use std::sync::atomic;
+    use tokio::{
+        spawn,
+        time::{sleep, Duration},
+    };
 
-    use super::*;
+    use super::{CrossProcessStoreLockGuard, LockStoreError, EXTEND_LEASE_EVERY_MS};
+    use crate::store_locks::CrossProcessStoreLock;
 
     async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
         drop(guard);

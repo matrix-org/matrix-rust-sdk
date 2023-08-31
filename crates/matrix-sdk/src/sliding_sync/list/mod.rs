@@ -12,21 +12,19 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-pub use builder::*;
 use eyeball::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
 use eyeball_im_util::{FilterVectorSubscriber, VectorExt};
-pub(super) use frozen::FrozenSlidingSyncList;
 use futures_core::Stream;
 use imbl::Vector;
-pub(super) use request_generator::*;
-pub use room_list_entry::RoomListEntry;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
 use self::sticky::SlidingSyncListStickyParameters;
+pub use self::{builder::*, room_list_entry::RoomListEntry};
+pub(super) use self::{frozen::FrozenSlidingSyncList, request_generator::*};
 use super::{
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
     Error, SlidingSyncInternalMessage,
@@ -492,7 +490,7 @@ impl SlidingSyncListInner {
     }
 
     /// Send a message over the internal channel if there is a receiver, i.e. if
-    /// the sync-loop is running.
+    /// the sync loop is running.
     #[instrument]
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
@@ -891,13 +889,18 @@ impl SlidingSyncMode {
 mod tests {
     use std::{
         cell::Cell,
+        collections::HashSet,
         sync::{Arc, Mutex},
     };
 
+    use eyeball_im::{ObservableVector, VectorDiff};
     use futures_util::StreamExt;
     use imbl::vector;
     use matrix_sdk_test::async_test;
-    use ruma::{api::client::sync::sync_events::v4::SlidingOp, room_id, uint};
+    use ruma::{
+        api::client::sync::sync_events::v4::{self, SlidingOp},
+        room_id, uint, OwnedRoomId,
+    };
     use serde_json::json;
     use tokio::{
         spawn,
@@ -907,7 +910,11 @@ mod tests {
         },
     };
 
-    use super::*;
+    use super::{
+        apply_sync_operations, RoomListEntry, SlidingSyncList, SlidingSyncListLoadingState,
+        SlidingSyncMode,
+    };
+    use crate::sliding_sync::{sticky_parameters::LazyTransactionId, SlidingSyncInternalMessage};
 
     macro_rules! assert_json_roundtrip {
         (from $type:ty: $rust_value:expr => $json_value:expr) => {

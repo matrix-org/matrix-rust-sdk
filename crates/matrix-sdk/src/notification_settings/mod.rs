@@ -18,7 +18,10 @@ mod command;
 mod rule_commands;
 mod rules;
 
-use crate::{error::NotificationSettingsError, event_handler::EventHandlerHandle, Client, Result};
+use crate::{
+    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerHandle,
+    Client, Result,
+};
 
 /// Enum representing the push notification modes for a room.
 #[derive(Debug, Clone, PartialEq)]
@@ -324,6 +327,7 @@ impl NotificationSettings {
         &self,
         rule_commands: &RuleCommands,
     ) -> Result<(), NotificationSettingsError> {
+        let request_config = Some(RequestConfig::short_retry());
         for command in &rule_commands.commands {
             match command {
                 Command::DeletePushRule { scope, kind, rule_id } => {
@@ -333,7 +337,7 @@ impl NotificationSettings {
                         rule_id.clone(),
                     );
                     self.client
-                        .send(request, None)
+                        .send(request, request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToRemovePushRule)?;
                 }
@@ -341,7 +345,7 @@ impl NotificationSettings {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
                     self.client
-                        .send(request, None)
+                        .send(request, request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
                 }
@@ -349,7 +353,7 @@ impl NotificationSettings {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(scope.clone(), push_rule);
                     self.client
-                        .send(request, None)
+                        .send(request, request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
                 }
@@ -361,7 +365,7 @@ impl NotificationSettings {
                         *enabled,
                     );
                     self.client
-                        .send(request, None)
+                        .send(request, request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
                 }
@@ -373,7 +377,7 @@ impl NotificationSettings {
                         actions.clone(),
                     );
                     self.client
-                        .send(request, None)
+                        .send(request, request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToUpdatePushRule)?;
                 }

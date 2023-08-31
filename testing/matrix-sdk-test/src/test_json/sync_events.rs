@@ -488,7 +488,20 @@ pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
                         "rule_id": ".m.rule.suppress_notices"
                     }
                 ],
-                "room": [],
+                "room": [
+                    {
+                      "actions": [
+                        "notify",
+                        {
+                          "set_tweak": "sound",
+                          "value": "default"
+                        }
+                      ],
+                      "rule_id": "!SVkFJHzfwvuaIEawgC:localhost",
+                      "default": false,
+                      "enabled": true
+                    }
+                ],
                 "sender": [],
                 "underride": [
                     {

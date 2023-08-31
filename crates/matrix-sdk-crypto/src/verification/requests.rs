@@ -1647,7 +1647,7 @@ mod tests {
             event_enums::{
                 CancelContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
             },
-            test::{alice_id, bob_id, setup_stores},
+            tests::{alice_id, bob_id, setup_stores},
             FlowId, Verification, VerificationStore,
         },
         OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequestState,

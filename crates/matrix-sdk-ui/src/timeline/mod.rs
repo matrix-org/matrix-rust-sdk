@@ -40,9 +40,10 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
-        room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
+        room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent,
     },
+    html::HtmlSanitizerMode,
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
@@ -56,6 +57,7 @@ mod futures;
 mod inner;
 mod item;
 mod pagination;
+mod polls;
 mod queue;
 mod reactions;
 mod read_receipts;
@@ -79,6 +81,7 @@ pub use self::{
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
+    polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
     traits::RoomExt,
@@ -492,6 +495,9 @@ impl Timeline {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => {
                 error_return!("Invalid state: attempting to retry a failed-to-parse item");
+            }
+            TimelineItemContent::Poll(poll_state) => {
+                AnyMessageLikeEventContent::UnstablePollStart(poll_state.into())
             }
         };
 

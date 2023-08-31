@@ -200,9 +200,7 @@ impl ClientBuilder {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
         }
 
-        let client = Client::new(sdk_client);
-
-        Ok(Arc::new(client))
+        Ok(Client::new(sdk_client))
     }
 }
 

@@ -26,9 +26,9 @@ fn log_event(file: String, line: Option<u32>, level: LogLevel, target: String, m
 
     let id = MetadataId { file, line, level, target, name: None };
     let callsite = get_or_init_metadata(&CALLSITES, id, &["message"], MetadataKind::EVENT);
-    let metadata = callsite.metadata();
 
     if span_or_event_enabled(callsite) {
+        let metadata = callsite.metadata();
         let fields = metadata.fields();
         let message_field = fields.field("message").unwrap();
         #[allow(trivial_casts)] // The compiler is lying, it can't infer this cast

@@ -208,6 +208,7 @@ pub enum RoomListServiceState {
     // as of 2023-08-21.
     Initial,
     SettingUp,
+    Recovering,
     Running,
     Error,
     Terminated,
@@ -220,6 +221,7 @@ impl From<matrix_sdk_ui::room_list_service::State> for RoomListServiceState {
         match value {
             Init => Self::Initial,
             SettingUp => Self::SettingUp,
+            Recovering => Self::Recovering,
             Running => Self::Running,
             Error { .. } => Self::Error,
             Terminated { .. } => Self::Terminated,
@@ -365,7 +367,8 @@ impl RoomListItem {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        Ok(RoomInfo::new(&self.inner).await?)
+        let latest_event = self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new);
+        Ok(RoomInfo::new(self.inner.inner_room(), latest_event).await?)
     }
 
     /// Building a `Room`.

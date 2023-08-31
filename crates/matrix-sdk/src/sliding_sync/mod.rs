@@ -33,12 +33,8 @@ use std::{
 };
 
 use async_stream::stream;
-pub use builder::*;
-pub use error::*;
 use futures_core::stream::Stream;
-pub use list::*;
-use matrix_sdk_common::ring_buffer::RingBuffer;
-pub use room::*;
+use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
 use ruma::{
     api::client::{
         error::ErrorKind,
@@ -53,15 +49,15 @@ use tokio::{
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use url::Url;
-use utils::JoinHandleExt as _;
 
+pub use self::{builder::*, error::*, list::*, room::*};
 use self::{
     cache::restore_sliding_sync_state,
+    client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
+    utils::JoinHandleExt as _,
 };
-use crate::{
-    config::RequestConfig, sliding_sync::client::SlidingSyncResponseProcessor, Client, Result,
-};
+use crate::{config::RequestConfig, Client, Result};
 
 /// The Sliding Sync instance.
 ///
@@ -243,6 +239,8 @@ impl SlidingSync {
         &self,
         mut list_builder: SlidingSyncListBuilder,
     ) -> Result<Option<SlidingSyncList>> {
+        let _timer = timer!(format!("restoring (loading+processing) list {}", list_builder.name));
+
         let reloaded_rooms =
             list_builder.set_cached_and_reload(&self.inner.client, &self.inner.storage_key).await?;
 
@@ -660,7 +658,7 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    /// Create a _new_ Sliding Sync sync-loop.
+    /// Create a _new_ Sliding Sync sync loop.
     ///
     /// This method returns a `Stream`, which will send requests and will handle
     /// responses automatically. Lists and rooms are updated automatically.
@@ -714,7 +712,7 @@ impl SlidingSync {
                                 continue;
                             }
 
-                            // Here, errors we **cannot** ignore, and that must stop the sync-loop.
+                            // Here, errors we **cannot** ignore, and that must stop the sync loop.
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
                                     // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
@@ -737,13 +735,13 @@ impl SlidingSync {
         }
     }
 
-    /// Force to stop the sync-loop ([`Self::sync`]) if it's running.
+    /// Force to stop the sync loop ([`Self::sync`]) if it's running.
     ///
     /// Usually, dropping the `Stream` returned by [`Self::sync`] should be
     /// enough to “stop” it, but depending of how this `Stream` is used, it
     /// might not be obvious to drop it immediately (thinking of using this API
     /// over FFI; the foreign-language might not be able to drop a value
-    /// immediately). Thus, calling this method will ensure that the sync-loop
+    /// immediately). Thus, calling this method will ensure that the sync loop
     /// stops gracefully and as soon as it returns.
     pub fn stop_sync(&self) -> Result<()> {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
@@ -759,7 +757,7 @@ impl SlidingSync {
     /// multiple sliding syncs being run in parallel, and one of them has
     /// expired).
     ///
-    /// This method **MUST** be called when the sync-loop is stopped.
+    /// This method **MUST** be called when the sync loop is stopped.
     #[doc(hidden)]
     pub async fn expire_session(&self) {
         info!("Session expired; resetting `pos` and sticky parameters");
@@ -787,7 +785,7 @@ impl SlidingSyncInner {
     }
 
     /// Send a message over the internal channel if there is a receiver, i.e. if
-    /// the sync-loop is running.
+    /// the sync loop is running.
     #[instrument]
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
@@ -993,23 +991,39 @@ fn compute_limited(
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, sync::Mutex};
+    use std::{
+        collections::BTreeMap,
+        future::ready,
+        ops::Not,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     use assert_matches::assert_matches;
     use futures_util::{future::join_all, pin_mut, StreamExt};
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::sync::sync_events::v4::ToDeviceConfig, owned_room_id, room_id, serde::Raw,
-        uint, DeviceKeyAlgorithm, TransactionId,
+        api::client::{
+            error::ErrorKind,
+            sync::sync_events::v4::{self, ExtensionsConfig, ToDeviceConfig},
+        },
+        assign, owned_room_id, room_id,
+        serde::Raw,
+        uint, DeviceKeyAlgorithm, OwnedRoomId, TransactionId,
     };
+    use serde::Deserialize;
     use serde_json::json;
+    use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
-    use super::*;
-    use crate::{
-        sliding_sync::sticky_parameters::SlidingSyncStickyManager, test_utils::logged_in_client,
+    use super::{
+        compute_limited,
+        sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
+        FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+        SlidingSyncRoom, SlidingSyncStickyParameters,
     };
+    use crate::{test_utils::logged_in_client, Result};
 
     #[derive(Copy, Clone)]
     struct SlidingSyncMatcher;
@@ -1577,24 +1591,24 @@ mod tests {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
 
-        // Start the sync-loop.
+        // Start the sync loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
-        // The sync-loop is actually running.
+        // The sync loop is actually running.
         assert!(stream.next().await.is_some());
 
-        // Stop the sync-loop.
+        // Stop the sync loop.
         sliding_sync.stop_sync()?;
 
-        // The sync-loop is actually stopped.
+        // The sync loop is actually stopped.
         assert!(stream.next().await.is_none());
 
-        // Start a new sync-loop.
+        // Start a new sync loop.
         let stream = sliding_sync.sync();
         pin_mut!(stream);
 
-        // The sync-loop is actually running.
+        // The sync loop is actually running.
         assert!(stream.next().await.is_some());
 
         Ok(())
@@ -1963,6 +1977,118 @@ mod tests {
         for result in requests.await {
             result?;
         }
+
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // b/o tokio::time::sleep
+    #[async_test]
+    async fn test_aborted_request_doesnt_update_future_requests() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let pos = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |_: &Request| {
+                let mut pos = pos.lock().unwrap();
+                *pos += 1;
+                // Respond slowly enough that we can skip one iteration.
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "pos": pos.to_string(),
+                        "lists": {},
+                        "rooms": {}
+                    }))
+                    .set_delay(Duration::from_secs(2))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let sliding_sync =
+            client
+                .sliding_sync("test")?
+                .add_list(SlidingSyncList::builder("room-list").sync_mode(
+                    SlidingSyncMode::new_growing(10).maximum_number_of_rooms_to_fetch(100),
+                ))
+                .add_list(
+                    SlidingSyncList::builder("another-list")
+                        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                )
+                .build()
+                .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        let cloned_sync = sliding_sync.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            cloned_sync
+                .on_list("another-list", |list| {
+                    list.set_sync_mode(SlidingSyncMode::new_selective().add_range(10..=20));
+                    ready(())
+                })
+                .await;
+        });
+
+        assert_matches!(stream.next().await, Some(Ok(_)));
+
+        sliding_sync.stop_sync().unwrap();
+
+        assert_matches!(stream.next().await, None);
+
+        let mut num_requests = 0;
+
+        for request in server.received_requests().await.unwrap() {
+            if !SlidingSyncMatcher.matches(&request) {
+                continue;
+            }
+
+            let another_list_ranges = if num_requests == 0 {
+                // First request
+                json!([[0, 10]])
+            } else {
+                // Second request
+                json!([[10, 20]])
+            };
+
+            num_requests += 1;
+            assert!(num_requests <= 2, "more than one request hit the server");
+
+            let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+            if let Err(err) = assert_json_diff::assert_json_matches_no_panic(
+                &json_value,
+                &json!({
+                    "conn_id": "test",
+                    "lists": {
+                        "room-list": {
+                            "ranges": [[0, 9]],
+                            "required_state": [
+                                ["m.room.encryption", ""],
+                                ["m.room.tombstone", ""]
+                            ],
+                            "sort": ["by_recency", "by_name"]
+                        },
+                        "another-list": {
+                            "ranges": another_list_ranges,
+                            "required_state": [
+                                ["m.room.encryption", ""],
+                                ["m.room.tombstone", ""]
+                            ],
+                            "sort": ["by_recency", "by_name"]
+                        },
+                    }
+                }),
+                assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive),
+            ) {
+                dbg!(json_value);
+                panic!("json differ: {err}");
+            }
+        }
+
+        assert_eq!(num_requests, 2);
 
         Ok(())
     }

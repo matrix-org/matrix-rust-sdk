@@ -11,9 +11,10 @@ pub fn new_filter() -> impl Fn(&RoomListEntry) -> bool {
 mod tests {
     use std::ops::Not;
 
+    use matrix_sdk::RoomListEntry;
     use ruma::room_id;
 
-    use super::*;
+    use super::new_filter;
 
     #[test]
     fn test_all_kind_of_room_list_entry() {

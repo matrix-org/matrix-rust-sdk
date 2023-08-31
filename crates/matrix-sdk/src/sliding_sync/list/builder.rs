@@ -51,7 +51,7 @@ pub struct SlidingSyncListBuilder {
     required_state: Vec<(StateEventType, String)>,
     filters: Option<v4::SyncRequestListFilters>,
     timeline_limit: Option<Bound>,
-    name: String,
+    pub(crate) name: String,
 
     /// Should this list be cached and reloaded from the cache?
     cache_policy: SlidingSyncListCachePolicy,
@@ -223,9 +223,9 @@ impl SlidingSyncListBuilder {
                 // otherwise.
                 state: StdRwLock::new(Observable::new(Default::default())),
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
-                // We want to avoid triggering `VectorDiff::Reset` as much as possible, hence we
+                // We want to avoid triggering `VectorDiff::Reset` too much, hence we
                 // increase the observable capacity.
-                room_list: StdRwLock::new(ObservableVector::with_capacity(4096)),
+                room_list: StdRwLock::new(ObservableVector::with_capacity(64)),
 
                 // Internal data.
                 sliding_sync_internal_channel_sender,

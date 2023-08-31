@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
-use criterion::*;
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use matrix_sdk_test::response_from_file;

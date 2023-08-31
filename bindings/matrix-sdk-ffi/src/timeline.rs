@@ -19,17 +19,17 @@ use matrix_sdk::{
                 LocationMessageEventContent as RumaLocationMessageEventContent,
                 MessageType as RumaMessageType,
                 NoticeMessageEventContent as RumaNoticeMessageEventContent,
-                RoomMessageEventContent, TextMessageEventContent as RumaTextMessageEventContent,
-                VideoInfo as RumaVideoInfo,
+                RoomMessageEventContentWithoutRelation,
+                TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
                 VideoMessageEventContent as RumaVideoMessageEventContent,
             },
             ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
         },
     },
 };
-use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
+use matrix_sdk_ui::timeline::{EventItemOrigin, PollResult, Profile, TimelineDetails};
 use ruma::{assign, UInt};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     error::{ClientError, TimelineError},
@@ -43,21 +43,27 @@ pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
 }
 
 #[uniffi::export]
-pub fn message_event_content_new(msgtype: MessageType) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::new(msgtype.into()))
+pub fn message_event_content_new(
+    msgtype: MessageType,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.into()))
 }
 
 #[uniffi::export]
-pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::text_markdown(md))
+pub fn message_event_content_from_markdown(
+    md: String,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
 }
 
 #[uniffi::export]
 pub fn message_event_content_from_html(
     body: String,
     html_body: String,
-) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::text_html(body, html_body))
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
+        body, html_body,
+    )))
 }
 
 #[uniffi::export(callback_interface)]
@@ -420,6 +426,7 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
+            Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -490,9 +497,6 @@ pub enum TimelineItemContentKind {
         answers: Vec<PollAnswer>,
         votes: HashMap<String, Vec<String>>,
         end_time: Option<u64>,
-    },
-    PollEnd {
-        start_event_id: String,
     },
     UnableToDecrypt {
         msg: EncryptedMessage,
@@ -1273,7 +1277,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
     }
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(uniffi::Enum)]
 pub enum PollKind {
     Disclosed,
     Undisclosed,
@@ -1288,8 +1292,38 @@ impl From<PollKind> for RumaPollKind {
     }
 }
 
-#[derive(Clone, uniffi::Record)]
+impl From<RumaPollKind> for PollKind {
+    fn from(value: RumaPollKind) -> Self {
+        match value {
+            RumaPollKind::Disclosed => Self::Disclosed,
+            RumaPollKind::Undisclosed => Self::Undisclosed,
+            _ => {
+                info!("Unknown poll kind, defaulting to undisclosed");
+                Self::Undisclosed
+            }
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
+}
+
+impl From<PollResult> for TimelineItemContentKind {
+    fn from(value: PollResult) -> Self {
+        TimelineItemContentKind::Poll {
+            question: value.question,
+            kind: PollKind::from(value.kind),
+            max_selections: value.max_selections,
+            answers: value
+                .answers
+                .into_iter()
+                .map(|i| PollAnswer { id: i.id, text: i.text })
+                .collect(),
+            votes: value.votes,
+            end_time: value.end_time,
+        }
+    }
 }

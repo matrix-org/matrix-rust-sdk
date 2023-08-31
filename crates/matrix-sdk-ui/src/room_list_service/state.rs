@@ -38,6 +38,11 @@ pub enum State {
     /// At this state, the first rooms are starting to sync.
     SettingUp,
 
+    /// At this state, the system is recovering from `Error` or `Terminated`.
+    /// It's similar to `SettingUp` but some lists may already exist, actions
+    /// are then slightly different.
+    Recovering,
+
     /// At this state, all rooms are syncing, and the visible rooms + invites
     /// lists exist.
     Running,
@@ -57,35 +62,29 @@ impl State {
 
         let (next_state, actions) = match self {
             Init => (SettingUp, Actions::none()),
-            SettingUp => (Running, Actions::first_rooms_are_loaded()),
+
+            SettingUp => (Running, Actions::setup_lists()),
+
+            Recovering => (Running, Actions::recover_lists()),
+
             Running => (Running, Actions::none()),
 
-            // If the state was `Error` or `Terminated`, the next state is calculated again, because
-            // it means the sync has been restarted. In this case, let's jump back on
-            // the previous state that led to the termination.
-            Terminated { from: previous_state } => match previous_state.as_ref() {
-                // Unreachable state.
-                Error { .. } | Terminated { .. } => {
-                    unreachable!(
-                        "It's impossible to reach `Error` or `Terminated` from `Terminated`"
+            Error { from: previous_state } | Terminated { from: previous_state } => {
+                match previous_state.as_ref() {
+                    // Unreachable state.
+                    Error { .. } | Terminated { .. } => {
+                        unreachable!(
+                        "It's impossible to reach `Error` or `Terminated` from `Error` or `Terminated`"
                     );
+                    }
+
+                    // If the previous state was `Running`, we enter the `Recovering` state.
+                    Running => (Recovering, Actions::reset_lists()),
+
+                    // Jump back to the previous state that led to this termination.
+                    state => (state.to_owned(), Actions::none()),
                 }
-
-                // Do nothing.
-                state => (state.to_owned(), Actions::none()),
-            },
-            Error { from: previous_state } => match previous_state.as_ref() {
-                // Unreachable state.
-                Error { .. } | Terminated { .. } => {
-                    unreachable!("It's impossible to reach `Error` or `Terminated` from `Error`");
-                }
-
-                // Refresh the lists.
-                Running => (Running, Actions::refresh_lists()),
-
-                // Do nothing.
-                state => (state.to_owned(), Actions::none()),
-            },
+            }
         };
 
         for action in actions.iter() {
@@ -129,14 +128,45 @@ impl Action for AddVisibleRoomsList {
     }
 }
 
+struct SetAllRoomsListToSelectiveSyncMode;
+
+/// Default `batch_size` for the selective sync-mode of the
+/// `ALL_ROOMS_LIST_NAME` list.
+pub const ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE: Range = 0..=19;
+
+#[async_trait]
+impl Action for SetAllRoomsListToSelectiveSyncMode {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| {
+                list.set_sync_mode(
+                    SlidingSyncMode::new_selective()
+                        .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE),
+                );
+
+                ready(())
+            })
+            .await
+            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
+
+        Ok(())
+    }
+}
+
 struct SetAllRoomsListToGrowingSyncMode;
+
+/// Default `batch_size` for the growing sync-mode of the `ALL_ROOMS_LIST_NAME`
+/// list.
+pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
 
 #[async_trait]
 impl Action for SetAllRoomsListToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(200));
+                list.set_sync_mode(SlidingSyncMode::new_growing(
+                    ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE,
+                ));
 
                 ready(())
             })
@@ -149,13 +179,17 @@ impl Action for SetAllRoomsListToGrowingSyncMode {
 
 struct AddInvitesList;
 
+/// Default `batch_size` for the growing sync-mode of the `INVITES_LIST_NAME`
+/// list.
+pub const INVITES_DEFAULT_GROWING_BATCH_SIZE: u32 = 20;
+
 #[async_trait]
 impl Action for AddInvitesList {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder(INVITES_LIST_NAME)
-                    .sync_mode(SlidingSyncMode::new_growing(100))
+                    .sync_mode(SlidingSyncMode::new_growing(INVITES_DEFAULT_GROWING_BATCH_SIZE))
                     .timeline_limit(0)
                     .required_state(vec![
                         (StateEventType::RoomAvatar, "".to_owned()),
@@ -172,6 +206,26 @@ impl Action for AddInvitesList {
             )
             .await
             .map_err(Error::SlidingSync)?;
+
+        Ok(())
+    }
+}
+
+struct ResetInvitesListGrowingSyncMode;
+
+#[async_trait]
+impl Action for ResetInvitesListGrowingSyncMode {
+    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
+        sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| {
+                list.set_sync_mode(SlidingSyncMode::new_growing(
+                    INVITES_DEFAULT_GROWING_BATCH_SIZE,
+                ));
+
+                ready(())
+            })
+            .await
+            .ok_or_else(|| Error::UnknownList(INVITES_LIST_NAME.to_owned()))?;
 
         Ok(())
     }
@@ -216,8 +270,9 @@ macro_rules! actions {
 impl Actions {
     actions! {
         none => [],
-        first_rooms_are_loaded => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
-        refresh_lists => [SetAllRoomsListToGrowingSyncMode],
+        setup_lists => [SetAllRoomsListToGrowingSyncMode, AddVisibleRoomsList, AddInvitesList],
+        recover_lists => [SetAllRoomsListToGrowingSyncMode],
+        reset_lists => [SetAllRoomsListToSelectiveSyncMode, ResetInvitesListGrowingSyncMode],
     }
 
     fn iter(&self) -> &[OneAction] {
@@ -242,6 +297,8 @@ mod tests {
         // Hypothetical error.
         {
             let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
             assert_eq!(state, State::Init);
         }
 
@@ -249,6 +306,8 @@ mod tests {
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
             assert_eq!(state, State::Init);
         }
 
@@ -259,6 +318,8 @@ mod tests {
         // Hypothetical error.
         {
             let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
             assert_eq!(state, State::SettingUp);
         }
 
@@ -266,6 +327,8 @@ mod tests {
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
             assert_eq!(state, State::SettingUp);
         }
 
@@ -276,6 +339,13 @@ mod tests {
         // Hypothetical error.
         {
             let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Jump to the **recovering** state!
+            assert_eq!(state, State::Recovering);
+
+            let state = state.next(sliding_sync).await?;
+
+            // Now, back to the previous state.
             assert_eq!(state, State::Running);
         }
 
@@ -283,24 +353,32 @@ mod tests {
         {
             let state =
                 State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+
+            // Jump to the **recovering** state!
+            assert_eq!(state, State::Recovering);
+
+            let state = state.next(sliding_sync).await?;
+
+            // Now, back to the previous state.
             assert_eq!(state, State::Running);
         }
 
-        // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::Running);
-
-        // Hypothetical error.
-        {
-            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::Running);
-        }
-
-        // Hypothetical termination.
+        // Hypothetical error when recovering.
         {
             let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
-            assert_eq!(state, State::Running);
+                State::Error { from: Box::new(State::Recovering) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
+            assert_eq!(state, State::Recovering);
+        }
+
+        // Hypothetical termination when recovering.
+        {
+            let state =
+                State::Terminated { from: Box::new(State::Recovering) }.next(sliding_sync).await?;
+
+            // Back to the previous state.
+            assert_eq!(state, State::Recovering);
         }
 
         Ok(())
@@ -332,7 +410,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_action_set_all_rooms_list_to_growing_sync_mode() -> Result<(), Error> {
+    async fn test_action_set_all_rooms_list_to_growing_and_selective_sync_mode() -> Result<(), Error>
+    {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
@@ -341,7 +420,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE]
                 )))
                 .await,
             Some(true)
@@ -355,7 +434,21 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size: 200, .. }
+                    SlidingSyncMode::Growing { batch_size: 100, .. }
+                )))
+                .await,
+            Some(true)
+        );
+
+        // Run the other action!
+        SetAllRoomsListToSelectiveSyncMode.run(sliding_sync).await.unwrap();
+
+        // List is still present, in Selective mode.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_BATCH_SIZE]
                 )))
                 .await,
             Some(true)
@@ -380,7 +473,55 @@ mod tests {
             sliding_sync
                 .on_list(INVITES_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 100
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
+                )))
+                .await,
+            Some(true)
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_action_reset_invites_list_growing_sync_mode() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
+        let sliding_sync = room_list.sliding_sync();
+
+        // List is absent.
+        assert_eq!(sliding_sync.on_list(INVITES_LIST_NAME, |_list| ready(())).await, None);
+
+        // Run the action!
+        AddInvitesList.run(sliding_sync).await?;
+
+        // Change the growing sync-mode.
+        sliding_sync
+            .on_list(INVITES_LIST_NAME, |list| {
+                list.set_sync_mode(SlidingSyncMode::new_growing(42));
+
+                ready(())
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 42
+                )))
+                .await,
+            Some(true)
+        );
+
+        // Run the action!
+        ResetInvitesListGrowingSyncMode.run(sliding_sync).await?;
+
+        // List is still present, and reset.
+        assert_eq!(
+            sliding_sync
+                .on_list(INVITES_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Growing { batch_size, .. } if batch_size == 20
                 )))
                 .await,
             Some(true)

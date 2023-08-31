@@ -71,7 +71,7 @@ impl RoomList {
 
                     match state {
                         Terminated { .. } | Error { .. } | Init => (),
-                        SettingUp | Running => break,
+                        SettingUp | Recovering | Running => break,
                     }
                 }
 

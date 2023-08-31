@@ -19,8 +19,8 @@ use matrix_sdk::{
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
             room::message::{
-                ForwardThread, LocationMessageEventContent, MessageType, Relation,
-                RoomMessageEvent, RoomMessageEventContent,
+                AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
+                RoomMessageEvent, RoomMessageEventContentWithoutRelation,
             },
             AnyMessageLikeEventContent,
         },
@@ -30,6 +30,9 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
+use ruma::events::poll::{
+    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
+};
 use tokio::{
     sync::{Mutex, RwLock},
     task::{AbortHandle, JoinHandle},
@@ -41,10 +44,11 @@ use super::RUNTIME;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
+    room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        AudioInfo, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff, TimelineItem,
-        TimelineListener, VideoInfo,
+        AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
+        TimelineItem, TimelineListener, VideoInfo,
     },
     TaskHandle,
 };
@@ -70,7 +74,7 @@ pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 
 #[derive(uniffi::Object)]
 pub struct Room {
-    inner: SdkRoom,
+    pub(super) inner: SdkRoom,
     timeline: TimelineLock,
 }
 
@@ -208,7 +212,6 @@ impl Room {
 
     pub fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;
@@ -218,7 +221,6 @@ impl Room {
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;
@@ -229,7 +231,6 @@ impl Room {
 
     pub fn member_display_name(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let room = self.inner.clone();
-        let user_id = user_id;
         RUNTIME.block_on(async move {
             let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
             let member = room.get_member(&user_id).await?.context("No user found")?;
@@ -266,6 +267,56 @@ impl Room {
             items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
             items_stream: Arc::new(timeline_stream),
         }
+    }
+
+    pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
+        // Look for a local event in the `Timeline`.
+        //
+        // First off, let's see if a `Timeline` exists…
+        if let Some(timeline) = self.timeline.read().await.clone() {
+            // If it contains a `latest_event`…
+            if let Some(timeline_last_event) = timeline.latest_event().await {
+                // If it's a local echo…
+                if timeline_last_event.is_local_echo() {
+                    return Ok(RoomInfo::new(
+                        &self.inner,
+                        Some(Arc::new(EventTimelineItem(timeline_last_event))),
+                    )
+                    .await?);
+                }
+            }
+        }
+
+        // Otherwise, fallback to the classical path.
+        let latest_event = match self.inner.latest_event() {
+            Some(ev) => matrix_sdk_ui::timeline::EventTimelineItem::from_latest_event(
+                self.inner.client(),
+                self.inner.room_id(),
+                ev,
+            )
+            .await
+            .map(EventTimelineItem)
+            .map(Arc::new),
+            None => None,
+        };
+        Ok(RoomInfo::new(&self.inner, latest_event).await?)
+    }
+
+    pub fn subscribe_to_room_info_updates(
+        self: Arc<Self>,
+        listener: Box<dyn RoomInfoListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_info();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            while subscriber.next().await.is_some() {
+                match self.room_info().await {
+                    Ok(room_info) => listener.call(room_info),
+                    Err(e) => {
+                        error!("Failed to compute new RoomInfo: {e}");
+                    }
+                }
+            }
+        })))
     }
 
     pub fn subscribe_to_back_pagination_status(
@@ -338,7 +389,7 @@ impl Room {
         })
     }
 
-    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) {
+    pub fn send(&self, msg: Arc<RoomMessageEventContentWithoutRelation>, txn_id: Option<String>) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
@@ -348,7 +399,12 @@ impl Room {
         };
 
         RUNTIME.spawn(async move {
-            timeline.send((*msg).to_owned().into(), txn_id.as_deref().map(Into::into)).await;
+            timeline
+                .send(
+                    (*msg).to_owned().with_relation(None).into(),
+                    txn_id.as_deref().map(Into::into),
+                )
+                .await;
         });
     }
 
@@ -396,9 +452,61 @@ impl Room {
         Ok(())
     }
 
+    pub fn send_poll_response(
+        &self,
+        poll_start_id: String,
+        answers: Vec<String>,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't send the poll vote").into());
+            }
+        };
+
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
+        let poll_response_event_content =
+            UnstablePollResponseEventContent::new(answers, poll_start_event_id);
+        let event_content =
+            AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
+    }
+
+    pub fn end_poll(
+        &self,
+        poll_start_id: String,
+        text: String,
+        txn_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
+            Some(t) => Arc::clone(t),
+            None => {
+                return Err(anyhow!("Timeline not set up, can't end the poll").into());
+            }
+        };
+
+        let poll_start_event_id =
+            EventId::parse(poll_start_id).context("Failed to parse EventId")?;
+        let poll_end_event_content = UnstablePollEndEventContent::new(text, poll_start_event_id);
+        let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
+
+        RUNTIME.spawn(async move {
+            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+        });
+
+        Ok(())
+    }
+
     pub fn send_reply(
         &self,
-        msg: String,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
         in_reply_to_event_id: String,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
@@ -422,10 +530,11 @@ impl Room {
             let original_message =
                 event_content.as_original().context("Couldn't retrieve original message.")?;
 
-            anyhow::Ok(
-                RoomMessageEventContent::text_markdown(msg)
-                    .make_reply_to(original_message, ForwardThread::Yes),
-            )
+            anyhow::Ok((*msg).to_owned().with_relation(None).make_reply_to(
+                original_message,
+                ForwardThread::Yes,
+                AddMentions::No,
+            ))
         })?;
 
         RUNTIME.spawn(async move {
@@ -436,7 +545,7 @@ impl Room {
 
     pub fn edit(
         &self,
-        new_msg: String,
+        new_msg: Arc<RoomMessageEventContentWithoutRelation>,
         original_event_id: String,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
@@ -461,12 +570,10 @@ impl Room {
                 bail!("Can't edit an event not sent by own user");
             }
 
-            let replacement = Replacement::new(
-                event_id.to_owned(),
-                MessageType::text_markdown(new_msg.to_owned()).into(),
-            );
+            let replacement: Replacement<RoomMessageEventContentWithoutRelation> =
+                Replacement::new(event_id.to_owned(), (*new_msg).clone().to_owned());
 
-            let mut edited_content = RoomMessageEventContent::text_markdown(new_msg);
+            let mut edited_content = (*new_msg).clone().with_relation(None);
             edited_content.relates_to = Some(Relation::Replacement(replacement));
             Ok(edited_content)
         })?;
@@ -805,8 +912,9 @@ impl Room {
         location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
         location_event_message_content.location = Some(location_content);
 
-        let room_message_event_content =
-            RoomMessageEventContent::new(MessageType::Location(location_event_message_content));
+        let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
+            MessageType::Location(location_event_message_content),
+        );
         self.send(Arc::new(room_message_event_content), txn_id)
     }
 
@@ -829,7 +937,7 @@ impl Room {
     pub fn get_timeline_event_content_by_event_id(
         &self,
         event_id: String,
-    ) -> Result<Arc<RoomMessageEventContent>, ClientError> {
+    ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
         RUNTIME.block_on(async move {
             let timeline = self
                 .timeline
@@ -852,7 +960,7 @@ impl Room {
                 .msgtype()
                 .to_owned();
 
-            Ok(Arc::new(RoomMessageEventContent::new(msgtype)))
+            Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype)))
         })
     }
 
@@ -985,6 +1093,11 @@ impl SendAttachmentJoinHandle {
 pub struct RoomTimelineListenerResult {
     pub items: Vec<Arc<TimelineItem>>,
     pub items_stream: Arc<TaskHandle>,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomInfoListener: Sync + Send {
+    fn call(&self, room_info: RoomInfo);
 }
 
 #[uniffi::export(callback_interface)]

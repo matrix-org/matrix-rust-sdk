@@ -118,7 +118,7 @@ impl<T> Default for RingBuffer<T> {
 mod tests {
     use std::ops::Not;
 
-    use super::*;
+    use super::RingBuffer;
 
     #[test]
     pub fn test_fixed_size() {

@@ -19,26 +19,30 @@ use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+            unstable_start::{
+                UnstablePollStartEventContent, UnstablePollStartEventContentWithoutRelation,
+            },
+        },
         reaction::ReactionEventContent,
         receipt::Receipt,
         relation::Replacement,
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
-            message::{
-                self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
-            },
-            redaction::{
-                OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
-            },
+            message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+            redaction::{RoomRedactionEventContent, SyncRoomRedactionEvent},
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
+    html::RemoveReplyFallback,
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -55,7 +59,7 @@ use super::{
     Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::polls::PollState};
 
 #[derive(Clone)]
 pub(super) enum Flow {
@@ -121,42 +125,21 @@ pub(super) enum TimelineEventKind {
 }
 
 impl TimelineEventKind {
-    pub(super) fn failed_to_parse(
-        event: SyncTimelineEventWithoutContent,
-        error: serde_json::Error,
-    ) -> Self {
-        let error = Arc::new(error);
+    /// Creates a new `TimelineEventKind` with the given event and room version.
+    pub fn from_event(event: AnySyncTimelineEvent, room_version: &RoomVersionId) -> Self {
         match event {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
-            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
-        }
-    }
-}
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
+                if let Some(redacts) = ev.redacts(room_version).map(ToOwned::to_owned) {
+                    let content = match ev {
+                        SyncRoomRedactionEvent::Original(e) => e.content,
+                        SyncRoomRedactionEvent::Redacted(_) => Default::default(),
+                    };
 
-impl From<AnySyncTimelineEvent> for TimelineEventKind {
-    fn from(event: AnySyncTimelineEvent) -> Self {
-        match event {
-            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-                SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
-                    redacts,
-                    content,
-                    ..
-                }),
-            )) => Self::Redaction { redacts, content },
+                    Self::Redaction { redacts, content }
+                } else {
+                    Self::RedactedMessage { event_type: ev.event_type() }
+                }
+            }
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
@@ -181,6 +164,31 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
                     state_key: ev.state_key().to_owned(),
                     content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
                 },
+            },
+        }
+    }
+
+    pub(super) fn failed_to_parse(
+        event: SyncTimelineEventWithoutContent,
+        error: serde_json::Error,
+    ) -> Self {
+        let error = Arc::new(error);
+        match event {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
+            },
+            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
+                event_type: ev.content.event_type,
+                state_key: ev.state_key,
+                error,
             },
         }
     }
@@ -220,14 +228,19 @@ pub(super) struct TimelineEventHandler<'a> {
 // "see through" it, allowing borrows of TimelineEventHandler fields other than
 // `timeline_items` and `items_updated` in the update closure.
 macro_rules! update_timeline_item {
-    ($this:ident, $event_id:expr, $action:expr, $update:expr) => {
+    ($this:ident, $event_id:expr, found: $found:expr, not_found: $not_found:expr) => {
         _update_timeline_item(
             &mut $this.state.items,
             &mut $this.result.items_updated,
             $event_id,
-            $action,
-            $update,
+            $found,
+            $not_found,
         )
+    };
+    ($this:ident, $event_id:expr, $action:expr, $found:expr) => {
+        update_timeline_item!($this, $event_id, found: $found, not_found: || {
+            debug!("Timeline item not found, discarding {}", $action);
+        });
     };
 }
 
@@ -289,6 +302,15 @@ impl<'a> TimelineEventHandler<'a> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
+                AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent {
+                    relates_to: Some(message::Relation::Replacement(re)),
+                    ..
+                }) => self.handle_poll_start_edit(re),
+                AnyMessageLikeEventContent::UnstablePollStart(c) => {
+                    self.handle_poll_start(c, should_add)
+                }
+                AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
+                AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
                 // TODO
                 _ => {
                     debug!(
@@ -378,6 +400,10 @@ impl<'a> TimelineEventHandler<'a> {
                 }
                 TimelineItemContent::Sticker(_) => {
                     info!("Edit event applies to a sticker, discarding");
+                    return None;
+                }
+                TimelineItemContent::Poll(_) => {
+                    info!("Edit event applies to a poll, discarding");
                     return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
@@ -499,6 +525,107 @@ impl<'a> TimelineEventHandler<'a> {
         self.state.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
 
+    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
+    fn handle_poll_start_edit(
+        &mut self,
+        replacement: Replacement<UnstablePollStartEventContentWithoutRelation>,
+    ) {
+        update_timeline_item!(self, &replacement.event_id, "poll edit", |event_item| {
+            if self.ctx.sender != event_item.sender() {
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "Edit event applies to another user's timeline item, discarding"
+                );
+                return None;
+            }
+
+            let TimelineItemContent::Poll(poll_state) = &event_item.content() else {
+                info!(
+                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                    "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
+                );
+                return None;
+            };
+
+            let new_content = match poll_state.edit(&replacement.new_content) {
+                Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
+                Err(e) => {
+                    info!(
+                        original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
+                        "Failed to apply poll edit: {e:?}"
+                    );
+                    return None;
+                }
+            };
+
+            let edit_json = match &self.ctx.flow {
+                Flow::Local { .. } => None,
+                Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
+            };
+
+            trace!("Applying edit");
+            Some(event_item.with_content(new_content, edit_json))
+        });
+    }
+
+    fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
+        let mut poll_state = PollState::new(c);
+        if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
+            // Applying the cache to remote events only because local echoes
+            // don't have an event ID that could be referenced by responses yet.
+            self.state.poll_pending_events.apply(&event_id, &mut poll_state);
+        }
+        self.add(should_add, TimelineItemContent::Poll(poll_state));
+    }
+
+    fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
+        update_timeline_item!(
+            self,
+            &c.relates_to.event_id,
+            found: |event_item| match event_item.content() {
+                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
+                    TimelineItemContent::Poll(poll_state.add_response(
+                        &self.ctx.sender,
+                        self.ctx.timestamp,
+                        &c,
+                    )),
+                    None,
+                )),
+                _ => None,
+            },
+            not_found: || {
+                self.state.poll_pending_events.add_response(
+                    &c.relates_to.event_id,
+                    &self.ctx.sender,
+                    self.ctx.timestamp,
+                    &c,
+                );
+            }
+        );
+    }
+
+    fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
+        update_timeline_item!(
+            self,
+            &c.relates_to.event_id,
+            found: |event_item| match event_item.content() {
+                TimelineItemContent::Poll(poll_state) => {
+                    match poll_state.end(self.ctx.timestamp) {
+                        Ok(poll_state) => Some(event_item.with_content(TimelineItemContent::Poll(poll_state), None)),
+                        Err(_) => {
+                            info!("Got multiple poll end events, discarding");
+                            None
+                        },
+                    }
+                },
+                _ => None,
+            },
+            not_found: || {
+                self.state.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
+            }
+        );
+    }
+
     #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
         // TODO: Handle replacements if the replaced event is also UTD
@@ -508,6 +635,9 @@ impl<'a> TimelineEventHandler<'a> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
+        // TODO: Apply local redaction of PollResponse and PollEnd events.
+        // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
+
         let id = EventItemIdentifier::EventId(redacts.clone());
         if let Some((_, rel)) = self.state.reactions.map.remove(&id) {
             update_timeline_item!(self, &rel.event_id, "redaction", |event_item| {
@@ -1066,8 +1196,8 @@ fn _update_timeline_item(
     items: &mut ObservableVector<Arc<TimelineItem>>,
     items_updated: &mut u16,
     event_id: &EventId,
-    action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
+    not_found: impl FnOnce(),
 ) {
     if let Some((idx, item)) = rfind_event_by_id(items, event_id) {
         trace!("Found timeline item to update");
@@ -1077,6 +1207,6 @@ fn _update_timeline_item(
             *items_updated += 1;
         }
     } else {
-        debug!("Timeline item not found, discarding {action}");
+        not_found()
     }
 }

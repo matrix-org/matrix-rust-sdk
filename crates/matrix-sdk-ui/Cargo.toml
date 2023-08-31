@@ -2,6 +2,7 @@
 name = "matrix-sdk-ui"
 version = "0.6.0"
 edition = "2021"
+rust-version = { workspace = true }
 
 [features]
 default = ["e2e-encryption", "native-tls"]
@@ -34,7 +35,7 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
-ruma = { workspace = true, features = ["unstable-sanitize", "unstable-msc3381"] }
+ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -44,7 +45,7 @@ unicode-normalization = "0.1.22"
 
 [dev-dependencies]
 anyhow = { workspace = true }
-assert-json-diff = "2.0"
+assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 ctor = { workspace = true }
 eyeball-im-util = { workspace = true }

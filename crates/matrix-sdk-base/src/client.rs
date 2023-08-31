@@ -13,13 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, iter,
-    sync::Arc,
 };
+#[cfg(feature = "e2e-encryption")]
+use std::{ops::Deref, sync::Arc};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::instant::Instant;
@@ -30,11 +29,8 @@ use matrix_sdk_crypto::{
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::{
-        history_visibility::HistoryVisibility, message::MessageType,
-        redaction::SyncRoomRedactionEvent,
-    },
-    AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+    room::{history_visibility::HistoryVisibility, message::MessageType},
+    SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
@@ -45,12 +41,12 @@ use ruma::{
             power_levels::{RoomPowerLevelsEvent, RoomPowerLevelsEventContent},
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType, StateEventType,
+        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 #[cfg(feature = "e2e-encryption")]
@@ -92,7 +88,8 @@ pub struct BaseClient {
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
-    pub(crate) ignore_user_list_changes_tx: Arc<SharedObservable<()>>,
+    /// Observable of when a user is ignored/unignored.
+    pub(crate) ignore_user_list_changes: SharedObservable<()>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -124,7 +121,7 @@ impl BaseClient {
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
-            ignore_user_list_changes_tx: Default::default(),
+            ignore_user_list_changes: Default::default(),
         }
     }
 
@@ -346,19 +343,18 @@ impl BaseClient {
                             changes.add_state_event(room.room_id(), s.clone(), raw_event);
                         }
 
-                        #[cfg(feature = "e2e-encryption")]
                         AnySyncTimelineEvent::MessageLike(
-                            AnySyncMessageLikeEvent::RoomRedaction(
-                                // Redacted redactions don't have the `redacts` key, so we can't
-                                // know what they were meant to redact. A future room version might
-                                // move the redacts key, replace the current redaction event
-                                // altogether, or have the redacts key survive redaction.
-                                SyncRoomRedactionEvent::Original(r),
-                            ),
+                            AnySyncMessageLikeEvent::RoomRedaction(r),
                         ) => {
-                            room_info.handle_redaction(r, event.event.cast_ref());
-                            let raw_event = event.event.clone().cast();
-                            changes.add_redaction(room.room_id(), &r.redacts, raw_event);
+                            let room_version =
+                                room_info.room_version().unwrap_or(&RoomVersionId::V1);
+
+                            if let Some(redacts) = r.redacts(room_version) {
+                                room_info.handle_redaction(r, event.event.cast_ref());
+                                let raw_event = event.event.clone().cast();
+
+                                changes.add_redaction(room.room_id(), redacts, raw_event);
+                            }
                         }
 
                         #[cfg(feature = "e2e-encryption")]
@@ -390,7 +386,7 @@ impl BaseClient {
                         },
 
                         #[cfg(not(feature = "e2e-encryption"))]
-                        _ => (),
+                        AnySyncTimelineEvent::MessageLike(_) => (),
                     }
 
                     if let Some(context) = &mut push_context {
@@ -594,8 +590,8 @@ impl BaseClient {
 
             #[cfg(feature = "experimental-sliding-sync")]
             for room_key_update in room_key_updates {
-                if let Some(mut room) = self.get_room(&room_key_update.room_id) {
-                    self.decrypt_latest_events(&mut room, changes).await;
+                if let Some(room) = self.get_room(&room_key_update.room_id) {
+                    self.decrypt_latest_events(&room, changes).await;
                 }
             }
             #[cfg(not(feature = "experimental-sliding-sync"))]
@@ -615,7 +611,7 @@ impl BaseClient {
     /// found, and remove any older encrypted events from
     /// latest_encrypted_events.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-    async fn decrypt_latest_events(&self, room: &mut Room, changes: &mut StateChanges) {
+    async fn decrypt_latest_events(&self, room: &Room, changes: &mut StateChanges) {
         // Try to find a message we can decrypt and is suitable for using as the latest
         // event. If we found one, set it as the latest and delete any older
         // encrypted events
@@ -939,8 +935,9 @@ impl BaseClient {
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            self.ignore_user_list_changes_tx.set(());
+            self.ignore_user_list_changes.set(());
         }
+
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
@@ -1277,7 +1274,7 @@ impl BaseClient {
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<()> {
-        self.ignore_user_list_changes_tx.subscribe()
+        self.ignore_user_list_changes.subscribe()
     }
 
     pub(crate) fn deserialize_state_events(
@@ -1458,7 +1455,7 @@ mod tests {
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
         let client = logged_in_client(user_id).await;
-        let mut room = process_room_join(&client, room_id, "$1", user_id).await;
+        let room = process_room_join(&client, room_id, "$1", user_id).await;
 
         // Sanity: it has no latest_encrypted_events or latest_event
         assert!(room.latest_encrypted_events().is_empty());
@@ -1466,7 +1463,7 @@ mod tests {
 
         // When I tell it to do some decryption
         let mut changes = StateChanges::default();
-        client.decrypt_latest_events(&mut room, &mut changes).await;
+        client.decrypt_latest_events(&room, &mut changes).await;
 
         // Then nothing changed
         assert!(room.latest_encrypted_events().is_empty());
