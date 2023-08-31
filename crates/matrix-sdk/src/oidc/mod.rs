@@ -1742,20 +1742,24 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await.unwrap();
 
-        client
-            .oidc()
-            .enable_cross_process_refresh_lock(
-                "test".to_owned(),
-                Box::new(|| panic!("reload_session_callback shouldn't be called here")),
-                Box::new(|| panic!("save_session_callback shouldn't be called here")),
-            )
-            .await?;
-
         let tokens = SessionTokens {
             access_token: "prev-access-token".to_owned(),
             refresh_token: Some("prev-refresh-token".to_owned()),
             latest_id_token: None,
         };
+
+        client
+            .oidc()
+            .enable_cross_process_refresh_lock(
+                "test".to_owned(),
+                Box::new({
+                    let tokens = tokens.clone();
+                    move || Ok(tokens.clone())
+                }),
+                Box::new(|| panic!("save_session_callback shouldn't be called here")),
+            )
+            .await?;
+
         let session_hash = compute_session_hash(&tokens);
         client.oidc().restore_session(fake_session(tokens.clone())).await?;
 
