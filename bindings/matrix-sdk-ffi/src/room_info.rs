@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::RoomState;
+use ruma::OwnedMxcUri;
 
 use crate::{
     notification_settings::RoomNotificationMode, room::Membership, room_member::RoomMember,
@@ -33,6 +34,7 @@ pub struct RoomInfo {
 impl RoomInfo {
     pub(crate) async fn new(
         room: &matrix_sdk::Room,
+        avatar_url: Option<OwnedMxcUri>,
         latest_event: Option<Arc<EventTimelineItem>>,
     ) -> matrix_sdk::Result<Self> {
         let unread_notification_counts = room.unread_notification_counts();
@@ -41,7 +43,7 @@ impl RoomInfo {
             id: room.room_id().to_string(),
             name: room.name(),
             topic: room.topic(),
-            avatar_url: room.avatar_url().map(Into::into),
+            avatar_url: avatar_url.map(Into::into),
             is_direct: room.is_direct().await?,
             is_public: room.is_public(),
             is_space: room.is_space(),
