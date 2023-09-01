@@ -877,7 +877,7 @@ impl Oidc {
             hash(&refresh_token)
         );
 
-        let (response, id_token) = refresh_access_token(
+        let (response, _id_token) = refresh_access_token(
             &self.http_service(),
             data.credentials.clone(),
             provider_metadata.token_endpoint(),
@@ -900,7 +900,7 @@ impl Oidc {
         self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
-            latest_id_token: id_token.or_else(|| latest_id_token.cloned()),
+            latest_id_token: latest_id_token.cloned(),
         });
 
         _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
