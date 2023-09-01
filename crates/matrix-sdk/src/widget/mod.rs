@@ -50,6 +50,7 @@ pub struct Comm {
 pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
+
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
