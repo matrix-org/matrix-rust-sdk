@@ -197,7 +197,7 @@ pub struct EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
+pub trait EventHandler<Ev, Ctx>: Clone + SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: EventHandlerFuture;
@@ -209,7 +209,7 @@ pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     ///
     /// Returns `None` if one of the context extractors failed.
     #[doc(hidden)]
-    fn handle_event(&self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
+    fn handle_event(self, ev: Ev, data: EventHandlerData<'_>) -> Option<Self::Future>;
 }
 
 #[doc(hidden)]
@@ -291,8 +291,8 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
-            let maybe_fut =
-                serde_json::from_str(data.raw.get()).map(|ev| handler.handle_event(ev, data));
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
 
             Box::pin(async move {
                 match maybe_fut {
@@ -512,13 +512,13 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
+            Fun: FnOnce(Ev, $($ty),*) -> Fut + Clone + SendOutsideWasm + SyncOutsideWasm + 'static,
             Fut: EventHandlerFuture,
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;
 
-            fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
+            fn handle_event(self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
             }
         }
@@ -586,30 +586,26 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let typing_count = typing_count.clone();
-            move |_ev: SyncTypingEvent| {
+            move |_ev: SyncTypingEvent| async move {
                 typing_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| async move {
                 power_levels_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
         client.add_event_handler({
             let invited_member_count = invited_member_count.clone();
-            move |_ev: StrippedRoomMemberEvent| {
+            move |_ev: StrippedRoomMemberEvent| async move {
                 invited_member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 
@@ -738,9 +734,8 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 
@@ -757,9 +752,8 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
-                future::ready(())
             }
         });
 

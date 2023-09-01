@@ -225,7 +225,7 @@ impl SlidingSyncListBuilder {
                 maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
                 // We want to avoid triggering `VectorDiff::Reset` too much, hence we
                 // increase the observable capacity.
-                room_list: StdRwLock::new(ObservableVector::with_capacity(64)),
+                room_list: StdRwLock::new(ObservableVector::with_capacity(4096)),
 
                 // Internal data.
                 sliding_sync_internal_channel_sender,

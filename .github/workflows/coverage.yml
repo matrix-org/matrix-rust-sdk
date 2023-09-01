@@ -25,46 +25,54 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Load cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
 
-    - name: Install tarpaulin
-      uses: taiki-e/install-action@v2
-      with:
-        tool: cargo-tarpaulin
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-    # set up backend for integration tests
-    - uses: actions/setup-python@v4
-      with:
-        python-version: 3.8
+      - name: Install tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
 
-    - uses: michaelkaye/setup-matrix-synapse@main
-      with:
-        installer: venv # TODO revert to poetry once https://github.com/michaelkaye/setup-matrix-synapse/issues/95 is fixed
-        uploadLogs: true
-        httpPort: 8228
-        disableRateLimiting: true
+      # set up backend for integration tests
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
 
-    - name: Run tarpaulin
-      run: |
-        cargo tarpaulin --out Xml -e sliding-sync-integration-test --features testing
+      - uses: michaelkaye/setup-matrix-synapse@main
+        with:
+          installer: venv # TODO revert to poetry once https://github.com/michaelkaye/setup-matrix-synapse/issues/95 is fixed
+          uploadLogs: true
+          httpPort: 8228
+          disableRateLimiting: true
 
-    - name: Upload to codecov.io
-      uses: codecov/codecov-action@v3
-      with:
-        # Work around frequent upload errors, for runs inside the main repo (not PRs from forks).
-        # Otherwise not required for public repos.
-        token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
-        # The upload sometimes fails due to https://github.com/codecov/codecov-action/issues/837.
-        # To make sure that the failure gets flagged clearly in the UI, fail the action.
-        fail_ci_if_error: true
+      - name: Run tarpaulin
+        run: |
+          rustup run stable cargo tarpaulin --skip-clean --profile cov --out Xml --features testing
+        env:
+          CARGO_PROFILE_COV_INHERITS: 'dev'
+          CARGO_PROFILE_COV_DEBUG: 'false'
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          # Work around frequent upload errors, for runs inside the main repo (not PRs from forks).
+          # Otherwise not required for public repos.
+          token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
+          # The upload sometimes fails due to https://github.com/codecov/codecov-action/issues/837.
+          # To make sure that the failure gets flagged clearly in the UI, fail the action.
+          fail_ci_if_error: true

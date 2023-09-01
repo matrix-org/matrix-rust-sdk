@@ -79,6 +79,7 @@ impl EncryptionSync {
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
+            .share_pos()
             .with_to_device_extension(
                 assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
             )

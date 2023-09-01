@@ -60,6 +60,15 @@ impl AuthSession {
             AuthSession::Oidc(session) => &session.user.tokens.access_token,
         }
     }
+
+    /// Get the refresh token of this session.
+    pub fn get_refresh_token(&self) -> Option<&str> {
+        match self {
+            AuthSession::Matrix(session) => session.tokens.refresh_token.as_deref(),
+            #[cfg(feature = "experimental-oidc")]
+            AuthSession::Oidc(session) => session.user.tokens.refresh_token.as_deref(),
+        }
+    }
 }
 
 impl From<matrix_auth::Session> for AuthSession {

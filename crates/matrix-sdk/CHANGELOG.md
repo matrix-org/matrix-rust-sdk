@@ -20,6 +20,9 @@ Breaking changes:
   - Removed the previous `Room`, `Joined`, `Invited` and `Left` types
   - Merged all of the functionality from `Joined`, `Invited` and `Left` into `room::Common`
   - Renamed `room::Common` to just `Room` and made it accessible as `matrix_sdk::Room`
+- Event handler closures now need to implement `FnOnce` + `Clone` instead of `Fn`
+  - As a consequence, you no longer need to explicitly need to `clone` variables they capture
+    before constructing an `async move {}` block inside
 
 Bug fixes:
 

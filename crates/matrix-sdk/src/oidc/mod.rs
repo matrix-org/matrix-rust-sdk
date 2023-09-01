@@ -168,7 +168,7 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
-    hash::{Hash as _, Hasher},
+    hash::{Hash, Hasher},
     pin::Pin,
     sync::Arc,
 };
@@ -1064,12 +1064,11 @@ impl Oidc {
         )
         .await?;
 
-        let tokens = SessionTokens {
+        self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone(),
             latest_id_token: id_token,
-        };
-        self.set_session_tokens(tokens.clone());
+        });
 
         Ok(response)
     }
@@ -1095,11 +1094,12 @@ impl Oidc {
         }
     }
 
-    async fn request_new_access_token(
+    async fn refresh_access_token_inner(
         &self,
         refresh_token: String,
-        latest_id_token: Option<&IdToken<'_>>,
-    ) -> Result<SessionTokens, OidcError> {
+        latest_id_token: Option<IdToken<'static>>,
+        lock: Option<CrossProcessRefreshLockGuard>,
+    ) -> Result<(), OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
 
@@ -1111,36 +1111,34 @@ impl Oidc {
             signing_algorithm: data.metadata.id_token_signed_response_alg(),
         };
 
+        tracing::trace!(
+            "Token refresh: attempting to refresh with refresh_token {}",
+            hash(&refresh_token)
+        );
+
         let (response, _id_token) = refresh_access_token(
             &self.http_service(),
             data.credentials.clone(),
             provider_metadata.token_endpoint(),
-            refresh_token,
+            refresh_token.clone(),
             None,
             Some(id_token_verification_data),
-            latest_id_token,
+            latest_id_token.as_ref(),
             Utc::now(),
             &mut rng()?,
         )
         .await
         .map_err(OidcError::from)?;
 
-        Ok(SessionTokens {
-            access_token: response.access_token,
-            refresh_token: response.refresh_token,
-            latest_id_token: None,
-        })
-    }
+        tracing::trace!(
+            "Token refresh: new refresh_token: {:?} / access_token: {}",
+            response.refresh_token.as_ref().map(hash),
+            hash(&response.access_token)
+        );
 
-    async fn finish_refreshing_access_token(
-        &self,
-        response_tokens: SessionTokens,
-        latest_id_token: Option<IdToken<'static>>,
-        lock: Option<CrossProcessRefreshLockGuard>,
-    ) -> Result<(), OidcError> {
         let tokens = SessionTokens {
-            access_token: response_tokens.access_token,
-            refresh_token: response_tokens.refresh_token,
+            access_token: response.access_token,
+            refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
             latest_id_token,
         };
 
@@ -1225,19 +1223,9 @@ impl Oidc {
                 fail!(guard, RefreshTokenError::RefreshTokenRequired);
             };
 
-            let response = match self
-                .request_new_access_token(refresh_token, session_tokens.latest_id_token.as_ref())
-                .await
-            {
-                Ok(resp) => resp,
-                Err(error) => {
-                    fail!(guard, RefreshTokenError::Oidc(error.into()));
-                }
-            };
-
             match self
-                .finish_refreshing_access_token(
-                    response,
+                .refresh_access_token_inner(
+                    refresh_token,
                     session_tokens.latest_id_token,
                     cross_process_guard,
                 )
@@ -1544,6 +1532,12 @@ where
 
 fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
+}
+
+fn hash<T: Hash>(x: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    x.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

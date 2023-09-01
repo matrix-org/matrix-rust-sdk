@@ -14,14 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-oidc")]
-use std::ops::Deref;
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
     fmt::{self, Debug},
     future::Future,
+    hash::{Hash, Hasher},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -684,17 +683,13 @@ impl Client {
     ///     todo!("Display the token");
     /// });
     ///
-    /// // Adding your custom data to the handler can be done as well
-    /// let data = "MyCustomIdentifier".to_owned();
+    /// // Event handler closures can also capture local variables.
+    /// // Make sure they are cheap to clone though, because they will be cloned
+    /// // every time the closure is called.
+    /// let data: std::sync::Arc<str> = "MyCustomIdentifier".into();
     ///
-    /// client.add_event_handler({
-    ///     let data = data.clone();
-    ///     move |ev: SyncRoomMessageEvent | {
-    ///         let data = data.clone();
-    ///         async move {
-    ///             println!("Calling the handler with identifier {data}");
-    ///         }
-    ///     }
+    /// client.add_event_handler(move |ev: SyncRoomMessageEvent | async move {
+    ///     println!("Calling the handler with identifier {data}");
     /// });
     /// # });
     /// ```
@@ -1360,8 +1355,7 @@ impl Client {
                     }
                     #[cfg(feature = "experimental-oidc")]
                     RefreshTokenError::Oidc(oidc_error) => {
-                        let oidc_error = oidc_error.deref();
-                        match oidc_error {
+                        match **oidc_error {
                             OidcError::Oidc(OidcClientError::TokenRefresh(
                                 TokenRefreshError::Token(TokenRequestError::Http(OidcHttpError {
                                     body:
@@ -1371,7 +1365,9 @@ impl Client {
                                     ..
                                 })),
                             )) => {
-                                trace!("Token refresh: OIDC refresh denied.");
+                                error!(
+                                    "Token refresh: OIDC refresh_token rejected with invalid grant"
+                                );
                                 // The refresh was denied, signal to sign out the user.
                                 self.broadcast_unknown_token(soft_logout);
                             }
@@ -1422,13 +1418,24 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
+        let access_token = self.access_token();
+        let access_token = access_token.as_deref();
+        {
+            let hash = access_token.as_ref().map(|t| {
+                let mut hasher = DefaultHasher::new();
+                t.hash(&mut hasher);
+                hasher.finish()
+            });
+            tracing::trace!("Attempting request with access_token {hash:?}");
+        }
+
         self.inner
             .http_client
             .send(
                 request,
                 config,
                 homeserver,
-                self.access_token().as_deref(),
+                access_token,
                 self.user_id(),
                 self.server_versions().await?,
                 send_progress,

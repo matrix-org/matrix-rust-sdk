@@ -41,6 +41,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
+
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -77,6 +82,11 @@ jobs:
 
       - name: Install aarch64-apple-ios target
         run: rustup target install aarch64-apple-ios
+
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2

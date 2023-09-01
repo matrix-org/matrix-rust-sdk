@@ -100,10 +100,9 @@ impl NotificationSettings {
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
         // Listen for PushRulesEvent
-        let rules_clone = rules.clone();
-        let push_rules_event_handler = client.add_event_handler(move |ev: PushRulesEvent| {
-            let rules = rules_clone.to_owned();
-            async move {
+        let push_rules_event_handler = client.add_event_handler({
+            let rules = Arc::clone(&rules);
+            move |ev: PushRulesEvent| async move {
                 *rules.write().await = Rules::new(ev.content.global);
             }
         });

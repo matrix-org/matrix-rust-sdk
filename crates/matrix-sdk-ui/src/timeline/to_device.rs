@@ -28,8 +28,6 @@ pub(super) fn handle_room_key_event(
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceRoomKeyEvent, (Client,)> {
     move |event: ToDeviceRoomKeyEvent, client: Client| {
-        let inner = inner.clone();
-        let room_id = room_id.clone();
         async move {
             let event_room_id = event.content.room_id;
             let session_id = event.content.session_id;
@@ -44,8 +42,6 @@ pub(super) fn handle_forwarded_room_key_event(
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceForwardedRoomKeyEvent, (Client,)> {
     move |event: ToDeviceForwardedRoomKeyEvent, client: Client| {
-        let inner = inner.clone();
-        let room_id = room_id.clone();
         async move {
             let event_room_id = event.content.room_id;
             let session_id = event.content.session_id;
