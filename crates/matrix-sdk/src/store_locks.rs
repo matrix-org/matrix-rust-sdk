@@ -315,7 +315,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
                 }
                 WaitingTime::Stop => {
                     // We've reached the maximum backoff, abandon.
-                    return Err(LockStoreError::LockTimeout.into());
+                    return Err(LockStoreError::LockTimeout);
                 }
             };
 
@@ -344,10 +344,11 @@ pub enum LockStoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic;
+
     use assert_matches::assert_matches;
     use matrix_sdk_base::crypto::store::{IntoCryptoStore as _, MemoryStore};
     use matrix_sdk_test::async_test;
-    use std::sync::atomic;
     use tokio::{
         spawn,
         time::{sleep, Duration},

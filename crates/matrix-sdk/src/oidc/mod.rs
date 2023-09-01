@@ -236,7 +236,8 @@ pub(crate) struct OidcContext {
     reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
     /// A callback to save a session back into the app's secure storage.
     ///
-    /// This must be called only after `set_session_tokens` has been called, not before.
+    /// This must be called only after `set_session_tokens` has been called, not
+    /// before.
     save_session_callback: Arc<OnceCell<Box<SaveSessionCallback>>>,
 }
 
@@ -836,8 +837,9 @@ impl Oidc {
                 guard.update_in_memory(new_hash);
                 self.set_session_tokens(tokens.clone());
 
-                // The app's callback acted as authoritative here, so we're not saving the data
-                // back into the app, as that would have no effect.
+                // The app's callback acted as authoritative here, so we're not
+                // saving the data back into the app, as that
+                // would have no effect.
             }
             Err(err) => {
                 tracing::error!("when reloading OIDC session tokens from callback: {err}");
@@ -1149,8 +1151,8 @@ impl Oidc {
                 .get()
                 .ok_or(CrossProcessRefreshLockError::MissingLock)?;
 
-            // Satisfies the save_session_callback invariant: set_session_tokens has been called
-            // just above.
+            // Satisfies the save_session_callback invariant: set_session_tokens has been
+            // called just above.
             if let Err(err) = save_session_callback() {
                 // TODO promote to actual error bubbling up?
                 tracing::error!("error when saving session after refresh: {err}");
@@ -1713,12 +1715,10 @@ mod tests {
         FullSession {
             client: RegisteredClientData {
                 credentials: ClientCredentials::None { client_id: "test_client_id".to_owned() },
-                metadata: {
-                    let mut metadata = ClientMetadata::default();
-                    metadata.redirect_uris = Some(vec![]);
-                    metadata.token_endpoint_auth_method =
-                        Some(OAuthClientAuthenticationMethod::None);
-                    metadata
+                metadata: ClientMetadata {
+                    redirect_uris: Some(vec![]), // empty vector is ok lol
+                    token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+                    ..ClientMetadata::default()
                 }
                 .validate()
                 .expect("validate client metadata"),

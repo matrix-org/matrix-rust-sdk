@@ -27,10 +27,9 @@ use url::Url;
 use super::{Client, ClientInner};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
-use crate::{
-    config::RequestConfig, error::RumaApiError, http_client::HttpClient, oidc::OidcContext,
-    HttpError,
-};
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcContext;
+use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
