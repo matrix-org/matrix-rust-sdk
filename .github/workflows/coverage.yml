@@ -63,7 +63,7 @@ jobs:
       - name: Run tarpaulin
         run: >
           rustup run stable cargo tarpaulin
-              --skip-clean --out Xml -e sliding-sync-integration-test --features testing
+              --skip-clean --profile cov --out Xml -e sliding-sync-integration-test --features testing
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
