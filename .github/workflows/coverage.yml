@@ -63,6 +63,9 @@ jobs:
       - name: Run tarpaulin
         run: |
           rustup run stable cargo tarpaulin --skip-clean --profile cov --out Xml --features testing
+        env:
+          CARGO_PROFILE_COV_INHERITS: 'dev'
+          CARGO_PROFILE_COV_DEBUG: 'false'
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
