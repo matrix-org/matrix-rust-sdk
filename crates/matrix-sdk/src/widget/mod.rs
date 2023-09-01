@@ -113,7 +113,7 @@ impl WidgetSettings {
     /// (currently unimplemented)
     /// But in some cases the client wants to create custom `WidgetSettings`
     /// for specific rooms based on other conditions.
-    /// This function returns a WidgetSettings object which can be used
+    /// This function returns a `WidgetSettings` object which can be used
     /// to setup a widget using `run_client_widget_api`
     /// and to generate the correct url for the widget.
     pub fn new_virtual_widget(
