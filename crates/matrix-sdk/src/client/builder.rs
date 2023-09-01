@@ -21,6 +21,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
+use tokio::sync::OnceCell;
 use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
@@ -464,6 +465,7 @@ impl ClientBuilder {
             self.respect_login_well_known,
             self.handle_refresh_tokens,
             session_change_sender,
+            Arc::new(OnceCell::default()),
             #[cfg(feature = "experimental-oidc")]
             Arc::new(OidcContext::default()),
         ));

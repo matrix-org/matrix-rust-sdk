@@ -233,6 +233,7 @@ type ReloadSessionCallback = dyn Send + Sync + Fn() -> Result<SessionTokens, Str
 
 #[derive(Default)]
 pub(crate) struct OidcContext {
+    restore_session_lock: Arc<Mutex<()>>,
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
     deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
     reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
@@ -723,6 +724,8 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub async fn restore_session(&self, session: FullSession) -> Result<()> {
+        let _guard = self.ctx().restore_session_lock.lock().await;
+
         let FullSession {
             client: RegisteredClientData { credentials, metadata },
             user: UserSession { meta, tokens, issuer_info },
@@ -738,6 +741,14 @@ impl Oidc {
 
         self.client.base_client().set_session_meta(meta).await?;
         self.deferred_enable_cross_process_refresh_lock().await?;
+
+        // Not racy, b/o restore_session_lock
+        // TODO(bnjbvr) this is way too messy
+        if self.client.inner.auth_data.get().is_some() {
+            // Another (parent) client already restored the auth data for us; don't override
+            // it. TODO(bnjbvr) this is way too messy
+            return Ok(());
+        }
 
         self.client
             .inner

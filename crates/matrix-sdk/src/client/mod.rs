@@ -210,7 +210,7 @@ pub(crate) struct ClientInner {
     /// persisting updates to the access/refresh tokens.
     pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
     /// Authentication data to keep in memory.
-    pub(crate) auth_data: OnceCell<AuthData>,
+    pub(crate) auth_data: Arc<OnceCell<AuthData>>,
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
@@ -259,6 +259,7 @@ impl ClientInner {
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
         session_change_sender: broadcast::Sender<SessionChange>,
+        auth_data: Arc<OnceCell<AuthData>>,
         #[cfg(feature = "experimental-oidc")] oidc_context: Arc<OidcContext>,
     ) -> Self {
         Self {
@@ -286,7 +287,7 @@ impl ClientInner {
             handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender,
-            auth_data: Default::default(),
+            auth_data: auth_data.into(),
             #[cfg(feature = "e2e-encryption")]
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -2074,6 +2075,7 @@ impl Client {
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
                 self.inner.session_change_sender.clone(),
+                self.inner.auth_data.clone(),
                 #[cfg(feature = "experimental-oidc")]
                 self.inner.oidc_context.clone(),
             )),
