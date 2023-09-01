@@ -872,12 +872,10 @@ impl Oidc {
             signing_algorithm: data.metadata.id_token_signed_response_alg(),
         };
 
-        {
-            let mut hasher = DefaultHasher::new();
-            refresh_token.hash(&mut hasher);
-            let hash = hasher.finish();
-            tracing::trace!("Token refresh: attempting to refresh with refresh_token {hash}",);
-        }
+        tracing::trace!(
+            "Token refresh: attempting to refresh with refresh_token {}",
+            hash(&refresh_token)
+        );
 
         let (response, id_token) = refresh_access_token(
             &self.http_service(),
@@ -893,19 +891,11 @@ impl Oidc {
         .await
         .map_err(OidcError::from)?;
 
-        {
-            let rt_hash = response.refresh_token.as_ref().map(|t| {
-                let mut hasher = DefaultHasher::new();
-                t.hash(&mut hasher);
-                hasher.finish()
-            });
-            let mut hasher = DefaultHasher::new();
-            response.access_token.hash(&mut hasher);
-            let at_hash = hasher.finish();
-            tracing::trace!(
-                "Token refresh: new refresh_token: {rt_hash:?} / access_token: {at_hash}"
-            );
-        }
+        tracing::trace!(
+            "Token refresh: new refresh_token: {:?} / access_token: {}",
+            response.refresh_token.as_ref().map(hash),
+            hash(&response.access_token)
+        );
 
         self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),
@@ -1221,4 +1211,10 @@ where
 
 fn rng() -> Result<StdRng, OidcError> {
     StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
+}
+
+fn hash<T: Hash>(x: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    x.hash(&mut hasher);
+    hasher.finish()
 }
