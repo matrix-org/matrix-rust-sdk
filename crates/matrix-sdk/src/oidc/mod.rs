@@ -826,12 +826,11 @@ impl Oidc {
         )
         .await?;
 
-        let tokens = SessionTokens {
+        self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone(),
             latest_id_token: id_token,
-        };
-        self.set_session_tokens(tokens);
+        });
 
         Ok(response)
     }
@@ -859,7 +858,7 @@ impl Oidc {
 
     async fn refresh_access_token_inner(
         &self,
-        mut tokens: SessionTokens,
+        latest_id_token: Option<&IdToken<'static>>,
         refresh_token: String,
     ) -> Result<AccessTokenResponse, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
@@ -873,21 +872,26 @@ impl Oidc {
             signing_algorithm: data.metadata.id_token_signed_response_alg(),
         };
 
-        let (response, _id_token) = refresh_access_token(
+        {
+            let mut hasher = DefaultHasher::new();
+            refresh_token.hash(&mut hasher);
+            let hash = hasher.finish();
+            tracing::trace!("Token refresh: attempting to refresh with refresh_token {hash}",);
+        }
+
+        let (response, id_token) = refresh_access_token(
             &self.http_service(),
             data.credentials.clone(),
             provider_metadata.token_endpoint(),
             refresh_token.clone(),
             None,
             Some(id_token_verification_data),
-            tokens.latest_id_token.as_ref(),
+            latest_id_token,
             Utc::now(),
             &mut rng()?,
         )
         .await
         .map_err(OidcError::from)?;
-
-        tokens.access_token = response.access_token.clone();
 
         let hash = &response.refresh_token.as_ref().map(|t| {
             let mut hasher = DefaultHasher::new();
@@ -896,7 +900,11 @@ impl Oidc {
         });
         tracing::info!("Token refresh: New refresh_token hash: {:?}", hash);
 
-        self.set_session_tokens(tokens);
+        self.set_session_tokens(SessionTokens {
+            access_token: response.access_token.clone(),
+            refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
+            latest_id_token: id_token.or_else(|| latest_id_token.cloned()),
+        });
 
         Ok(response)
     }
@@ -933,7 +941,10 @@ impl Oidc {
                 return Err(error);
             };
 
-            match self.refresh_access_token_inner(session_tokens, refresh_token).await {
+            match self
+                .refresh_access_token_inner(session_tokens.latest_id_token.as_ref(), refresh_token)
+                .await
+            {
                 Ok(response) => {
                     *guard = Ok(());
                     _ = self
