@@ -221,7 +221,10 @@ impl Client {
                     },
                     {
                         let client = client.clone();
-                        Box::new(move || client.save_session())
+                        Box::new(move || {
+                            let client = client.clone();
+                            Box::pin(async move { client.save_session().await })
+                        })
                     },
                 )
                 .await
@@ -356,15 +359,7 @@ impl Client {
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move {
-            let auth_api = self.inner.auth_api().context("Missing authentication API")?;
-
-            let homeserver_url = self.inner.homeserver().await.into();
-            let sliding_sync_proxy =
-                self.discovered_sliding_sync_proxy().map(|url| url.to_string());
-
-            Session::new(auth_api, homeserver_url, sliding_sync_proxy)
-        })
+        RUNTIME.block_on(async move { self.session_inner().await })
     }
 
     pub fn account_url(&self) -> Option<String> {
@@ -732,15 +727,21 @@ impl Client {
         }
     }
 
-    fn save_session(&self) -> Result<(), String> {
+    async fn session_inner(&self) -> Result<Session, ClientError> {
+        let auth_api = self.inner.auth_api().context("Missing authentication API")?;
+
+        let homeserver_url = self.inner.homeserver().await.into();
+        let sliding_sync_proxy = self.discovered_sliding_sync_proxy().map(|url| url.to_string());
+
+        Session::new(auth_api, homeserver_url, sliding_sync_proxy)
+    }
+
+    async fn save_session(&self) -> Result<(), String> {
         let Some(delegate) = self.session_delegate.as_ref() else {
             return Err("A delegate hasn't been set.".to_owned());
         };
-
-        let session = self.session().map_err(|err| err.to_string())?;
-
+        let session = self.session_inner().await.map_err(|err| err.to_string())?;
         delegate.save_session_in_keychain(session);
-
         Ok(())
     }
 }

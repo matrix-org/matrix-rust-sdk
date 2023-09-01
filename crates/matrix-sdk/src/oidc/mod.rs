@@ -169,12 +169,13 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash as _, Hasher},
+    pin::Pin,
     sync::Arc,
 };
 
 use chrono::Utc;
 use eyeball::SharedObservable;
-use futures_core::Stream;
+use futures_core::{Future, Stream};
 pub use mas_oidc_client::{error, types};
 use mas_oidc_client::{
     http_service::HttpService,
@@ -226,7 +227,8 @@ use crate::{
     Client, RefreshTokenError, Result,
 };
 
-type SaveSessionCallback = dyn Send + Sync + Fn() -> Result<(), String>;
+type SaveSessionCallback =
+    dyn Send + Sync + Fn() -> Pin<Box<dyn Send + Sync + Future<Output = Result<(), String>>>>;
 type ReloadSessionCallback = dyn Send + Sync + Fn() -> Result<SessionTokens, String>;
 
 #[derive(Default)]
@@ -1153,7 +1155,7 @@ impl Oidc {
 
             // Satisfies the save_session_callback invariant: set_session_tokens has been
             // called just above.
-            if let Err(err) = save_session_callback() {
+            if let Err(err) = save_session_callback().await {
                 // TODO promote to actual error bubbling up?
                 tracing::error!("error when saving session after refresh: {err}");
             }
