@@ -928,16 +928,20 @@ impl Oidc {
         let client = &self.client;
         let lock = client.inner.refresh_token_lock.try_lock();
 
-        if let Ok(mut guard) = lock {
-            let Some(session_tokens) = self.session_tokens() else {
-                let error = RefreshTokenError::RefreshTokenRequired;
-                *guard = Err(error.clone());
+        macro_rules! fail {
+            ($lock:expr, $error:expr) => {
+                let error = $error;
+                *$lock = Err(error.clone());
                 return Err(error);
             };
+        }
+
+        if let Ok(mut guard) = lock {
+            let Some(session_tokens) = self.session_tokens() else {
+                fail!(guard, RefreshTokenError::RefreshTokenRequired);
+            };
             let Some(refresh_token) = session_tokens.refresh_token else {
-                let error = RefreshTokenError::RefreshTokenRequired;
-                *guard = Err(error.clone());
-                return Err(error);
+                fail!(guard, RefreshTokenError::RefreshTokenRequired);
             };
 
             match self
@@ -949,9 +953,7 @@ impl Oidc {
                     Ok(Some(response))
                 }
                 Err(error) => {
-                    let error = RefreshTokenError::Oidc(error.into());
-                    *guard = Err(error.clone());
-                    Err(error)
+                    fail!(guard, RefreshTokenError::Oidc(error.into()));
                 }
             }
         } else {
