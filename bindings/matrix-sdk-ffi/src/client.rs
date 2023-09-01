@@ -116,7 +116,7 @@ pub trait ClientDelegate: Sync + Send {
 
 #[uniffi::export(callback_interface)]
 pub trait ClientSessionDelegate: Sync + Send {
-    fn retrieve_session_from_keychain(&self) -> Result<Session, ClientError>;
+    fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
 
@@ -719,7 +719,12 @@ impl Client {
             return Err("A delegate hasn't been set.".to_owned());
         };
 
-        let session = delegate.retrieve_session_from_keychain().map_err(|e| e.to_string())?;
+        let Ok(user_id) = self.user_id() else {
+            return Err("No user ID found.".to_owned());
+        };
+
+        let session =
+            delegate.retrieve_session_from_keychain(user_id).map_err(|e| e.to_string())?;
         let auth_session = TryInto::<AuthSession>::try_into(session).map_err(|e| e.to_string())?;
         match auth_session {
             AuthSession::Oidc(session) => Ok(session.user.tokens),
