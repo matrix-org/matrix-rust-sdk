@@ -858,7 +858,7 @@ impl Oidc {
 
     async fn refresh_access_token_inner(
         &self,
-        latest_id_token: Option<&IdToken<'static>>,
+        latest_id_token: Option<IdToken<'static>>,
         refresh_token: String,
     ) -> Result<AccessTokenResponse, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
@@ -884,7 +884,7 @@ impl Oidc {
             refresh_token.clone(),
             None,
             Some(id_token_verification_data),
-            latest_id_token,
+            latest_id_token.as_ref(),
             Utc::now(),
             &mut rng()?,
         )
@@ -900,7 +900,7 @@ impl Oidc {
         self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
-            latest_id_token: latest_id_token.cloned(),
+            latest_id_token,
         });
 
         _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
@@ -934,14 +934,14 @@ impl Oidc {
                 *guard = Err(error.clone());
                 return Err(error);
             };
-            let Some(refresh_token) = session_tokens.refresh_token.clone() else {
+            let Some(refresh_token) = session_tokens.refresh_token else {
                 let error = RefreshTokenError::RefreshTokenRequired;
                 *guard = Err(error.clone());
                 return Err(error);
             };
 
             match self
-                .refresh_access_token_inner(session_tokens.latest_id_token.as_ref(), refresh_token)
+                .refresh_access_token_inner(session_tokens.latest_id_token, refresh_token)
                 .await
             {
                 Ok(response) => {
