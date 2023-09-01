@@ -893,12 +893,19 @@ impl Oidc {
         .await
         .map_err(OidcError::from)?;
 
-        let hash = &response.refresh_token.as_ref().map(|t| {
+        {
+            let rt_hash = response.refresh_token.as_ref().map(|t| {
+                let mut hasher = DefaultHasher::new();
+                t.hash(&mut hasher);
+                hasher.finish()
+            });
             let mut hasher = DefaultHasher::new();
-            t.hash(&mut hasher);
-            hasher.finish()
-        });
-        tracing::info!("Token refresh: New refresh_token hash: {:?}", hash);
+            response.access_token.hash(&mut hasher);
+            let at_hash = hasher.finish();
+            tracing::trace!(
+                "Token refresh: new refresh_token: {rt_hash:?} / access_token: {at_hash}"
+            );
+        }
 
         self.set_session_tokens(SessionTokens {
             access_token: response.access_token.clone(),

@@ -16,16 +16,11 @@
 
 #[cfg(feature = "experimental-sliding-sync")]
 use std::sync::RwLock as StdRwLock;
-#[cfg(feature = "experimental-oidc")]
 use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    ops::Deref,
-};
-use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
     fmt::{self, Debug},
     future::Future,
+    hash::{Hash, Hasher},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -1336,10 +1331,6 @@ impl Client {
                 return res;
             }
 
-            #[cfg(feature = "experimental-oidc")]
-            let refresh_token =
-                self.session().as_ref().and_then(|s| s.get_refresh_token().map(ToOwned::to_owned));
-
             // Try to refresh the token and retry the request.
             if let Err(refresh_error) = self.refresh_access_token().await {
                 match &refresh_error {
@@ -1350,8 +1341,7 @@ impl Client {
                     }
                     #[cfg(feature = "experimental-oidc")]
                     RefreshTokenError::Oidc(oidc_error) => {
-                        let oidc_error = oidc_error.deref();
-                        match oidc_error {
+                        match **oidc_error {
                             OidcError::Oidc(OidcClientError::TokenRefresh(
                                 TokenRefreshError::Token(TokenRequestError::Http(OidcHttpError {
                                     body:
@@ -1361,13 +1351,9 @@ impl Client {
                                     ..
                                 })),
                             )) => {
-                                let hash = refresh_token.map(|t| {
-                                    let mut hasher = DefaultHasher::new();
-                                    t.hash(&mut hasher);
-                                    hasher.finish()
-                                });
-
-                                error!("Token refresh: OIDC refresh_token rejected {:?}", hash);
+                                error!(
+                                    "Token refresh: OIDC refresh_token rejected with invalid grant"
+                                );
                                 // The refresh was denied, signal to sign out the user.
                                 self.broadcast_unknown_token(soft_logout);
                             }
@@ -1418,13 +1404,24 @@ impl Client {
             None => self.homeserver().await.to_string(),
         };
 
+        let access_token = self.access_token();
+        let access_token = access_token.as_deref();
+        {
+            let hash = access_token.as_ref().map(|t| {
+                let mut hasher = DefaultHasher::new();
+                t.hash(&mut hasher);
+                hasher.finish()
+            });
+            tracing::trace!("Attempting request with access_token {hash:?}");
+        }
+
         self.inner
             .http_client
             .send(
                 request,
                 config,
                 homeserver,
-                self.access_token().as_deref(),
+                access_token,
                 self.user_id(),
                 self.server_versions().await?,
                 send_progress,
