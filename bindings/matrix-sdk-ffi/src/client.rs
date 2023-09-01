@@ -146,6 +146,14 @@ pub struct CrossProcessRefreshLockCtx {
     pub session_delegate: Arc<dyn ClientSessionDelegate>,
 }
 
+#[uniffi::export]
+impl CrossProcessRefreshLockCtx {
+    #[uniffi::constructor]
+    fn new(process_id: String, session_delegate: Box<dyn ClientSessionDelegate>) -> Arc<Self> {
+        Arc::new(Self { process_id, session_delegate: session_delegate.into() })
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
