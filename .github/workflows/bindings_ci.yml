@@ -90,8 +90,8 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
-        #with:
-        #  save-if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
         uses: actions/cache/restore@v3
