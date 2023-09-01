@@ -16,7 +16,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
     sync::RwLock,
-    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -74,7 +73,6 @@ pub struct MemoryStore {
         DashMap<(String, Option<String>), DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>,
     >,
     custom: DashMap<Vec<u8>, Vec<u8>>,
-    leases: DashMap<String, (String, Instant)>,
 }
 
 impl MemoryStore {
@@ -769,43 +767,6 @@ impl StateStore for MemoryStore {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         self.remove_room(room_id).await
-    }
-
-    async fn try_take_leased_lock(
-        &self,
-        lease_duration_ms: u32,
-        key: &str,
-        holder: &str,
-    ) -> Result<bool> {
-        let now = Instant::now();
-        let expiration = now + Duration::from_millis(lease_duration_ms.into());
-        if let Some(mut prev) = self.leases.get_mut(key) {
-            if prev.0 == holder {
-                // We had the lease before, extend it.
-                prev.1 = expiration;
-                Ok(true)
-            } else {
-                // We didn't have it.
-                if prev.1 < now {
-                    // Steal it!
-                    prev.0 = holder.to_owned();
-                    prev.1 = expiration;
-                    Ok(true)
-                } else {
-                    // We tried our best.
-                    Ok(false)
-                }
-            }
-        } else {
-            self.leases.insert(
-                key.to_owned(),
-                (
-                    holder.to_owned(),
-                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
-                ),
-            );
-            Ok(true)
-        }
     }
 }
 

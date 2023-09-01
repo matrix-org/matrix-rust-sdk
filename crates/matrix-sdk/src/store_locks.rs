@@ -47,10 +47,7 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::{
-    crypto::{store::CryptoStore, CryptoStoreError},
-    StateStore,
-};
+use matrix_sdk_base::crypto::{store::CryptoStore, CryptoStoreError};
 use tokio::{sync::Mutex, time::sleep};
 use tracing::instrument;
 
@@ -73,20 +70,6 @@ pub trait BackingStore {
 #[async_trait::async_trait]
 impl<'a> BackingStore for Arc<dyn CryptoStore<Error = CryptoStoreError> + 'a> {
     type Error = CryptoStoreError;
-
-    async fn try_take(
-        &self,
-        lease_duration_ms: u32,
-        key: &str,
-        holder: &str,
-    ) -> Result<bool, Self::Error> {
-        self.try_take_leased_lock(lease_duration_ms, key, holder).await
-    }
-}
-
-#[async_trait::async_trait]
-impl<'a> BackingStore for Arc<dyn StateStore<Error = matrix_sdk_base::StoreError> + 'a> {
-    type Error = matrix_sdk_base::StoreError;
 
     async fn try_take(
         &self,

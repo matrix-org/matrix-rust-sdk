@@ -543,12 +543,6 @@ impl Client {
         self.base_client().store()
     }
 
-    /// Get a static reference to the state store.
-    #[doc(hidden)]
-    pub(crate) fn clone_store(&self) -> Arc<DynStateStore> {
-        self.base_client().clone_store()
-    }
-
     /// Access the native Matrix authentication API with this client.
     pub fn matrix_auth(&self) -> MatrixAuth {
         MatrixAuth::new(self.clone())

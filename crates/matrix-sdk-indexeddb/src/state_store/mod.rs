@@ -115,7 +115,6 @@ mod keys {
 
     pub const CUSTOM: &str = "custom";
     pub const KV: &str = "kv";
-    pub const LEASE_LOCKS: &str = "lease-locks";
 
     /// All names of the current state stores for convenience.
     pub const ALL_STORES: &[&str] = &[
@@ -134,7 +133,6 @@ mod keys {
         MEDIA,
         CUSTOM,
         KV,
-        LEASE_LOCKS,
     ];
 
     // static keys
@@ -1277,53 +1275,6 @@ impl_state_store!({
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         self.get_user_ids(room_id, RoomMemberships::JOIN).await
-    }
-
-    async fn try_take_leased_lock(
-        &self,
-        lease_duration_ms: u32,
-        key: &str,
-        holder: &str,
-    ) -> Result<bool> {
-        // As of 2023-06-23, the code below hasn't been tested yet.
-        let key = JsValue::from_str(key);
-        let txn = self
-            .inner
-            .transaction_on_one_with_mode(keys::LEASE_LOCKS, IdbTransactionMode::Readwrite)?;
-        let object_store = txn.object_store(keys::LEASE_LOCKS)?;
-
-        #[derive(serde::Deserialize, serde::Serialize)]
-        struct Lease {
-            holder: String,
-            expiration_ts: u64,
-        }
-
-        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
-        let expiration_ts = now_ts + lease_duration_ms as u64;
-
-        let prev = object_store.get(&key)?.await?;
-        match prev {
-            Some(prev) => {
-                let lease: Lease = self.deserialize_event(&prev)?;
-                if lease.holder == holder || lease.expiration_ts < now_ts {
-                    object_store.put_key_val(
-                        &key,
-                        &self
-                            .serialize_event(&Lease { holder: holder.to_owned(), expiration_ts })?,
-                    )?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            None => {
-                object_store.put_key_val(
-                    &key,
-                    &self.serialize_event(&Lease { holder: holder.to_owned(), expiration_ts })?,
-                )?;
-                Ok(true)
-            }
-        }
     }
 });
 

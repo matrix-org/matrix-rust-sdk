@@ -40,7 +40,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 8;
+const CURRENT_DB_VERSION: u32 = 7;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -222,9 +222,6 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 7 {
                 migration.merge(migrate_to_v7(&pre_db, store_cipher).await?);
-            }
-            if old_version < 8 {
-                migration.merge(migrate_to_v8(&pre_db, store_cipher).await?);
             }
         }
 
@@ -641,18 +638,6 @@ async fn migrate_to_v7(
         drop_stores: HashSet::from_iter([old_keys::STRIPPED_ROOM_INFOS]),
         data,
         ..Default::default()
-    })
-}
-
-/// Add a new table for leased locks.
-async fn migrate_to_v8(
-    db: &IdbDatabase,
-    store_cipher: Option<&StoreCipher>,
-) -> Result<OngoingMigration> {
-    Ok(OngoingMigration {
-        drop_stores: Default::default(),
-        create_stores: [keys::LEASE_LOCKS].into_iter().collect(),
-        data: Default::default(),
     })
 }
 
