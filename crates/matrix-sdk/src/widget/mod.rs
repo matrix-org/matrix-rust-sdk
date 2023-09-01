@@ -97,7 +97,7 @@ impl WidgetSettings {
         parent_url: &str,
         font_scale: f64,
         lang: LanguageTag,
-        analytics_id: &str,
+        room_id: &str,
     ) -> String {
         self.raw_url
             .as_str()
@@ -106,7 +106,7 @@ impl WidgetSettings {
             .replace("$userId", room.own_user_id().as_str())
             .replace("$lang", lang.as_str())
             .replace("$fontScale", &font_scale.to_string())
-            .replace("$analyticsID", analytics_id)
+            .replace("$roomId", &encode(room_id))
     }
 
     /// `WidgetSettings` are usually created from a state event.
@@ -116,14 +116,44 @@ impl WidgetSettings {
     /// This function returns a `WidgetSettings` object which can be used
     /// to setup a widget using `run_client_widget_api`
     /// and to generate the correct url for the widget.
-    pub fn new_virtual_widget(
-        id: String,
-        init_on_load: bool,
+    ///
+    /// # Arguments
+    /// * `base_path` the path to the app e.g. https://call.element.io
+    pub fn new_virtual_element_call_widget(
         base_path: &str,
+        id: String,
+        embed: bool,
+        hide_header: bool,
+        device_id: &str,
+        preload: bool,
+        base_url: &str,
+        analytics_id: Option<&str>,
     ) -> Result<Self, url::ParseError> {
-        let raw_url = format!("{base_path}?widgetId=$widgetId&parentUrl=$parentUrl#?&userId=$userId&lang=$lang&fontScale=$fontScale&analyticsID=$analyticsID");
+        let mut raw_url = format!("{base_path}?");
+
+        raw_url.push_str(&format!("widgetId=$widgetId"));
+        raw_url.push_str("&parentUrl=$parentUrl");
+        if embed {
+            raw_url.push_str("&embed=")
+        }
+        if hide_header {
+            raw_url.push_str("&hideHeader=")
+        }
+        raw_url.push_str("&userId=$userId");
+        raw_url.push_str(&format!("&deviceId={device_id}"));
+        raw_url.push_str("&roomId=$roomId");
+        raw_url.push_str("&lang=$lang");
+        raw_url.push_str("&fontScale=$fontScale");
+        if preload {
+            raw_url.push_str("&preload=")
+        }
+        raw_url.push_str(&format!("&baseUrl={}", encode(base_url)));
+        if let Some(analytics_id) = analytics_id {
+            raw_url.push_str(&format!("&analyticsID={}", encode(analytics_id)));
+        }
         let raw_url = Url::parse(&raw_url)?;
-        Ok(Self { id, init_on_load, raw_url })
+        // for EC we always want init on laod to be false
+        Ok(Self { id, init_on_load: false, raw_url })
     }
 
     // TODO: add From<WidgetStateEvent> so that WidgetSetting can be build
