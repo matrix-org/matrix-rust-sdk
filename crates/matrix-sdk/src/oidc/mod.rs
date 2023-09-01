@@ -913,6 +913,8 @@ impl Oidc {
             latest_id_token: id_token.or_else(|| latest_id_token.cloned()),
         });
 
+        _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
+
         Ok(response)
     }
 
@@ -954,11 +956,6 @@ impl Oidc {
             {
                 Ok(response) => {
                     *guard = Ok(());
-                    _ = self
-                        .client
-                        .inner
-                        .session_change_sender
-                        .send(SessionChange::TokensRefreshed);
                     Ok(Some(response))
                 }
                 Err(error) => {
