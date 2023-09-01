@@ -109,7 +109,7 @@ impl WidgetSettings {
             .replace("$analyticsID", analytics_id)
     }
 
-    /// WidgetSettings are usually created from a state event.
+    /// `WidgetSettings` are usually created from a state event.
     /// (currently unimplemented)
     /// But in some cases the client wants to create custom `WidgetSettings`
     /// for specific rooms based on other conditions.
