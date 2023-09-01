@@ -55,6 +55,7 @@ pub struct WidgetSettings {
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
     pub init_on_load: bool,
+
     /// This contains the url from the widget state event.
     /// In this url placeholders can be used to pass information from the client
     /// to the widget. Possible values are: `$widgetId`, `$parentUrl`,
