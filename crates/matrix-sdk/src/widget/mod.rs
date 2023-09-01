@@ -121,7 +121,7 @@ impl WidgetSettings {
         init_on_load: bool,
         base_path: &str,
     ) -> Result<Self, url::ParseError> {
-        let raw_url = format!("{base_path}?widgetId=$widgetId&parentUrl=$parentUrl#?&userId=$userId&lang=$lang&fontScale=$fontScale&analyticsID=$analyticsID", base_path= base_path);
+        let raw_url = format!("{base_path}?widgetId=$widgetId&parentUrl=$parentUrl#?&userId=$userId&lang=$lang&fontScale=$fontScale&analyticsID=$analyticsID");
         let raw_url = Url::parse(&raw_url)?;
         Ok(Self { id, init_on_load, raw_url })
     }
