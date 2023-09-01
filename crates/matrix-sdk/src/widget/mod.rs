@@ -118,7 +118,13 @@ impl WidgetSettings {
     /// and to generate the correct url for the widget.
     ///
     /// # Arguments
-    /// * `base_path` the path to the app e.g. https://call.element.io
+    /// * `base_path` the path to the app e.g. https://call.element.io.
+    /// * `id` the widget id.
+    /// * `embed` the embed param for the widget.
+    /// * `hide_header` for Element Call this defines if the branding header should be hidden.
+    /// * `preload` if set, the lobby will be skipped and the widget will join the call on the `io.element.join` action.
+    /// * `base_url` the url of the matrix homserver in use e.g. https://matrix-client.matrix.org.
+    /// * `analytics_id` can be used to pass a posthog id.
     pub fn new_virtual_element_call_widget(
         base_path: &str,
         id: String,
