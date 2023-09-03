@@ -257,8 +257,6 @@ impl OlmMachine {
     ///
     /// * `store` - A `Cryptostore` implementation that will be used to store
     /// the encryption keys.
-    ///
-    /// [`Cryptostore`]: trait.CryptoStore.html
     #[instrument(skip(store), fields(ed25519_key, curve25519_key))]
     pub async fn with_store(
         user_id: &UserId,
