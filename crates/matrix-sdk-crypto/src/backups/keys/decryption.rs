@@ -184,7 +184,8 @@ impl BackupDecryptionKey {
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
-        MegolmV1BackupKey::new(pk.public_key(), None)
+        // FIXME: add signing key
+        MegolmV1BackupKey::new(pk.public_key(), None, None)
     }
 
     /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].

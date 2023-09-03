@@ -20,9 +20,9 @@ use std::{
 use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
-    OwnedDeviceKeyId, OwnedUserId,
+    OwnedDeviceKeyId, OwnedUserId, UserId,
 };
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519SecretKey};
 use zeroize::Zeroizing;
 
 use super::{compat::PkEncryption, decryption::DecodeError};
@@ -31,6 +31,7 @@ use crate::olm::InboundGroupSession;
 #[derive(Debug)]
 struct InnerBackupKey {
     key: Curve25519PublicKey,
+    signing_key: Option<Ed25519PublicKey>,
     signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     version: Mutex<Option<String>>,
 }
@@ -52,10 +53,11 @@ impl std::fmt::Debug for MegolmV1BackupKey {
 }
 
 impl MegolmV1BackupKey {
-    pub(super) fn new(key: Curve25519PublicKey, version: Option<String>) -> Self {
+    pub(super) fn new(key: Curve25519PublicKey, signing_key: Option<Ed25519PublicKey>, version: Option<String>) -> Self {
         Self {
             inner: InnerBackupKey {
                 key,
+                signing_key,
                 signatures: Default::default(),
                 version: Mutex::new(version),
             }
@@ -78,7 +80,7 @@ impl MegolmV1BackupKey {
         let key = Curve25519PublicKey::from_base64(public_key)?;
 
         let inner =
-            InnerBackupKey { key, signatures: Default::default(), version: Mutex::new(None) };
+            InnerBackupKey { key, signing_key: None, signatures: Default::default(), version: Mutex::new(None) };
 
         Ok(MegolmV1BackupKey { inner: inner.into() })
     }
@@ -93,6 +95,10 @@ impl MegolmV1BackupKey {
         self.inner.version.lock().unwrap().clone()
     }
 
+    pub fn signing_key(&self) -> &Option<Ed25519PublicKey> {
+        &self.inner.signing_key
+    }
+
     /// Set the backup version that this `MegolmV1BackupKey` will be used with.
     ///
     /// The key won't be able to encrypt room keys unless a version has been
@@ -101,7 +107,7 @@ impl MegolmV1BackupKey {
         *self.inner.version.lock().unwrap() = Some(version);
     }
 
-    pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
+    pub(crate) async fn encrypt(&self, session: InboundGroupSession, signing_key: Option<(&UserId, &Ed25519SecretKey)>) -> KeyBackupData {
         let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we received the
@@ -110,7 +116,7 @@ impl MegolmV1BackupKey {
         let first_message_index = session.first_known_index().into();
 
         // Convert our key to the backup representation.
-        let key = session.to_backup().await;
+        let key = session.to_backup(signing_key).await;
 
         // The key gets zeroized in `BackedUpRoomKey` but we're creating a copy
         // here that won't, so let's wrap it up in a `Zeroizing` struct.

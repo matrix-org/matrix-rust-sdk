@@ -543,7 +543,8 @@ impl BackupMachine {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();
-            let session = backup_key.encrypt(session).await;
+            // FIXME: pass a key
+            let session = backup_key.encrypt(session, None).await;
 
             session_record
                 .entry(room_id.to_owned())

@@ -24,7 +24,7 @@ use std::{
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedRoomId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,7 +34,7 @@ use vodozemac::{
         DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,
         InboundGroupSessionPickle, MegolmMessage, SessionConfig, SessionOrdering,
     },
-    Curve25519PublicKey, Ed25519PublicKey, PickleError,
+    Curve25519PublicKey, Ed25519PublicKey, Ed25519SecretKey, PickleError,
 };
 
 use super::{
@@ -42,6 +42,7 @@ use super::{
 };
 use crate::{
     error::{EventError, MegolmResult},
+    olm::utility::SignJson,
     types::{
         deserialize_curve_key,
         events::{
@@ -399,8 +400,23 @@ impl InboundGroupSession {
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
     #[cfg(feature = "backups_v1")]
-    pub async fn to_backup(&self) -> BackedUpRoomKey {
-        self.export().await.into()
+    pub async fn to_backup(&self, signing_key: Option<(&UserId, &Ed25519SecretKey)>) -> BackedUpRoomKey {
+        let mut backed_up_room_key: BackedUpRoomKey = self.export().await.into();
+        if let Some((user_id, signing_key)) = signing_key {
+            // FIXME: after signing, the canonical JSON buffer should be zeroed
+            // since it contains secrets
+            let signature = signing_key.sign_json(serde_json::to_value(&backed_up_room_key).unwrap()).unwrap();
+            let key_id = DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                signing_key.public_key().to_base64().as_str().into(),
+            );
+            backed_up_room_key.signatures.add_signature(
+                user_id.to_owned(),
+                key_id,
+                signature,
+            );
+        }
+        backed_up_room_key
     }
 
     /// Decrypt an event from a room timeline.
@@ -607,10 +623,10 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, UserId};
-    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+    use ruma::{device_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519SecretKey};
 
-    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
+    use crate::{olm::{utility::VerifyJson, InboundGroupSession}, ReadOnlyAccount};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -685,5 +701,26 @@ mod tests {
                 .unwrap();
 
         assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
+    }
+
+    #[async_test]
+    #[cfg(feature = "backups_v1")]
+    async fn signed_backups() {
+        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        let signing_key = Ed25519SecretKey::new();
+        let public_key = signing_key.public_key();
+
+        let backed_up = inbound.to_backup(Some((alice_id(), &signing_key))).await;
+
+        let key_id = DeviceKeyId::from_parts(
+            DeviceKeyAlgorithm::Ed25519,
+            public_key.to_base64().as_str().into(),
+        );
+
+        assert!(public_key.verify_json(alice_id(), &key_id, &backed_up).is_ok());
     }
 }
