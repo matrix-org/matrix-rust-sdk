@@ -933,12 +933,6 @@ impl<'a> TimelineEventHandler<'a> {
                         }
                     }
 
-                    if txn_id.is_none() {
-                        // The event was created by this client, but the server
-                        // sent it back without a transaction ID.
-                        warn!("Received remote echo without transaction ID");
-                    }
-
                     // TODO: Check whether anything is different about the
                     //       old and new item?
 
