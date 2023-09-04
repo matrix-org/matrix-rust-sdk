@@ -34,7 +34,26 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync};
 use matrix_sdk_crypto::store::locks::CryptoStoreLock;
 use ruma::{api::client::sync::sync_events::v4, assign};
+use tokio::sync::OwnedMutexGuard;
 use tracing::{debug, trace};
+
+/// Unit type representing a permit to *use* an [`EncryptionSync`].
+///
+/// This must be created once in the whole application's lifetime, wrapped in a
+/// mutex. Using an `EncryptionSync` must then lock that mutex in an owned
+/// way, so that there's at most a single `EncryptionSync` running at any time
+/// in the entire app.
+pub struct EncryptionSyncPermit(());
+
+impl EncryptionSyncPermit {
+    /// Create a new [`EncryptionSyncPermit`].
+    ///
+    /// Note: in general, you'd want to get such a permit from a [`SyncService`]
+    /// instead of creating it yourself.
+    pub fn new() -> Self {
+        Self(())
+    }
+}
 
 /// Should the `EncryptionSync` make use of locking?
 pub enum WithLocking {
@@ -112,7 +131,20 @@ impl EncryptionSync {
         Ok(Self { client, sliding_sync, with_locking })
     }
 
-    pub async fn run_fixed_iterations(self, num_iterations: u8) -> Result<(), Error> {
+    /// Runs an `EncryptionSync` loop for a fixed number of iterations.
+    ///
+    /// This runs for the given number of iterations, or less than that, if it
+    /// stops earlier or could not acquire a cross-process lock (if configured
+    /// with it).
+    ///
+    /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
+    /// most one encryption sync running at any time. See its documentation
+    /// for more details.
+    pub async fn run_fixed_iterations(
+        self,
+        num_iterations: u8,
+        _permit: OwnedMutexGuard<EncryptionSyncPermit>,
+    ) -> Result<(), Error> {
         let sync = self.sliding_sync.sync();
 
         pin_mut!(sync);
@@ -194,8 +226,15 @@ impl EncryptionSync {
     /// Start synchronization.
     ///
     /// This should be regularly polled.
+    ///
+    /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
+    /// most one encryption sync running at any time. See its documentation
+    /// for more details.
     #[doc(hidden)] // Only public for testing purposes.
-    pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
+    pub fn sync(
+        &self,
+        _permit: OwnedMutexGuard<EncryptionSyncPermit>,
+    ) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream!({
             let sync = self.sliding_sync.sync();
 

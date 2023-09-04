@@ -40,7 +40,7 @@ use tokio::{
 use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 
 use crate::{
-    encryption_sync::{self, EncryptionSync, WithLocking},
+    encryption_sync::{self, EncryptionSync, EncryptionSyncPermit, WithLocking},
     room_list_service::{self, RoomListService},
 };
 
@@ -210,7 +210,10 @@ impl SyncService {
         sender: Sender<TerminationReport>,
     ) -> impl Future<Output = ()> {
         async move {
-            let encryption_sync_stream = encryption_sync.sync();
+            let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+            let sync_permit_guard = sync_permit.lock_owned().await;
+
+            let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
             pin_mut!(encryption_sync_stream);
 
             let (is_error, has_expired) = loop {
@@ -475,6 +478,7 @@ impl SyncServiceBuilder {
     pub async fn build(self) -> Result<SyncService, Error> {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
+
             let encryption_sync = EncryptionSync::new(
                 self.identifier,
                 self.client,
