@@ -52,7 +52,7 @@ pub trait SyncServiceStateObserver: Send + Sync + Debug {
 
 #[derive(uniffi::Object)]
 pub struct SyncService {
-    inner: MatrixSyncService,
+    pub(crate) inner: Arc<MatrixSyncService>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -107,6 +107,6 @@ impl SyncServiceBuilder {
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        Ok(Arc::new(SyncService { inner: this.builder.build().await? }))
+        Ok(Arc::new(SyncService { inner: Arc::new(this.builder.build().await?) }))
     }
 }

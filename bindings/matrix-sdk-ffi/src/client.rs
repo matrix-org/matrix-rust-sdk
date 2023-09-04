@@ -32,6 +32,7 @@ use matrix_sdk::{
     },
     AuthApi, AuthSession, Client as MatrixClient, SessionChange,
 };
+use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
@@ -44,8 +45,11 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    client, notification::NotificationClientBuilder, notification_settings::NotificationSettings,
-    sync_service::SyncServiceBuilder, ClientError,
+    client,
+    notification::NotificationClientBuilder,
+    notification_settings::NotificationSettings,
+    sync_service::{SyncService, SyncServiceBuilder},
+    ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -710,8 +714,11 @@ impl Client {
         })
     }
 
-    pub fn notification_client(&self) -> Result<Arc<NotificationClientBuilder>, ClientError> {
-        NotificationClientBuilder::new(self.inner.clone())
+    pub fn notification_client(
+        &self,
+        process_setup: NotificationProcessSetup,
+    ) -> Result<Arc<NotificationClientBuilder>, ClientError> {
+        NotificationClientBuilder::new(self.inner.clone(), process_setup.into())
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
@@ -725,6 +732,27 @@ impl Client {
                 self.inner.notification_settings().await,
             ))
         })
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum NotificationProcessSetup {
+    MultipleProcesses,
+    SingleProcess { sync_service: Arc<SyncService> },
+}
+
+impl From<NotificationProcessSetup> for MatrixNotificationProcessSetup {
+    fn from(value: NotificationProcessSetup) -> Self {
+        match value {
+            NotificationProcessSetup::MultipleProcesses => {
+                MatrixNotificationProcessSetup::MultipleProcesses
+            }
+            NotificationProcessSetup::SingleProcess { sync_service } => {
+                MatrixNotificationProcessSetup::SingleProcess {
+                    sync_service: sync_service.inner.clone(),
+                }
+            }
+        }
     }
 }
 
