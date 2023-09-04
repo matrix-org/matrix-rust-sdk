@@ -36,7 +36,7 @@ use ruma::{
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::encryption_sync::{EncryptionSync, WithLocking};
+use crate::encryption_sync::{EncryptionSync, EncryptionSyncPermit, WithLocking};
 
 /// A client specialized for handling push notifications received over the
 /// network, for an app.
@@ -150,6 +150,10 @@ impl NotificationClient {
 
         let with_locking = WithLocking::from(self.with_cross_process_lock);
 
+        // TODO replace by one obtained from a sync service.
+        let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+        let sync_permit_guard = sync_permit.lock_owned().await;
+
         let encryption_sync = EncryptionSync::new(
             Self::LOCK_ID.to_owned(),
             self.client.clone(),
@@ -163,7 +167,7 @@ impl NotificationClient {
         // notifications.
 
         match encryption_sync {
-            Ok(sync) => match sync.run_fixed_iterations(2).await {
+            Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
                 Ok(()) => {
                     let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
                     Ok(Some(new_event))
