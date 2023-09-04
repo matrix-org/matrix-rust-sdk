@@ -33,7 +33,7 @@ use thiserror::Error;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        Mutex as AsyncMutex,
+        Mutex as AsyncMutex, OwnedMutexGuard,
     },
     task::{spawn, JoinHandle},
 };
@@ -87,6 +87,13 @@ pub struct SyncService {
 
     /// Task running the encryption sync.
     encryption_sync_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+
+    /// Global lock to allow using at most one `EncryptionSync` at all times.
+    ///
+    /// This ensures that there's only one ever existing in the application's
+    /// lifetime (under the assumption that there is at most one
+    /// `SyncService` per application).
+    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
 
     /// Scheduler task ensuring proper termination.
     ///
@@ -208,11 +215,9 @@ impl SyncService {
         &self,
         encryption_sync: Arc<EncryptionSync>,
         sender: Sender<TerminationReport>,
+        sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
     ) -> impl Future<Output = ()> {
         async move {
-            let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
-            let sync_permit_guard = sync_permit.lock_owned().await;
-
             let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
             pin_mut!(encryption_sync_stream);
 
@@ -324,8 +329,12 @@ impl SyncService {
 
         // Then, take care of the encryption sync.
         if let Some(encryption_sync) = self.encryption_sync.clone() {
-            *self.encryption_sync_task.lock().unwrap() =
-                Some(spawn(self.spawn_encryption_sync(encryption_sync, sender.clone())));
+            let sync_permit_guard = self.encryption_sync_permit.clone().lock_owned().await;
+            *self.encryption_sync_task.lock().unwrap() = Some(spawn(self.spawn_encryption_sync(
+                encryption_sync,
+                sender.clone(),
+                sync_permit_guard,
+            )));
         }
 
         // Spawn the scheduler task.
@@ -388,6 +397,14 @@ impl SyncService {
             })?;
 
         Ok(())
+    }
+
+    /// Attempt to get a permit to use an `EncryptionSync` at a given time.
+    ///
+    /// This ensures there is at most one [`EncryptionSync`] active at any time,
+    /// per application.
+    pub fn try_get_encryption_sync_permit(&self) -> Option<OwnedMutexGuard<EncryptionSyncPermit>> {
+        self.encryption_sync_permit.clone().try_lock_owned().ok()
     }
 }
 
@@ -476,6 +493,8 @@ impl SyncServiceBuilder {
     /// the background. The resulting `SyncService` must be kept alive as
     /// long as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
+        let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
 
@@ -501,6 +520,7 @@ impl SyncServiceBuilder {
             scheduler_sender: Mutex::new(None),
             state: SharedObservable::new(State::Idle),
             modifying_state: AsyncMutex::new(()),
+            encryption_sync_permit,
         })
     }
 }
