@@ -111,7 +111,7 @@ pub struct Timeline {
     /// Observable for whether a pagination is currently running
     back_pagination_status: SharedObservable<BackPaginationStatus>,
 
-    _end_token: Mutex<Option<String>>,
+    _end_token: Arc<Mutex<Option<String>>>,
     msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
 }
@@ -673,6 +673,7 @@ struct TimelineDropHandle {
     client: Client,
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
+    ignore_user_list_update_join_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
@@ -681,6 +682,7 @@ impl Drop for TimelineDropHandle {
             self.client.remove_event_handler(handle);
         }
         self.room_update_join_handle.abort();
+        self.ignore_user_list_update_join_handle.abort();
     }
 }
 

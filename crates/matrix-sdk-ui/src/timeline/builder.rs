@@ -173,6 +173,7 @@ impl TimelineBuilder {
         let client = room.client();
 
         let start_token = Arc::new(Mutex::new(prev_token));
+        let end_token = Arc::new(Mutex::new(None));
 
         let mut room_update_rx = room.subscribe_to_updates();
         let room_update_join_handle = spawn({
@@ -220,6 +221,26 @@ impl TimelineBuilder {
             .instrument(info_span!("room_update_handler", room_id = ?room.room_id()))
         });
 
+        let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
+        let ignore_user_list_update_join_handle = spawn({
+            let inner = inner.clone();
+            let start_token = start_token.clone();
+            let end_token = end_token.clone();
+            async move {
+                while ignore_user_list_stream.next().await.is_some() {
+                    // Same as `Timeline::reset`, but Timeline is s not clonable
+                    // and we need to avoid circular references
+                    let mut start_lock = start_token.lock().await;
+                    let mut end_lock = end_token.lock().await;
+
+                    *start_lock = None;
+                    *end_lock = None;
+
+                    inner.clear().await;
+                }
+            }
+        });
+
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
 
@@ -248,12 +269,13 @@ impl TimelineBuilder {
             start_token,
             start_token_condvar: Default::default(),
             back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
-            _end_token: Mutex::new(None),
+            _end_token: end_token,
             msg_sender,
             drop_handle: Arc::new(TimelineDropHandle {
                 client,
                 event_handler_handles: handles,
                 room_update_join_handle,
+                ignore_user_list_update_join_handle,
             }),
         };
 
