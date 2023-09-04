@@ -77,16 +77,19 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert_eq!(state_stream.get(), State::Idle);
     assert!(server.received_requests().await.unwrap().is_empty());
     assert_eq!(sync_service.task_states(), (false, false));
+    assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     // After starting, the sync service is, well, running.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
     assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Restarting while started doesn't change the current state.
     sync_service.start().await;
     assert_pending!(state_stream);
     assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Let the server respond a few times.
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -95,6 +98,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     sync_service.stop().await?;
     assert_next_matches!(state_stream, State::Idle);
     assert_eq!(sync_service.task_states(), (false, false));
+    assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     let mut num_encryption_sync_requests: i32 = 0;
     let mut num_room_list_requests = 0;
@@ -149,6 +153,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
     assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
