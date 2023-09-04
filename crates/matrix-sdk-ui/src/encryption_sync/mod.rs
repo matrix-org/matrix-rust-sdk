@@ -46,12 +46,16 @@ use tracing::{debug, trace};
 pub struct EncryptionSyncPermit(());
 
 impl EncryptionSyncPermit {
-    /// Create a new [`EncryptionSyncPermit`].
-    ///
-    /// Note: in general, you'd want to get such a permit from a [`SyncService`]
-    /// instead of creating it yourself.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(())
+    }
+}
+
+impl EncryptionSyncPermit {
+    /// Test-only.
+    #[doc(hidden)]
+    pub fn new_for_testing() -> Self {
+        Self::new()
     }
 }
 
