@@ -3422,6 +3422,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stream_assert",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",

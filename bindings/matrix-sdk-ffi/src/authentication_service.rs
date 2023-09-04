@@ -1,9 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
-    fs::File,
-    io::{BufReader, BufWriter},
-    path::PathBuf,
     sync::{Arc, RwLock},
 };
 
@@ -22,11 +18,11 @@ use matrix_sdk::{
     },
     AuthSession,
 };
+use matrix_sdk_ui::authentication::oidc::{OidcRegistrations, OidcRegistrationsError};
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo, IdParseError,
     OwnedUserId,
 };
-use serde::{Deserialize, Serialize};
 use url::Url;
 use zeroize::Zeroize;
 
@@ -93,6 +89,14 @@ impl From<IdParseError> for AuthenticationError {
     }
 }
 
+impl From<OidcRegistrationsError> for AuthenticationError {
+    fn from(e: OidcRegistrationsError) -> AuthenticationError {
+        match e {
+            OidcRegistrationsError::InvalidBasePath => AuthenticationError::InvalidBasePath,
+        }
+    }
+}
+
 impl From<OidcError> for AuthenticationError {
     fn from(e: OidcError) -> AuthenticationError {
         AuthenticationError::OidcError { message: e.to_string() }
@@ -119,69 +123,6 @@ pub struct OidcConfiguration {
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
     pub static_registrations: HashMap<String, String>,
-}
-
-/// The data needed to restore an OpenID Connect session.
-#[derive(Debug, Serialize, Deserialize)]
-struct OidcRegistrations {
-    /// The path of the file where the registrations are stored.
-    file_path: PathBuf,
-    /// Pre-configured registrations for use with issuers that don't support
-    /// dynamic client registration.
-    static_registrations: HashMap<String, String>,
-}
-
-/// Manages the storage of OIDC registrations.
-impl OidcRegistrations {
-    fn new(
-        base_path: &str,
-        static_registrations: HashMap<String, String>,
-    ) -> Result<Self, AuthenticationError> {
-        let oidc_directory = PathBuf::from(base_path).join("oidc");
-        fs::create_dir_all(&oidc_directory).map_err(|_| AuthenticationError::InvalidBasePath)?;
-
-        Ok(OidcRegistrations {
-            file_path: oidc_directory.join("registrations.json"),
-            static_registrations,
-        })
-    }
-
-    /// Returns all of the registrations this client has made as a HashMap of
-    /// issuer URL (as a string) to client ID (as a string).
-    fn dynamic_registrations(&self) -> HashMap<String, String> {
-        let reader = match File::open(&self.file_path) {
-            Ok(file) => BufReader::new(file),
-            Err(e) => {
-                tracing::error!("Failed to open registrations file: {e}");
-                return HashMap::new();
-            }
-        };
-
-        serde_json::from_reader(reader).unwrap_or_else(|e| {
-            tracing::error!("Failed to parse registrations file: {e}");
-            HashMap::new()
-        })
-    }
-
-    /// Returns the client ID registered for a particular issuer or None if a
-    /// registration hasn't been made.
-    fn client_id(&self, issuer: &str) -> Option<String> {
-        let mut registrations = self.dynamic_registrations();
-        registrations.extend(self.static_registrations.clone());
-        registrations.get(issuer).cloned()
-    }
-
-    /// Stores a new client ID registration for a particular issuer. If a client
-    /// ID has already been stored, this will overwrite the old value.
-    fn set_client_id(&self, client_id: String, issuer: String) -> Result<(), AuthenticationError> {
-        let mut current = self.dynamic_registrations();
-        current.insert(issuer, client_id);
-
-        let writer = BufWriter::new(
-            File::create(&self.file_path).map_err(|_| AuthenticationError::InvalidBasePath)?,
-        );
-        serde_json::to_writer(writer, &current).map_err(|_| AuthenticationError::InvalidBasePath)
-    }
 }
 
 /// The data required to authenticate against an OIDC server.
@@ -503,8 +444,13 @@ impl AuthenticationService {
             .client_id()
             .to_owned();
 
+        let metadata = oidc.client_metadata().ok_or(AuthenticationError::OidcError {
+            message: String::from("Missing client metadata."),
+        })?;
+
         let registrations = OidcRegistrations::new(
             &self.base_path,
+            metadata,
             self.oidc_configuration
                 .as_ref()
                 .map(|c| c.static_registrations.clone())
@@ -526,6 +472,7 @@ impl AuthenticationService {
         let issuer = &authentication_server.issuer;
         let Some(registrations) = OidcRegistrations::new(
             &self.base_path,
+            &oidc_metadata,
             self.oidc_configuration
                 .as_ref()
                 .map(|c| c.static_registrations.clone())
