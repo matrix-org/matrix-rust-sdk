@@ -1,9 +1,15 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
-use matrix_sdk_ui::notification_client::{
-    NotificationClient, NotificationEvent, NotificationStatus,
+use matrix_sdk_ui::{
+    notification_client::{
+        NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
+    },
+    sync_service::SyncService,
 };
 use ruma::{event_id, events::TimelineEventType, room_id, user_id};
 use serde_json::json;
@@ -51,7 +57,11 @@ async fn test_notification_client_with_context() {
     server.reset().await;
 
     // Then, try to simulate receiving a notification for that message.
-    let notification_client = NotificationClient::builder(client).await.unwrap().build();
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client =
+        NotificationClient::builder(client, process_setup).await.unwrap().build();
 
     {
         // The notification client retrieves the event via `/rooms/*/context/`.
@@ -230,7 +240,11 @@ async fn test_notification_client_sliding_sync() {
         .mount(&server)
         .await;
 
-    let notification_client = NotificationClient::builder(client).await.unwrap().build();
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client =
+        NotificationClient::builder(client, process_setup).await.unwrap().build();
     let item =
         notification_client.get_notification_with_sliding_sync(room_id, event_id).await.unwrap();
 

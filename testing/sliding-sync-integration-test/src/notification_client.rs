@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{ensure, Result};
 use assert_matches::assert_matches;
@@ -16,8 +19,12 @@ use matrix_sdk::{
     RoomState,
 };
 use matrix_sdk_integration_testing::helpers::get_client_for_user;
-use matrix_sdk_ui::notification_client::{
-    Error, NotificationClient, NotificationEvent, NotificationItem, NotificationStatus,
+use matrix_sdk_ui::{
+    notification_client::{
+        Error, NotificationClient, NotificationEvent, NotificationItem, NotificationProcessSetup,
+        NotificationStatus,
+    },
+    sync_service::SyncService,
 };
 use tracing::warn;
 
@@ -28,6 +35,10 @@ async fn test_notification() -> Result<()> {
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
     let alice = get_client_for_user(format!("alice{time}"), true).await?;
     let bob = get_client_for_user(format!("bob{time}"), true).await?;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await?);
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
 
     // Alice changes display name.
     const ALICE_NAME: &str = "Alice, Queen of Cryptography";
@@ -75,7 +86,8 @@ async fn test_notification() -> Result<()> {
         warn!("We found the invite event!");
 
         // Try with sliding sync first.
-        let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
+        let notification_client =
+            NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
         let notification = assert_matches!(
             notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
             NotificationStatus::Event(event) => event
@@ -101,7 +113,8 @@ async fn test_notification() -> Result<()> {
         assert_eq!(notification.room_display_name, ALICE_NAME);
 
         // Then with /context.
-        let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
+        let notification_client =
+            NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
         let notification =
             notification_client.get_notification_with_context(&room_id, &event_id).await;
         // We aren't authorized to inspect events from rooms we were not invited to.
@@ -189,14 +202,16 @@ async fn test_notification() -> Result<()> {
         assert_eq!(notification.room_display_name, ROOM_NAME);
     };
 
-    let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
+    let notification_client =
+        NotificationClient::builder(bob.clone(), process_setup.clone()).await.unwrap().build();
     let notification = assert_matches!(
         notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?,
         NotificationStatus::Event(item) => item
     );
     check_notification(true, notification);
 
-    let notification_client = NotificationClient::builder(bob.clone()).await.unwrap().build();
+    let notification_client =
+        NotificationClient::builder(bob.clone(), process_setup).await.unwrap().build();
     let notification = notification_client
         .get_notification_with_context(&room_id, &event_id)
         .await?

@@ -27,7 +27,7 @@ use ruma::{
     assign,
     events::{
         room::member::StrippedRoomMemberEvent, AnyFullStateEventContent, AnyStateEvent,
-        AnySyncTimelineEvent, FullStateEventContent, StateEventType,
+        AnySyncTimelineEvent, FullStateEventContent, StateEventType, TimelineEventType,
     },
     push::Action,
     serde::Raw,
@@ -36,7 +36,33 @@ use ruma::{
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::encryption_sync::{EncryptionSync, EncryptionSyncPermit, WithLocking};
+use crate::{
+    encryption_sync::{EncryptionSync, EncryptionSyncPermit, WithLocking},
+    sync_service::SyncService,
+};
+
+/// What kind of process setup do we have for this notification client?
+#[derive(Clone)]
+pub enum NotificationProcessSetup {
+    /// The notification client may run on a separate process than the rest of
+    /// the app.
+    ///
+    /// For instance, this is the case on iOS, where notifications are handled
+    /// in a separate process (the Notification Service Extension, aka NSE).
+    ///
+    /// In that case, a cross-process lock will be used to coordinate writes
+    /// into the stores handled by the SDK.
+    MultipleProcesses,
+
+    /// The notification client runs in the same process as the rest of the
+    /// `Client` performing syncs.
+    ///
+    /// For instance, this is the case on Android, where a notification will
+    /// wake up the main app process.
+    ///
+    /// In that case, a smart reference to the [`SyncService`] must be provided.
+    SingleProcess { sync_service: Arc<SyncService> },
+}
 
 /// A client specialized for handling push notifications received over the
 /// network, for an app.
@@ -54,11 +80,8 @@ pub struct NotificationClient {
     /// on the first attempt?
     retry_decryption: bool,
 
-    /// Should the encryption sync happening in case the notification event was
-    /// encrypted use a cross-process lock?
-    ///
-    /// Only meaningful if `retry_decryption` is true.
-    with_cross_process_lock: bool,
+    /// Is the notification client running on its own process or not?
+    process_setup: NotificationProcessSetup,
 
     /// Should we try to filter out the notification event according to the push
     /// rules?
@@ -79,8 +102,11 @@ impl NotificationClient {
     const LOCK_ID: &str = "notifications";
 
     /// Create a new builder for a notification client.
-    pub async fn builder(client: Client) -> Result<NotificationClientBuilder, Error> {
-        NotificationClientBuilder::new(client).await
+    pub async fn builder(
+        client: Client,
+        process_setup: NotificationProcessSetup,
+    ) -> Result<NotificationClientBuilder, Error> {
+        NotificationClientBuilder::new(client, process_setup).await
     }
 
     /// Fetches the content of a notification.
@@ -88,6 +114,8 @@ impl NotificationClient {
     /// This will first try to get the notification using a short-lived sliding
     /// sync, and if the sliding-sync can't find the event, then it'll use a
     /// `/context` query to find the event with associated member information.
+    ///
+    /// This is *not* reentrant.
     ///
     /// An error result means that we couldn't resolve the notification; in that
     /// case, a dummy notification may be displayed instead. A `None` result
@@ -109,6 +137,8 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
+    /// This is *not* reentrant.
+    ///
     /// Will return true if and only:
     /// - retry_decryption was enabled,
     /// - the event was encrypted,
@@ -125,16 +155,7 @@ impl NotificationClient {
         let event: AnySyncTimelineEvent =
             raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 
-        let event_type = event.event_type();
-
-        let is_still_encrypted =
-            matches!(event_type, ruma::events::TimelineEventType::RoomEncrypted);
-
-        #[cfg(feature = "unstable-msc3956")]
-        let is_still_encrypted =
-            is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
-
-        if !is_still_encrypted {
+        if !is_event_encrypted(event.event_type()) {
             return Ok(None);
         }
 
@@ -148,11 +169,50 @@ impl NotificationClient {
         //
         // Keep timeouts small for both, since we might be short on time.
 
-        let with_locking = WithLocking::from(self.with_cross_process_lock);
+        let with_locking = WithLocking::from(matches!(
+            self.process_setup,
+            NotificationProcessSetup::MultipleProcesses
+        ));
 
-        // TODO replace by one obtained from a sync service.
-        let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
-        let sync_permit_guard = sync_permit.lock_owned().await;
+        let sync_permit_guard = match &self.process_setup {
+            NotificationProcessSetup::MultipleProcesses => {
+                // We're running on our own process, dedicated for notifications. In that case,
+                // create a dummy sync permit. That works under the assumption that there aren't
+                // multiple calls to this function at the same time (i.e. it's not reentrant).
+                let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+                sync_permit.lock_owned().await
+            }
+
+            NotificationProcessSetup::SingleProcess { sync_service } => {
+                if let Some(permit_guard) = sync_service.try_get_encryption_sync_permit() {
+                    permit_guard
+                } else {
+                    // There's already a sync service active, thus the encryption sync is already
+                    // running elsewhere. As a matter of fact, if the event was encrypted, that
+                    // means we were racing against the encryption sync. Wait a bit, attempt to
+                    // decrypt, and carry on.
+
+                    let mut wait = 200; // we get to wait 7 times that number at most.
+                    for _ in 0..3 {
+                        tokio::time::sleep(Duration::from_millis(wait)).await; // heuristics~~~
+                        let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+                        if !is_event_encrypted(
+                            new_event
+                                .event
+                                .deserialize()
+                                .map_err(|_| Error::InvalidRumaEvent)?
+                                .event_type(),
+                        ) {
+                            return Ok(Some(new_event));
+                        }
+                        wait *= 2;
+                    }
+
+                    // We couldn't decrypt the event after waiting a few times, abort.
+                    return Ok(None);
+                }
+            }
+        };
 
         let encryption_sync = EncryptionSync::new(
             Self::LOCK_ID.to_owned(),
@@ -320,6 +380,8 @@ impl NotificationClient {
     ///
     /// This will run a small sliding sync to retrieve the content of the event,
     /// along with extra data to form a rich notification context.
+    ///
+    /// This is *not* reentrant.
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -417,6 +479,16 @@ impl NotificationClient {
     }
 }
 
+fn is_event_encrypted(event_type: TimelineEventType) -> bool {
+    let is_still_encrypted = matches!(event_type, ruma::events::TimelineEventType::RoomEncrypted);
+
+    #[cfg(feature = "unstable-msc3956")]
+    let is_still_encrypted =
+        is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
+
+    is_still_encrypted
+}
+
 #[derive(Debug)]
 pub enum NotificationStatus {
     Event(NotificationItem),
@@ -435,20 +507,25 @@ pub struct NotificationClientBuilder {
     /// SDK client that uses the same state store as the caller's context.
     parent_client: Client,
     retry_decryption: bool,
-    with_cross_process_lock: bool,
     filter_by_push_rules: bool,
+
+    /// Is the notification client running on its own process or not?
+    process_setup: NotificationProcessSetup,
 }
 
 impl NotificationClientBuilder {
-    async fn new(parent_client: Client) -> Result<Self, Error> {
+    async fn new(
+        parent_client: Client,
+        process_setup: NotificationProcessSetup,
+    ) -> Result<Self, Error> {
         let client = parent_client.notification_client().await?;
 
         Ok(Self {
             client,
             parent_client,
             retry_decryption: false,
-            with_cross_process_lock: false,
             filter_by_push_rules: false,
+            process_setup,
         })
     }
 
@@ -461,14 +538,8 @@ impl NotificationClientBuilder {
 
     /// Automatically retry decryption once, if the notification was received
     /// encrypted.
-    ///
-    /// The boolean indicates whether we're making use of a cross-process lock
-    /// for the crypto-store. This should be set to true, if and only if,
-    /// the notification is received in a process that's different from the
-    /// main app.
-    pub fn retry_decryption(mut self, with_cross_process_lock: bool) -> Self {
+    pub fn retry_decryption(mut self) -> Self {
         self.retry_decryption = true;
-        self.with_cross_process_lock = with_cross_process_lock;
         self
     }
 
@@ -477,10 +548,10 @@ impl NotificationClientBuilder {
         NotificationClient {
             client: self.client,
             parent_client: self.parent_client,
-            with_cross_process_lock: self.with_cross_process_lock,
             filter_by_push_rules: self.filter_by_push_rules,
             retry_decryption: self.retry_decryption,
             sliding_sync_mutex: AsyncMutex::new(()),
+            process_setup: self.process_setup,
         }
     }
 }
