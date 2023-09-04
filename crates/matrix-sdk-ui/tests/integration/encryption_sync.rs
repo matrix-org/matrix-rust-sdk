@@ -17,7 +17,7 @@ use crate::{
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.clone().lock_owned().await;
     let encryption_sync =
         EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
@@ -111,7 +111,6 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     assert!(stream.next().await.is_none());
 
     // Start a new sync.
-    drop(stream);
     let sync_permit_guard = sync_permit.clone().lock_owned().await;
     let stream = encryption_sync.sync(sync_permit_guard);
     pin_mut!(stream);
@@ -198,7 +197,7 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
         EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
@@ -230,7 +229,7 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
-    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
         EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
@@ -265,7 +264,7 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
-    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
         EncryptionSync::new("tests".to_owned(), client.clone(), None, WithLocking::Yes).await?;

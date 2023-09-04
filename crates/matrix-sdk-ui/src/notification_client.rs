@@ -192,10 +192,18 @@ impl NotificationClient {
                     // means we were racing against the encryption sync. Wait a bit, attempt to
                     // decrypt, and carry on.
 
-                    let mut wait = 200; // we get to wait 7 times that number at most.
+                    // We repeat the sleep 3 times at most, each iteration we
+                    // double the amount of time waited, so overall we may wait up to 7 times this
+                    // amount.
+                    let mut wait = 200;
+
                     for _ in 0..3 {
+                        tracing::debug!("Sync running in background while getting a notification; waiting for decryption…");
+
                         tokio::time::sleep(Duration::from_millis(wait)).await; // heuristics~~~
+                                                                               //
                         let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+
                         if !is_event_encrypted(
                             new_event
                                 .event
@@ -203,12 +211,17 @@ impl NotificationClient {
                                 .map_err(|_| Error::InvalidRumaEvent)?
                                 .event_type(),
                         ) {
+                            tracing::debug!("Waiting succeeded!");
                             return Ok(Some(new_event));
                         }
+
                         wait *= 2;
                     }
 
                     // We couldn't decrypt the event after waiting a few times, abort.
+                    tracing::debug!(
+                        "Timeout waiting for the sync service to decrypt the notification event."
+                    );
                     return Ok(None);
                 }
             }
