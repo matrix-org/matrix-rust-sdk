@@ -60,6 +60,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         [$server:ident, $stream:ident]
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
+        $( , after delay = $response_delay:expr )?
         $(,)?
     ) => {
         sliding_sync_then_assert_request_and_fake_response! {
@@ -67,6 +68,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
             sync matches Some(Ok(_)),
             assert request $sign { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
+            $( after delay = $response_delay, )?
         }
     };
 
@@ -75,6 +77,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         sync matches $sync_result:pat,
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
+        $( , after delay = $response_delay:expr )?
         $(,)?
     ) => {
         {
@@ -96,6 +99,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                             $( $response_json )*
                         })
                     )
+                    $( .set_delay($response_delay) )?
                 })
                 .mount_as_scoped(&$server)
                 .await;
