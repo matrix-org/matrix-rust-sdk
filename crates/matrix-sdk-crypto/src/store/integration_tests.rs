@@ -646,7 +646,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn gossipped_secret_saving() {
-                let (account, store) = get_loaded_store("key_request_saving").await;
+                let (account, store) = get_loaded_store("gossipped_secret_saving").await;
 
                 let secret = "It is a secret to everybody";
 
