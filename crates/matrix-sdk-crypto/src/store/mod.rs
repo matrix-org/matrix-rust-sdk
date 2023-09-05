@@ -1036,6 +1036,17 @@ impl Store {
         self.inner.store.secrets_stream()
     }
 
+    /// Receive notifications of user identities being updated as a [`Stream`].
+    ///
+    /// Each time a user identity is updated in any way, an update will be sent
+    /// to the stream.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn identity_updates_stream(&self) -> impl Stream<Item = ReadOnlyUserIdentities> {
+        self.inner.store.identity_updates_stream()
+    }
+
     /// Creates a `CryptoStoreLock` for this store, that will contain the given
     /// key and value when hold.
     pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {

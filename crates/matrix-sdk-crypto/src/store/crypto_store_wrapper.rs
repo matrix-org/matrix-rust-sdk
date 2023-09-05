@@ -9,7 +9,7 @@ use tracing::warn;
 use crate::{
     store,
     store::{locks::CryptoStoreLock, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
-    GossippedSecret,
+    GossippedSecret, ReadOnlyUserIdentities,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -27,13 +27,20 @@ pub(crate) struct CryptoStoreWrapper {
     /// The sender side of a broadcast channel which sends out secrets we
     /// received as a `m.secret.send` event.
     secrets_broadcaster: broadcast::Sender<GossippedSecret>,
+
+    /// The sender side of a broadcast channel which sends updates of
+    /// `UserIdentity`
+    identity_updates_broadcaster: broadcast::Sender<ReadOnlyUserIdentities>,
 }
 
 impl CryptoStoreWrapper {
     pub(crate) fn new(store: impl IntoCryptoStore) -> Self {
-        let room_keys_received_sender = broadcast::Sender::new(10);
-        let secrets_broadcaster = broadcast::Sender::new(10);
-        Self { store: store.into_crypto_store(), room_keys_received_sender, secrets_broadcaster }
+        Self {
+            store: store.into_crypto_store(),
+            room_keys_received_sender: broadcast::Sender::new(10),
+            secrets_broadcaster: broadcast::Sender::new(10),
+            identity_updates_broadcaster: broadcast::Sender::new(10),
+        }
     }
 
     /// Save the set of changes to the store.
@@ -50,6 +57,14 @@ impl CryptoStoreWrapper {
 
         let secrets = changes.secrets.to_owned();
 
+        let identity_changes: Vec<_> = changes
+            .identities
+            .new
+            .iter()
+            .chain(changes.identities.changed.iter())
+            .map(|u| u.clone())
+            .collect();
+
         self.store.save_changes(changes).await?;
 
         if !room_key_updates.is_empty() {
@@ -59,6 +74,10 @@ impl CryptoStoreWrapper {
 
         for secret in secrets {
             let _ = self.secrets_broadcaster.send(secret);
+        }
+
+        for identity_change in identity_changes {
+            let _ = self.identity_updates_broadcaster.send(identity_change);
         }
 
         Ok(())
@@ -102,6 +121,30 @@ impl CryptoStoreWrapper {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
                     warn!("secrets_stream missed {lag} updates");
+                    None
+                }
+            }
+        })
+    }
+
+    /// Receive notifications of user identities being updated as a [`Stream`].
+    ///
+    /// Each time a user identity is updated in any way, an update will be sent
+    /// to the stream.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn identity_updates_stream(&self) -> impl Stream<Item = ReadOnlyUserIdentities> {
+        let stream = BroadcastStream::new(self.identity_updates_broadcaster.subscribe());
+
+        // the raw BroadcastStream gives us Results which can fail with
+        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
+        // with, so here we just drop the errors.
+        stream.filter_map(|result| async move {
+            match result {
+                Ok(r) => Some(r),
+                Err(BroadcastStreamRecvError::Lagged(lag)) => {
+                    warn!("identity_updates_stream missed {lag} updates");
                     None
                 }
             }
