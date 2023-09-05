@@ -45,13 +45,12 @@ pub struct RequestConfig {
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
-    pub(crate) assert_identity: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
 impl Debug for RequestConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { timeout, retry_limit, retry_timeout, force_auth, assert_identity } = self;
+        let Self { timeout, retry_limit, retry_timeout, force_auth } = self;
 
         let mut res = fmt.debug_struct("RequestConfig");
         res.field("timeout", timeout)
@@ -60,9 +59,6 @@ impl Debug for RequestConfig {
 
         if *force_auth {
             res.field("force_auth", &true);
-        }
-        if *assert_identity {
-            res.field("assert_identity", &true);
         }
 
         res.finish()
@@ -76,7 +72,6 @@ impl Default for RequestConfig {
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
             force_auth: false,
-            assert_identity: false,
         }
     }
 }

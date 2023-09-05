@@ -15,9 +15,6 @@ version = "0.6.0"
 test = false
 doctest = false
 
-[features]
-appservice = []
-
 [dependencies]
 http = { workspace = true }
 matrix-sdk-test-macros = { version = "0.3.0", path = "../matrix-sdk-test-macros" }

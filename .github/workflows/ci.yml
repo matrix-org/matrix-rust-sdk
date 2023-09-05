@@ -269,50 +269,6 @@ jobs:
         run: |
           target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
-  test-appservice:
-    name: ${{ matrix.os-name }} [m]-appservice
-    needs: xtask
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: ubuntu-latest
-            os-name: 🐧
-            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-linux }}"
-
-          - os: macos-latest
-            os-name: 🍏
-            xtask-cachekey: "${{ needs.xtask.outputs.cachekey-macos }}"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Get xtask
-        uses: actions/cache/restore@v3
-        with:
-          path: target/debug/xtask
-          key: "${{ matrix.xtask-cachekey }}"
-          fail-on-cache-miss: true
-
-      - name: Run checks
-        run: |
-          target/debug/xtask ci test-appservice
-
   formatting:
     name: Check Formatting
     runs-on: ubuntu-latest

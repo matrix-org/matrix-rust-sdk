@@ -8,7 +8,6 @@ coverage:
         threshold: 1%
         paths:
           - "crates/matrix-sdk/"
-          - "crates/matrix-sdk-appservice/"
           - "crates/matrix-sdk-base/"
           - "crates/matrix-sdk-common/"
           - "crates/matrix-sdk-crypto/"
