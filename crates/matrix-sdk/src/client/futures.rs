@@ -94,7 +94,7 @@ where
             {
                 trace!("Token refresh: Unknown token error received.");
                 // If automatic token refresh isn't supported, there is nothing more to do.
-                if !client.inner.handle_refresh_tokens {
+                if !client.inner.auth_ctx.handle_refresh_tokens {
                     trace!("Token refresh: Automatic refresh disabled.");
                     client.broadcast_unknown_token(soft_logout);
                     return res;

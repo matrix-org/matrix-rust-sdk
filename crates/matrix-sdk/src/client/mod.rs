@@ -186,9 +186,6 @@ pub(crate) struct ClientInner {
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
-    /// Whether to try to refresh the access token automatically when an
-    /// `M_UNKNOWN_TOKEN` error is encountered.
-    handle_refresh_tokens: bool,
     /// Lock making sure we're only doing one token refresh at a time.
     pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
     /// An event that can be listened on to wait for a successful sync. The
@@ -238,7 +235,6 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
-        handle_refresh_tokens: bool,
     ) -> Self {
         let session_change_sender = broadcast::Sender::new(1);
 
@@ -263,7 +259,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender,
             auth_data: Default::default(),
@@ -1261,7 +1256,7 @@ impl Client {
         {
             trace!("Token refresh: Unknown token error received.");
             // If automatic token refresh isn't supported, there is nothing more to do.
-            if !self.inner.handle_refresh_tokens {
+            if !self.inner.auth_ctx.handle_refresh_tokens {
                 trace!("Token refresh: Automatic refresh disabled.");
                 self.broadcast_unknown_token(soft_logout);
                 return res;
@@ -1991,7 +1986,6 @@ impl Client {
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
-                self.inner.handle_refresh_tokens,
             )),
         };
 

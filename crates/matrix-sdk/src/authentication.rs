@@ -25,6 +25,10 @@ pub(crate) struct AuthCtx {
     /// The authentication server info discovered from the homeserver.
     #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
     pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
+
+    /// Whether to try to refresh the access token automatically when an
+    /// `M_UNKNOWN_TOKEN` error is encountered.
+    pub(crate) handle_refresh_tokens: bool,
 }
 
 /// An enum over all the possible authentication APIs.
