@@ -76,10 +76,6 @@ pub struct NotificationClient {
     /// SDK client that uses the same state store as the caller's context.
     parent_client: Client,
 
-    /// Should we retry decrypting an event, after it was impossible to decrypt
-    /// on the first attempt?
-    retry_decryption: bool,
-
     /// Is the notification client running on its own process or not?
     process_setup: NotificationProcessSetup,
 
@@ -140,18 +136,15 @@ impl NotificationClient {
     /// This is *not* reentrant.
     ///
     /// Will return true if and only:
-    /// - retry_decryption was enabled,
     /// - the event was encrypted,
-    /// - we successfully ran an encryption sync.
-    async fn maybe_retry_decryption(
+    /// - we successfully ran an encryption sync or waited long enough for an
+    ///   existing encryption sync to
+    /// decrypt the event.
+    async fn retry_decryption(
         &self,
         room: &Room,
         raw_event: &Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<TimelineEvent>, Error> {
-        if !self.retry_decryption {
-            return Ok(None);
-        }
-
         let event: AnySyncTimelineEvent =
             raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 
@@ -412,9 +405,7 @@ impl NotificationClient {
         let push_actions = match &raw_event {
             RawNotificationEvent::Timeline(timeline_event) => {
                 // Timeline events may be encrypted, so make sure they get decrypted first.
-                if let Some(timeline_event) =
-                    self.maybe_retry_decryption(&room, timeline_event).await?
-                {
+                if let Some(timeline_event) = self.retry_decryption(&room, timeline_event).await? {
                     raw_event = RawNotificationEvent::Timeline(timeline_event.event.cast());
                     timeline_event.push_actions
                 } else {
@@ -466,7 +457,7 @@ impl NotificationClient {
             room.event_with_context(event_id, true).await?.ok_or(Error::ContextMissingEvent)?;
 
         if let Some(decrypted_event) =
-            self.maybe_retry_decryption(&room, timeline_event.event.cast_ref()).await?
+            self.retry_decryption(&room, timeline_event.event.cast_ref()).await?
         {
             timeline_event = decrypted_event;
         }
@@ -519,7 +510,6 @@ pub struct NotificationClientBuilder {
     client: Client,
     /// SDK client that uses the same state store as the caller's context.
     parent_client: Client,
-    retry_decryption: bool,
     filter_by_push_rules: bool,
 
     /// Is the notification client running on its own process or not?
@@ -533,13 +523,7 @@ impl NotificationClientBuilder {
     ) -> Result<Self, Error> {
         let client = parent_client.notification_client().await?;
 
-        Ok(Self {
-            client,
-            parent_client,
-            retry_decryption: false,
-            filter_by_push_rules: false,
-            process_setup,
-        })
+        Ok(Self { client, parent_client, filter_by_push_rules: false, process_setup })
     }
 
     /// Filter out the notification event according to the push rules present in
@@ -549,20 +533,12 @@ impl NotificationClientBuilder {
         self
     }
 
-    /// Automatically retry decryption once, if the notification was received
-    /// encrypted.
-    pub fn retry_decryption(mut self) -> Self {
-        self.retry_decryption = true;
-        self
-    }
-
     /// Finishes configuring the `NotificationClient`.
     pub fn build(self) -> NotificationClient {
         NotificationClient {
             client: self.client,
             parent_client: self.parent_client,
             filter_by_push_rules: self.filter_by_push_rules,
-            retry_decryption: self.retry_decryption,
             sliding_sync_mutex: AsyncMutex::new(()),
             process_setup: self.process_setup,
         }
