@@ -68,8 +68,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     let guard =
         setup_mocking_sliding_sync_server(&server, encryption_pos.clone(), room_pos.clone()).await;
 
-    let sync_service =
-        SyncService::builder(client).with_encryption_sync(false, None).build().await.unwrap();
+    let sync_service = SyncService::builder(client).build().await.unwrap();
 
     let mut state_stream = sync_service.state();
 
@@ -200,66 +199,6 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
         (num_encryption_sync_requests - num_room_list_requests).abs() <= 1,
         "encryption:{num_encryption_sync_requests} / room_list:{num_room_list_requests}"
     );
-
-    assert_pending!(state_stream);
-
-    Ok(())
-}
-
-#[async_test]
-async fn test_sync_service_no_encryption_state() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client().await;
-
-    let sync_service = SyncService::builder(client).build().await.unwrap();
-    let mut state_stream = sync_service.state();
-
-    // At first, the sync service is sleeping.
-    assert_eq!(state_stream.get(), State::Idle);
-    assert_eq!(sync_service.task_states(), (false, false));
-
-    // After starting, the sync service will be running for a very short while, then
-    // getting into the error state.
-    sync_service.start().await;
-    assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_states(), (false, true));
-
-    // Wait a bit for the underlying sync to fail (server isn't mocked here, so will
-    // 404).
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    assert_next_matches!(state_stream, State::Error);
-    assert_eq!(sync_service.task_states(), (false, false));
-
-    // Now, start mocking the endpoint, and make sure the room sliding sync will
-    // restart properly.
-    let encryption_pos = Arc::new(Mutex::new(0));
-    let room_pos = Arc::new(Mutex::new(0));
-    let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
-
-    sync_service.start().await;
-
-    // Wait for the first response to arrive.
-    tokio::task::yield_now().await;
-
-    let mut has_room_list_requests = false;
-    for request in &server.received_requests().await.expect("Request recording has been disabled") {
-        if !SlidingSyncMatcher.matches(request) {
-            continue;
-        }
-        let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
-        if let Some(root) = json_value.as_object_mut() {
-            if let Some(conn_id) = root.get("conn_id").and_then(|obj| obj.as_str()) {
-                if conn_id == "room-list" {
-                    has_room_list_requests = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    assert!(has_room_list_requests);
-    assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_states(), (false, true));
 
     assert_pending!(state_stream);
 
