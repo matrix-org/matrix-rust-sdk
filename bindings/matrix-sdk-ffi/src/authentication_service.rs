@@ -18,7 +18,7 @@ use matrix_sdk::{
     },
     AuthSession,
 };
-use matrix_sdk_ui::authentication::oidc::{OidcRegistrations, OidcRegistrationsError};
+use matrix_sdk_ui::authentication::oidc::{ClientId, OidcRegistrations, OidcRegistrationsError};
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo, IdParseError,
     OwnedUserId,
@@ -435,7 +435,10 @@ impl AuthenticationService {
     /// Stores the current OIDC dynamic client registration so it can be re-used
     /// if we ever log in via the same issuer again.
     async fn store_client_registration(&self, oidc: &Oidc) -> Result<(), AuthenticationError> {
-        let issuer = oidc.issuer().ok_or(AuthenticationError::OidcNotSupported)?;
+        let issuer = Url::parse(oidc.issuer().ok_or(AuthenticationError::OidcNotSupported)?)
+            .map_err(|_| AuthenticationError::OidcError {
+                message: String::from("Failed to parse issuer URL."),
+            })?;
         let client_id = oidc
             .client_credentials()
             .ok_or(AuthenticationError::OidcError {
@@ -448,15 +451,9 @@ impl AuthenticationService {
             message: String::from("Missing client metadata."),
         })?;
 
-        let registrations = OidcRegistrations::new(
-            &self.base_path,
-            metadata,
-            self.oidc_configuration
-                .as_ref()
-                .map(|c| c.static_registrations.clone())
-                .unwrap_or_default(),
-        )?;
-        registrations.set_client_id(client_id, issuer.to_owned())?;
+        let registrations =
+            OidcRegistrations::new(&self.base_path, metadata, self.oidc_static_registrations())?;
+        registrations.set_and_write_client_id(ClientId(client_id), issuer)?;
 
         Ok(())
     }
@@ -469,24 +466,24 @@ impl AuthenticationService {
         authentication_server: &AuthenticationServerInfo,
         oidc_metadata: VerifiedClientMetadata,
     ) -> bool {
-        let issuer = &authentication_server.issuer;
+        let Ok(issuer) = Url::parse(&authentication_server.issuer) else {
+            tracing::error!("Failed to parse {:?}", authentication_server.issuer);
+            return false;
+        };
         let Some(registrations) = OidcRegistrations::new(
             &self.base_path,
             &oidc_metadata,
-            self.oidc_configuration
-                .as_ref()
-                .map(|c| c.static_registrations.clone())
-                .unwrap_or_default(),
+            self.oidc_static_registrations(),
         )
         .ok() else {
             return false;
         };
-        let Some(client_id) = registrations.client_id(issuer) else {
+        let Some(client_id) = registrations.client_id(&issuer) else {
             return false;
         };
 
         let client_data = RegisteredClientData {
-            credentials: ClientCredentials::None { client_id },
+            credentials: ClientCredentials::None { client_id: client_id.to_string() },
             metadata: oidc_metadata,
         };
 
@@ -527,6 +524,24 @@ impl AuthenticationService {
         }
         .validate()
         .map_err(|_| AuthenticationError::OidcMetadataInvalid)
+    }
+
+    fn oidc_static_registrations(&self) -> HashMap<Url, ClientId> {
+        let registrations = self
+            .oidc_configuration
+            .as_ref()
+            .map(|c| c.static_registrations.clone())
+            .unwrap_or_default();
+        registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId(client_id.clone())))
+            })
+            .collect()
     }
 
     /// Creates a new client to setup the store path now the user ID is known.

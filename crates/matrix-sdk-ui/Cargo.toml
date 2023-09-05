@@ -42,6 +42,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization = "0.1.22"
+url = "2.2.2"
 
 [dev-dependencies]
 anyhow = { workspace = true }
