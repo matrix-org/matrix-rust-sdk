@@ -1905,9 +1905,15 @@ impl Client {
             )),
         };
 
-        // Copy the parent's session into the child.
+        // Copy the parent's session meta into the child. This initializes the in-memory
+        // state store of the child client with `SessionMeta`, and regenerates
+        // the `OlmMachine` if needs be.
+        //
+        // Note: we don't need to do a full `restore_session`, because this would
+        // overwrite the session information shared with the parent too, and it
+        // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.restore_session(session).await?;
+            client.base_client().set_session_meta(session.into_meta()).await?;
         }
 
         Ok(client)
