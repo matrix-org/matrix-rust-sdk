@@ -4,7 +4,7 @@ use matrix_sdk::{
     self, encryption::CryptoStoreError, oidc::OidcError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
-use matrix_sdk_ui::{encryption_sync, notification_client, sync_service, timeline};
+use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -72,8 +72,8 @@ impl From<mime::FromStrError> for ClientError {
     }
 }
 
-impl From<encryption_sync::Error> for ClientError {
-    fn from(e: encryption_sync::Error) -> Self {
+impl From<encryption_sync_service::Error> for ClientError {
+    fn from(e: encryption_sync_service::Error) -> Self {
         Self::new(e)
     }
 }

@@ -40,7 +40,7 @@ use tokio::{
 use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 
 use crate::{
-    encryption_sync::{self, EncryptionSync, EncryptionSyncPermit, WithLocking},
+    encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService, WithLocking},
     room_list_service::{self, RoomListService},
 };
 
@@ -72,7 +72,7 @@ pub struct SyncService {
     room_list_service: Arc<RoomListService>,
 
     /// Encryption sync taking care of e2ee events.
-    encryption_sync: Option<Arc<EncryptionSync>>,
+    encryption_sync_service: Option<Arc<EncryptionSyncService>>,
 
     /// What's the state of this sync service?
     state: SharedObservable<State>,
@@ -88,7 +88,8 @@ pub struct SyncService {
     /// Task running the encryption sync.
     encryption_sync_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 
-    /// Global lock to allow using at most one `EncryptionSync` at all times.
+    /// Global lock to allow using at most one `EncryptionSyncService` at all
+    /// times.
     ///
     /// This ensures that there's only one ever existing in the application's
     /// lifetime (under the assumption that there is at most one
@@ -136,7 +137,7 @@ impl SyncService {
         mut receiver: Receiver<TerminationReport>,
     ) -> impl Future<Output = ()> {
         let encryption_sync_task = self.encryption_sync_task.clone();
-        let encryption_sync = self.encryption_sync.clone();
+        let encryption_sync = self.encryption_sync_service.clone();
         let room_list_service = self.room_list_service.clone();
         let room_list_task = self.room_list_task.clone();
         let state = self.state.clone();
@@ -213,7 +214,7 @@ impl SyncService {
 
     fn spawn_encryption_sync(
         &self,
-        encryption_sync: Arc<EncryptionSync>,
+        encryption_sync: Arc<EncryptionSyncService>,
         sender: Sender<TerminationReport>,
         sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
     ) -> impl Future<Output = ()> {
@@ -230,12 +231,13 @@ impl SyncService {
                     Some(Err(err)) => {
                         // If the encryption sync error was an expired session, also expire the
                         // room list sync.
-                        let has_expired = if let encryption_sync::Error::SlidingSync(err) = &err {
-                            err.client_api_error_kind()
-                                == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
-                        } else {
-                            false
-                        };
+                        let has_expired =
+                            if let encryption_sync_service::Error::SlidingSync(err) = &err {
+                                err.client_api_error_kind()
+                                    == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                            } else {
+                                false
+                            };
                         error!("Error while processing encryption in sync service: {err:#}");
                         break (true, has_expired);
                     }
@@ -328,7 +330,7 @@ impl SyncService {
             Some(spawn(self.spawn_room_list_sync(sender.clone())));
 
         // Then, take care of the encryption sync.
-        if let Some(encryption_sync) = self.encryption_sync.clone() {
+        if let Some(encryption_sync) = self.encryption_sync_service.clone() {
             let sync_permit_guard = self.encryption_sync_permit.clone().lock_owned().await;
             *self.encryption_sync_task.lock().unwrap() = Some(spawn(self.spawn_encryption_sync(
                 encryption_sync,
@@ -399,10 +401,11 @@ impl SyncService {
         Ok(())
     }
 
-    /// Attempt to get a permit to use an `EncryptionSync` at a given time.
+    /// Attempt to get a permit to use an `EncryptionSyncService` at a given
+    /// time.
     ///
-    /// This ensures there is at most one [`EncryptionSync`] active at any time,
-    /// per application.
+    /// This ensures there is at most one [`EncryptionSyncService`] active at
+    /// any time, per application.
     pub fn try_get_encryption_sync_permit(&self) -> Option<OwnedMutexGuard<EncryptionSyncPermit>> {
         self.encryption_sync_permit.clone().try_lock_owned().ok()
     }
@@ -498,7 +501,7 @@ impl SyncServiceBuilder {
         let (room_list, encryption_sync) = if self.with_encryption_sync {
             let room_list = RoomListService::new(self.client.clone()).await?;
 
-            let encryption_sync = EncryptionSync::new(
+            let encryption_sync = EncryptionSyncService::new(
                 self.identifier,
                 self.client,
                 None,
@@ -513,7 +516,7 @@ impl SyncServiceBuilder {
 
         Ok(SyncService {
             room_list_service: Arc::new(room_list),
-            encryption_sync,
+            encryption_sync_service: encryption_sync,
             encryption_sync_task: Arc::new(Mutex::new(None)),
             room_list_task: Arc::new(Mutex::new(None)),
             scheduler_task: Arc::new(Mutex::new(None)),
@@ -528,13 +531,13 @@ impl SyncServiceBuilder {
 /// Errors for the `SyncService` API.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// An error received from the `RoomList` API.
+    /// An error received from the `RoomListService` API.
     #[error(transparent)]
     RoomList(#[from] room_list_service::Error),
 
-    /// An error received from the `EncryptionSync` API.
+    /// An error received from the `EncryptionSyncService` API.
     #[error(transparent)]
-    EncryptionSync(#[from] encryption_sync::Error),
+    EncryptionSync(#[from] encryption_sync_service::Error),
 
     #[error("the scheduler channel has run into an unexpected error")]
     InternalSchedulerError,

@@ -26,7 +26,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-mod encryption_sync;
+mod encryption_sync_service;
 mod notification_client;
 mod room_list_service;
 mod sliding_sync;
