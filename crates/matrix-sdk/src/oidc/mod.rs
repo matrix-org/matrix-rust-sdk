@@ -269,7 +269,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.
