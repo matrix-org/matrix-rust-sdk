@@ -50,14 +50,12 @@ use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use futures_core::Stream;
-use futures_util::stream::StreamExt;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -79,6 +77,7 @@ use crate::{
 };
 
 pub mod caches;
+mod crypto_store_wrapper;
 mod error;
 pub mod locks;
 mod memorystore;
@@ -90,6 +89,7 @@ mod traits;
 pub mod integration_tests;
 
 use caches::{SequenceNumber, UsersForKeyQuery};
+pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::timeout::timeout;
 pub use memorystore::MemoryStore;
@@ -113,7 +113,7 @@ pub struct Store {
 struct StoreInner {
     user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    store: Arc<DynCryptoStore>,
+    store: Arc<CryptoStoreWrapper>,
     verification_machine: VerificationMachine,
     tracked_users_cache: DashSet<OwnedUserId>,
 
@@ -129,14 +129,6 @@ struct StoreInner {
 
     tracked_user_loading_lock: Mutex<()>,
     tracked_users_loaded: AtomicBool,
-
-    /// The sender side of a broadcast stream that is notified whenever we get
-    /// an update to an inbound group session.
-    room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
-
-    /// The sender side of a broadcast channel which sends out secrets we
-    /// received as a `m.secret.send` event.
-    secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 }
 
 /// Aggregated changes to be saved in the database.
@@ -398,12 +390,9 @@ impl Store {
     pub(crate) fn new(
         user_id: OwnedUserId,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<DynCryptoStore>,
+        store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let room_keys_received_sender = broadcast::Sender::new(10);
-        let secrets_broadcaster = broadcast::Sender::new(10);
-
         let inner = Arc::new(StoreInner {
             user_id,
             identity,
@@ -414,8 +403,6 @@ impl Store {
             users_for_key_query_condvar: Condvar::new(),
             tracked_users_loaded: AtomicBool::new(false),
             tracked_user_loading_lock: Mutex::new(()),
-            room_keys_received_sender,
-            secrets_broadcaster,
         });
 
         Self { inner }
@@ -455,23 +442,7 @@ impl Store {
     }
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let room_key_updates: Vec<_> =
-            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
-
-        let secrets = changes.secrets.to_owned();
-
-        self.inner.store.save_changes(changes).await?;
-
-        if !room_key_updates.is_empty() {
-            // Ignore the result. It can only fail if there are no listeners.
-            let _ = self.inner.room_keys_received_sender.send(room_key_updates);
-        }
-
-        for secret in secrets {
-            let _ = self.inner.secrets_broadcaster.send(secret);
-        }
-
-        Ok(())
+        self.inner.store.save_changes(changes).await
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
@@ -1019,26 +990,7 @@ impl Store {
     /// If the reader of the stream lags too far behind, a warning will be
     /// logged and items will be dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
-        let stream = BroadcastStream::new(self.inner.room_keys_received_sender.subscribe());
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {} updates", lag);
-                    None
-                }
-            }
-        })
-    }
-
-    /// Creates a `CryptoStoreLock` for this store, that will contain the given
-    /// key and value when hold.
-    pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
-        CryptoStoreLock::new(self.inner.store.clone(), lock_key, lock_value)
+        self.inner.store.room_keys_received_stream()
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
@@ -1081,20 +1033,13 @@ impl Store {
     /// # });
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
-        let stream = BroadcastStream::new(self.inner.secrets_broadcaster.subscribe());
+        self.inner.store.secrets_stream()
+    }
 
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("secrets_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
+    /// Creates a `CryptoStoreLock` for this store, that will contain the given
+    /// key and value when hold.
+    pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
+        self.inner.store.create_store_lock(lock_key, lock_value)
     }
 }
 
@@ -1102,6 +1047,6 @@ impl Deref for Store {
     type Target = DynCryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.store.deref()
+        self.inner.store.deref().deref()
     }
 }

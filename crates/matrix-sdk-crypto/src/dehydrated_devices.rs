@@ -41,6 +41,8 @@
 // a lot of to-device events. This process might take some time and we should
 // support resuming it.
 
+use std::sync::Arc;
+
 use hkdf::Hkdf;
 use ruma::{
     api::client::dehydrated_device::{put_dehydrated_device, DehydratedDeviceData},
@@ -56,7 +58,7 @@ use vodozemac::LibolmPickleError;
 
 use crate::{
     olm::Account,
-    store::{IntoCryptoStore, MemoryStore, RoomKeyInfo, Store},
+    store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
     EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
 };
@@ -89,7 +91,7 @@ impl DehydratedDevices {
         let user_identity = self.inner.store().private_identity();
 
         let account = ReadOnlyAccount::new(user_id);
-        let store = MemoryStore::new().into_crypto_store();
+        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());

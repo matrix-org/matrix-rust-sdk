@@ -69,7 +69,7 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        locks::LockStoreError, Changes, DeviceChanges, DynCryptoStore, IdentityChanges,
+        locks::LockStoreError, Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges,
         IntoCryptoStore, MemoryStore, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
     },
     types::{
@@ -171,7 +171,7 @@ impl OlmMachine {
         let account =
             ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
 
-        let store = MemoryStore::new().into_crypto_store();
+        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
 
         Ok(Self::new_helper(
             self.user_id(),
@@ -185,7 +185,7 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<DynCryptoStore>,
+        store: Arc<CryptoStoreWrapper>,
         account: ReadOnlyAccount,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
@@ -325,7 +325,7 @@ impl OlmMachine {
         };
 
         let identity = Arc::new(Mutex::new(identity));
-
+        let store = Arc::new(CryptoStoreWrapper::new(store));
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 

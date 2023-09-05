@@ -45,7 +45,7 @@ use crate::{
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
-    store::{Changes, DeviceChanges, DynCryptoStore, Result as StoreResult},
+    store::{Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -709,7 +709,7 @@ impl ReadOnlyDevice {
     /// with this device.
     pub(crate) async fn get_most_recent_session(
         &self,
-        store: &DynCryptoStore,
+        store: &CryptoStoreWrapper,
     ) -> OlmResult<Option<Session>> {
         if let Some(sender_key) = self.curve25519_key() {
             if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
@@ -794,7 +794,7 @@ impl ReadOnlyDevice {
 
     pub(crate) async fn encrypt(
         &self,
-        store: &DynCryptoStore,
+        store: &CryptoStoreWrapper,
         event_type: &str,
         content: Value,
         message_id: Option<String>,

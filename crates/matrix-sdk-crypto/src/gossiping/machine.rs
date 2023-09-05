@@ -1066,7 +1066,7 @@ mod tests {
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
-        store::{IntoCryptoStore, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, Store},
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
         verification::VerificationMachine,
     };
@@ -1115,7 +1115,7 @@ mod tests {
         let device_id = DeviceId::new();
 
         let account = ReadOnlyAccount::with_device_id(&user_id, &device_id);
-        let store = MemoryStore::new().into_crypto_store();
+        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.to_owned(), identity, store, verification);
@@ -1134,7 +1134,7 @@ mod tests {
         ))
         .await;
 
-        let store = MemoryStore::new().into_crypto_store();
+        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
 

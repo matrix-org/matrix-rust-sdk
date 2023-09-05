@@ -41,7 +41,7 @@ use super::{
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
-    store::{CryptoStoreError, DynCryptoStore},
+    store::{CryptoStoreError, CryptoStoreWrapper},
     OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentity,
     RoomMessageRequest, ToDeviceRequest,
 };
@@ -57,7 +57,7 @@ impl VerificationMachine {
     pub(crate) fn new(
         account: ReadOnlyAccount,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<DynCryptoStore>,
+        store: Arc<CryptoStoreWrapper>,
     ) -> Self {
         Self {
             store: VerificationStore { account, private_identity: identity, inner: store },
@@ -535,7 +535,7 @@ mod tests {
     use super::{Sas, VerificationMachine};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{IntoCryptoStore, MemoryStore},
+        store::{CryptoStoreWrapper, MemoryStore},
         verification::{
             cache::VerificationCache,
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
@@ -579,8 +579,11 @@ mod tests {
     async fn create() {
         let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, identity, store.into_crypto_store());
+        let _ = VerificationMachine::new(
+            alice,
+            identity,
+            Arc::new(CryptoStoreWrapper::new(MemoryStore::new())),
+        );
     }
 
     #[async_test]
