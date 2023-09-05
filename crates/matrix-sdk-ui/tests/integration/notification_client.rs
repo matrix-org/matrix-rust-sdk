@@ -19,9 +19,8 @@ use wiremock::{
 };
 
 use crate::{
-    encryption_sync_service::check_requests,
     logged_in_client, mock_encryption_state, mock_sync,
-    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher},
+    sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
 };
 
 #[async_test]
