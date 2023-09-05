@@ -13,10 +13,18 @@
 // limitations under the License.
 
 use matrix_sdk_base::SessionMeta;
+use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 
 use crate::matrix_auth::{self, MatrixAuth, MatrixAuthData};
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{self, Oidc, OidcAuthData};
+
+/// All the data relative to authentication, and that must be shared between a client and all its
+/// children.
+pub(crate) struct AuthCtx {
+    /// The authentication server info discovered from the homeserver.
+    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
+}
 
 /// An enum over all the possible authentication APIs.
 #[derive(Debug, Clone)]

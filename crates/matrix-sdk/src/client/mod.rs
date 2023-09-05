@@ -85,7 +85,7 @@ use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{Oidc, OidcError};
 use crate::{
-    authentication::AuthData,
+    authentication::{AuthCtx, AuthData},
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
@@ -153,10 +153,11 @@ pub struct Client {
 }
 
 pub(crate) struct ClientInner {
+    /// All the data related to authentication and authorization.
+    pub(crate) auth_ctx: Arc<AuthCtx>,
+
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
-    /// The authentication server info discovered from the homeserver.
-    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
@@ -231,8 +232,8 @@ pub(crate) struct ClientInner {
 impl ClientInner {
     #[allow(clippy::too_many_arguments)]
     fn new(
+        auth_ctx: Arc<AuthCtx>,
         homeserver: Url,
-        authentication_server_info: Option<AuthenticationServerInfo>,
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
         http_client: HttpClient,
         base_client: BaseClient,
@@ -244,7 +245,7 @@ impl ClientInner {
 
         Self {
             homeserver: RwLock::new(homeserver),
-            authentication_server_info,
+            auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
@@ -379,7 +380,7 @@ impl Client {
     ///
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.inner.authentication_server_info.as_ref()
+        self.inner.auth_ctx.authentication_server_info.as_ref()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
@@ -1995,8 +1996,8 @@ impl Client {
     pub async fn notification_client(&self) -> Result<Client> {
         let client = Client {
             inner: Arc::new(ClientInner::new(
+                self.inner.auth_ctx.clone(),
                 self.inner.homeserver.read().await.clone(),
-                self.inner.authentication_server_info.clone(),
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.inner.sliding_sync_proxy.read().unwrap().clone(),
                 self.inner.http_client.clone(),

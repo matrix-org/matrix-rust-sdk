@@ -27,7 +27,10 @@ use url::Url;
 use super::{Client, ClientInner};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
-use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
+use crate::{
+    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
+    HttpError,
+};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
@@ -419,9 +422,11 @@ impl ClientBuilder {
 
         let homeserver = Url::parse(&homeserver)?;
 
+        let auth_ctx = Arc::new(AuthCtx { authentication_server_info });
+
         let inner = Arc::new(ClientInner::new(
+            auth_ctx,
             homeserver,
-            authentication_server_info,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy,
             http_client,
