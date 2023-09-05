@@ -35,9 +35,6 @@ enum CiCommand {
         cmd: Option<FeatureSet>,
     },
 
-    /// Run tests for the appservice crate
-    TestAppservice,
-
     /// Run checks for the wasm target
     Wasm {
         #[clap(subcommand)]
@@ -97,7 +94,6 @@ impl CiArgs {
                 CiCommand::Clippy => check_clippy(),
                 CiCommand::Docs => check_docs(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
-                CiCommand::TestAppservice => run_appservice_tests(),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
                 CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
                 CiCommand::TestCrypto => run_crypto_tests(),
@@ -110,7 +106,6 @@ impl CiArgs {
                 check_typos()?;
                 check_docs()?;
                 run_feature_tests(None)?;
-                run_appservice_tests()?;
                 run_wasm_checks(None)?;
                 run_crypto_tests()?;
                 check_examples()?;
@@ -261,14 +256,6 @@ fn run_crypto_tests() -> Result<()> {
         "rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store,testing"
     )
     .run()?;
-
-    Ok(())
-}
-
-fn run_appservice_tests() -> Result<()> {
-    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-appservice").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-appservice").run()?;
 
     Ok(())
 }
