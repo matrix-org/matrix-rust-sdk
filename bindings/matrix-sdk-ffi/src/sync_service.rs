@@ -52,7 +52,7 @@ pub trait SyncServiceStateObserver: Send + Sync + Debug {
 
 #[derive(uniffi::Object)]
 pub struct SyncService {
-    inner: MatrixSyncService,
+    pub(crate) inner: Arc<MatrixSyncService>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -95,18 +95,14 @@ impl SyncServiceBuilder {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncServiceBuilder {
-    pub fn with_encryption_sync(
-        self: Arc<Self>,
-        with_cross_process_lock: bool,
-        app_identifier: Option<String>,
-    ) -> Arc<Self> {
+    pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.with_encryption_sync(with_cross_process_lock, app_identifier);
+        let builder = this.builder.with_cross_process_lock(app_identifier);
         Arc::new(Self { builder })
     }
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        Ok(Arc::new(SyncService { inner: this.builder.build().await? }))
+        Ok(Arc::new(SyncService { inner: Arc::new(this.builder.build().await?) }))
     }
 }

@@ -1675,11 +1675,6 @@ impl OlmMachine {
     /// returns `true` the `InboundGroupSession` will be included in the export,
     /// if the closure returns `false` it will not be included.
     ///
-    /// # Panics
-    ///
-    /// This method will panic if it can't get enough randomness from the OS to
-    /// encrypt the exported keys securely.
-    ///
     /// # Examples
     ///
     /// ```no_run

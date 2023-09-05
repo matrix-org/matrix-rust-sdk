@@ -76,7 +76,6 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    #[allow(dead_code)]
     /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Default::default()

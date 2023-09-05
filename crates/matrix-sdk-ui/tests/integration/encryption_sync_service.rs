@@ -1,14 +1,17 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk_test::async_test;
-use matrix_sdk_ui::encryption_sync::{EncryptionSync, WithLocking};
+use matrix_sdk_ui::encryption_sync_service::{
+    EncryptionSyncPermit, EncryptionSyncService, WithLocking,
+};
 use serde_json::json;
-use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
+use tokio::sync::Mutex as AsyncMutex;
+use wiremock::{Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::{
     logged_in_client,
-    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher},
+    sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
     sliding_sync_then_assert_request_and_fake_response,
 };
 
@@ -16,10 +19,12 @@ use crate::{
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.clone().lock_owned().await;
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
+        EncryptionSyncService::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
-    let stream = encryption_sync.sync();
+    let stream = encryption_sync.sync(sync_permit_guard);
     pin_mut!(stream);
 
     // Requests enable the e2ee and to_device extensions on the first run.
@@ -108,7 +113,8 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     assert!(stream.next().await.is_none());
 
     // Start a new sync.
-    let stream = encryption_sync.sync();
+    let sync_permit_guard = sync_permit.clone().lock_owned().await;
+    let stream = encryption_sync.sync(sync_permit_guard);
     pin_mut!(stream);
 
     // The next request will contain sticky parameters again.
@@ -153,51 +159,19 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
         .await
 }
 
-pub(crate) async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
-    let mut num_requests = 0;
-
-    for request in &server.received_requests().await.expect("Request recording has been disabled") {
-        if !SlidingSyncMatcher.matches(request) {
-            continue;
-        }
-
-        assert!(
-            num_requests < expected_requests.len(),
-            "unexpected extra requests received in the server"
-        );
-
-        let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
-
-        // Strip the transaction id, if present.
-        if let Some(root) = json_value.as_object_mut() {
-            root.remove("txn_id");
-        }
-
-        if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
-            &json_value,
-            &expected_requests[num_requests],
-            assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
-        ) {
-            panic!("{error}\n\njson_value = {json_value:?}");
-        }
-
-        num_requests += 1;
-    }
-
-    assert_eq!(num_requests, expected_requests.len(), "missing requests");
-}
-
 #[async_test]
 async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
+        EncryptionSyncService::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
     // Run all the iterations.
-    encryption_sync.run_fixed_iterations(1).await?;
+    encryption_sync.run_fixed_iterations(1, sync_permit_guard).await?;
 
     // Check the requests are the ones we've expected.
     let expected_requests = [json!({
@@ -223,10 +197,12 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
+        EncryptionSyncService::new("tests".to_owned(), client, None, WithLocking::Yes).await?;
 
-    encryption_sync.run_fixed_iterations(2).await?;
+    encryption_sync.run_fixed_iterations(2, sync_permit_guard).await?;
 
     // First iteration fills the whole request.
     // Second iteration only sends non-sticky parameters.
@@ -256,10 +232,13 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
     let (client, server) = logged_in_client().await;
 
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.lock_owned().await;
     let encryption_sync =
-        EncryptionSync::new("tests".to_owned(), client.clone(), None, WithLocking::Yes).await?;
+        EncryptionSyncService::new("tests".to_owned(), client.clone(), None, WithLocking::Yes)
+            .await?;
 
-    let stream = encryption_sync.sync();
+    let stream = encryption_sync.sync(sync_permit_guard);
     pin_mut!(stream);
 
     // First iteration fills the whole request; server responds with the to-device

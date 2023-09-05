@@ -1,6 +1,40 @@
 //! Helpers for integration tests involving sliding sync.
 
-use wiremock::{http::Method, Match, Request};
+use wiremock::{http::Method, Match, MockServer, Request};
+
+pub(crate) async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
+    let mut num_requests = 0;
+
+    for request in &server.received_requests().await.expect("Request recording has been disabled") {
+        if !SlidingSyncMatcher.matches(request) {
+            continue;
+        }
+
+        assert!(
+            num_requests < expected_requests.len(),
+            "unexpected extra requests received in the server"
+        );
+
+        let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+
+        // Strip the transaction id, if present.
+        if let Some(root) = json_value.as_object_mut() {
+            root.remove("txn_id");
+        }
+
+        if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
+            &json_value,
+            &expected_requests[num_requests],
+            assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
+        ) {
+            panic!("{error}\n\njson_value = {json_value:?}");
+        }
+
+        num_requests += 1;
+    }
+
+    assert_eq!(num_requests, expected_requests.len(), "missing requests");
+}
 
 pub(crate) struct SlidingSyncMatcher;
 

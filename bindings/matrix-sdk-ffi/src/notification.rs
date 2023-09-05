@@ -3,7 +3,7 @@ use std::sync::Arc;
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
     NotificationClientBuilder as MatrixNotificationClientBuilder,
-    NotificationItem as MatrixNotificationItem,
+    NotificationItem as MatrixNotificationItem, NotificationProcessSetup,
 };
 use ruma::{EventId, RoomId};
 
@@ -80,9 +80,12 @@ pub struct NotificationClientBuilder {
 }
 
 impl NotificationClientBuilder {
-    pub(crate) fn new(client: matrix_sdk::Client) -> Result<Arc<Self>, ClientError> {
-        let builder =
-            RUNTIME.block_on(async { MatrixNotificationClient::builder(client).await })?;
+    pub(crate) fn new(
+        client: matrix_sdk::Client,
+        process_setup: NotificationProcessSetup,
+    ) -> Result<Arc<Self>, ClientError> {
+        let builder = RUNTIME
+            .block_on(async { MatrixNotificationClient::builder(client, process_setup).await })?;
         Ok(Arc::new(Self { builder }))
     }
 }
@@ -94,19 +97,6 @@ impl NotificationClientBuilder {
     pub fn filter_by_push_rules(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.filter_by_push_rules();
-        Arc::new(Self { builder })
-    }
-
-    /// Automatically retry decryption once, if the notification was received
-    /// encrypted.
-    ///
-    /// The boolean indicates whether we're making use of a cross-process lock
-    /// for the crypto-store. This should be set to true, if and only if,
-    /// the notification is received in a process that's different from the
-    /// main app.
-    pub fn retry_decryption(self: Arc<Self>, with_cross_process_lock: bool) -> Arc<Self> {
-        let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.retry_decryption(with_cross_process_lock);
         Arc::new(Self { builder })
     }
 

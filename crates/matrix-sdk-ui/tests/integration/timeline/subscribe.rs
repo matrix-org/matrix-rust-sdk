@@ -16,12 +16,16 @@ use std::time::Duration;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
-use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
+use matrix_sdk_test::{
+    async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+    TimelineTestEvent,
+};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{event_id, events::room::message::MessageType, room_id};
 use serde_json::json;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::{logged_in_client, mock_sync};
 
@@ -171,4 +175,148 @@ async fn event_filter() {
     let text = assert_matches!(msg.msgtype(), MessageType::Text(text) => text);
     assert_eq!(text.body, "hi");
     assert!(msg.is_edited());
+}
+
+#[async_test]
+async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut ev_builder = SyncResponseBuilder::new();
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline_builder().build().await;
+    let (_, timeline_stream) = timeline.subscribe().await;
+    pin_mut!(timeline_stream);
+
+    let alice = "@alice:example.org";
+    let bob = "@bob:example.org";
+
+    let first_event_id = event_id!("$YTQwYl2pl1");
+    let second_event_id = event_id!("$YTQwYl2pl2");
+    let third_event_id = event_id!("$YTQwYl2pl3");
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": first_event_id,
+                "origin_server_ts": 152037280,
+                "sender": alice,
+                "type": "m.room.message",
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": second_event_id,
+                "origin_server_ts": 152037281,
+                "sender": bob,
+                "type": "m.room.message",
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": third_event_id,
+                "origin_server_ts": 152037282,
+                "sender": alice,
+                "type": "m.room.message",
+            }))),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(second_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
+    });
+    assert_pending!(timeline_stream);
+
+    let fourth_event_id = event_id!("$YTQwYl2pl4");
+    let fiveth_event_id = event_id!("$YTQwYl2pl5");
+
+    ev_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+        "content": {
+            "ignored_users": {
+                bob: {}
+            }
+        },
+        "type": "m.ignored_user_list",
+    })));
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // The timeline has been emptied.
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+    assert_pending!(timeline_stream);
+
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": fourth_event_id,
+                "origin_server_ts": 152037283,
+                "sender": alice,
+                "type": "m.room.message",
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
+                "content": {
+                    "body": "hello",
+                    "msgtype": "m.text",
+                },
+                "event_id": fiveth_event_id,
+                "origin_server_ts": 152037284,
+                "sender": alice,
+                "type": "m.room.message",
+            }))),
+    );
+
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Timeline receives events as before.
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
+    });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.as_event().unwrap().event_id(), Some(fiveth_event_id));
+    });
+    assert_pending!(timeline_stream);
 }
