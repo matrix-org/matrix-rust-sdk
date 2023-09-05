@@ -261,7 +261,7 @@ impl fmt::Debug for OidcAuthData {
     }
 }
 
-const CROSS_PROCESS_LOCK_KEY: &str = "oidc_session_hash";
+const OIDC_SESSION_HASH_KEY: &str = "oidc_session_hash";
 
 /// A high-level authentication API to interact with an OpenID Connect Provider.
 #[derive(Debug, Clone)]
@@ -1311,23 +1311,14 @@ impl Oidc {
             });
 
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
-            manager
-                .store
-                .remove_custom_value(CROSS_PROCESS_LOCK_KEY)
-                .await
-                .map_err(CrossProcessRefreshLockError::StoreError)?;
-            *manager.known_session_hash.lock().await = None;
+            manager.on_logout().await?;
         }
 
         Ok(end_session_builder)
     }
 }
 
-/// Compute a hash uniquely identifying the OIDC session.
-///
-/// XXX Note to Doug: it doesn't matter what the type of `tokens` is below,
-/// it should be anything that's hashable. Below i transform `tokens`
-/// into something that's hashable.
+/// Compute a hash uniquely identifying the OIDC session tokens.
 fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
     // Subset of `SessionTokens` fit for hashing
     #[derive(Hash)]
@@ -1336,14 +1327,10 @@ fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
         refresh_token: Option<String>,
     }
 
-    let tokens = HashableSessionTokens {
+    SessionHash(hash(&HashableSessionTokens {
         access_token: tokens.access_token.clone(),
         refresh_token: tokens.refresh_token.clone(),
-    };
-
-    let mut hasher = DefaultHasher::new();
-    tokens.hash(&mut hasher);
-    SessionHash(hasher.finish())
+    }))
 }
 
 /// A full session for the OpenID Connect API.
@@ -1593,7 +1580,7 @@ impl CrossProcessRefreshLockGuard {
         &self,
         hash: SessionHash,
     ) -> Result<(), CrossProcessRefreshLockError> {
-        self.store.set_custom_value(CROSS_PROCESS_LOCK_KEY, hash.0.to_le_bytes().to_vec()).await?;
+        self.store.set_custom_value(OIDC_SESSION_HASH_KEY, hash.0.to_le_bytes().to_vec()).await?;
         Ok(())
     }
 
@@ -1664,7 +1651,7 @@ impl CrossProcessRefreshManager {
         let store_guard = self.store_lock.spin_lock(Some(60000)).await?;
 
         // Read the previous session hash in the database.
-        let current_db_session_bytes = self.store.get_custom_value(CROSS_PROCESS_LOCK_KEY).await?;
+        let current_db_session_bytes = self.store.get_custom_value(OIDC_SESSION_HASH_KEY).await?;
 
         let db_hash = if let Some(val) = current_db_session_bytes {
             Some(u64::from_le_bytes(
@@ -1698,6 +1685,15 @@ impl CrossProcessRefreshManager {
         };
 
         Ok(guard)
+    }
+
+    async fn on_logout(&self) -> Result<(), CrossProcessRefreshLockError> {
+        self.store
+            .remove_custom_value(OIDC_SESSION_HASH_KEY)
+            .await
+            .map_err(CrossProcessRefreshLockError::StoreError)?;
+        *self.known_session_hash.lock().await = None;
+        Ok(())
     }
 }
 
