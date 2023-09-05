@@ -28,14 +28,6 @@ use std::{
 use dashmap::DashMap;
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
-#[cfg(feature = "experimental-oidc")]
-use mas_oidc_client::{
-    error::{
-        Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
-        TokenRefreshError, TokenRequestError,
-    },
-    types::errors::ClientErrorCode,
-};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;
 use matrix_sdk_base::{
@@ -43,8 +35,6 @@ use matrix_sdk_base::{
     SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::api::client::error::ErrorKind;
 use ruma::{
     api::{
         client::{
@@ -82,7 +72,7 @@ use url::Url;
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{Oidc, OidcError};
+use crate::oidc::Oidc;
 use crate::{
     authentication::{AuthCtx, AuthData},
     config::RequestConfig,
@@ -1213,97 +1203,35 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        SendRequest { client: self.clone(), request, config, send_progress: Default::default() }
+        SendRequest {
+            client: self.clone(),
+            request,
+            config,
+            send_progress: Default::default(),
+            sliding_sync_proxy_url: None,
+        }
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
     // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
     // anymore
-    pub(crate) async fn send_with_homeserver<Request>(
+    pub(crate) fn send_with_homeserver<Request>(
         &self,
         request: Request,
         config: Option<RequestConfig>,
         sliding_sync_proxy: Option<String>,
-    ) -> HttpResult<Request::IncomingResponse>
+    ) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = Box::pin(self.send_inner(
-            request.clone(),
+        SendRequest {
+            client: self.clone(),
+            request,
             config,
-            sliding_sync_proxy.clone(),
-            Default::default(),
-        ))
-        .await;
-
-        // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
-        if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
-            res.as_ref().map_err(HttpError::client_api_error_kind)
-        {
-            trace!("Token refresh: Unknown token error received.");
-            // If automatic token refresh isn't supported, there is nothing more to do.
-            if !self.inner.auth_ctx.handle_refresh_tokens {
-                trace!("Token refresh: Automatic refresh disabled.");
-                self.broadcast_unknown_token(soft_logout);
-                return res;
-            }
-
-            // Try to refresh the token and retry the request.
-            if let Err(refresh_error) = self.refresh_access_token().await {
-                match &refresh_error {
-                    RefreshTokenError::RefreshTokenRequired => {
-                        trace!("Token refresh: The session doesn't have a refresh token.");
-                        // Refreshing access tokens is not supported by this `Session`, ignore.
-                        self.broadcast_unknown_token(soft_logout);
-                    }
-                    #[cfg(feature = "experimental-oidc")]
-                    RefreshTokenError::Oidc(oidc_error) => {
-                        match **oidc_error {
-                            OidcError::Oidc(OidcClientError::TokenRefresh(
-                                TokenRefreshError::Token(TokenRequestError::Http(OidcHttpError {
-                                    body:
-                                        Some(OidcErrorBody {
-                                            error: ClientErrorCode::InvalidGrant, ..
-                                        }),
-                                    ..
-                                })),
-                            )) => {
-                                error!(
-                                    "Token refresh: OIDC refresh_token rejected with invalid grant"
-                                );
-                                // The refresh was denied, signal to sign out the user.
-                                self.broadcast_unknown_token(soft_logout);
-                            }
-                            _ => {
-                                trace!("Token refresh: OIDC refresh encountered a problem.");
-                                // The refresh failed for other reasons, no need
-                                // to sign out.
-                            }
-                        };
-                        return Err(refresh_error.into());
-                    }
-                    _ => {
-                        trace!("Token refresh: Token refresh failed.");
-                        // This isn't necessarily correct, but matches the behaviour when
-                        // implementing OIDC.
-                        self.broadcast_unknown_token(soft_logout);
-                        return Err(refresh_error.into());
-                    }
-                }
-            } else {
-                trace!("Token refresh: Refresh succeeded, retrying request.");
-                return Box::pin(self.send_inner(
-                    request,
-                    config,
-                    sliding_sync_proxy,
-                    Default::default(),
-                ))
-                .await;
-            }
+            send_progress: Default::default(),
+            sliding_sync_proxy_url: sliding_sync_proxy,
         }
-
-        res
     }
 
     pub(crate) async fn send_inner<Request>(
