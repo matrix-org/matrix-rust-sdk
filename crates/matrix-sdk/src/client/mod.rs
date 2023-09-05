@@ -53,7 +53,6 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
-                discover_homeserver::AuthenticationServerInfo,
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
@@ -369,18 +368,6 @@ impl Client {
     /// The Homeserver of the client.
     pub async fn homeserver(&self) -> Url {
         self.inner.homeserver.read().await.clone()
-    }
-
-    /// The authentication server info discovered from the homeserver.
-    ///
-    /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect ([MSC3861]) and this `Client` was constructed using
-    /// auto-discovery by setting the homeserver with
-    /// [`ClientBuilder::server_name()`].
-    ///
-    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
-    pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.inner.auth_ctx.authentication_server_info.as_ref()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.

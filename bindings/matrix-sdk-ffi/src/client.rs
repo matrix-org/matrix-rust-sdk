@@ -328,7 +328,7 @@ impl Client {
     /// OpenID Connect and this `Client` was constructed using auto-discovery by
     /// setting the homeserver with [`ClientBuilder::server_name()`].
     pub(crate) fn discovered_authentication_server(&self) -> Option<AuthenticationServerInfo> {
-        self.inner.authentication_server_info().cloned()
+        self.inner.oidc().authentication_server_info().cloned()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver. `None` when
