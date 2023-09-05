@@ -80,6 +80,15 @@ impl AuthSession {
         }
     }
 
+    /// Take the matrix user information of this session.
+    pub fn into_meta(self) -> SessionMeta {
+        match self {
+            AuthSession::Matrix(session) => session.meta,
+            #[cfg(feature = "experimental-oidc")]
+            AuthSession::Oidc(session) => session.user.meta,
+        }
+    }
+
     /// Get the access token of this session.
     pub fn access_token(&self) -> &str {
         match self {
