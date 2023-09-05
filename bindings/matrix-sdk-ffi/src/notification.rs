@@ -100,14 +100,6 @@ impl NotificationClientBuilder {
         Arc::new(Self { builder })
     }
 
-    /// Automatically retry decryption once, if the notification was received
-    /// encrypted.
-    pub fn retry_decryption(self: Arc<Self>) -> Arc<Self> {
-        let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.retry_decryption();
-        Arc::new(Self { builder })
-    }
-
     pub fn finish(self: Arc<Self>) -> Arc<NotificationClient> {
         let this = unwrap_or_clone_arc(self);
         Arc::new(NotificationClient { inner: this.builder.build() })
