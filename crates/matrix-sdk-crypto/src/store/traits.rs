@@ -240,6 +240,13 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `value` - The value to insert
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error>;
 
+    /// Remove arbitrary data into the store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert data into
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error>;
+
     /// Try to take a leased lock.
     ///
     /// This attempts to take a lock for the given lease duration.
@@ -416,6 +423,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
         self.0.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        self.0.remove_custom_value(key).await.map_err(Into::into)
     }
 
     async fn try_take_leased_lock(

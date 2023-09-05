@@ -1145,6 +1145,15 @@ impl_crypto_store! {
         Ok(())
     }
 
+    async fn remove_custom_value(&self, key: &str) -> Result<()> {
+        self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
+            .object_store(keys::CORE)?
+            .delete(&JsValue::from_str(key))?;
+        Ok(())
+    }
+
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
