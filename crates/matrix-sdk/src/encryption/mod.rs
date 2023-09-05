@@ -29,10 +29,7 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
-use matrix_sdk_base::crypto::{
-    store::locks::CryptoStoreLockGuard, OlmMachine, OutgoingRequest, RoomMessageRequest,
-    ToDeviceRequest,
-};
+use matrix_sdk_base::crypto::{OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -65,6 +62,7 @@ use crate::{
         verification::{SasVerification, Verification, VerificationRequest},
     },
     error::HttpResult,
+    store_locks::CrossProcessStoreLockGuard,
     Client, Error, Result, Room, TransmissionProgress,
 };
 
@@ -1011,7 +1009,7 @@ impl Encryption {
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CryptoStoreLockGuard>, Error> {
+    ) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
             let guard = lock.spin_lock(max_backoff).await?;
 
@@ -1027,7 +1025,7 @@ impl Encryption {
     /// attempts to lock it once.
     ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(&self) -> Result<Option<CryptoStoreLockGuard>, Error> {
+    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
         if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
             let maybe_guard = lock.try_lock_once().await?;
 
