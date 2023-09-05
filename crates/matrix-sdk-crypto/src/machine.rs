@@ -1326,15 +1326,9 @@ impl OlmMachine {
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<EncryptionInfo> {
-        if let Some(session) =
-            self.store().get_inbound_group_session(room_id, content.session_id()).await?
-        {
-            self.get_encryption_info(&session, &event.sender).await
-        } else {
-            // don't bother to check for withheld codes here: the client should only call
-            // this on events that were successfully decrypted anyway.
-            Err(MegolmError::MissingRoomKey(None))
-        }
+        let session =
+            self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
+        self.get_encryption_info(&session, &event.sender).await
     }
 
     async fn decrypt_megolm_events(
@@ -1343,57 +1337,68 @@ impl OlmMachine {
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
-        if let Some(session) =
-            self.store().get_inbound_group_session(room_id, content.session_id()).await?
-        {
-            // This function is only ever called by decrypt_room_event, so
-            // room_id, sender, algorithm and session_id are recorded already
-            //
-            // While we already record the sender key in some cases from the event, the
-            // sender key in the event is deprecated, so let's record it now.
-            tracing::Span::current().record("sender_key", debug(session.sender_key()));
+        let session =
+            self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
 
-            let result = session.decrypt(event).await;
-            match result {
-                Ok((decrypted_event, _)) => {
-                    let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
-                    Ok(TimelineEvent {
-                        encryption_info: Some(encryption_info),
-                        event: decrypted_event,
-                        push_actions: None,
-                    })
-                }
-                Err(error) => Err(
-                    if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
-                        error
-                    {
-                        let withheld_code = self
-                            .inner
-                            .store
-                            .get_withheld_info(room_id, content.session_id())
-                            .await?
-                            .map(|e| e.content.withheld_code());
+        // This function is only ever called by decrypt_room_event, so
+        // room_id, sender, algorithm and session_id are recorded already
+        //
+        // While we already record the sender key in some cases from the event, the
+        // sender key in the event is deprecated, so let's record it now.
+        tracing::Span::current().record("sender_key", debug(session.sender_key()));
 
-                        if withheld_code.is_some() {
-                            // Partially withheld, report with a withheld code if we have one.
-                            MegolmError::MissingRoomKey(withheld_code)
-                        } else {
-                            error
-                        }
+        let result = session.decrypt(event).await;
+        match result {
+            Ok((decrypted_event, _)) => {
+                let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+                Ok(TimelineEvent {
+                    encryption_info: Some(encryption_info),
+                    event: decrypted_event,
+                    push_actions: None,
+                })
+            }
+            Err(error) => Err(
+                if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) = error {
+                    let withheld_code = self
+                        .inner
+                        .store
+                        .get_withheld_info(room_id, content.session_id())
+                        .await?
+                        .map(|e| e.content.withheld_code());
+
+                    if withheld_code.is_some() {
+                        // Partially withheld, report with a withheld code if we have one.
+                        MegolmError::MissingRoomKey(withheld_code)
                     } else {
                         error
-                    },
-                ),
-            }
-        } else {
-            let withheld_code = self
-                .inner
-                .store
-                .get_withheld_info(room_id, content.session_id())
-                .await?
-                .map(|e| e.content.withheld_code());
+                    }
+                } else {
+                    error
+                },
+            ),
+        }
+    }
 
-            Err(MegolmError::MissingRoomKey(withheld_code))
+    /// Attempt to retrieve an inbound group session from the store.
+    ///
+    /// If the session is not found, checks for withheld reports, and returns a
+    /// [`MegolmError::MissingRoomKey`] error.
+    async fn get_inbound_group_session_or_error(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> MegolmResult<InboundGroupSession> {
+        match self.store().get_inbound_group_session(room_id, session_id).await? {
+            Some(session) => Ok(session),
+            None => {
+                let withheld_code = self
+                    .inner
+                    .store
+                    .get_withheld_info(room_id, session_id)
+                    .await?
+                    .map(|e| e.content.withheld_code());
+                Err(MegolmError::MissingRoomKey(withheld_code))
+            }
         }
     }
 
