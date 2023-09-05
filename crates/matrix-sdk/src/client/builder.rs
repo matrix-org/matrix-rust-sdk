@@ -422,7 +422,10 @@ impl ClientBuilder {
 
         let homeserver = Url::parse(&homeserver)?;
 
-        let auth_ctx = Arc::new(AuthCtx { authentication_server_info });
+        let auth_ctx = Arc::new(AuthCtx {
+            authentication_server_info,
+            handle_refresh_tokens: self.handle_refresh_tokens,
+        });
 
         let inner = Arc::new(ClientInner::new(
             auth_ctx,
@@ -433,7 +436,6 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
-            self.handle_refresh_tokens,
         ));
 
         debug!("Done building the Client");
