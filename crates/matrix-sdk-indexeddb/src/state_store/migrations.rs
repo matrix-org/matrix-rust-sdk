@@ -130,14 +130,14 @@ pub async fn upgrade_meta_db(
     Ok((meta_db, store_cipher))
 }
 
-// Helper struct for upgrading the inner DB.
+/// Helper struct for upgrading the inner DB.
 #[derive(Debug, Clone, Default)]
 pub struct OngoingMigration {
-    // Names of stores to drop.
+    /// Names of stores to drop.
     drop_stores: HashSet<&'static str>,
-    // Names of stores to create.
+    /// Names of stores to create.
     create_stores: HashSet<&'static str>,
-    // Store name => key-value data to add.
+    /// Store name => key-value data to add.
     data: HashMap<&'static str, Vec<(JsValue, JsValue)>>,
 }
 
