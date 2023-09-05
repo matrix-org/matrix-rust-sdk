@@ -37,12 +37,12 @@ use ruma::{api::client::sync::sync_events::v4, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{debug, trace};
 
-/// Unit type representing a permit to *use* an [`EncryptionSync`].
+/// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
 /// This must be created once in the whole application's lifetime, wrapped in a
-/// mutex. Using an `EncryptionSync` must then lock that mutex in an owned
-/// way, so that there's at most a single `EncryptionSync` running at any time
-/// in the entire app.
+/// mutex. Using an `EncryptionSyncService` must then lock that mutex in an
+/// owned way, so that there's at most a single `EncryptionSyncService` running
+/// at any time in the entire app.
 pub struct EncryptionSyncPermit(());
 
 impl EncryptionSyncPermit {
@@ -59,7 +59,7 @@ impl EncryptionSyncPermit {
     }
 }
 
-/// Should the `EncryptionSync` make use of locking?
+/// Should the `EncryptionSyncService` make use of locking?
 pub enum WithLocking {
     Yes,
     No,
@@ -78,14 +78,14 @@ impl From<bool> for WithLocking {
 /// High-level helper for synchronizing encryption events using sliding sync.
 ///
 /// See the module's documentation for more details.
-pub struct EncryptionSync {
+pub struct EncryptionSyncService {
     client: Client,
     sliding_sync: SlidingSync,
     with_locking: bool,
 }
 
-impl EncryptionSync {
-    /// Creates a new instance of a `EncryptionSync`.
+impl EncryptionSyncService {
+    /// Creates a new instance of a `EncryptionSyncService`.
     ///
     /// This will create and manage an instance of [`matrix_sdk::SlidingSync`].
     /// The `process_id` is used as the identifier of that instance, as such
@@ -135,7 +135,7 @@ impl EncryptionSync {
         Ok(Self { client, sliding_sync, with_locking })
     }
 
-    /// Runs an `EncryptionSync` loop for a fixed number of iterations.
+    /// Runs an `EncryptionSyncService` loop for a fixed number of iterations.
     ///
     /// This runs for the given number of iterations, or less than that, if it
     /// stops earlier or could not acquire a cross-process lock (if configured
@@ -309,7 +309,7 @@ impl EncryptionSync {
     }
 }
 
-/// Errors for the [`EncryptionSync`].
+/// Errors for the [`EncryptionSyncService`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Something wrong happened in sliding sync: {0:#}")]

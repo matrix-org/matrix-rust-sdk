@@ -37,7 +37,7 @@ use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{
-    encryption_sync::{EncryptionSync, EncryptionSyncPermit, WithLocking},
+    encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
     sync_service::SyncService,
 };
 
@@ -227,7 +227,7 @@ impl NotificationClient {
             }
         };
 
-        let encryption_sync = EncryptionSync::new(
+        let encryption_sync = EncryptionSyncService::new(
             Self::LOCK_ID.to_owned(),
             self.client.clone(),
             Some((Duration::from_secs(3), Duration::from_secs(4))),
