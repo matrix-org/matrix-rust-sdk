@@ -552,7 +552,7 @@ async fn build_client(
                 // Check if the homeserver advertises an OIDC Provider with auto-discovery.
                 // This can be bypassed by providing the issuer manually, but it should be the
                 // most common case for public homeservers.
-                if let Some(issuer_info) = client.authentication_server_info().cloned() {
+                if let Some(issuer_info) = client.oidc().authentication_server_info().cloned() {
                     println!("Found issuer: {}", issuer_info.issuer);
 
                     let homeserver = client.homeserver().await.to_string();

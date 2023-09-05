@@ -23,6 +23,7 @@ use crate::oidc::{self, Oidc, OidcAuthData};
 /// children.
 pub(crate) struct AuthCtx {
     /// The authentication server info discovered from the homeserver.
+    #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
     pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
 }
 
