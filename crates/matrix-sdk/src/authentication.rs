@@ -14,13 +14,13 @@
 
 use matrix_sdk_base::SessionMeta;
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{self, Oidc, OidcAuthData};
 use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
-    RefreshTokenError,
+    RefreshTokenError, SessionChange,
 };
 
 /// All the data relative to authentication, and that must be shared between a client and all its
@@ -36,6 +36,11 @@ pub(crate) struct AuthCtx {
 
     /// Lock making sure we're only doing one token refresh at a time.
     pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
+
+    /// Session change publisher. Allows the subscriber to handle changes to the
+    /// session such as logging out when the access token is invalid or
+    /// persisting updates to the access/refresh tokens.
+    pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
 }
 
 /// An enum over all the possible authentication APIs.

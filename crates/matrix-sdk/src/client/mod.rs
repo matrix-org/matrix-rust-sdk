@@ -192,10 +192,6 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
-    /// Session change publisher. Allows the subscriber to handle changes to the
-    /// session such as logging out when the access token is invalid or
-    /// persisting updates to the access/refresh tokens.
-    pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
 
@@ -234,8 +230,6 @@ impl ClientInner {
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
     ) -> Self {
-        let session_change_sender = broadcast::Sender::new(1);
-
         Self {
             homeserver: RwLock::new(homeserver),
             auth_ctx,
@@ -257,7 +251,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            session_change_sender,
             auth_data: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             cross_process_crypto_store_lock: OnceCell::new(),
@@ -1360,6 +1353,7 @@ impl Client {
         info!("An unknown token error has been encountered.");
         _ = self
             .inner
+            .auth_ctx
             .session_change_sender
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
@@ -1935,7 +1929,7 @@ impl Client {
 
     /// Subscribes a new receiver to client SessionChange broadcasts.
     pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
-        let broadcast = &self.inner.session_change_sender;
+        let broadcast = &self.inner.auth_ctx.session_change_sender;
         broadcast.subscribe()
     }
 

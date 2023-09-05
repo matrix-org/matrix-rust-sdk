@@ -903,7 +903,7 @@ impl Oidc {
             latest_id_token,
         });
 
-        _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
+        _ = self.client.inner.auth_ctx.session_change_sender.send(SessionChange::TokensRefreshed);
 
         Ok(response)
     }

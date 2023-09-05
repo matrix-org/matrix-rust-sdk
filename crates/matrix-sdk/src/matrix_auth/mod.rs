@@ -476,6 +476,7 @@ impl MatrixAuth {
                     _ = self
                         .client
                         .inner
+                        .auth_ctx
                         .session_change_sender
                         .send(SessionChange::TokensRefreshed);
 
