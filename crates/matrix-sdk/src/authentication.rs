@@ -14,10 +14,14 @@
 
 use matrix_sdk_base::SessionMeta;
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
+use tokio::sync::Mutex;
 
-use crate::matrix_auth::{self, MatrixAuth, MatrixAuthData};
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{self, Oidc, OidcAuthData};
+use crate::{
+    matrix_auth::{self, MatrixAuth, MatrixAuthData},
+    RefreshTokenError,
+};
 
 /// All the data relative to authentication, and that must be shared between a client and all its
 /// children.
@@ -29,6 +33,9 @@ pub(crate) struct AuthCtx {
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
     pub(crate) handle_refresh_tokens: bool,
+
+    /// Lock making sure we're only doing one token refresh at a time.
+    pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
 }
 
 /// An enum over all the possible authentication APIs.

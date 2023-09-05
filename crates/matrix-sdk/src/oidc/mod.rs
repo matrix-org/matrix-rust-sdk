@@ -926,7 +926,7 @@ impl Oidc {
         &self,
     ) -> Result<Option<AccessTokenResponse>, RefreshTokenError> {
         let client = &self.client;
-        let lock = client.inner.refresh_token_lock.try_lock();
+        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
 
         macro_rules! fail {
             ($lock:expr, $error:expr) => {
@@ -957,7 +957,7 @@ impl Oidc {
                 }
             }
         } else {
-            match client.inner.refresh_token_lock.lock().await.as_ref() {
+            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(None),
                 Err(error) => Err(error.clone()),
             }

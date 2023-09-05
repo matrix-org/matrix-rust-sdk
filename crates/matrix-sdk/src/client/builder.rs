@@ -21,6 +21,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
@@ -425,6 +426,7 @@ impl ClientBuilder {
         let auth_ctx = Arc::new(AuthCtx {
             authentication_server_info,
             handle_refresh_tokens: self.handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
         });
 
         let inner = Arc::new(ClientInner::new(
