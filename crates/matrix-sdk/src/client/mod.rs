@@ -186,8 +186,6 @@ pub(crate) struct ClientInner {
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
-    /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -259,7 +257,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender,
             auth_data: Default::default(),
             #[cfg(feature = "e2e-encryption")]

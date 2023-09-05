@@ -450,7 +450,7 @@ impl MatrixAuth {
         &self,
     ) -> Result<Option<refresh_token::v3::Response>, RefreshTokenError> {
         let client = &self.client;
-        let lock = client.inner.refresh_token_lock.try_lock();
+        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
 
         if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
@@ -489,7 +489,7 @@ impl MatrixAuth {
                 }
             }
         } else {
-            match client.inner.refresh_token_lock.lock().await.as_ref() {
+            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(None),
                 Err(error) => Err(error.clone()),
             }
