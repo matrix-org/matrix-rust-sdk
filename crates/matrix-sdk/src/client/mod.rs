@@ -45,8 +45,6 @@ use matrix_sdk_base::{
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::api::client::error::ErrorKind;
-#[cfg(feature = "appservice")]
-use ruma::TransactionId;
 use ruma::{
     api::{
         client::{
@@ -185,10 +183,6 @@ pub(crate) struct ClientInner {
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
     pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
-    /// Whether the client should operate in application service style mode.
-    /// This is low-level functionality. For an high-level API check the
-    /// `matrix_sdk_appservice` crate.
-    pub(crate) appservice_mode: bool,
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
@@ -243,7 +237,6 @@ impl ClientInner {
         http_client: HttpClient,
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
-        appservice_mode: bool,
         respect_login_well_known: bool,
         handle_refresh_tokens: bool,
     ) -> Self {
@@ -268,7 +261,6 @@ impl ClientInner {
             notification_handlers: Default::default(),
             room_update_channels: Default::default(),
             sync_gap_broadcast_txs: Default::default(),
-            appservice_mode,
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             handle_refresh_tokens,
@@ -353,50 +345,6 @@ impl Client {
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new(), None).await?;
         Ok(res.capabilities)
-    }
-
-    /// Process a [transaction] received from the homeserver which has been
-    /// converted into a sync response.
-    ///
-    /// # Arguments
-    ///
-    /// * `transaction_id` - The id of the transaction, used to guard against
-    ///   the same transaction being sent twice. This guarding currently isn't
-    ///   implemented.
-    /// * `sync_response` - The sync response converted from a transaction
-    ///   received from the homeserver.
-    ///
-    /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
-    #[cfg(feature = "appservice")]
-    pub async fn receive_transaction(
-        &self,
-        transaction_id: &TransactionId,
-        sync_response: sync_events::v3::Response,
-    ) -> Result<()> {
-        const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
-
-        let store = self.store();
-        let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
-        let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
-        if let Some(mut store_tokens) = store_tokens {
-            // The data is separated by a NULL byte.
-            let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
-            if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
-                // We already encountered this transaction id before, so we exit early instead
-                // of processing further.
-                //
-                // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
-                return Ok(());
-            }
-            store_tokens.push(b'\0');
-            store_tokens.append(&mut txn_id_bytes);
-            self.store().set_custom_value(TXN_ID_KEY, store_tokens).await?;
-        } else {
-            self.store().set_custom_value(TXN_ID_KEY, txn_id_bytes).await?;
-        }
-        self.process_sync(sync_response).await?;
-
-        Ok(())
     }
 
     /// Get a copy of the default request config.
@@ -1422,7 +1370,6 @@ impl Client {
                 config,
                 homeserver,
                 access_token,
-                self.user_id(),
                 self.server_versions().await?,
                 send_progress,
             )
@@ -1445,7 +1392,6 @@ impl Client {
                 get_supported_versions::Request::new(),
                 None,
                 self.homeserver().await.to_string(),
-                None,
                 None,
                 &[MatrixVersion::V1_0],
                 Default::default(),
@@ -2056,7 +2002,6 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
-                self.inner.appservice_mode,
                 self.inner.respect_login_well_known,
                 self.inner.handle_refresh_tokens,
             )),

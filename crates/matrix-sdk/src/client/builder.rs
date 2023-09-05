@@ -77,7 +77,6 @@ pub struct ClientBuilder {
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
-    appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
@@ -93,7 +92,6 @@ impl ClientBuilder {
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
             respect_login_well_known: true,
-            appservice_mode: false,
             server_versions: None,
             handle_refresh_tokens: false,
             base_client: None,
@@ -270,33 +268,6 @@ impl ClientBuilder {
         self
     }
 
-    /// Puts the client into application service mode
-    ///
-    /// This is low-level functionality. For an high-level API check the
-    /// `matrix_sdk_appservice` crate.
-    #[doc(hidden)]
-    #[cfg(feature = "appservice")]
-    pub fn appservice_mode(mut self) -> Self {
-        self.appservice_mode = true;
-        self
-    }
-
-    /// All outgoing http requests will have a GET query key-value appended with
-    /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. This is called [identity assertion] in the
-    /// Matrix Application Service Spec.
-    ///
-    /// Requests that don't require authentication might not do identity
-    /// assertion.
-    ///
-    /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
-    #[doc(hidden)]
-    #[cfg(feature = "appservice")]
-    pub fn assert_identity(mut self) -> Self {
-        self.request_config.assert_identity = true;
-        self
-    }
-
     /// Specify the Matrix versions supported by the homeserver manually, rather
     /// than `build()` doing it using a `get_supported_versions` request.
     ///
@@ -421,7 +392,6 @@ impl ClientBuilder {
                         Some(RequestConfig::short_retry()),
                         homeserver,
                         None,
-                        None,
                         &[MatrixVersion::V1_0],
                         Default::default(),
                     )
@@ -457,7 +427,6 @@ impl ClientBuilder {
             http_client,
             base_client,
             self.server_versions,
-            self.appservice_mode,
             self.respect_login_well_known,
             self.handle_refresh_tokens,
         ));

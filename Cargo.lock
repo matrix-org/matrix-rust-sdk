@@ -4847,25 +4847,12 @@ dependencies = [
  "assign",
  "js_int",
  "js_option",
- "ruma-appservice-api",
  "ruma-client-api",
  "ruma-common",
  "ruma-events",
  "ruma-federation-api",
  "ruma-html",
  "ruma-push-gateway-api",
-]
-
-[[package]]
-name = "ruma-appservice-api"
-version = "0.8.1"
-source = "git+https://github.com/ruma/ruma?rev=f0c458dcfa6a27f4945cab520fd9dabc366080bf#f0c458dcfa6a27f4945cab520fd9dabc366080bf"
-dependencies = [
- "js_int",
- "ruma-common",
- "ruma-events",
- "serde",
- "serde_json",
 ]
 
 [[package]]
