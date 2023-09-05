@@ -37,7 +37,7 @@ use mas_oidc_client::{
     types::errors::ClientErrorCode,
 };
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::store::locks::CryptoStoreLock;
+use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
     store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     SyncOutsideWasm,
@@ -80,8 +80,6 @@ use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, Instrument, Span};
 use url::Url;
 
-#[cfg(feature = "e2e-encryption")]
-use crate::encryption::Encryption;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{Oidc, OidcError};
 use crate::{
@@ -98,6 +96,8 @@ use crate::{
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::{encryption::Encryption, store_locks::CrossProcessStoreLock};
 
 mod builder;
 mod futures;
@@ -205,7 +205,9 @@ pub(crate) struct ClientInner {
     pub(crate) auth_data: OnceCell<AuthData>,
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
+    pub(crate) cross_process_crypto_store_lock:
+        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+
     /// Latest "generation" of data known by the crypto store.
     ///
     /// This is a counter that only increments, set in the database (and can

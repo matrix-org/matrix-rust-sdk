@@ -19,22 +19,23 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 js = ["instant/wasm-bindgen", "instant/inaccurate", "wasm-bindgen-futures"]
 
 [dependencies]
+async-trait = { workspace = true }
 futures-core = { workspace = true }
 instant = "0.1.12"
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time", "sync"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { version = "0.2.6", features = ["futures"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { workspace = true, features = ["rt", "time"] }
-
 [dev-dependencies]
+assert_matches = { workspace = true }
 matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version= "0.6.0"}
 wasm-bindgen-test = "0.3.33"
 tracing-subscriber = "0.3.15"
