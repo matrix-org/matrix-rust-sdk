@@ -352,20 +352,18 @@ impl Oidc {
     }
 
     /// Set the current session tokens.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the `auth_data` field hasn't been set before with an OIDC
+    /// session.
     fn set_session_tokens(&self, session_tokens: SessionTokens) {
-        if let Some(auth_data) = self.client.inner.auth_ctx.auth_data.get() {
-            let Some(data) = auth_data.as_oidc() else {
-                panic!("Cannot call OpenID Connect API after logging in with another API");
-            };
-
-            if let Some(tokens) = data.tokens.get() {
-                tokens.set_if_not_eq(session_tokens);
-            } else {
-                let _ = data.tokens.set(SharedObservable::new(session_tokens));
-            }
+        let data =
+            self.data().expect("Cannot call OpenID Connect API after logging in with another API");
+        if let Some(tokens) = data.tokens.get() {
+            tokens.set_if_not_eq(session_tokens);
         } else {
-            // Other OIDC auth data should have already been set before the session tokens.
-            unreachable!()
+            let _ = data.tokens.set(SharedObservable::new(session_tokens));
         }
     }
 

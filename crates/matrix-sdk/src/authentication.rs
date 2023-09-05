@@ -23,8 +23,8 @@ use crate::{
     RefreshTokenError, SessionChange,
 };
 
-/// All the data relative to authentication, and that must be shared between a client and all its
-/// children.
+/// All the data relative to authentication, and that must be shared between a
+/// client and all its children.
 pub(crate) struct AuthCtx {
     /// The authentication server info discovered from the homeserver.
     #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
@@ -127,14 +127,6 @@ impl AuthData {
         match self {
             AuthData::Matrix(d) => Some(d),
             #[cfg(feature = "experimental-oidc")]
-            _ => None,
-        }
-    }
-
-    #[cfg(feature = "experimental-oidc")]
-    pub(crate) fn as_oidc(&self) -> Option<&OidcAuthData> {
-        match self {
-            AuthData::Oidc(d) => Some(d),
             _ => None,
         }
     }
