@@ -3,8 +3,6 @@ pub use matrix_sdk_test_macros::async_test;
 use ruma::api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse};
 use serde_json::Value as JsonValue;
 
-#[cfg(feature = "appservice")]
-pub mod appservice;
 mod event_builder;
 pub mod notification_settings;
 pub mod test_json;

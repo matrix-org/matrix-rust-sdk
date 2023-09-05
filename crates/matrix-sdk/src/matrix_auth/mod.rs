@@ -43,7 +43,6 @@ use tracing::{debug, info, instrument};
 use crate::{
     authentication::AuthData,
     client::SessionChange,
-    config::RequestConfig,
     error::{HttpError, HttpResult},
     Client, Error, RefreshTokenError, Result,
 };
@@ -535,14 +534,7 @@ impl MatrixAuth {
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.client.homeserver().await;
         info!("Registering to {homeserver}");
-
-        let config = if self.client.inner.appservice_mode {
-            Some(RequestConfig::short_retry().force_auth())
-        } else {
-            None
-        };
-
-        self.client.send(request, config).await
+        self.client.send(request, None).await
     }
 
     /// Log out the current user.
