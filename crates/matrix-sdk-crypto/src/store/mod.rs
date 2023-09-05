@@ -79,7 +79,6 @@ use crate::{
 pub mod caches;
 mod crypto_store_wrapper;
 mod error;
-pub mod locks;
 mod memorystore;
 mod traits;
 
@@ -91,11 +90,10 @@ pub mod integration_tests;
 use caches::{SequenceNumber, UsersForKeyQuery};
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
-use matrix_sdk_common::timeout::timeout;
+use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
-use self::locks::CryptoStoreLock;
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
 /// A wrapper for our CryptoStore trait object.
@@ -1167,6 +1165,16 @@ impl Store {
         })
     }
 
+    /// Creates a `CrossProcessStoreLock` for this store, that will contain the
+    /// given key and value when hold.
+    pub fn create_store_lock(
+        &self,
+        lock_key: String,
+        lock_value: String,
+    ) -> CrossProcessStoreLock<LockableCryptoStore> {
+        self.inner.store.create_store_lock(lock_key, lock_value)
+    }
+
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
     ///
@@ -1209,12 +1217,6 @@ impl Store {
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         self.inner.store.secrets_stream()
     }
-
-    /// Creates a `CryptoStoreLock` for this store, that will contain the given
-    /// key and value when hold.
-    pub fn create_store_lock(&self, lock_key: String, lock_value: String) -> CryptoStoreLock {
-        self.inner.store.create_store_lock(lock_key, lock_value)
-    }
 }
 
 impl Deref for Store {
@@ -1222,5 +1224,24 @@ impl Deref for Store {
 
     fn deref(&self) -> &Self::Target {
         self.inner.store.deref().deref()
+    }
+}
+
+/// A crypto store that implements primitives for cross-process locking.
+#[derive(Clone, Debug)]
+pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
+    type Error = CryptoStoreError;
+
+    async fn try_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> std::result::Result<bool, Self::Error> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
 }

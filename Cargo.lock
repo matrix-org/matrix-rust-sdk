@@ -3122,6 +3122,8 @@ dependencies = [
 name = "matrix-sdk-common"
 version = "0.6.0"
 dependencies = [
+ "assert_matches",
+ "async-trait",
  "futures-core",
  "futures-util",
  "gloo-timers",
@@ -3130,6 +3132,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",

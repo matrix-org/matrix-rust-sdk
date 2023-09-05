@@ -69,8 +69,8 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        locks::LockStoreError, Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges,
-        IntoCryptoStore, MemoryStore, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
+        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
     },
     types::{
         events::{
@@ -1866,9 +1866,9 @@ impl OlmMachine {
             Some(val) => {
                 // There was a value in the store. We need to signal that we're a different
                 // process, so we don't just reuse the value but increment it.
-                u64::from_le_bytes(
-                    val.try_into().map_err(|_| LockStoreError::InvalidGenerationFormat)?,
-                )
+                u64::from_le_bytes(val.try_into().map_err(|_| {
+                    CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
+                })?)
                 .wrapping_add(1)
             }
             None => 0,
@@ -1911,11 +1911,14 @@ impl OlmMachine {
             .store
             .get_custom_value(Self::CURRENT_GENERATION_STORE_KEY)
             .await?
-            .ok_or(LockStoreError::MissingGeneration)?;
+            .ok_or_else(|| {
+                CryptoStoreError::InvalidLockGeneration("counter missing in store".to_owned())
+            })?;
 
-        let actual_gen = u64::from_le_bytes(
-            actual_gen.try_into().map_err(|_| LockStoreError::InvalidGenerationFormat)?,
-        );
+        let actual_gen =
+            u64::from_le_bytes(actual_gen.try_into().map_err(|_| {
+                CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
+            })?);
 
         let expected_gen = match gen_guard.as_ref() {
             Some(expected_gen) => {

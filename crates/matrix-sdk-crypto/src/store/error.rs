@@ -18,7 +18,6 @@ use ruma::{IdParseError, OwnedDeviceId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
-use super::locks::LockStoreError;
 use crate::olm::SessionCreationError;
 
 /// A `CryptoStore` specific result type.
@@ -80,9 +79,9 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
 
-    /// An error due to locking.
-    #[error(transparent)]
-    Lock(#[from] LockStoreError),
+    /// An error due to an invalid generation in a cross-process locking scheme.
+    #[error("invalid lock generation: {0}")]
+    InvalidLockGeneration(String),
 }
 
 impl CryptoStoreError {
