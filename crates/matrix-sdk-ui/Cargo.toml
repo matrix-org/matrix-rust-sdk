@@ -8,7 +8,6 @@ rust-version = { workspace = true }
 default = ["e2e-encryption", "native-tls"]
 
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
-experimental-oidc = ["matrix-sdk/experimental-oidc"]
 
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
@@ -50,7 +49,7 @@ assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 ctor = { workspace = true }
 eyeball-im-util = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing"] }
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["testing", "experimental-oidc"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = "0.1.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
