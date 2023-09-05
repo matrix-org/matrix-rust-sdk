@@ -95,13 +95,9 @@ impl SyncServiceBuilder {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncServiceBuilder {
-    pub fn with_encryption_sync(
-        self: Arc<Self>,
-        with_cross_process_lock: bool,
-        app_identifier: Option<String>,
-    ) -> Arc<Self> {
+    pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.with_encryption_sync(with_cross_process_lock, app_identifier);
+        let builder = this.builder.with_cross_process_lock(app_identifier);
         Arc::new(Self { builder })
     }
 
