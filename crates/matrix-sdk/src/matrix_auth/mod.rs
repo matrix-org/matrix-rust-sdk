@@ -78,7 +78,7 @@ impl MatrixAuth {
     }
 
     fn data(&self) -> Option<&MatrixAuthData> {
-        self.client.inner.auth_data.get()?.as_matrix()
+        self.client.inner.auth_ctx.auth_data.get()?.as_matrix()
     }
 
     /// Gets the homeserver’s supported login types.
@@ -560,7 +560,7 @@ impl MatrixAuth {
 
     /// Set the current session tokens
     pub(crate) fn set_session_tokens(&self, tokens: SessionTokens) {
-        if let Some(auth_data) = self.client.inner.auth_data.get() {
+        if let Some(auth_data) = self.client.inner.auth_ctx.auth_data.get() {
             let Some(data) = auth_data.as_matrix() else {
                 panic!("Cannot call native Matrix authentication API after logging in with another API");
             };
@@ -569,6 +569,7 @@ impl MatrixAuth {
         } else {
             self.client
                 .inner
+                .auth_ctx
                 .auth_data
                 .set(AuthData::Matrix(MatrixAuthData { tokens: SharedObservable::new(tokens) }))
                 .expect("We just checked the value was not set");

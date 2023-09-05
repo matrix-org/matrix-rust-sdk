@@ -253,7 +253,7 @@ impl Oidc {
     ///
     /// Returns `None` if the client's registration was not restored yet.
     fn data(&self) -> Option<&OidcAuthData> {
-        match self.client.inner.auth_data.get()? {
+        match self.client.inner.auth_ctx.auth_data.get()? {
             AuthData::Oidc(data) => Some(data),
             _ => None,
         }
@@ -353,7 +353,7 @@ impl Oidc {
 
     /// Set the current session tokens.
     fn set_session_tokens(&self, session_tokens: SessionTokens) {
-        if let Some(auth_data) = self.client.inner.auth_data.get() {
+        if let Some(auth_data) = self.client.inner.auth_ctx.auth_data.get() {
             let Some(data) = auth_data.as_oidc() else {
                 panic!("Cannot call OpenID Connect API after logging in with another API");
             };
@@ -594,6 +594,7 @@ impl Oidc {
 
         self.client
             .inner
+            .auth_ctx
             .auth_data
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");
@@ -629,6 +630,7 @@ impl Oidc {
         self.client.base_client().set_session_meta(meta).await?;
         self.client
             .inner
+            .auth_ctx
             .auth_data
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");

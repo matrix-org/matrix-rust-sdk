@@ -21,7 +21,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
@@ -428,6 +428,7 @@ impl ClientBuilder {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
+            auth_data: OnceCell::default(),
         });
 
         let inner = Arc::new(ClientInner::new(

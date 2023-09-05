@@ -14,7 +14,7 @@
 
 use matrix_sdk_base::SessionMeta;
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, OnceCell};
 
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::{self, Oidc, OidcAuthData};
@@ -41,6 +41,9 @@ pub(crate) struct AuthCtx {
     /// session such as logging out when the access token is invalid or
     /// persisting updates to the access/refresh tokens.
     pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
+
+    /// Authentication data to keep in memory.
+    pub(crate) auth_data: OnceCell<AuthData>,
 }
 
 /// An enum over all the possible authentication APIs.

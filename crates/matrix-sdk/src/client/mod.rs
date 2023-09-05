@@ -192,8 +192,6 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
-    /// Authentication data to keep in memory.
-    pub(crate) auth_data: OnceCell<AuthData>,
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CryptoStoreLock>,
@@ -251,7 +249,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            auth_data: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -416,14 +413,14 @@ impl Client {
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        self.inner.auth_data.get()?.access_token()
+        self.inner.auth_ctx.auth_data.get()?.access_token()
     }
 
     /// Access the authentication API used to log in this client.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn auth_api(&self) -> Option<AuthApi> {
-        match self.inner.auth_data.get()? {
+        match self.inner.auth_ctx.auth_data.get()? {
             AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
             #[cfg(feature = "experimental-oidc")]
             AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
