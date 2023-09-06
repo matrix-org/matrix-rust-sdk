@@ -144,7 +144,7 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const CURRENT_GENERATION_STORE_KEY: &str = "generation-counter";
+    const CURRENT_GENERATION_STORE_KEY: &'static str = "generation-counter";
 
     /// Create a new memory based OlmMachine.
     ///
