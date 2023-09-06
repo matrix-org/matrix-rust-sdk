@@ -115,6 +115,21 @@ impl RoomListService {
     async fn apply_input(&self, input: RoomListInput) -> Result<(), RoomListError> {
         self.inner.apply_input(input.into()).await.map(|_| ()).map_err(Into::into)
     }
+
+    fn sync_indicator(
+        &self,
+        listener: Box<dyn RoomListServiceSyncIndicatorListener>,
+    ) -> Arc<TaskHandle> {
+        let sync_indicator_stream = self.inner.sync_indicator();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(sync_indicator_stream);
+
+            while let Some(sync_indicator) = sync_indicator_stream.next().await {
+                listener.on_update(sync_indicator.into());
+            }
+        })))
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -216,15 +231,32 @@ pub enum RoomListServiceState {
 
 impl From<matrix_sdk_ui::room_list_service::State> for RoomListServiceState {
     fn from(value: matrix_sdk_ui::room_list_service::State) -> Self {
-        use matrix_sdk_ui::room_list_service::State::*;
+        use matrix_sdk_ui::room_list_service::State as S;
 
         match value {
-            Init => Self::Initial,
-            SettingUp => Self::SettingUp,
-            Recovering => Self::Recovering,
-            Running => Self::Running,
-            Error { .. } => Self::Error,
-            Terminated { .. } => Self::Terminated,
+            S::Init => Self::Initial,
+            S::SettingUp => Self::SettingUp,
+            S::Recovering => Self::Recovering,
+            S::Running => Self::Running,
+            S::Error { .. } => Self::Error,
+            S::Terminated { .. } => Self::Terminated,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum RoomListServiceSyncIndicator {
+    Show,
+    Hide,
+}
+
+impl From<matrix_sdk_ui::room_list_service::SyncIndicator> for RoomListServiceSyncIndicator {
+    fn from(value: matrix_sdk_ui::room_list_service::SyncIndicator) -> Self {
+        use matrix_sdk_ui::room_list_service::SyncIndicator as SI;
+
+        match value {
+            SI::Show => Self::Show,
+            SI::Hide => Self::Hide,
         }
     }
 }
@@ -237,11 +269,11 @@ pub enum RoomListLoadingState {
 
 impl From<matrix_sdk_ui::room_list_service::RoomListLoadingState> for RoomListLoadingState {
     fn from(value: matrix_sdk_ui::room_list_service::RoomListLoadingState) -> Self {
-        use matrix_sdk_ui::room_list_service::RoomListLoadingState::*;
+        use matrix_sdk_ui::room_list_service::RoomListLoadingState as LS;
 
         match value {
-            NotLoaded => Self::NotLoaded,
-            Loaded { maximum_number_of_rooms } => Self::Loaded { maximum_number_of_rooms },
+            LS::NotLoaded => Self::NotLoaded,
+            LS::Loaded { maximum_number_of_rooms } => Self::Loaded { maximum_number_of_rooms },
         }
     }
 }
@@ -254,6 +286,11 @@ pub trait RoomListServiceStateListener: Send + Sync + Debug {
 #[uniffi::export(callback_interface)]
 pub trait RoomListLoadingStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListLoadingState);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RoomListServiceSyncIndicatorListener: Send + Sync + Debug {
+    fn on_update(&self, sync_indicator: RoomListServiceSyncIndicator);
 }
 
 #[derive(uniffi::Enum)]
