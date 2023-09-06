@@ -94,8 +94,8 @@ pub struct NotificationClient {
 }
 
 impl NotificationClient {
-    const CONNECTION_ID: &str = "notifications";
-    const LOCK_ID: &str = "notifications";
+    const CONNECTION_ID: &'static str = "notifications";
+    const LOCK_ID: &'static str = "notifications";
 
     /// Create a new builder for a notification client.
     pub async fn builder(
