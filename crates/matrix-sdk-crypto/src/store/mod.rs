@@ -50,6 +50,7 @@ use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use futures_core::Stream;
+use futures_util::StreamExt;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
@@ -63,8 +64,7 @@ use zeroize::Zeroize;
 use crate::{
     gossiping::GossippedSecret,
     identities::{
-        user::{OwnUserIdentity, UserIdentities, UserIdentity},
-        Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
+        user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -198,6 +198,29 @@ impl IdentityChanges {
     fn is_empty(&self) -> bool {
         self.new.is_empty() && self.changed.is_empty()
     }
+
+    /// Convert the vectors contained in the [`IdentityChanges`] into
+    /// two maps from user id to user identity.
+    fn into_maps(
+        self,
+    ) -> (
+        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
+        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
+    ) {
+        let new: BTreeMap<_, _> = self
+            .new
+            .into_iter()
+            .map(|identity| (identity.user_id().to_owned(), identity))
+            .collect();
+
+        let changed: BTreeMap<_, _> = self
+            .changed
+            .into_iter()
+            .map(|identity| (identity.user_id().to_owned(), identity))
+            .collect();
+
+        (new, changed)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -206,6 +229,20 @@ pub struct DeviceChanges {
     pub new: Vec<ReadOnlyDevice>,
     pub changed: Vec<ReadOnlyDevice>,
     pub deleted: Vec<ReadOnlyDevice>,
+}
+
+/// Updates about [`UserIdentities`] which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct IdentityUpdates {
+    /// The list of newly discovered user identities .
+    ///
+    /// A identity being in this list does not necessarily mean that the
+    /// identity was just created, it just means that it's the first time
+    /// we're seeing this identity.
+    pub new: BTreeMap<OwnedUserId, UserIdentities>,
+    /// The list of changed identities.
+    pub changed: BTreeMap<OwnedUserId, UserIdentities>,
 }
 
 /// The private part of a backup key.
@@ -441,6 +478,7 @@ impl Store {
         self.save_changes(changes).await
     }
 
+
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.inner.store.save_changes(changes).await
     }
@@ -604,35 +642,18 @@ impl Store {
 
     ///  Get the Identity of `user_id`
     pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
-        // let own_identity =
-        // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
-        Ok(if let Some(identity) = self.inner.store.get_user_identity(user_id).await? {
-            Some(match identity {
-                ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
-                    inner: i,
-                    verification_machine: self.inner.verification_machine.clone(),
+        let own_identity =
+            self.inner.store.get_user_identity(self.user_id()).await?.and_then(|i| {
+                if let ReadOnlyUserIdentities::Own(i) = i {
+                    Some(i)
+                } else {
+                    None
                 }
-                .into(),
-                ReadOnlyUserIdentities::Other(i) => {
-                    let own_identity =
-                        self.inner.store.get_user_identity(self.user_id()).await?.and_then(|i| {
-                            if let ReadOnlyUserIdentities::Own(i) = i {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        });
-                    UserIdentity {
-                        inner: i,
-                        verification_machine: self.inner.verification_machine.clone(),
-                        own_identity,
-                    }
-                    .into()
-                }
-            })
-        } else {
-            None
-        })
+            });
+
+        Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
+            UserIdentities::new(i, self.inner.verification_machine.to_owned(), own_identity)
+        }))
     }
 
     /// Try to export the secret with the given secret name.
@@ -991,6 +1012,56 @@ impl Store {
     /// logged and items will be dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         self.inner.store.room_keys_received_stream()
+    }
+
+    /// Returns a stream of user identity updates, allowing users to listen for
+    /// notifications about new or changed user identities.
+    ///
+    /// The stream produced by this method emits updates whenever a new user
+    /// identity is discovered or when an existing identities information is
+    /// changed. Users can subscribe to this stream and receive updates in
+    /// real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let machine: OlmMachine = unimplemented!();
+    /// # futures_executor::block_on(async {
+    /// let identities_stream = machine.store().user_identities_stream();
+    /// pin_mut!(identities_stream);
+    ///
+    /// for identity_updates in identities_stream.next().await {
+    ///     for (_, identity) in identity_updates.new {
+    ///         println!("A new identity has been added {}", identity.user_id());
+    ///     }
+    /// }
+    /// # });
+    /// ```
+    pub fn user_identities_stream(&self) -> impl Stream<Item = IdentityUpdates> {
+        let verification_machine = self.inner.verification_machine.to_owned();
+
+        self.inner.store.identities_stream().map(move |(own_identity, identities, _)| {
+            let (new_identities, changed_identities) = identities.into_maps();
+
+            let map_identity = |(user_id, identity)| {
+                (
+                    user_id,
+                    UserIdentities::new(
+                        identity,
+                        verification_machine.to_owned(),
+                        own_identity.to_owned(),
+                    ),
+                )
+            };
+
+            let new = new_identities.into_iter().map(map_identity).collect();
+            let changed = changed_identities.into_iter().map(map_identity).collect();
+
+            IdentityUpdates { new, changed }
+        })
     }
 
     /// Receive notifications of gossipped secrets being received and stored in

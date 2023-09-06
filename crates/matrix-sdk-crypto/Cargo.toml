@@ -79,5 +79,6 @@ matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 olm-rs = { version = "2.2.0", features = ["serde"] }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
+stream_assert = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
