@@ -14,7 +14,7 @@ use std::{
 
 use eyeball::Observable;
 use eyeball_im::{ObservableVector, VectorDiff};
-use eyeball_im_util::{FilterVectorSubscriber, VectorExt};
+use eyeball_im_util::vector;
 use futures_core::Stream;
 use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
@@ -152,10 +152,10 @@ impl SlidingSyncList {
         &self,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>) {
         let read_lock = self.inner.room_list.read().unwrap();
-        let previous_values = (*read_lock).clone();
+        let values = (*read_lock).clone();
         let subscriber = ObservableVector::subscribe(&read_lock);
 
-        (previous_values, subscriber)
+        (values, subscriber.into_stream())
     }
 
     /// Get a stream of room list, but filtered.
@@ -165,11 +165,15 @@ impl SlidingSyncList {
     pub fn room_list_filtered_stream<F>(
         &self,
         filter: F,
-    ) -> (Vector<RoomListEntry>, FilterVectorSubscriber<RoomListEntry, F>)
+    ) -> (Vector<RoomListEntry>, impl Stream<Item = VectorDiff<RoomListEntry>>)
     where
         F: Fn(&RoomListEntry) -> bool,
     {
-        ObservableVector::subscribe_filter(&self.inner.room_list.read().unwrap(), filter)
+        let read_lock = self.inner.room_list.read().unwrap();
+        let values = (*read_lock).clone();
+        let subscriber = ObservableVector::subscribe(&read_lock);
+
+        vector::Filter::new(values, subscriber.into_stream(), filter)
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
