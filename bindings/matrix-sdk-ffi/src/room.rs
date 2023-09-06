@@ -173,9 +173,11 @@ impl Room {
         });
     }
 
-    pub fn fetch_members(&self) -> Result<Arc<TaskHandle>, ClientError> {
-        let timeline = RUNTIME
-            .block_on(self.timeline.read())
+    pub async fn fetch_members(&self) -> Result<Arc<TaskHandle>, ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .await
             .clone()
             .context("Timeline not set up, can't fetch members")?;
 
@@ -197,26 +199,20 @@ impl Room {
         })
     }
 
-    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let members = room
-                .members(RoomMemberships::empty())
-                .await?
-                .iter()
-                .map(|m| Arc::new(RoomMember::new(m.clone())))
-                .collect();
-            Ok(members)
-        })
+    pub async fn members(&self) -> Result<Vec<Arc<RoomMember>>, ClientError> {
+        Ok(self
+            .inner
+            .members(RoomMemberships::empty())
+            .await?
+            .iter()
+            .map(|m| Arc::new(RoomMember::new(m.clone())))
+            .collect())
     }
 
-    pub fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(&user_id).await?.context("No user found")?;
-            Ok(Arc::new(RoomMember::new(member)))
-        })
+    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let member = self.inner.get_member(&user_id).await?.context("No user found")?;
+        Ok(Arc::new(RoomMember::new(member)))
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
