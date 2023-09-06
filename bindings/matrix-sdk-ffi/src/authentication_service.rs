@@ -451,8 +451,11 @@ impl AuthenticationService {
             message: String::from("Missing client metadata."),
         })?;
 
-        let registrations =
-            OidcRegistrations::new(&self.base_path, metadata, self.oidc_static_registrations())?;
+        let registrations = OidcRegistrations::new(
+            &self.base_path,
+            metadata.clone(),
+            self.oidc_static_registrations(),
+        )?;
         registrations.set_and_write_client_id(ClientId(client_id), issuer)?;
 
         Ok(())
@@ -472,7 +475,7 @@ impl AuthenticationService {
         };
         let Some(registrations) = OidcRegistrations::new(
             &self.base_path,
-            &oidc_metadata,
+            oidc_metadata.clone(),
             self.oidc_static_registrations(),
         )
         .ok() else {

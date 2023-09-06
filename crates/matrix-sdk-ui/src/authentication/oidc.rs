@@ -13,15 +13,16 @@
 // limitations under the License.
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     fmt, fs,
     fs::File,
-    hash::{Hash, Hasher},
     io::{BufReader, BufWriter},
     path::PathBuf,
 };
 
-use matrix_sdk::oidc::types::registration::VerifiedClientMetadata;
+use matrix_sdk::oidc::types::registration::{
+    ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -29,6 +30,14 @@ use url::Url;
 pub enum OidcRegistrationsError {
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegistrationDataError {
+    #[error("Failed to load registrations file: {message}")]
+    LoadFailure { message: String },
+    #[error("Metadata hash mismatch, clearing registrations")]
+    MetadataMismatch,
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
@@ -48,20 +57,49 @@ pub struct OidcRegistrations {
     file_path: PathBuf,
     /// The hash for the metadata used to register the client.
     /// This is used to check if the client needs to be re-registered.
-    metadata_hash: u64,
+    verified_metadata: VerifiedClientMetadata,
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
     static_registrations: HashMap<Url, ClientId>,
 }
 
-/// The underlying data that is stored in the registration file.
-#[derive(Debug, Serialize, Deserialize)]
+/// The underlying data serialized into the registration file.
+#[derive(Debug, Serialize)]
 struct FrozenRegistrationData {
     /// The hash for the metadata used to register the client.
-    metadata_hash: u64,
+    metadata: VerifiedClientMetadata,
     /// All of the registrations this client has made as a HashMap of issuer URL
     /// (as a string) to client ID (as a string).
     dynamic_registrations: HashMap<Url, ClientId>,
+}
+
+/// The deserialize data from the registration file. This data needs to be
+/// validated before it can be used.
+#[derive(Debug, Deserialize)]
+struct UnvalidatedRegistrationData {
+    /// The hash for the metadata used to register the client.
+    metadata: ClientMetadata,
+    /// All of the registrations this client has made as a HashMap of issuer URL
+    /// (as a string) to client ID (as a string).
+    dynamic_registrations: HashMap<Url, ClientId>,
+}
+
+impl UnvalidatedRegistrationData {
+    /// Validates the registration data, returning a `FrozenRegistrationData`.
+    fn validate(&self) -> Result<FrozenRegistrationData, ClientMetadataVerificationError> {
+        let verified_metadata = match self.metadata.clone().validate() {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                tracing::warn!("Failed to validate stored metadata.");
+                return Err(e);
+            }
+        };
+
+        Ok(FrozenRegistrationData {
+            metadata: verified_metadata,
+            dynamic_registrations: self.dynamic_registrations.clone(),
+        })
+    }
 }
 
 /// Manages the storage of OIDC registrations.
@@ -82,65 +120,26 @@ impl OidcRegistrations {
     ///   issuers that don't support dynamic client registration.
     pub fn new(
         base_path: &str,
-        metadata: &VerifiedClientMetadata,
+        metadata: VerifiedClientMetadata,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OidcRegistrationsError> {
         let oidc_directory = PathBuf::from(base_path).join("oidc");
         fs::create_dir_all(&oidc_directory).map_err(|_| OidcRegistrationsError::InvalidBasePath)?;
 
-        let metadata_hash = {
-            let mut hasher = DefaultHasher::new();
-            let metadata_string = serde_json::to_string(metadata).unwrap();
-            metadata_string.hash(&mut hasher);
-            hasher.finish()
-        };
-
         Ok(OidcRegistrations {
             file_path: oidc_directory.join("registrations.json"),
-            metadata_hash,
+            verified_metadata: metadata,
             static_registrations,
         })
-    }
-
-    /// Returns the underlying registration data.
-    fn read_registration_data(&self) -> FrozenRegistrationData {
-        let reader = match File::open(&self.file_path) {
-            Ok(file) => BufReader::new(file),
-            Err(e) => {
-                tracing::warn!("Failed to open registrations file: {e}");
-                return FrozenRegistrationData {
-                    metadata_hash: self.metadata_hash,
-                    dynamic_registrations: Default::default(),
-                };
-            }
-        };
-
-        let registration_data = match serde_json::from_reader::<_, FrozenRegistrationData>(reader) {
-            Ok(data) => data,
-            Err(e) => {
-                tracing::error!("Failed to parse registrations file: {e}");
-                return FrozenRegistrationData {
-                    metadata_hash: self.metadata_hash,
-                    dynamic_registrations: Default::default(),
-                };
-            }
-        };
-
-        if registration_data.metadata_hash != self.metadata_hash {
-            tracing::warn!("Metadata hash mismatch, clearing registrations");
-            return FrozenRegistrationData {
-                metadata_hash: self.metadata_hash,
-                dynamic_registrations: Default::default(),
-            };
-        }
-
-        registration_data
     }
 
     /// Returns the client ID registered for a particular issuer or None if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
-        let mut data = self.read_registration_data();
+        let mut data = self.read_registration_data().unwrap_or_else(|e| {
+            tracing::warn!("Generating new registration data: {}", e);
+            self.new_registration_data()
+        });
         data.dynamic_registrations.extend(self.static_registrations.clone());
         data.dynamic_registrations.get(issuer).cloned()
     }
@@ -152,13 +151,45 @@ impl OidcRegistrations {
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OidcRegistrationsError> {
-        let mut data = self.read_registration_data();
+        let mut data = self.read_registration_data().unwrap_or_else(|e| {
+            tracing::warn!("Generating new registration data: {}", e);
+            self.new_registration_data()
+        });
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
             File::create(&self.file_path).map_err(|_| OidcRegistrationsError::InvalidBasePath)?,
         );
         serde_json::to_writer(writer, &data).map_err(|_| OidcRegistrationsError::InvalidBasePath)
+    }
+
+    /// Returns the underlying registration data.
+    fn read_registration_data(&self) -> Result<FrozenRegistrationData, RegistrationDataError> {
+        let reader = File::open(&self.file_path)
+            .map(BufReader::new)
+            .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+
+        let registration_data =
+            serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader)
+                .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+
+        let registration_data = registration_data
+            .validate()
+            .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+
+        if registration_data.metadata != self.verified_metadata {
+            tracing::warn!("Metadata mismatch, clearing registrations");
+            return Err(RegistrationDataError::MetadataMismatch);
+        }
+
+        Ok(registration_data)
+    }
+
+    fn new_registration_data(&self) -> FrozenRegistrationData {
+        FrozenRegistrationData {
+            metadata: self.verified_metadata.clone(),
+            dynamic_registrations: Default::default(),
+        }
     }
 }
 
@@ -189,7 +220,7 @@ mod tests {
         let oidc_metadata = mock_metadata("Example".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, &oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(base_path, oidc_metadata, static_registrations).unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
         assert_eq!(registrations.client_id(&dynamic_url), None);
@@ -220,8 +251,7 @@ mod tests {
         static_registrations.insert(static_url.clone(), static_id.clone());
 
         let registrations =
-            OidcRegistrations::new(base_path, &oidc_metadata, static_registrations.clone())
-                .unwrap();
+            OidcRegistrations::new(base_path, oidc_metadata, static_registrations.clone()).unwrap();
         registrations.set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone()).unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
@@ -231,7 +261,7 @@ mod tests {
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
         let registrations =
-            OidcRegistrations::new(base_path, &new_oidc_metadata, static_registrations).unwrap();
+            OidcRegistrations::new(base_path, new_oidc_metadata, static_registrations).unwrap();
 
         // Then the dynamic registrations are cleared.
         assert_eq!(registrations.client_id(&dynamic_url), None);
