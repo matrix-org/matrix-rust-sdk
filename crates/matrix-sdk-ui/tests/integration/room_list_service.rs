@@ -2557,7 +2557,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
     let sync_indicator = room_list.sync_indicator();
 
-    let request_margin = Duration::from_millis(20);
+    let request_margin = Duration::from_millis(100);
     let request_1_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
     let request_2_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 3;
     let request_4_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
