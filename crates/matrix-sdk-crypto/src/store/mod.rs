@@ -73,7 +73,7 @@ use crate::{
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     utilities::encode,
     verification::VerificationMachine,
-    CrossSigningStatus,
+    CrossSigningStatus, ReadOnlyOwnUserIdentity,
 };
 
 pub mod caches;
@@ -229,6 +229,70 @@ pub struct DeviceChanges {
     pub new: Vec<ReadOnlyDevice>,
     pub changed: Vec<ReadOnlyDevice>,
     pub deleted: Vec<ReadOnlyDevice>,
+}
+
+/// Convert the devices and vectors contained in the [`DeviceChanges`] into
+/// a [`DeviceUpdates`] struct.
+///
+/// The [`DeviceChanges`] will contain vectors of [`ReadOnlyDevice`]s which
+/// we want to convert to a [`Device`].
+fn collect_device_updates(
+    verification_machine: VerificationMachine,
+    own_identity: Option<ReadOnlyOwnUserIdentity>,
+    identities: IdentityChanges,
+    devices: DeviceChanges,
+) -> DeviceUpdates {
+    let mut new: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+    let mut changed: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+
+    let (new_identities, changed_identities) = identities.into_maps();
+
+    let map_device = |device: ReadOnlyDevice| {
+        let device_owner_identity = new_identities
+            .get(device.user_id())
+            .or_else(|| changed_identities.get(device.user_id()))
+            .cloned();
+
+        Device {
+            inner: device,
+            verification_machine: verification_machine.to_owned(),
+            own_identity: own_identity.to_owned(),
+            device_owner_identity,
+        }
+    };
+
+    for device in devices.new {
+        let device = map_device(device);
+
+        new.entry(device.user_id().to_owned())
+            .or_default()
+            .insert(device.device_id().to_owned(), device);
+    }
+
+    for device in devices.changed {
+        let device = map_device(device);
+
+        changed
+            .entry(device.user_id().to_owned())
+            .or_default()
+            .insert(device.device_id().to_owned(), device.to_owned());
+    }
+
+    DeviceUpdates { new, changed }
+}
+
+/// Updates about [`Device`]s which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct DeviceUpdates {
+    /// The list of newly discovered devices.
+    ///
+    /// A device being in this list does not necessarily mean that the device
+    /// was just created, it just means that it's the first time we're
+    /// seeing this device.
+    pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    /// The list of changed devices.
+    pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
 }
 
 /// Updates about [`UserIdentities`] which got received over the `/keys/query`
@@ -477,7 +541,6 @@ impl Store {
 
         self.save_changes(changes).await
     }
-
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.inner.store.save_changes(changes).await
@@ -1061,6 +1124,46 @@ impl Store {
             let changed = changed_identities.into_iter().map(map_identity).collect();
 
             IdentityUpdates { new, changed }
+        })
+    }
+
+    /// Returns a stream of device updates, allowing users to listen for
+    /// notifications about new or changed devices.
+    ///
+    /// The stream produced by this method emits updates whenever a new device
+    /// is discovered or when an existing device's information is changed. Users
+    /// can subscribe to this stream and receive updates in real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let machine: OlmMachine = unimplemented!();
+    /// # futures_executor::block_on(async {
+    /// let devices_stream = machine.store().devices_stream();
+    /// pin_mut!(devices_stream);
+    ///
+    /// for device_updates in devices_stream.next().await {
+    ///     if let Some(user_devices) = device_updates.new.get(machine.user_id()) {
+    ///         for device in user_devices.values() {
+    ///             println!("A new device has been added {}", device.device_id());
+    ///         }
+    ///     }
+    /// }
+    /// # });
+    /// ```
+    pub fn devices_stream(&self) -> impl Stream<Item = DeviceUpdates> {
+        let verification_machine = self.inner.verification_machine.to_owned();
+
+        self.inner.store.identities_stream().map(move |(own_identity, identities, devices)| {
+            collect_device_updates(
+                verification_machine.to_owned(),
+                own_identity,
+                identities,
+                devices,
+            )
         })
     }
 

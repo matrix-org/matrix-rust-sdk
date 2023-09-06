@@ -1214,6 +1214,20 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn devices_stream() {
+        let manager = manager().await;
+        let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
+
+        let stream = manager.store.devices_stream();
+        pin_mut!(stream);
+
+        manager.receive_keys_query_response(&request_id, &own_key_query()).await.unwrap();
+
+        let update = assert_ready!(stream);
+        assert!(!update.new.is_empty(), "The device update should contain some devices");
+    }
+
+    #[async_test]
     async fn identities_stream() {
         let manager = manager().await;
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
