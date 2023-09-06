@@ -173,7 +173,7 @@ impl Room {
         });
     }
 
-    pub async fn fetch_members(&self) -> Result<Arc<TaskHandle>, ClientError> {
+    pub async fn fetch_members(&self) -> Result<(), ClientError> {
         let timeline = self
             .timeline
             .read()
@@ -181,9 +181,7 @@ impl Room {
             .clone()
             .context("Timeline not set up, can't fetch members")?;
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            timeline.fetch_members().await;
-        }))))
+        Ok(timeline.fetch_members().await)
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {
