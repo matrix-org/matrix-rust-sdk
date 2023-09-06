@@ -52,7 +52,7 @@ use crate::{
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
-    store::{Changes, DynCryptoStore},
+    store::{Changes, CryptoStoreWrapper},
     types::Signatures,
     CryptoStoreError, LocalTrust, OutgoingVerificationRequest, ReadOnlyDevice,
     ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
@@ -62,7 +62,7 @@ use crate::{
 pub(crate) struct VerificationStore {
     pub account: ReadOnlyAccount,
     pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<DynCryptoStore>,
+    inner: Arc<CryptoStoreWrapper>,
 }
 
 /// An emoji that is used for interactive verification using a short auth
@@ -181,7 +181,7 @@ impl VerificationStore {
             .map(|d| d.signatures().to_owned()))
     }
 
-    pub fn inner(&self) -> &DynCryptoStore {
+    pub fn inner(&self) -> &CryptoStoreWrapper {
         self.inner.deref()
     }
 }
@@ -743,6 +743,8 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::Arc;
+
     use ruma::{
         device_id,
         events::{AnyToDeviceEventContent, ToDeviceEvent},
@@ -754,7 +756,7 @@ pub(crate) mod tests {
     use crate::{
         olm::PrivateCrossSigningIdentity,
         requests::{OutgoingRequest, OutgoingRequests},
-        store::{Changes, CryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore},
+        store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::events::ToDeviceEvents,
         OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
         ReadOnlyUserIdentity,
@@ -875,13 +877,13 @@ pub(crate) mod tests {
 
         let alice_store = VerificationStore {
             account: alice,
-            inner: alice_store.into_crypto_store(),
+            inner: Arc::new(CryptoStoreWrapper::new(alice_store)),
             private_identity: alice_private_identity.into(),
         };
 
         let bob_store = VerificationStore {
             account: bob.clone(),
-            inner: bob_store.into_crypto_store(),
+            inner: Arc::new(CryptoStoreWrapper::new(bob_store)),
             private_identity: bob_private_identity.into(),
         };
 

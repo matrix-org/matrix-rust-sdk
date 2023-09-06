@@ -864,6 +864,8 @@ impl AcceptSettings {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -876,7 +878,7 @@ mod tests {
     use super::Sas;
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{IntoCryptoStore, MemoryStore},
+        store::{CryptoStoreWrapper, MemoryStore},
         verification::{
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
@@ -910,7 +912,7 @@ mod tests {
 
         let alice_store = VerificationStore {
             account: alice.clone(),
-            inner: MemoryStore::new().into_crypto_store(),
+            inner: Arc::new(CryptoStoreWrapper::new(MemoryStore::new())),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
         };
 
@@ -919,7 +921,7 @@ mod tests {
 
         let bob_store = VerificationStore {
             account: bob.clone(),
-            inner: bob_store.into_crypto_store(),
+            inner: Arc::new(CryptoStoreWrapper::new(bob_store)),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };
 
