@@ -67,6 +67,29 @@ impl UserIdentities {
             _ => None,
         }
     }
+
+    /// Get the ID of the user this identity belongs to.
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            UserIdentities::Own(u) => u.user_id(),
+            UserIdentities::Other(u) => u.user_id(),
+        }
+    }
+
+    pub(crate) fn new(
+        identity: ReadOnlyUserIdentities,
+        verification_machine: VerificationMachine,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
+    ) -> Self {
+        match identity {
+            ReadOnlyUserIdentities::Own(i) => {
+                Self::Own(OwnUserIdentity { inner: i, verification_machine })
+            }
+            ReadOnlyUserIdentities::Other(i) => {
+                Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
+            }
+        }
+    }
 }
 
 impl From<OwnUserIdentity> for UserIdentities {
