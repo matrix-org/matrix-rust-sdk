@@ -787,7 +787,7 @@ pub(crate) mod testing {
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id().to_owned();
         let account = ReadOnlyAccount::with_device_id(&user_id, device_id());
-        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), identity, store, verification);
         IdentityManager::new(user_id, device_id().into(), store)

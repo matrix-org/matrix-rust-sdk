@@ -514,7 +514,7 @@ mod tests {
 
         let users_for_key_claim = Arc::new(DashMap::new());
         let account = ReadOnlyAccount::with_device_id(user_id, device_id);
-        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification =

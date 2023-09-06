@@ -171,7 +171,7 @@ impl OlmMachine {
         let account =
             ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
 
-        let store = Arc::new(CryptoStoreWrapper::new(MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
 
         Ok(Self::new_helper(
             self.user_id(),
@@ -325,7 +325,7 @@ impl OlmMachine {
         };
 
         let identity = Arc::new(Mutex::new(identity));
-        let store = Arc::new(CryptoStoreWrapper::new(store));
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
