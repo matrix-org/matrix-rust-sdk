@@ -2,6 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
+use ruma::{OwnedUserId, UserId};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::warn;
@@ -18,6 +19,7 @@ use crate::{
 /// [`crate::verification::VerificationStore`].
 #[derive(Debug)]
 pub(crate) struct CryptoStoreWrapper {
+    user_id: OwnedUserId,
     store: Arc<DynCryptoStore>,
 
     /// The sender side of a broadcast stream that is notified whenever we get
@@ -30,10 +32,16 @@ pub(crate) struct CryptoStoreWrapper {
 }
 
 impl CryptoStoreWrapper {
-    pub(crate) fn new(store: impl IntoCryptoStore) -> Self {
+    pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
-        Self { store: store.into_crypto_store(), room_keys_received_sender, secrets_broadcaster }
+
+        Self {
+            user_id: user_id.to_owned(),
+            store: store.into_crypto_store(),
+            room_keys_received_sender,
+            secrets_broadcaster,
+        }
     }
 
     /// Save the set of changes to the store.
@@ -82,7 +90,7 @@ impl CryptoStoreWrapper {
             match result {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {} updates", lag);
+                    warn!("room_keys_received_stream missed {lag} updates");
                     None
                 }
             }

@@ -582,7 +582,7 @@ mod tests {
         let _ = VerificationMachine::new(
             alice,
             identity,
-            Arc::new(CryptoStoreWrapper::new(MemoryStore::new())),
+            Arc::new(CryptoStoreWrapper::new(alice_id(), MemoryStore::new())),
         );
     }
 
