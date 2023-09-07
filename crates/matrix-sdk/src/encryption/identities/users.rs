@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
     crypto::{
         types::MasterPubkey, OwnUserIdentity as InnerOwnUserIdentity,
-        UserIdentity as InnerUserIdentity,
+        UserIdentities as InnerUserIdentities, UserIdentity as InnerUserIdentity,
     },
     RoomMemberships,
 };
@@ -26,12 +26,46 @@ use ruma::{
         key::verification::VerificationMethod,
         room::message::{MessageType, RoomMessageEventContent},
     },
-    UserId,
+    OwnedUserId, UserId,
 };
-use tokio::sync::RwLock;
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, Client, Room};
+use crate::{encryption::verification::VerificationRequest, Client};
+
+/// Updates about [`UserIdentity`]s which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct IdentityUpdates {
+    /// The list of newly discovered user identities .
+    ///
+    /// A identity being in this list does not necessarily mean that the
+    /// identity was just created, it just means that it's the first time
+    /// we're seeing this identity.
+    pub new: BTreeMap<OwnedUserId, UserIdentity>,
+    /// The list of changed identities.
+    pub changed: BTreeMap<OwnedUserId, UserIdentity>,
+}
+
+impl IdentityUpdates {
+    pub(crate) fn new(
+        client: Client,
+        updates: matrix_sdk_base::crypto::store::IdentityUpdates,
+    ) -> Self {
+        let new = updates
+            .new
+            .into_iter()
+            .map(|(user_id, identity)| (user_id, UserIdentity::new(client.to_owned(), identity)))
+            .collect();
+
+        let changed = updates
+            .changed
+            .into_iter()
+            .map(|(user_id, identity)| (user_id, UserIdentity::new(client.to_owned(), identity)))
+            .collect();
+
+        Self { new, changed }
+    }
+}
 
 /// A struct representing a E2EE capable identity of a user.
 ///
@@ -72,18 +106,21 @@ pub struct UserIdentity {
 }
 
 impl UserIdentity {
+    fn new(client: Client, identity: InnerUserIdentities) -> Self {
+        match identity {
+            InnerUserIdentities::Own(i) => Self::new_own(client, i),
+            InnerUserIdentities::Other(i) => Self::new_other(client, i),
+        }
+    }
+
     pub(crate) fn new_own(client: Client, identity: InnerOwnUserIdentity) -> Self {
         let identity = OwnUserIdentity { inner: identity, client };
 
         Self { inner: identity.into() }
     }
 
-    pub(crate) fn new(client: Client, identity: InnerUserIdentity, room: Option<Room>) -> Self {
-        let identity = OtherUserIdentity {
-            inner: identity,
-            client,
-            direct_message_room: RwLock::new(room).into(),
-        };
+    pub(crate) fn new_other(client: Client, identity: InnerUserIdentity) -> Self {
+        let identity = OtherUserIdentity { inner: identity, client };
 
         Self { inner: identity.into() }
     }
@@ -425,7 +462,6 @@ struct OwnUserIdentity {
 struct OtherUserIdentity {
     pub(crate) inner: InnerUserIdentity,
     pub(crate) client: Client,
-    pub(crate) direct_message_room: Arc<RwLock<Option<Room>>>,
 }
 
 impl OwnUserIdentity {
@@ -462,7 +498,7 @@ impl OtherUserIdentity {
     ) -> Result<VerificationRequest, RequestVerificationError> {
         let content = self.inner.verification_request_content(methods.clone()).await;
 
-        let room = if let Some(room) = self.direct_message_room.read().await.as_ref() {
+        let room = if let Some(room) = self.client.get_dm_room(self.inner.user_id()) {
             // Make sure that the user, to be verified, is still in the room
             if !room
                 .members(RoomMemberships::ACTIVE)

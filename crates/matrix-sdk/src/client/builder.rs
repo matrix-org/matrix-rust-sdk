@@ -21,7 +21,7 @@ use ruma::{
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 use url::Url;
 
@@ -30,7 +30,10 @@ use super::{Client, ClientInner};
 use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcContext;
-use crate::{config::RequestConfig, error::RumaApiError, http_client::HttpClient, HttpError};
+use crate::{
+    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
+    HttpError,
+};
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
@@ -422,19 +425,23 @@ impl ClientBuilder {
 
         let homeserver = Url::parse(&homeserver)?;
 
-        let session_change_sender = tokio::sync::broadcast::Sender::new(1);
-        let inner = Arc::new(ClientInner::new(
-            homeserver,
+        let auth_ctx = Arc::new(AuthCtx {
             authentication_server_info,
+            handle_refresh_tokens: self.handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
+            session_change_sender: broadcast::Sender::new(1),
+            auth_data: OnceCell::default(),
+        });
+
+        let inner = Arc::new(ClientInner::new(
+            auth_ctx,
+            homeserver,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy,
             http_client,
             base_client,
             self.server_versions,
             self.respect_login_well_known,
-            self.handle_refresh_tokens,
-            session_change_sender,
-            Arc::new(OnceCell::default()),
             #[cfg(feature = "experimental-oidc")]
             Arc::new(OidcContext::default()),
         ));

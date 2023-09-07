@@ -47,38 +47,27 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::crypto::{store::CryptoStore, CryptoStoreError};
 use tokio::{sync::Mutex, time::sleep};
 use tracing::instrument;
 
-use crate::executor::{spawn, JoinHandle};
+use crate::{
+    executor::{spawn, JoinHandle},
+    SendOutsideWasm,
+};
 
 /// Backing store for a cross-process lock.
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait BackingStore {
     type Error: Error + Send + Sync;
 
     /// Try to take a lock using the given store.
-    async fn try_take(
+    async fn try_lock(
         &self,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error>;
-}
-
-#[async_trait::async_trait]
-impl<'a> BackingStore for Arc<dyn CryptoStore<Error = CryptoStoreError> + 'a> {
-    type Error = CryptoStoreError;
-
-    async fn try_take(
-        &self,
-        lease_duration_ms: u32,
-        key: &str,
-        holder: &str,
-    ) -> Result<bool, Self::Error> {
-        self.try_take_leased_lock(lease_duration_ms, key, holder).await
-    }
 }
 
 /// Small state machine to handle wait times.
@@ -109,7 +98,7 @@ impl Drop for CrossProcessStoreLockGuard {
 ///
 /// See the doc-comment of this module for more information.
 #[derive(Clone, Debug)]
-pub struct CrossProcessStoreLock<S: BackingStore + Clone + Send + 'static> {
+pub struct CrossProcessStoreLock<S: BackingStore + Clone + SendOutsideWasm + 'static> {
     /// The store we're using to lock.
     store: S,
 
@@ -147,7 +136,7 @@ pub const LEASE_DURATION_MS: u32 = 500;
 /// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
 /// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
 /// that we can miss a deadline without compromising the lock.
-const EXTEND_LEASE_EVERY_MS: u64 = 50;
+pub const EXTEND_LEASE_EVERY_MS: u64 = 50;
 
 /// Initial backoff, in milliseconds. This is the time we wait the first
 /// time, if taking the lock initially failed.
@@ -157,7 +146,7 @@ const INITIAL_BACKOFF_MS: u32 = 10;
 /// we'll wait for the lock, *between two attempts*.
 pub const MAX_BACKOFF_MS: u32 = 1000;
 
-impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
+impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<S> {
     /// Create a new store-based lock implemented as a value in the store.
     ///
     /// # Parameters
@@ -200,7 +189,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
 
         let acquired = self
             .store
-            .try_take(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
+            .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
             .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
 
@@ -250,7 +239,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
 
                         // Cancel the lease with another 0ms lease.
                         // If we don't get the lock, that's (weird but) fine.
-                        let fut = this.store.try_take(0, &this.lock_key, &this.lock_holder);
+                        let fut = this.store.try_lock(0, &this.lock_key, &this.lock_holder);
                         let _ = fut.await;
 
                         // Exit the loop.
@@ -260,7 +249,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
 
                 sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
 
-                let fut = this.store.try_take(LEASE_DURATION_MS, &this.lock_key, &this.lock_holder);
+                let fut = this.store.try_lock(LEASE_DURATION_MS, &this.lock_key, &this.lock_holder);
                 if let Err(err) = fut.await {
                     tracing::error!("error when extending lock lease: {err:#}");
                     // Exit the loop.
@@ -282,7 +271,7 @@ impl<S: BackingStore + Clone + Send + 'static> CrossProcessStoreLock<S> {
     /// should be waited for, between two attempts. When that time is
     /// reached a second time, the lock will stop attempting to get the lock
     /// and will return a timeout error upon locking. If not provided,
-    /// will wait for [`Self::MAX_BACKOFF_MS`].
+    /// will wait for [`MAX_BACKOFF_MS`].
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn spin_lock(
         &self,
@@ -343,19 +332,84 @@ pub enum LockStoreError {
 }
 
 #[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
-    use std::sync::atomic;
+    use std::{
+        collections::HashMap,
+        sync::{atomic, Arc, Mutex},
+        time::Instant,
+    };
 
     use assert_matches::assert_matches;
-    use matrix_sdk_base::crypto::store::{IntoCryptoStore as _, MemoryStore};
     use matrix_sdk_test::async_test;
     use tokio::{
         spawn,
         time::{sleep, Duration},
     };
 
-    use super::{CrossProcessStoreLockGuard, LockStoreError, EXTEND_LEASE_EVERY_MS};
-    use crate::store_locks::CrossProcessStoreLock;
+    use super::{
+        BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+        EXTEND_LEASE_EVERY_MS,
+    };
+
+    #[derive(Clone, Default)]
+    struct TestStore {
+        leases: Arc<Mutex<HashMap<String, (String, Instant)>>>,
+    }
+
+    impl TestStore {
+        fn try_take_leased_lock(&self, lease_duration_ms: u32, key: &str, holder: &str) -> bool {
+            let now = Instant::now();
+            let expiration = now + Duration::from_millis(lease_duration_ms.into());
+            let mut leases = self.leases.lock().unwrap();
+            if let Some(prev) = leases.get_mut(key) {
+                if prev.0 == holder {
+                    // We had the lease before, extend it.
+                    prev.1 = expiration;
+                    true
+                } else {
+                    // We didn't have it.
+                    if prev.1 < now {
+                        // Steal it!
+                        prev.0 = holder.to_owned();
+                        prev.1 = expiration;
+                        true
+                    } else {
+                        // We tried our best.
+                        false
+                    }
+                }
+            } else {
+                leases.insert(
+                    key.to_owned(),
+                    (
+                        holder.to_owned(),
+                        Instant::now() + Duration::from_millis(lease_duration_ms.into()),
+                    ),
+                );
+                true
+            }
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    enum DummyError {}
+
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl BackingStore for TestStore {
+        type Error = DummyError;
+
+        /// Try to take a lock using the given store.
+        async fn try_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Result<bool, Self::Error> {
+            Ok(self.try_take_leased_lock(lease_duration_ms, key, holder))
+        }
+    }
 
     async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
         drop(guard);
@@ -366,10 +420,8 @@ mod tests {
 
     #[async_test]
     async fn test_simple_lock_unlock() -> TestResult {
-        let mem_store = MemoryStore::new();
-        let dyn_store = mem_store.into_crypto_store();
-
-        let lock = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+        let store = TestStore::default();
+        let lock = CrossProcessStoreLock::new(store, "key".to_owned(), "first".to_owned());
 
         // The lock plain works when used with a single holder.
         let acquired = lock.try_lock_once().await?;
@@ -392,11 +444,8 @@ mod tests {
 
     #[async_test]
     async fn test_self_recovery() -> TestResult {
-        let mem_store = MemoryStore::new();
-        let dyn_store = mem_store.into_crypto_store();
-
-        let lock =
-            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let store = TestStore::default();
+        let lock = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // When a lock is acquired...
         let acquired = lock.try_lock_once().await?;
@@ -407,8 +456,7 @@ mod tests {
         drop(lock);
 
         // And when rematerializing the lock with the same key/value...
-        let lock =
-            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // We still got it.
         let acquired = lock.try_lock_once().await?;
@@ -420,10 +468,8 @@ mod tests {
 
     #[async_test]
     async fn test_multiple_holders_same_process() -> TestResult {
-        let mem_store = MemoryStore::new();
-        let dyn_store = mem_store.into_crypto_store();
-
-        let lock = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "first".to_owned());
+        let store = TestStore::default();
+        let lock = CrossProcessStoreLock::new(store, "key".to_owned(), "first".to_owned());
 
         // Taking the lock twice...
         let acquired = lock.try_lock_once().await?;
@@ -446,12 +492,9 @@ mod tests {
 
     #[async_test]
     async fn test_multiple_processes() -> TestResult {
-        let mem_store = MemoryStore::new();
-        let dyn_store = mem_store.into_crypto_store();
-
-        let lock1 =
-            CrossProcessStoreLock::new(dyn_store.clone(), "key".to_owned(), "first".to_owned());
-        let lock2 = CrossProcessStoreLock::new(dyn_store, "key".to_owned(), "second".to_owned());
+        let store = TestStore::default();
+        let lock1 = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CrossProcessStoreLock::new(store, "key".to_owned(), "second".to_owned());
 
         // When the first process takes the lock...
         let acquired1 = lock1.try_lock_once().await?;

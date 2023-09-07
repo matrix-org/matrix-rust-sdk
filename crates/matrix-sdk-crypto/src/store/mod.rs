@@ -50,14 +50,13 @@ use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
 use futures_core::Stream;
-use futures_util::stream::StreamExt;
+use futures_util::StreamExt;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -65,8 +64,7 @@ use zeroize::Zeroize;
 use crate::{
     gossiping::GossippedSecret,
     identities::{
-        user::{OwnUserIdentity, UserIdentities, UserIdentity},
-        Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
+        user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -75,10 +73,11 @@ use crate::{
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     utilities::encode,
     verification::VerificationMachine,
-    CrossSigningStatus,
+    CrossSigningStatus, ReadOnlyOwnUserIdentity,
 };
 
 pub mod caches;
+mod crypto_store_wrapper;
 mod error;
 mod memorystore;
 mod traits;
@@ -89,8 +88,9 @@ mod traits;
 pub mod integration_tests;
 
 use caches::{SequenceNumber, UsersForKeyQuery};
+pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
-use matrix_sdk_common::timeout::timeout;
+use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
@@ -111,7 +111,7 @@ pub struct Store {
 struct StoreInner {
     user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    store: Arc<DynCryptoStore>,
+    store: Arc<CryptoStoreWrapper>,
     verification_machine: VerificationMachine,
     tracked_users_cache: DashSet<OwnedUserId>,
 
@@ -127,14 +127,6 @@ struct StoreInner {
 
     tracked_user_loading_lock: Mutex<()>,
     tracked_users_loaded: AtomicBool,
-
-    /// The sender side of a broadcast stream that is notified whenever we get
-    /// an update to an inbound group session.
-    room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
-
-    /// The sender side of a broadcast channel which sends out secrets we
-    /// received as a `m.secret.send` event.
-    secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 }
 
 /// Aggregated changes to be saved in the database.
@@ -204,6 +196,29 @@ impl IdentityChanges {
     fn is_empty(&self) -> bool {
         self.new.is_empty() && self.changed.is_empty()
     }
+
+    /// Convert the vectors contained in the [`IdentityChanges`] into
+    /// two maps from user id to user identity.
+    fn into_maps(
+        self,
+    ) -> (
+        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
+        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
+    ) {
+        let new: BTreeMap<_, _> = self
+            .new
+            .into_iter()
+            .map(|identity| (identity.user_id().to_owned(), identity))
+            .collect();
+
+        let changed: BTreeMap<_, _> = self
+            .changed
+            .into_iter()
+            .map(|identity| (identity.user_id().to_owned(), identity))
+            .collect();
+
+        (new, changed)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -212,6 +227,84 @@ pub struct DeviceChanges {
     pub new: Vec<ReadOnlyDevice>,
     pub changed: Vec<ReadOnlyDevice>,
     pub deleted: Vec<ReadOnlyDevice>,
+}
+
+/// Convert the devices and vectors contained in the [`DeviceChanges`] into
+/// a [`DeviceUpdates`] struct.
+///
+/// The [`DeviceChanges`] will contain vectors of [`ReadOnlyDevice`]s which
+/// we want to convert to a [`Device`].
+fn collect_device_updates(
+    verification_machine: VerificationMachine,
+    own_identity: Option<ReadOnlyOwnUserIdentity>,
+    identities: IdentityChanges,
+    devices: DeviceChanges,
+) -> DeviceUpdates {
+    let mut new: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+    let mut changed: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+
+    let (new_identities, changed_identities) = identities.into_maps();
+
+    let map_device = |device: ReadOnlyDevice| {
+        let device_owner_identity = new_identities
+            .get(device.user_id())
+            .or_else(|| changed_identities.get(device.user_id()))
+            .cloned();
+
+        Device {
+            inner: device,
+            verification_machine: verification_machine.to_owned(),
+            own_identity: own_identity.to_owned(),
+            device_owner_identity,
+        }
+    };
+
+    for device in devices.new {
+        let device = map_device(device);
+
+        new.entry(device.user_id().to_owned())
+            .or_default()
+            .insert(device.device_id().to_owned(), device);
+    }
+
+    for device in devices.changed {
+        let device = map_device(device);
+
+        changed
+            .entry(device.user_id().to_owned())
+            .or_default()
+            .insert(device.device_id().to_owned(), device.to_owned());
+    }
+
+    DeviceUpdates { new, changed }
+}
+
+/// Updates about [`Device`]s which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct DeviceUpdates {
+    /// The list of newly discovered devices.
+    ///
+    /// A device being in this list does not necessarily mean that the device
+    /// was just created, it just means that it's the first time we're
+    /// seeing this device.
+    pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    /// The list of changed devices.
+    pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+}
+
+/// Updates about [`UserIdentities`] which got received over the `/keys/query`
+/// endpoint.
+#[derive(Clone, Debug, Default)]
+pub struct IdentityUpdates {
+    /// The list of newly discovered user identities .
+    ///
+    /// A identity being in this list does not necessarily mean that the
+    /// identity was just created, it just means that it's the first time
+    /// we're seeing this identity.
+    pub new: BTreeMap<OwnedUserId, UserIdentities>,
+    /// The list of changed identities.
+    pub changed: BTreeMap<OwnedUserId, UserIdentities>,
 }
 
 /// The private part of a backup key.
@@ -396,12 +489,9 @@ impl Store {
     pub(crate) fn new(
         user_id: OwnedUserId,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<DynCryptoStore>,
+        store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let room_keys_received_sender = broadcast::Sender::new(10);
-        let secrets_broadcaster = broadcast::Sender::new(10);
-
         let inner = Arc::new(StoreInner {
             user_id,
             identity,
@@ -412,8 +502,6 @@ impl Store {
             users_for_key_query_condvar: Condvar::new(),
             tracked_users_loaded: AtomicBool::new(false),
             tracked_user_loading_lock: Mutex::new(()),
-            room_keys_received_sender,
-            secrets_broadcaster,
         });
 
         Self { inner }
@@ -453,23 +541,7 @@ impl Store {
     }
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let room_key_updates: Vec<_> =
-            changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
-
-        let secrets = changes.secrets.to_owned();
-
-        self.inner.store.save_changes(changes).await?;
-
-        if !room_key_updates.is_empty() {
-            // Ignore the result. It can only fail if there are no listeners.
-            let _ = self.inner.room_keys_received_sender.send(room_key_updates);
-        }
-
-        for secret in secrets {
-            let _ = self.inner.secrets_broadcaster.send(secret);
-        }
-
-        Ok(())
+        self.inner.store.save_changes(changes).await
     }
 
     /// Compare the given `InboundGroupSession` with an existing session we have
@@ -631,35 +703,18 @@ impl Store {
 
     ///  Get the Identity of `user_id`
     pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
-        // let own_identity =
-        // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
-        Ok(if let Some(identity) = self.inner.store.get_user_identity(user_id).await? {
-            Some(match identity {
-                ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
-                    inner: i,
-                    verification_machine: self.inner.verification_machine.clone(),
+        let own_identity =
+            self.inner.store.get_user_identity(self.user_id()).await?.and_then(|i| {
+                if let ReadOnlyUserIdentities::Own(i) = i {
+                    Some(i)
+                } else {
+                    None
                 }
-                .into(),
-                ReadOnlyUserIdentities::Other(i) => {
-                    let own_identity =
-                        self.inner.store.get_user_identity(self.user_id()).await?.and_then(|i| {
-                            if let ReadOnlyUserIdentities::Own(i) = i {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        });
-                    UserIdentity {
-                        inner: i,
-                        verification_machine: self.inner.verification_machine.clone(),
-                        own_identity,
-                    }
-                    .into()
-                }
-            })
-        } else {
-            None
-        })
+            });
+
+        Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
+            UserIdentities::new(i, self.inner.verification_machine.to_owned(), own_identity)
+        }))
     }
 
     /// Try to export the secret with the given secret name.
@@ -1017,20 +1072,107 @@ impl Store {
     /// If the reader of the stream lags too far behind, a warning will be
     /// logged and items will be dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
-        let stream = BroadcastStream::new(self.inner.room_keys_received_sender.subscribe());
+        self.inner.store.room_keys_received_stream()
+    }
 
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {} updates", lag);
-                    None
-                }
-            }
+    /// Returns a stream of user identity updates, allowing users to listen for
+    /// notifications about new or changed user identities.
+    ///
+    /// The stream produced by this method emits updates whenever a new user
+    /// identity is discovered or when an existing identities information is
+    /// changed. Users can subscribe to this stream and receive updates in
+    /// real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let machine: OlmMachine = unimplemented!();
+    /// # futures_executor::block_on(async {
+    /// let identities_stream = machine.store().user_identities_stream();
+    /// pin_mut!(identities_stream);
+    ///
+    /// for identity_updates in identities_stream.next().await {
+    ///     for (_, identity) in identity_updates.new {
+    ///         println!("A new identity has been added {}", identity.user_id());
+    ///     }
+    /// }
+    /// # });
+    /// ```
+    pub fn user_identities_stream(&self) -> impl Stream<Item = IdentityUpdates> {
+        let verification_machine = self.inner.verification_machine.to_owned();
+
+        self.inner.store.identities_stream().map(move |(own_identity, identities, _)| {
+            let (new_identities, changed_identities) = identities.into_maps();
+
+            let map_identity = |(user_id, identity)| {
+                (
+                    user_id,
+                    UserIdentities::new(
+                        identity,
+                        verification_machine.to_owned(),
+                        own_identity.to_owned(),
+                    ),
+                )
+            };
+
+            let new = new_identities.into_iter().map(map_identity).collect();
+            let changed = changed_identities.into_iter().map(map_identity).collect();
+
+            IdentityUpdates { new, changed }
         })
+    }
+
+    /// Returns a stream of device updates, allowing users to listen for
+    /// notifications about new or changed devices.
+    ///
+    /// The stream produced by this method emits updates whenever a new device
+    /// is discovered or when an existing device's information is changed. Users
+    /// can subscribe to this stream and receive updates in real-time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let machine: OlmMachine = unimplemented!();
+    /// # futures_executor::block_on(async {
+    /// let devices_stream = machine.store().devices_stream();
+    /// pin_mut!(devices_stream);
+    ///
+    /// for device_updates in devices_stream.next().await {
+    ///     if let Some(user_devices) = device_updates.new.get(machine.user_id()) {
+    ///         for device in user_devices.values() {
+    ///             println!("A new device has been added {}", device.device_id());
+    ///         }
+    ///     }
+    /// }
+    /// # });
+    /// ```
+    pub fn devices_stream(&self) -> impl Stream<Item = DeviceUpdates> {
+        let verification_machine = self.inner.verification_machine.to_owned();
+
+        self.inner.store.identities_stream().map(move |(own_identity, identities, devices)| {
+            collect_device_updates(
+                verification_machine.to_owned(),
+                own_identity,
+                identities,
+                devices,
+            )
+        })
+    }
+
+    /// Creates a `CrossProcessStoreLock` for this store, that will contain the
+    /// given key and value when hold.
+    pub fn create_store_lock(
+        &self,
+        lock_key: String,
+        lock_value: String,
+    ) -> CrossProcessStoreLock<LockableCryptoStore> {
+        self.inner.store.create_store_lock(lock_key, lock_value)
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
@@ -1073,26 +1215,7 @@ impl Store {
     /// # });
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
-        let stream = BroadcastStream::new(self.inner.secrets_broadcaster.subscribe());
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("secrets_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
-    }
-
-    /// Get a handle on the underlying raw store.
-    #[doc(hidden)]
-    pub fn clone_store(&self) -> Arc<DynCryptoStore> {
-        self.inner.store.clone()
+        self.inner.store.secrets_stream()
     }
 }
 
@@ -1100,6 +1223,25 @@ impl Deref for Store {
     type Target = DynCryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.store.deref()
+        self.inner.store.deref().deref()
+    }
+}
+
+/// A crypto store that implements primitives for cross-process locking.
+#[derive(Clone, Debug)]
+pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
+    type Error = CryptoStoreError;
+
+    async fn try_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> std::result::Result<bool, Self::Error> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
 }

@@ -764,7 +764,7 @@ pub(crate) mod testing {
         identities::IdentityManager,
         machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{DynCryptoStore, IntoCryptoStore, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, Store},
         types::DeviceKeys,
         verification::VerificationMachine,
         UploadSigningKeysRequest,
@@ -787,14 +787,9 @@ pub(crate) mod testing {
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id().to_owned();
         let account = ReadOnlyAccount::with_device_id(&user_id, device_id());
-        let store: Arc<DynCryptoStore> = MemoryStore::new().into_crypto_store();
-        let verification = VerificationMachine::new(account, identity.clone(), store);
-        let store = Store::new(
-            user_id.clone(),
-            identity,
-            MemoryStore::new().into_crypto_store(),
-            verification,
-        );
+        let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
+        let verification = VerificationMachine::new(account, identity.clone(), store.clone());
+        let store = Store::new(user_id.clone(), identity, store, verification);
         IdentityManager::new(user_id, device_id().into(), store)
     }
 
@@ -994,12 +989,14 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::ops::Deref;
 
+    use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{client::keys::get_keys::v3::Response as KeysQueryResponse, IncomingResponse},
         device_id, user_id, TransactionId,
     };
     use serde_json::json;
+    use stream_assert::assert_ready;
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
     use crate::identities::manager::testing::own_key_query;
@@ -1214,5 +1211,33 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(user_id()).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
         assert_eq!(devices.devices().next().unwrap().device_id(), "LVWOVGOXME");
+    }
+
+    #[async_test]
+    async fn devices_stream() {
+        let manager = manager().await;
+        let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
+
+        let stream = manager.store.devices_stream();
+        pin_mut!(stream);
+
+        manager.receive_keys_query_response(&request_id, &own_key_query()).await.unwrap();
+
+        let update = assert_ready!(stream);
+        assert!(!update.new.is_empty(), "The device update should contain some devices");
+    }
+
+    #[async_test]
+    async fn identities_stream() {
+        let manager = manager().await;
+        let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
+
+        let stream = manager.store.user_identities_stream();
+        pin_mut!(stream);
+
+        manager.receive_keys_query_response(&request_id, &own_key_query()).await.unwrap();
+
+        let update = assert_ready!(stream);
+        assert!(!update.new.is_empty(), "The identities update should contain some identities");
     }
 }

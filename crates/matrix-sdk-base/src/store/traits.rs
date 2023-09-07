@@ -824,10 +824,10 @@ pub enum StateStoreDataKey<'a> {
 
 impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
-    pub const SYNC_TOKEN: &str = "sync_token";
+    pub const SYNC_TOKEN: &'static str = "sync_token";
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
-    pub const FILTER: &str = "filter";
+    pub const FILTER: &'static str = "filter";
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
     /// variant.
-    pub const USER_AVATAR_URL: &str = "user_avatar_url";
+    pub const USER_AVATAR_URL: &'static str = "user_avatar_url";
 }

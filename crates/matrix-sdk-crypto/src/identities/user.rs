@@ -67,6 +67,29 @@ impl UserIdentities {
             _ => None,
         }
     }
+
+    /// Get the ID of the user this identity belongs to.
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            UserIdentities::Own(u) => u.user_id(),
+            UserIdentities::Other(u) => u.user_id(),
+        }
+    }
+
+    pub(crate) fn new(
+        identity: ReadOnlyUserIdentities,
+        verification_machine: VerificationMachine,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
+    ) -> Self {
+        match identity {
+            ReadOnlyUserIdentities::Own(i) => {
+                Self::Own(OwnUserIdentity { inner: i, verification_machine })
+            }
+            ReadOnlyUserIdentities::Other(i) => {
+                Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
+            }
+        }
+    }
 }
 
 impl From<OwnUserIdentity> for UserIdentities {
@@ -727,7 +750,7 @@ pub(crate) mod tests {
     use crate::{
         identities::{manager::testing::own_key_query, Device},
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{IntoCryptoStore, MemoryStore},
+        store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
         verification::VerificationMachine,
     };
@@ -771,7 +794,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::with_device_id(second.user_id(), second.device_id()),
             private_identity,
-            MemoryStore::new().into_crypto_store(),
+            Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
         );
 
         let first = Device {
@@ -812,7 +835,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::with_device_id(device.user_id(), device.device_id()),
             id.clone(),
-            MemoryStore::new().into_crypto_store(),
+            Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();

@@ -69,7 +69,7 @@ use crate::{
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, DeviceChanges, DynCryptoStore, IdentityChanges, IntoCryptoStore, MemoryStore,
+        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
         Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
     },
     types::{
@@ -144,7 +144,7 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const CURRENT_GENERATION_STORE_KEY: &str = "generation-counter";
+    const CURRENT_GENERATION_STORE_KEY: &'static str = "generation-counter";
 
     /// Create a new memory based OlmMachine.
     ///
@@ -171,7 +171,7 @@ impl OlmMachine {
         let account =
             ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
 
-        let store = MemoryStore::new().into_crypto_store();
+        let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
 
         Ok(Self::new_helper(
             self.user_id(),
@@ -185,7 +185,7 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Arc<DynCryptoStore>,
+        store: Arc<CryptoStoreWrapper>,
         account: ReadOnlyAccount,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
@@ -325,7 +325,7 @@ impl OlmMachine {
         };
 
         let identity = Arc::new(Mutex::new(identity));
-
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
         Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
@@ -1320,63 +1320,85 @@ impl OlmMachine {
         })
     }
 
+    async fn get_megolm_encryption_info(
+        &self,
+        room_id: &RoomId,
+        event: &EncryptedEvent,
+        content: &SupportedEventEncryptionSchemes<'_>,
+    ) -> MegolmResult<EncryptionInfo> {
+        let session =
+            self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
+        self.get_encryption_info(&session, &event.sender).await
+    }
+
     async fn decrypt_megolm_events(
         &self,
         room_id: &RoomId,
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
     ) -> MegolmResult<TimelineEvent> {
-        if let Some(session) =
-            self.store().get_inbound_group_session(room_id, content.session_id()).await?
-        {
-            // This function is only ever called by decrypt_room_event, so
-            // room_id, sender, algorithm and session_id are recorded already
-            //
-            // While we already record the sender key in some cases from the event, the
-            // sender key in the event is deprecated, so let's record it now.
-            tracing::Span::current().record("sender_key", debug(session.sender_key()));
+        let session =
+            self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
 
-            let result = session.decrypt(event).await;
-            match result {
-                Ok((decrypted_event, _)) => {
-                    let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
-                    Ok(TimelineEvent {
-                        encryption_info: Some(encryption_info),
-                        event: decrypted_event,
-                        push_actions: None,
-                    })
-                }
-                Err(error) => Err(
-                    if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) =
-                        error
-                    {
-                        let withheld_code = self
-                            .inner
-                            .store
-                            .get_withheld_info(room_id, content.session_id())
-                            .await?
-                            .map(|e| e.content.withheld_code());
+        // This function is only ever called by decrypt_room_event, so
+        // room_id, sender, algorithm and session_id are recorded already
+        //
+        // While we already record the sender key in some cases from the event, the
+        // sender key in the event is deprecated, so let's record it now.
+        tracing::Span::current().record("sender_key", debug(session.sender_key()));
 
-                        if withheld_code.is_some() {
-                            // Partially withheld, report with a withheld code if we have one.
-                            MegolmError::MissingRoomKey(withheld_code)
-                        } else {
-                            error
-                        }
+        let result = session.decrypt(event).await;
+        match result {
+            Ok((decrypted_event, _)) => {
+                let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+                Ok(TimelineEvent {
+                    encryption_info: Some(encryption_info),
+                    event: decrypted_event,
+                    push_actions: None,
+                })
+            }
+            Err(error) => Err(
+                if let MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) = error {
+                    let withheld_code = self
+                        .inner
+                        .store
+                        .get_withheld_info(room_id, content.session_id())
+                        .await?
+                        .map(|e| e.content.withheld_code());
+
+                    if withheld_code.is_some() {
+                        // Partially withheld, report with a withheld code if we have one.
+                        MegolmError::MissingRoomKey(withheld_code)
                     } else {
                         error
-                    },
-                ),
-            }
-        } else {
-            let withheld_code = self
-                .inner
-                .store
-                .get_withheld_info(room_id, content.session_id())
-                .await?
-                .map(|e| e.content.withheld_code());
+                    }
+                } else {
+                    error
+                },
+            ),
+        }
+    }
 
-            Err(MegolmError::MissingRoomKey(withheld_code))
+    /// Attempt to retrieve an inbound group session from the store.
+    ///
+    /// If the session is not found, checks for withheld reports, and returns a
+    /// [`MegolmError::MissingRoomKey`] error.
+    async fn get_inbound_group_session_or_error(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> MegolmResult<InboundGroupSession> {
+        match self.store().get_inbound_group_session(room_id, session_id).await? {
+            Some(session) => Ok(session),
+            None => {
+                let withheld_code = self
+                    .inner
+                    .store
+                    .get_withheld_info(room_id, session_id)
+                    .await?
+                    .map(|e| e.content.withheld_code());
+                Err(MegolmError::MissingRoomKey(withheld_code))
+            }
         }
     }
 
@@ -1435,6 +1457,37 @@ impl OlmMachine {
         }
 
         result
+    }
+
+    /// Get encryption info for a decrypted timeline event.
+    ///
+    /// This recalculates the [`EncryptionInfo`] data that is returned by
+    /// [`OlmMachine::decrypt_room_event`], based on the current
+    /// verification status of the sender, etc.
+    ///
+    /// Returns an error for an unencrypted event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event to get information for.
+    /// * `room_id` - The ID of the room where the event was sent to.
+    pub async fn get_room_event_encryption_info(
+        &self,
+        event: &Raw<EncryptedEvent>,
+        room_id: &RoomId,
+    ) -> MegolmResult<EncryptionInfo> {
+        let event = event.deserialize()?;
+
+        let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
+            RoomEventEncryptionScheme::Unknown(_) => {
+                return Err(EventError::UnsupportedAlgorithm.into());
+            }
+        };
+
+        self.get_megolm_encryption_info(room_id, &event, &content).await
     }
 
     /// Update the list of tracked users.
@@ -2783,6 +2836,14 @@ pub(crate) mod tests {
 
         assert_shield!(encryption_info, Red, Red);
 
+        // get_room_event_encryption_info should return the same information
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+        assert_eq!(
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            encryption_info.verification_state
+        );
+        assert_shield!(encryption_info, Red, Red);
+
         // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
             .await
@@ -2790,8 +2851,7 @@ pub(crate) mod tests {
             .unwrap()
             .set_trust_state(LocalTrust::Verified);
 
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
@@ -2806,8 +2866,7 @@ pub(crate) mod tests {
         assert_matches!(alice_id_from_bob, Some(UserIdentities::Other(_)));
 
         // we setup cross signing but nothing is signed yet
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
@@ -2818,8 +2877,7 @@ pub(crate) mod tests {
         // Let alice sign her device
         sign_alice_device_for_machine(&alice, &bob).await;
 
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::UnverifiedIdentity),
@@ -2829,8 +2887,7 @@ pub(crate) mod tests {
         assert_shield!(encryption_info, Red, None);
 
         mark_alice_identity_as_verified(&alice, &bob).await;
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
         assert_shield!(encryption_info, None, None);
 
@@ -2838,8 +2895,7 @@ pub(crate) mod tests {
         let imported = InboundGroupSession::from_export(&export).unwrap();
         bob.store().save_inbound_group_sessions(&[imported]).await.unwrap();
 
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
         // As soon as the key source is unsafe the verification state (or existence) of
         // the device is meaningless
@@ -2851,6 +2907,37 @@ pub(crate) mod tests {
         );
 
         assert_shield!(encryption_info, Red, Grey);
+    }
+
+    /// Test what happens when we feed an unencrypted event into the decryption
+    /// functions
+    #[async_test]
+    async fn test_decrypt_unencrypted_event() {
+        let (bob, _) = get_prepared_machine(user_id(), false).await;
+        let room_id = room_id!("!test:example.org");
+
+        let event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": user_id(),
+            // it's actually the lack of an `algorithm` that upsets it, rather than the event type.
+            "type": "m.room.encrypted",
+            "content":  RoomMessageEventContent::text_plain("plain"),
+        });
+
+        let event = json_convert(&event).unwrap();
+
+        // decrypt_room_event should return an error
+        assert_matches!(
+            bob.decrypt_room_event(&event, room_id).await,
+            Err(MegolmError::JsonError(..))
+        );
+
+        // so should get_room_event_encryption_info
+        assert_matches!(
+            bob.get_room_event_encryption_info(&event, room_id).await,
+            Err(MegolmError::JsonError(..))
+        );
     }
 
     async fn setup_cross_signing_for_machine(alice: &OlmMachine, bob: &OlmMachine) {

@@ -78,7 +78,7 @@ impl MatrixAuth {
     }
 
     fn data(&self) -> Option<&MatrixAuthData> {
-        self.client.inner.auth_data.get()?.as_matrix()
+        self.client.inner.auth_ctx.auth_data.get()?.as_matrix()
     }
 
     /// Gets the homeserver’s supported login types.
@@ -450,7 +450,7 @@ impl MatrixAuth {
         &self,
     ) -> Result<Option<refresh_token::v3::Response>, RefreshTokenError> {
         let client = &self.client;
-        let lock = client.inner.refresh_token_lock.try_lock();
+        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
 
         if let Ok(mut guard) = lock {
             let Some(mut session_tokens) = self.session_tokens() else {
@@ -476,6 +476,7 @@ impl MatrixAuth {
                     _ = self
                         .client
                         .inner
+                        .auth_ctx
                         .session_change_sender
                         .send(SessionChange::TokensRefreshed);
 
@@ -489,7 +490,7 @@ impl MatrixAuth {
                 }
             }
         } else {
-            match client.inner.refresh_token_lock.lock().await.as_ref() {
+            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(None),
                 Err(error) => Err(error.clone()),
             }
@@ -559,7 +560,7 @@ impl MatrixAuth {
 
     /// Set the current session tokens
     pub(crate) fn set_session_tokens(&self, tokens: SessionTokens) {
-        if let Some(auth_data) = self.client.inner.auth_data.get() {
+        if let Some(auth_data) = self.client.inner.auth_ctx.auth_data.get() {
             let Some(data) = auth_data.as_matrix() else {
                 panic!("Cannot call native Matrix authentication API after logging in with another API");
             };
@@ -568,6 +569,7 @@ impl MatrixAuth {
         } else {
             self.client
                 .inner
+                .auth_ctx
                 .auth_data
                 .set(AuthData::Matrix(MatrixAuthData { tokens: SharedObservable::new(tokens) }))
                 .expect("We just checked the value was not set");

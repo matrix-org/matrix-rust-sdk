@@ -24,8 +24,11 @@ pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
 pub mod ring_buffer;
+pub mod store_locks;
 pub mod timeout;
 pub mod tracing_timer;
+
+pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.

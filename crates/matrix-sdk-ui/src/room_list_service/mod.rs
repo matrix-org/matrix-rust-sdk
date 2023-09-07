@@ -67,7 +67,7 @@ mod room;
 mod room_list;
 mod state;
 
-use std::{future::ready, sync::Arc};
+use std::{future::ready, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -91,7 +91,22 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::timeout,
+};
+
+/// Delay time before actually sending a [`SyncIndicator::Show`].
+///
+/// It's not because a `SyncIndicator` should be shown that it must be done
+/// immediately. In case of a normal network conditions, without any delay, it
+/// can lead to a “blinking” visual effect. This constant configures how long it
+/// takes to consider that a request is “slow”, and that the `SyncIndicator` is
+/// necessary to be shown.
+pub const SYNC_INDICATOR_DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(200);
+
+/// Delay time before actually sending a [`SyncIndicator::Hide`].
+pub const SYNC_INDICATOR_DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -323,6 +338,59 @@ impl RoomListService {
         }
     }
 
+    /// Get a [`Stream`] of [`SyncIndicator`].
+    ///
+    /// Read the documentation of [`SyncIndicator`] to learn more about it.
+    pub fn sync_indicator(&self) -> impl Stream<Item = SyncIndicator> {
+        let mut state = self.state();
+
+        stream! {
+            // Ensure the `SyncIndicator` is always hidden to start with.
+            yield SyncIndicator::Hide;
+
+            // Let's not wait for an update to happen. The `SyncIndicator` must be
+            // computed as fast as possible.
+            let mut current_state = state.next_now();
+
+            loop {
+                let (sync_indicator, yield_delay) = match current_state {
+                    State::Init | State::Recovering | State::Error { .. } => {
+                        (SyncIndicator::Show, SYNC_INDICATOR_DELAY_BEFORE_SHOWING)
+                    }
+
+                    State::SettingUp | State::Running | State::Terminated { .. } => {
+                        (SyncIndicator::Hide, SYNC_INDICATOR_DELAY_BEFORE_HIDING)
+                    }
+                };
+
+                // `state.next().await` has a maximum of `yield_delay` time to execute…
+                let next_state = match timeout(yield_delay, state.next()).await {
+                    // A new state has been received before `yield_delay` time. The new
+                    // `sync_indicator` value won't be yielded.
+                    Ok(next_state) => next_state,
+
+                    // No new state has been received before `yield_delay` time. The
+                    // `sync_indicator` value can be yielded.
+                    Err(_) => {
+                        yield sync_indicator;
+
+                        // Now that `sync_indicator` has been yielded, let's wait on
+                        // the next state again.
+                        state.next().await
+                    }
+                };
+
+                if let Some(next_state) = next_state {
+                    // Update the `current_state`.
+                    current_state = next_state;
+                } else {
+                    // Something is broken with `self.state`. Let's stop this stream too.
+                    break;
+                }
+            }
+        }
+    }
+
     /// Get the [`Client`] that has been used to create [`Self`].
     pub fn client(&self) -> &Client {
         &self.client
@@ -472,6 +540,28 @@ pub enum InputResult {
     ///
     /// Note that this is not an error. The input was valid, but simply ignored.
     Ignored,
+}
+
+/// An hint whether a _sync spinner/loader/toaster_ should be prompted to the
+/// user, indicating that the [`RoomListService`] is syncing.
+///
+/// This is entirely arbitrary and optinionated. Of course, once
+/// [`RoomListService::sync`] has been called, it's going to be constantly
+/// syncing, until [`RoomListService::stop_sync`] is called, or until an error
+/// happened. But in some cases, it's better for the user experience to prompt
+/// to the user that a sync is happening. It's usually the first sync, or the
+/// recovering sync. However, the sync indicator must be prompted if the
+/// aforementioned sync is “slow”, otherwise the indicator is likely to “blink”
+/// pretty fast, which can be very confusing. It's also common to indicate to
+/// the user that a syncing is happening in case of a network error, that
+/// something is catching up etc.
+#[derive(Debug, Eq, PartialEq)]
+pub enum SyncIndicator {
+    /// Show the sync indicator.
+    Show,
+
+    /// Hide the sync indicator.
+    Hide,
 }
 
 #[cfg(test)]

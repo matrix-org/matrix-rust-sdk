@@ -28,21 +28,13 @@ use std::{
 use dashmap::DashMap;
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
-#[cfg(feature = "experimental-oidc")]
-use mas_oidc_client::{
-    error::{
-        Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
-        TokenRefreshError, TokenRequestError,
-    },
-    types::errors::ClientErrorCode,
-};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    crypto::store::DynCryptoStore, store::DynStateStore, BaseClient, RoomState, RoomStateFilter,
-    SendOutsideWasm, SessionMeta, SyncOutsideWasm,
+    store::DynStateStore, BaseClient, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
+    SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::api::client::error::ErrorKind;
 use ruma::{
     api::{
         client::{
@@ -51,7 +43,6 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
-                discover_homeserver::AuthenticationServerInfo,
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
@@ -78,14 +69,12 @@ use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, Instrument, Span};
 use url::Url;
 
-#[cfg(feature = "e2e-encryption")]
-use crate::encryption::Encryption;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::Oidc;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcContext;
-#[cfg(feature = "experimental-oidc")]
-use crate::oidc::{Oidc, OidcError};
 use crate::{
-    authentication::AuthData,
+    authentication::{AuthCtx, AuthData},
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
@@ -94,11 +83,12 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    store_locks::CrossProcessStoreLock,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::{encryption::Encryption, store_locks::CrossProcessStoreLock};
 
 mod builder;
 mod futures;
@@ -154,10 +144,11 @@ pub struct Client {
 }
 
 pub(crate) struct ClientInner {
+    /// All the data related to authentication and authorization.
+    pub(crate) auth_ctx: Arc<AuthCtx>,
+
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
-    /// The authentication server info discovered from the homeserver.
-    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
@@ -187,31 +178,19 @@ pub(crate) struct ClientInner {
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
-    /// Whether to try to refresh the access token automatically when an
-    /// `M_UNKNOWN_TOKEN` error is encountered.
-    handle_refresh_tokens: bool,
-    /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
-
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
-    /// Session change publisher. Allows the subscriber to handle changes to the
-    /// session such as logging out when the access token is invalid or
-    /// persisting updates to the access/refresh tokens.
-    pub(crate) session_change_sender: broadcast::Sender<SessionChange>,
-    /// Authentication data to keep in memory.
-    pub(crate) auth_data: Arc<OnceCell<AuthData>>,
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock:
-        OnceCell<CrossProcessStoreLock<Arc<DynCryptoStore>>>,
 
     #[cfg(feature = "experimental-oidc")]
     pub(crate) oidc_context: Arc<OidcContext>,
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) cross_process_crypto_store_lock:
+        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -243,21 +222,18 @@ impl ClientInner {
     /// notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
+        auth_ctx: Arc<AuthCtx>,
         homeserver: Url,
-        authentication_server_info: Option<AuthenticationServerInfo>,
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
         http_client: HttpClient,
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
-        handle_refresh_tokens: bool,
-        session_change_sender: broadcast::Sender<SessionChange>,
-        auth_data: Arc<OnceCell<AuthData>>,
         #[cfg(feature = "experimental-oidc")] oidc_context: Arc<OidcContext>,
     ) -> Self {
         Self {
             homeserver: RwLock::new(homeserver),
-            authentication_server_info,
+            auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
@@ -276,10 +252,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            handle_refresh_tokens,
-            refresh_token_lock: Mutex::new(Ok(())),
-            session_change_sender,
-            auth_data: auth_data.into(),
             #[cfg(feature = "e2e-encryption")]
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -385,18 +357,6 @@ impl Client {
         self.inner.homeserver.read().await.clone()
     }
 
-    /// The authentication server info discovered from the homeserver.
-    ///
-    /// This will only be set if the homeserver supports authenticating via
-    /// OpenID Connect ([MSC3861]) and this `Client` was constructed using
-    /// auto-discovery by setting the homeserver with
-    /// [`ClientBuilder::server_name()`].
-    ///
-    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
-    pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.inner.authentication_server_info.as_ref()
-    }
-
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_proxy(&self) -> Option<Url> {
@@ -458,14 +418,14 @@ impl Client {
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        self.inner.auth_data.get()?.access_token()
+        self.inner.auth_ctx.auth_data.get()?.access_token()
     }
 
     /// Access the authentication API used to log in this client.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn auth_api(&self) -> Option<AuthApi> {
-        match self.inner.auth_data.get()? {
+        match self.inner.auth_ctx.auth_data.get()? {
             AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
             #[cfg(feature = "experimental-oidc")]
             AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
@@ -1258,97 +1218,35 @@ impl Client {
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        SendRequest { client: self.clone(), request, config, send_progress: Default::default() }
+        SendRequest {
+            client: self.clone(),
+            request,
+            config,
+            send_progress: Default::default(),
+            sliding_sync_proxy_url: None,
+        }
     }
 
     #[cfg(feature = "experimental-sliding-sync")]
     // FIXME: remove this as soon as Sliding-Sync isn't needing an external server
     // anymore
-    pub(crate) async fn send_with_homeserver<Request>(
+    pub(crate) fn send_with_homeserver<Request>(
         &self,
         request: Request,
         config: Option<RequestConfig>,
         sliding_sync_proxy: Option<String>,
-    ) -> HttpResult<Request::IncomingResponse>
+    ) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let res = Box::pin(self.send_inner(
-            request.clone(),
+        SendRequest {
+            client: self.clone(),
+            request,
             config,
-            sliding_sync_proxy.clone(),
-            Default::default(),
-        ))
-        .await;
-
-        // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
-        if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
-            res.as_ref().map_err(HttpError::client_api_error_kind)
-        {
-            trace!("Token refresh: Unknown token error received.");
-            // If automatic token refresh isn't supported, there is nothing more to do.
-            if !self.inner.handle_refresh_tokens {
-                trace!("Token refresh: Automatic refresh disabled.");
-                self.broadcast_unknown_token(soft_logout);
-                return res;
-            }
-
-            // Try to refresh the token and retry the request.
-            if let Err(refresh_error) = self.refresh_access_token().await {
-                match &refresh_error {
-                    RefreshTokenError::RefreshTokenRequired => {
-                        trace!("Token refresh: The session doesn't have a refresh token.");
-                        // Refreshing access tokens is not supported by this `Session`, ignore.
-                        self.broadcast_unknown_token(soft_logout);
-                    }
-                    #[cfg(feature = "experimental-oidc")]
-                    RefreshTokenError::Oidc(oidc_error) => {
-                        match **oidc_error {
-                            OidcError::Oidc(OidcClientError::TokenRefresh(
-                                TokenRefreshError::Token(TokenRequestError::Http(OidcHttpError {
-                                    body:
-                                        Some(OidcErrorBody {
-                                            error: ClientErrorCode::InvalidGrant, ..
-                                        }),
-                                    ..
-                                })),
-                            )) => {
-                                error!(
-                                    "Token refresh: OIDC refresh_token rejected with invalid grant"
-                                );
-                                // The refresh was denied, signal to sign out the user.
-                                self.broadcast_unknown_token(soft_logout);
-                            }
-                            _ => {
-                                trace!("Token refresh: OIDC refresh encountered a problem.");
-                                // The refresh failed for other reasons, no need
-                                // to sign out.
-                            }
-                        };
-                        return Err(refresh_error.into());
-                    }
-                    _ => {
-                        trace!("Token refresh: Token refresh failed.");
-                        // This isn't necessarily correct, but matches the behaviour when
-                        // implementing OIDC.
-                        self.broadcast_unknown_token(soft_logout);
-                        return Err(refresh_error.into());
-                    }
-                }
-            } else {
-                trace!("Token refresh: Refresh succeeded, retrying request.");
-                return Box::pin(self.send_inner(
-                    request,
-                    config,
-                    sliding_sync_proxy,
-                    Default::default(),
-                ))
-                .await;
-            }
+            send_progress: Default::default(),
+            sliding_sync_proxy_url: sliding_sync_proxy,
         }
-
-        res
     }
 
     pub(crate) async fn send_inner<Request>(
@@ -1395,6 +1293,7 @@ impl Client {
         info!("An unknown token error has been encountered.");
         _ = self
             .inner
+            .auth_ctx
             .session_change_sender
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
@@ -1970,7 +1869,7 @@ impl Client {
 
     /// Subscribes a new receiver to client SessionChange broadcasts.
     pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
-        let broadcast = &self.inner.session_change_sender;
+        let broadcast = &self.inner.auth_ctx.session_change_sender;
         broadcast.subscribe()
     }
 
@@ -2010,25 +1909,28 @@ impl Client {
     pub async fn notification_client(&self) -> Result<Client> {
         let client = Client {
             inner: Arc::new(ClientInner::new(
+                self.inner.auth_ctx.clone(),
                 self.inner.homeserver.read().await.clone(),
-                self.inner.authentication_server_info.clone(),
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.inner.sliding_sync_proxy.read().unwrap().clone(),
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
-                self.inner.handle_refresh_tokens,
-                self.inner.session_change_sender.clone(),
-                self.inner.auth_data.clone(),
                 #[cfg(feature = "experimental-oidc")]
                 self.inner.oidc_context.clone(),
             )),
         };
 
-        // Copy the parent's session into the child.
+        // Copy the parent's session meta into the child. This initializes the in-memory
+        // state store of the child client with `SessionMeta`, and regenerates
+        // the `OlmMachine` if needs be.
+        //
+        // Note: we don't need to do a full `restore_session`, because this would
+        // overwrite the session information shared with the parent too, and it
+        // must be initialized at most once.
         if let Some(session) = self.session() {
-            client.restore_session(session).await?;
+            client.base_client().set_session_meta(session.into_meta()).await?;
         }
 
         Ok(client)

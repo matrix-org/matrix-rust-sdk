@@ -200,7 +200,10 @@ use mas_oidc_client::{
     },
 };
 use matrix_sdk_base::{
-    crypto::{store::DynCryptoStore, CryptoStoreError},
+    crypto::{
+        store::{LockableCryptoStore, Store},
+        CryptoStoreError,
+    },
     once_cell::sync::OnceCell,
     SessionMeta,
 };
@@ -233,7 +236,6 @@ type ReloadSessionCallback = dyn Send + Sync + Fn() -> Result<SessionTokens, Str
 
 #[derive(Default)]
 pub(crate) struct OidcContext {
-    restore_session_lock: Arc<Mutex<()>>,
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
     deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
     reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
@@ -333,16 +335,12 @@ impl Oidc {
         let olm_machine_lock = self.client.olm_machine().await;
         let olm_machine =
             olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
-        let store = olm_machine.store().clone_store();
-
-        let lock = CrossProcessStoreLock::new(
-            store.clone(),
-            "oidc_session_refresh_lock".to_owned(),
-            lock_value.clone(),
-        );
+        let store = olm_machine.store();
+        let lock =
+            store.create_store_lock("oidc_session_refresh_lock".to_owned(), lock_value.clone());
 
         let manager = CrossProcessRefreshManager {
-            store,
+            store: store.clone(),
             store_lock: lock,
             known_session_hash: Arc::new(Mutex::new(None)),
         };
@@ -364,7 +362,7 @@ impl Oidc {
     ///
     /// Returns `None` if the client's registration was not restored yet.
     fn data(&self) -> Option<&OidcAuthData> {
-        match self.client.inner.auth_data.get()? {
+        match self.client.inner.auth_ctx.auth_data.get()? {
             AuthData::Oidc(data) => Some(data),
             _ => None,
         }
@@ -380,7 +378,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.
@@ -463,20 +461,18 @@ impl Oidc {
     }
 
     /// Set the current session tokens.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the `auth_data` field hasn't been set before with an OIDC
+    /// session.
     fn set_session_tokens(&self, session_tokens: SessionTokens) {
-        if let Some(auth_data) = self.client.inner.auth_data.get() {
-            let Some(data) = auth_data.as_oidc() else {
-                panic!("Cannot call OpenID Connect API after logging in with another API");
-            };
-
-            if let Some(tokens) = data.tokens.get() {
-                tokens.set_if_not_eq(session_tokens);
-            } else {
-                let _ = data.tokens.set(SharedObservable::new(session_tokens));
-            }
+        let data =
+            self.data().expect("Cannot call OpenID Connect API after logging in with another API");
+        if let Some(tokens) = data.tokens.get() {
+            tokens.set_if_not_eq(session_tokens);
         } else {
-            // Other OIDC auth data should have already been set before the session tokens.
-            unreachable!()
+            let _ = data.tokens.set(SharedObservable::new(session_tokens));
         }
     }
 
@@ -705,6 +701,7 @@ impl Oidc {
 
         self.client
             .inner
+            .auth_ctx
             .auth_data
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");
@@ -724,8 +721,6 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub async fn restore_session(&self, session: FullSession) -> Result<()> {
-        let _guard = self.ctx().restore_session_lock.lock().await;
-
         let FullSession {
             client: RegisteredClientData { credentials, metadata },
             user: UserSession { meta, tokens, issuer_info },
@@ -742,16 +737,9 @@ impl Oidc {
         self.client.base_client().set_session_meta(meta).await?;
         self.deferred_enable_cross_process_refresh_lock().await?;
 
-        // Not racy, b/o restore_session_lock
-        // TODO(bnjbvr) this is way too messy
-        if self.client.inner.auth_data.get().is_some() {
-            // Another (parent) client already restored the auth data for us; don't override
-            // it. TODO(bnjbvr) this is way too messy
-            return Ok(());
-        }
-
         self.client
             .inner
+            .auth_ctx
             .auth_data
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");
@@ -1172,7 +1160,7 @@ impl Oidc {
             lock.update_and_persist_new_session(&tokens).await?;
         }
 
-        _ = self.client.inner.session_change_sender.send(SessionChange::TokensRefreshed);
+        _ = self.client.inner.auth_ctx.session_change_sender.send(SessionChange::TokensRefreshed);
 
         Ok(())
     }
@@ -1224,7 +1212,7 @@ impl Oidc {
         }
 
         // TODO(Doug/bnjbvr) don't take the refresh_token_lock in this function?
-        let lock = client.inner.refresh_token_lock.try_lock();
+        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
 
         if let Ok(mut guard) = lock {
             let Some(session_tokens) = self.session_tokens() else {
@@ -1251,7 +1239,7 @@ impl Oidc {
                 }
             }
         } else {
-            match client.inner.refresh_token_lock.lock().await.as_ref() {
+            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(()),
                 Err(error) => Err(error.clone()),
             }
@@ -1543,8 +1531,8 @@ struct SessionHash(u64);
 
 #[derive(Clone)]
 pub(crate) struct CrossProcessRefreshManager {
-    store: Arc<DynCryptoStore>,
-    store_lock: CrossProcessStoreLock<Arc<DynCryptoStore>>,
+    store: Store,
+    store_lock: CrossProcessStoreLock<LockableCryptoStore>,
     known_session_hash: Arc<Mutex<Option<SessionHash>>>,
 }
 
@@ -1555,7 +1543,7 @@ struct CrossProcessRefreshLockGuard {
 
     _store_guard: CrossProcessStoreLockGuard,
 
-    store: Arc<DynCryptoStore>,
+    store: Store,
 
     /// Did the hash mismatch? If so, this indicates that another process may
     /// have refreshed the token in the background.
