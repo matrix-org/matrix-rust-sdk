@@ -33,6 +33,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange,
 };
 use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
+use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
@@ -454,6 +455,15 @@ impl Client {
                 .set_display_name(Some(name.as_str()))
                 .await
                 .context("Unable to set display name")?;
+            Ok(())
+        })
+    }
+
+    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
+        let client = self.inner.clone();
+        RUNTIME.block_on(async move {
+            let mime: Mime = mime_type.parse()?;
+            client.account().upload_avatar(&mime, data).await?;
             Ok(())
         })
     }
