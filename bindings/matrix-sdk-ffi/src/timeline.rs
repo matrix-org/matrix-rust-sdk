@@ -543,6 +543,10 @@ impl Message {
         self.0.in_reply_to().map(InReplyToDetails::from)
     }
 
+    pub fn is_threaded(&self) -> bool {
+        self.0.is_threaded()
+    }
+
     pub fn is_edited(&self) -> bool {
         self.0.is_edited()
     }

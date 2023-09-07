@@ -300,6 +300,7 @@ impl TimelineItemContent {
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
     pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
+    pub(in crate::timeline) threaded: bool,
     pub(in crate::timeline) edited: bool,
 }
 
@@ -329,13 +330,17 @@ impl Message {
             }
         });
 
+        let mut threaded = false;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
             message::Relation::Reply { in_reply_to } => {
                 Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
             }
-            message::Relation::Thread(thread) => thread
-                .in_reply_to
-                .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items)),
+            message::Relation::Thread(thread) => {
+                threaded = true;
+                thread
+                    .in_reply_to
+                    .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
             _ => None,
         });
 
@@ -358,7 +363,7 @@ impl Message {
             }
         };
 
-        Self { msgtype, in_reply_to, edited }
+        Self { msgtype, in_reply_to, threaded, edited }
     }
 
     /// Get the `msgtype`-specific data of this message.
@@ -376,6 +381,11 @@ impl Message {
     /// Get the event this message is replying to, if any.
     pub fn in_reply_to(&self) -> Option<&InReplyToDetails> {
         self.in_reply_to.as_ref()
+    }
+
+    /// Whether this message is part of a thread.
+    pub fn is_threaded(&self) -> bool {
+        self.threaded
     }
 
     /// Get the edit state of this message (has been edited: `true` / `false`).
@@ -400,11 +410,12 @@ impl From<Message> for RoomMessageEventContent {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, edited } = self;
+        let Self { msgtype: _, in_reply_to, threaded, edited } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
             .field("in_reply_to", in_reply_to)
+            .field("threaded", threaded)
             .field("edited", edited)
             .finish_non_exhaustive()
     }
