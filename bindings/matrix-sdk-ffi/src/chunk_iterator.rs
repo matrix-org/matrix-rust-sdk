@@ -3,28 +3,28 @@
 //! This type is not designed to work over FFI, but it can be embedded inside an
 //! `uniffi::Object` for example.
 
-use std::{cell::RefCell, cmp, mem};
+use std::{cmp, mem, sync::RwLock};
 
 pub struct ChunkIterator<T> {
-    items: RefCell<Vec<T>>,
+    items: RwLock<Vec<T>>,
 }
 
 impl<T> ChunkIterator<T> {
     pub fn new(items: Vec<T>) -> Self {
-        Self { items: RefCell::new(items) }
+        Self { items: RwLock::new(items) }
     }
 
     pub fn len(&self) -> u32 {
-        self.items.borrow().len().try_into().unwrap()
+        self.items.read().unwrap().len().try_into().unwrap()
     }
 
     pub fn next(&self, chunk_size: u32) -> Option<Vec<T>> {
-        if self.items.borrow().is_empty() {
+        if self.items.read().unwrap().is_empty() {
             None
         } else if chunk_size == 0 {
             Some(Vec::new())
         } else {
-            let mut items = self.items.borrow_mut();
+            let mut items = self.items.write().unwrap();
 
             // Compute the `chunk_size`.
             let chunk_size = cmp::min(items.len(), chunk_size.try_into().unwrap());

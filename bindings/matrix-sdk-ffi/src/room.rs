@@ -182,7 +182,9 @@ impl Room {
             .clone()
             .context("Timeline not set up, can't fetch members")?;
 
-        Ok(timeline.fetch_members().await)
+        timeline.fetch_members().await;
+
+        Ok(())
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {
