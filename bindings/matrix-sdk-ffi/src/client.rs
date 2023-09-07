@@ -144,20 +144,6 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
-#[derive(Clone, uniffi::Object)]
-pub struct CrossProcessRefreshLockCtx {
-    pub process_id: String,
-    pub session_delegate: Arc<dyn ClientSessionDelegate>,
-}
-
-#[uniffi::export]
-impl CrossProcessRefreshLockCtx {
-    #[uniffi::constructor]
-    fn new(process_id: String, session_delegate: Box<dyn ClientSessionDelegate>) -> Arc<Self> {
-        Arc::new(Self { process_id, session_delegate: session_delegate.into() })
-    }
-}
-
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: MatrixClient,
@@ -170,8 +156,15 @@ pub struct Client {
 impl Client {
     pub fn new(
         sdk_client: MatrixClient,
-        cross_process_refresh_lock_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
+        cross_process_refresh_lock_id: Option<String>,
+        session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     ) -> Result<Arc<Self>, ClientError> {
+        if cross_process_refresh_lock_id.is_some() && session_delegate.is_none() {
+            return Err(ClientError::Generic {
+                msg: "can't have a cross-process refresh lock without session delegates".to_owned(),
+            });
+        }
+
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -184,9 +177,6 @@ impl Client {
                 debug!("received to-device message, but verification controller isn't ready");
             }
         });
-
-        let session_delegate =
-            cross_process_refresh_lock_ctx.as_ref().map(|ctx| ctx.session_delegate.clone());
 
         let client = Arc::new(Client {
             inner: sdk_client,
@@ -210,12 +200,13 @@ impl Client {
             }
         });
 
-        if let Some(ctx) = cross_process_refresh_lock_ctx {
+        if let Some(process_id) = cross_process_refresh_lock_id {
             RUNTIME.block_on(async {
                 let oidc = client.inner.oidc();
 
-                oidc.enable_cross_process_refresh_lock(
-                    ctx.process_id.clone(),
+                oidc.enable_cross_process_refresh_lock(process_id.clone()).await?;
+
+                oidc.set_callbacks(
                     {
                         let client = client.clone();
                         Box::new(move || client.retrieve_session())
@@ -228,7 +219,6 @@ impl Client {
                         })
                     },
                 )
-                .await
             })?;
         }
 

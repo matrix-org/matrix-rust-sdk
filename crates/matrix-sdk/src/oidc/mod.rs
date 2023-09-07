@@ -281,13 +281,30 @@ impl Oidc {
         &self.client.inner.oidc_context
     }
 
+    /// Sets the save/restore callbacks for OIDC.
+    pub fn set_callbacks(
+        &self,
+        reload_session_callback: Box<ReloadSessionCallback>,
+        save_session_callback: Box<SaveSessionCallback>,
+    ) -> Result<(), OidcError> {
+        self.ctx()
+            .reload_session_callback
+            .set(reload_session_callback)
+            .map_err(|_| OidcError::DuplicateCallbacks)?;
+
+        self.ctx()
+            .save_session_callback
+            .set(save_session_callback)
+            .map_err(|_| OidcError::DuplicateCallbacks)?;
+
+        Ok(())
+    }
+
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes accross different processes.
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
-        reload_session_callback: Box<ReloadSessionCallback>,
-        save_session_callback: Box<SaveSessionCallback>,
     ) -> Result<(), OidcError> {
         // FIXME: it must be deferred only because we're using the crypto store and it's
         // initialized only in `set_session_meta`, not if we use a dedicated
@@ -297,16 +314,6 @@ impl Oidc {
             return Err(CrossProcessRefreshLockError::DuplicatedLock.into());
         }
         *lock = Some(lock_value);
-
-        self.ctx()
-            .reload_session_callback
-            .set(reload_session_callback)
-            .map_err(|_| CrossProcessRefreshLockError::DuplicatedLock)?;
-
-        self.ctx()
-            .save_session_callback
-            .set(save_session_callback)
-            .map_err(|_| CrossProcessRefreshLockError::DuplicatedLock)?;
 
         Ok(())
     }
@@ -1143,20 +1150,16 @@ impl Oidc {
 
         self.set_session_tokens(tokens.clone());
 
-        if let Some(mut lock) = lock {
-            let save_session_callback = &self
-                .ctx()
-                .save_session_callback
-                .get()
-                .ok_or(CrossProcessRefreshLockError::MissingLock)?;
-
+        if let Some(save_session_callback) = self.ctx().save_session_callback.get() {
             // Satisfies the save_session_callback invariant: set_session_tokens has been
             // called just above.
             if let Err(err) = save_session_callback().await {
                 // TODO promote to actual error bubbling up?
                 tracing::error!("error when saving session after refresh: {err}");
             }
+        }
 
+        if let Some(mut lock) = lock {
             lock.update_and_persist_new_session(&tokens).await?;
         }
 
@@ -1510,6 +1513,10 @@ pub enum OidcError {
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
 
+    /// Oidc callbacks have been set multiple times.
+    #[error("oidc callbacks have been set multiple times")]
+    DuplicateCallbacks,
+
     /// An unknown error occurred.
     #[error("unknown error")]
     UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -1747,17 +1754,15 @@ mod tests {
             latest_id_token: None,
         };
 
-        client
-            .oidc()
-            .enable_cross_process_refresh_lock(
-                "test".to_owned(),
-                Box::new({
-                    let tokens = tokens.clone();
-                    move || Ok(tokens.clone())
-                }),
-                Box::new(|| panic!("save_session_callback shouldn't be called here")),
-            )
-            .await?;
+        client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
+
+        client.oidc().set_callbacks(
+            Box::new({
+                let tokens = tokens.clone();
+                move || Ok(tokens.clone())
+            }),
+            Box::new(|| panic!("save_session_callback shouldn't be called here")),
+        )?;
 
         let session_hash = compute_session_hash(&tokens);
         client.oidc().restore_session(fake_session(tokens.clone())).await?;

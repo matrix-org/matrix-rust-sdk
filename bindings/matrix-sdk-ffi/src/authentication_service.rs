@@ -31,7 +31,7 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client::CrossProcessRefreshLockCtx, client_builder::UrlScheme, error::ClientError};
+use crate::{client::ClientSessionDelegate, client_builder::UrlScheme, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -42,7 +42,8 @@ pub struct AuthenticationService {
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
-    cross_process_refresh_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
+    cross_process_refresh_lock_id: Option<String>,
+    session_delegates: Option<Arc<dyn ClientSessionDelegate>>,
 }
 
 impl Drop for AuthenticationService {
@@ -238,7 +239,8 @@ impl AuthenticationService {
         user_agent: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
-        cross_process_refresh_ctx: Option<Arc<CrossProcessRefreshLockCtx>>,
+        session_delegates: Option<Box<dyn ClientSessionDelegate>>,
+        cross_process_refresh_lock_id: Option<String>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
@@ -248,7 +250,8 @@ impl AuthenticationService {
             homeserver_details: RwLock::new(None),
             oidc_configuration,
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
-            cross_process_refresh_ctx,
+            session_delegates: session_delegates.map(Into::into),
+            cross_process_refresh_lock_id,
         })
     }
 
@@ -610,8 +613,16 @@ impl AuthenticationService {
             .sliding_sync_proxy(sliding_sync_proxy)
             .username(user_id.to_string());
 
-        if let Some(ctx) = self.cross_process_refresh_ctx.clone() {
-            client = client.enable_cross_process_refresh_lock(ctx);
+        if let Some(id) = &self.cross_process_refresh_lock_id {
+            let Some(ref session_delegates) = self.session_delegates else {
+                return Err(AuthenticationError::OidcError {
+                    message: "cross-process refresh lock requires session delegates".to_owned(),
+                });
+            };
+            client = client
+                .enable_cross_process_refresh_lock_inner(id.clone(), session_delegates.clone());
+        } else if let Some(ref session_delegates) = self.session_delegates {
+            client = client.set_session_delegates_inner(session_delegates.clone());
         }
 
         let client = client.build_inner()?;
