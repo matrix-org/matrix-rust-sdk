@@ -115,6 +115,8 @@ pub struct OidcConfiguration {
     pub tos_uri: Option<String>,
     /// A URI that contains the client's privacy policy.
     pub policy_uri: Option<String>,
+    /// An array of e-mail addresses of people responsible for this client.
+    pub contacts: Option<Vec<String>>,
 
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
@@ -562,6 +564,7 @@ impl AuthenticationService {
         let logo_uri = configuration.logo_uri.localized_url()?;
         let policy_uri = configuration.policy_uri.localized_url()?;
         let tos_uri = configuration.tos_uri.localized_url()?;
+        let contacts = configuration.contacts.clone();
 
         ClientMetadata {
             application_type: Some(ApplicationType::Native),
@@ -571,7 +574,7 @@ impl AuthenticationService {
             token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
             // The server should display the following fields when getting the user's consent.
             client_name,
-            contacts: None,
+            contacts,
             client_uri,
             logo_uri,
             policy_uri,
