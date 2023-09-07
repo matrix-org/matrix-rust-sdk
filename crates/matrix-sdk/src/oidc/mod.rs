@@ -204,7 +204,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::{spawn, sync::Mutex};
 use tracing::{trace, warn};
 use url::Url;
 
@@ -1071,60 +1071,84 @@ impl Oidc {
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
 
         let jwks = self.fetch_jwks(provider_metadata.jwks_uri()).await?;
-        let id_token_verification_data = JwtVerificationData {
-            issuer: provider_metadata.issuer(),
-            jwks: &jwks,
-            client_id: &data.credentials.client_id().to_owned(),
-            signing_algorithm: data.metadata.id_token_signed_response_alg(),
-        };
 
         tracing::trace!(
             "Token refresh: attempting to refresh with refresh_token {}",
             hash(&refresh_token)
         );
 
-        let (response, _id_token) = refresh_access_token(
-            &self.http_service(),
-            data.credentials.clone(),
-            provider_metadata.token_endpoint(),
-            refresh_token.clone(),
-            None,
-            Some(id_token_verification_data),
-            latest_id_token.as_ref(),
-            Utc::now(),
-            &mut rng()?,
-        )
-        .await
-        .map_err(OidcError::from)?;
+        // Do not interrupt refresh access token requests and processing, by detaching
+        // the request sending and response processing.
 
-        tracing::trace!(
-            "Token refresh: new refresh_token: {:?} / access_token: {}",
-            response.refresh_token.as_ref().map(hash),
-            hash(&response.access_token)
-        );
+        let this = self.clone();
+        let credentials = data.credentials.clone();
+        let signing_algorithm = data.metadata.id_token_signed_response_alg().clone();
 
-        let tokens = SessionTokens {
-            access_token: response.access_token,
-            refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
-            latest_id_token,
-        };
+        spawn(async move {
+            let id_token_verification_data = JwtVerificationData {
+                issuer: provider_metadata.issuer(),
+                jwks: &jwks,
+                client_id: &credentials.client_id().to_owned(),
+                signing_algorithm: &signing_algorithm,
+            };
 
-        self.set_session_tokens(tokens.clone());
+            match refresh_access_token(
+                &this.http_service(),
+                credentials,
+                provider_metadata.token_endpoint(),
+                refresh_token.clone(),
+                None,
+                Some(id_token_verification_data),
+                latest_id_token.as_ref(),
+                Utc::now(),
+                &mut rng()?,
+            )
+            .await
+            .map_err(OidcError::from)
+            {
+                Ok((response, _id_token)) => {
+                    tracing::trace!(
+                        "Token refresh: new refresh_token: {:?} / access_token: {}",
+                        response.refresh_token.as_ref().map(hash),
+                        hash(&response.access_token)
+                    );
 
-        // Call the save_session_callback if set, while the optional lock is being held.
-        if let Some(save_session_callback) = self.ctx().save_session_callback.get() {
-            // Satisfies the save_session_callback invariant: set_session_tokens has been
-            // called just above.
-            if let Err(err) = save_session_callback().await {
-                tracing::error!("error when saving session after refresh: {err}");
+                    let tokens = SessionTokens {
+                        access_token: response.access_token,
+                        refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
+                        latest_id_token,
+                    };
+
+                    this.set_session_tokens(tokens.clone());
+
+                    // Call the save_session_callback if set, while the optional lock is being held.
+                    if let Some(save_session_callback) = this.ctx().save_session_callback.get() {
+                        // Satisfies the save_session_callback invariant: set_session_tokens has
+                        // been called just above.
+                        if let Err(err) = save_session_callback().await {
+                            tracing::error!("error when saving session after refresh: {err}");
+                        }
+                    }
+
+                    if let Some(mut lock) = lock {
+                        lock.save_in_memory_and_db(&tokens).await?;
+                    }
+
+                    _ = this
+                        .client
+                        .inner
+                        .auth_ctx
+                        .session_change_sender
+                        .send(SessionChange::TokensRefreshed);
+
+                    Ok(())
+                }
+
+                Err(err) => Err(OidcError::from(err)),
             }
-        }
-
-        if let Some(mut lock) = lock {
-            lock.save_in_memory_and_db(&tokens).await?;
-        }
-
-        _ = self.client.inner.auth_ctx.session_change_sender.send(SessionChange::TokensRefreshed);
+        })
+        .await
+        .expect("joining")?;
 
         Ok(())
     }

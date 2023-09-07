@@ -175,8 +175,10 @@ impl CrossProcessRefreshLockGuard {
         tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
-        self.save_in_database(hash).await?;
+        // Note: fallible operation at the end, so the in-memory value at least is up to
+        // date.
         self.save_in_memory(hash);
+        self.save_in_database(hash).await?;
         Ok(())
     }
 
