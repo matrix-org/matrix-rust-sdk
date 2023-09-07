@@ -14,7 +14,7 @@
 
 use std::{
     collections::HashMap,
-    fmt, fs,
+    fs,
     fs::File,
     io::{BufReader, BufWriter},
     path::PathBuf,
@@ -30,25 +30,17 @@ use url::Url;
 pub enum OidcRegistrationsError {
     #[error("Failed to use the supplied base path.")]
     InvalidBasePath,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RegistrationDataError {
     #[error("Failed to load registrations file: {message}")]
     LoadFailure { message: String },
-    #[error("Metadata hash mismatch, clearing registrations")]
+    #[error("Metadata mismatch, ignoring any stored registrations.")]
     MetadataMismatch,
+    #[error("Failed to save the registration data {message}.")]
+    SaveFailure { message: String },
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ClientId(pub String);
-
-impl fmt::Display for ClientId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// The data needed to restore an OpenID Connect session.
 #[derive(Debug)]
@@ -137,7 +129,7 @@ impl OidcRegistrations {
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
         let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data: {}", e);
+            tracing::warn!("Generating new registration data ({e})");
             self.new_registration_data()
         });
         data.dynamic_registrations.extend(self.static_registrations.clone());
@@ -152,34 +144,36 @@ impl OidcRegistrations {
         issuer: Url,
     ) -> Result<(), OidcRegistrationsError> {
         let mut data = self.read_registration_data().unwrap_or_else(|e| {
-            tracing::warn!("Generating new registration data: {}", e);
+            tracing::warn!("Generating new registration data ({e})");
             self.new_registration_data()
         });
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
-            File::create(&self.file_path).map_err(|_| OidcRegistrationsError::InvalidBasePath)?,
+            File::create(&self.file_path)
+                .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })?,
         );
-        serde_json::to_writer(writer, &data).map_err(|_| OidcRegistrationsError::InvalidBasePath)
+        serde_json::to_writer(writer, &data)
+            .map_err(|e| OidcRegistrationsError::SaveFailure { message: e.to_string() })
     }
 
     /// Returns the underlying registration data.
-    fn read_registration_data(&self) -> Result<FrozenRegistrationData, RegistrationDataError> {
+    fn read_registration_data(&self) -> Result<FrozenRegistrationData, OidcRegistrationsError> {
         let reader = File::open(&self.file_path)
             .map(BufReader::new)
-            .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
 
         let registration_data =
             serde_json::from_reader::<_, UnvalidatedRegistrationData>(reader)
-                .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+                .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
 
         let registration_data = registration_data
             .validate()
-            .map_err(|e| RegistrationDataError::LoadFailure { message: e.to_string() })?;
+            .map_err(|e| OidcRegistrationsError::LoadFailure { message: e.to_string() })?;
 
         if registration_data.metadata != self.verified_metadata {
-            tracing::warn!("Metadata mismatch, clearing registrations");
-            return Err(RegistrationDataError::MetadataMismatch);
+            tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
+            return Err(OidcRegistrationsError::MetadataMismatch);
         }
 
         Ok(registration_data)

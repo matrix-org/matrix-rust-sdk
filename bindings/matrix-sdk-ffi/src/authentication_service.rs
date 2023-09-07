@@ -93,6 +93,7 @@ impl From<OidcRegistrationsError> for AuthenticationError {
     fn from(e: OidcRegistrationsError) -> AuthenticationError {
         match e {
             OidcRegistrationsError::InvalidBasePath => AuthenticationError::InvalidBasePath,
+            _ => AuthenticationError::OidcError { message: e.to_string() },
         }
     }
 }
@@ -486,7 +487,7 @@ impl AuthenticationService {
         };
 
         let client_data = RegisteredClientData {
-            credentials: ClientCredentials::None { client_id: client_id.to_string() },
+            credentials: ClientCredentials::None { client_id: client_id.0 },
             metadata: oidc_metadata,
         };
 
