@@ -1182,26 +1182,7 @@ impl Oidc {
     pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         let client = &self.client;
 
-        let cross_process_guard =
-            if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
-                let mut cross_process_guard = manager
-                    .spin_lock()
-                    .await
-                    .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
-
-                if cross_process_guard.hash_mismatch {
-                    self.handle_session_hash_mismatch(&mut cross_process_guard)
-                        .await
-                        .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
-                    // Optimistic exit: assume that the underlying process did update fast enough.
-                    // In the worst case, we'll do another refresh Soon™.
-                    return Ok(());
-                }
-
-                Some(cross_process_guard)
-            } else {
-                None
-            };
+        let refresh_status_lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
 
         macro_rules! fail {
             ($lock:expr, $err:expr) => {
@@ -1211,37 +1192,64 @@ impl Oidc {
             };
         }
 
-        // TODO(Doug/bnjbvr) don't take the refresh_token_lock in this function?
-        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
-
-        if let Ok(mut guard) = lock {
-            let Some(session_tokens) = self.session_tokens() else {
-                fail!(guard, RefreshTokenError::RefreshTokenRequired);
-            };
-            let Some(refresh_token) = session_tokens.refresh_token else {
-                fail!(guard, RefreshTokenError::RefreshTokenRequired);
-            };
-
-            match self
-                .refresh_access_token_inner(
-                    refresh_token,
-                    session_tokens.latest_id_token,
-                    cross_process_guard,
-                )
-                .await
-            {
-                Ok(()) => {
-                    *guard = Ok(());
-                    Ok(())
-                }
-                Err(error) => {
-                    fail!(guard, RefreshTokenError::Oidc(error.into()));
-                }
-            }
-        } else {
-            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
+        let Ok(mut refresh_status_guard) = refresh_status_lock else {
+            // There's already a request to refresh happening on the same thread. Wait for it to
+            // finish.
+            return match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
                 Ok(_) => Ok(()),
                 Err(error) => Err(error.clone()),
+            };
+        };
+
+        let cross_process_guard =
+            if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
+                let mut cross_process_guard = match manager
+                    .spin_lock()
+                    .await
+                    .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))
+                {
+                    Ok(guard) => guard,
+                    Err(err) => {
+                        fail!(refresh_status_guard, err);
+                    }
+                };
+
+                if cross_process_guard.hash_mismatch {
+                    self.handle_session_hash_mismatch(&mut cross_process_guard)
+                        .await
+                        .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
+                    // Optimistic exit: assume that the underlying process did update fast enough.
+                    // In the worst case, we'll do another refresh Soon™.
+                    *refresh_status_guard = Ok(());
+                    return Ok(());
+                }
+
+                Some(cross_process_guard)
+            } else {
+                None
+            };
+
+        let Some(session_tokens) = self.session_tokens() else {
+            fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
+        };
+        let Some(refresh_token) = session_tokens.refresh_token else {
+            fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
+        };
+
+        match self
+            .refresh_access_token_inner(
+                refresh_token,
+                session_tokens.latest_id_token,
+                cross_process_guard,
+            )
+            .await
+        {
+            Ok(()) => {
+                *refresh_status_guard = Ok(());
+                Ok(())
+            }
+            Err(error) => {
+                fail!(refresh_status_guard, RefreshTokenError::Oidc(error.into()));
             }
         }
     }
