@@ -1144,7 +1144,7 @@ impl Oidc {
                     Ok(())
                 }
 
-                Err(err) => Err(OidcError::from(err)),
+                Err(err) => Err(err),
             }
         })
         .await
