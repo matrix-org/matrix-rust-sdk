@@ -306,7 +306,7 @@ impl Oidc {
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
-    /// refreshes accross different processes.
+    /// refreshes across different processes.
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
