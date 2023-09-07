@@ -41,8 +41,7 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedUserId,
-    RoomId, RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};

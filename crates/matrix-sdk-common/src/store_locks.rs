@@ -24,8 +24,7 @@
 //! The lock is implemented using time-based leases to values inserted in a
 //! store. The store maintains the lock identifier (key), who's the
 //! current holder (value), and an expiration timestamp on the side; see also
-//! `CryptoStore::try_take_leased_lock` / `StateStore::try_take_leased_lock` for
-//! more details.
+//! `CryptoStore::try_take_leased_lock` for more details.
 //!
 //! The lock is initially acquired for a certain period of time (namely, the
 //! duration of a lease, aka `LEASE_DURATION_MS`), and then a "heartbeat" task
