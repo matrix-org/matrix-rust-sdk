@@ -142,7 +142,7 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.cross_process_refresh_lock_id = Some(process_id);
-        builder.session_delegates = Some(session_delegates.into());
+        builder.session_delegates = Some(session_delegates);
         Arc::new(builder)
     }
 
@@ -151,7 +151,7 @@ impl ClientBuilder {
         session_delegates: Arc<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_delegates = Some(session_delegates.into());
+        builder.session_delegates = Some(session_delegates);
         Arc::new(builder)
     }
 
