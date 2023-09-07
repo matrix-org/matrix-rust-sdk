@@ -1073,7 +1073,7 @@ impl Store {
     /// logged and items will be dropped.
     ///
     /// The stream will terminate once all references to the underlying
-    /// [`CryptoStoreWrapper`] are dropped.
+    /// `CryptoStoreWrapper` are dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         self.inner.store.room_keys_received_stream()
     }
@@ -1184,7 +1184,7 @@ impl Store {
     /// lower-level view on that data.
     ///
     /// The stream will terminate once all references to the underlying
-    /// [`CryptoStoreWrapper`] are dropped.
+    /// `CryptoStoreWrapper` are dropped.
     pub fn identities_stream_raw(&self) -> impl Stream<Item = (IdentityChanges, DeviceChanges)> {
         self.inner.store.identities_stream().map(|(_, identities, devices)| (identities, devices))
     }
