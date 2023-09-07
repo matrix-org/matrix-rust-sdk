@@ -32,7 +32,6 @@ use super::{Error, State};
 #[derive(Debug)]
 pub struct RoomList {
     sliding_sync_list: SlidingSyncList,
-    room_list_service_state: Subscriber<State>,
     loading_state: SharedObservable<RoomListLoadingState>,
     loading_state_task: JoinHandle<()>,
 }
@@ -58,7 +57,6 @@ impl RoomList {
 
         Ok(Self {
             sliding_sync_list: sliding_sync_list.clone(),
-            room_list_service_state: room_list_service_state.clone(),
             loading_state: loading_state.clone(),
             loading_state_task: spawn(async move {
                 pin_mut!(room_list_service_state);
@@ -103,14 +101,7 @@ impl RoomList {
     pub fn entries(
         &self,
     ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>) {
-        let (entries, entries_stream) = self.sliding_sync_list.room_list_stream();
-
-        (
-            entries,
-            // Batch the entries stream. Batch is drained every time the `room_list_service_state`
-            // is changed.
-            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
-        )
+        self.sliding_sync_list.room_list_stream()
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
@@ -122,14 +113,7 @@ impl RoomList {
     where
         F: Fn(&RoomListEntry) -> bool,
     {
-        let (entries, entries_stream) = self.sliding_sync_list.room_list_filtered_stream(filter);
-
-        (
-            entries,
-            // Batch the entries stream. Batch is drained every time the `room_list_service_state`
-            // is changed.
-            entries_stream.batch_with(self.room_list_service_state.clone().map(|_| ())),
-        )
+        self.sliding_sync_list.room_list_filtered_stream(filter)
     }
 
     /// Similar to [`Self::entries_with_static_filter`] except that it's
@@ -147,21 +131,14 @@ impl RoomList {
         let dynamic_filter = DynamicRoomListFilter::new(filter_fn_cell.clone());
 
         let list = self.sliding_sync_list.clone();
-        let room_list_service_state = self.room_list_service_state.clone();
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
 
-                yield stream::once(
-                    // Reset the stream with all its items.
-                    ready(vec![VectorDiff::Reset { values: items }]),
-                )
-                .chain(
-                    // Batch the entries stream. Batch is drained every time the
-                    // `room_list_service_state` is changed.
-                    stream.batch_with(room_list_service_state.clone().map(|_| ())),
-                )
+                // Reset the stream with all its items.
+                yield stream::once(ready(vec![VectorDiff::Reset { values: items }]))
+                    .chain(stream);
             }
         }
         .switch();
