@@ -1,5 +1,4 @@
-
 [profile.default]
-retries = 2
+retries = { backoff = "exponential", count = 3, delay = "1s", jitter = true }
 # kill the slow tests if they still aren't up after 180s
 slow-timeout = { period = "60s", terminate-after = 3 }
