@@ -3426,11 +3426,13 @@ dependencies = [
  "serde",
  "serde_json",
  "stream_assert",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "unicode-normalization",
+ "url",
  "wiremock",
 ]
 

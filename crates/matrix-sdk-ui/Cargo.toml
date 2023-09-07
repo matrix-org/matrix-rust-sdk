@@ -29,7 +29,7 @@ fuzzy-matcher = "0.3.7"
 imbl = { version = "2.0.0", features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }
-matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-sliding-sync"] }
+matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-oidc", "experimental-sliding-sync"] }
 matrix-sdk-base = { version = "0.6.1", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 mime = "0.3.16"
@@ -42,6 +42,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization = "0.1.22"
+url = "2.2.2"
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -53,4 +54,5 @@ matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = fal
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+tempfile = "3.3.0"
 wiremock = "0.5.13"

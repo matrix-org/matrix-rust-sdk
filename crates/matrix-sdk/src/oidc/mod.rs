@@ -388,8 +388,8 @@ impl Oidc {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::matrix_auth::Session) {};
-    /// # async {
+    /// # fn persist_session(_: &matrix_sdk::oidc::FullSession) {}
+    /// # _ = async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
     ///     .homeserver_url(homeserver)
@@ -400,16 +400,17 @@ impl Oidc {
     /// // Login with the OpenID Connect API…
     ///
     /// let oidc = client.oidc();
-    /// let session = oidc.session().expect("Client should be logged in");
-    /// persist_session(session);
+    /// let session = oidc.full_session().expect("Client should be logged in");
+    /// persist_session(&session);
     ///
     /// // Handle when at least one of the tokens changed.
     /// let mut tokens_stream =
     ///     oidc.session_tokens_stream().expect("Client should be logged in");
     /// loop {
     ///     if tokens_stream.next().await.is_some() {
-    ///         let session = oidc.session().expect("Client should be logged in");
-    ///         persist_session(session);
+    ///         let session =
+    ///             oidc.full_session().expect("Client should be logged in");
+    ///         persist_session(&session);
     ///     }
     /// }
     /// # anyhow::Ok(()) };
@@ -500,13 +501,15 @@ impl Oidc {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::Client;
+    /// use matrix_sdk::{Client, ServerName};
     /// use matrix_sdk::oidc::types::client_credentials::ClientCredentials;
+    /// use matrix_sdk::oidc::RegisteredClientData;
     /// # use matrix_sdk::oidc::types::registration::{ClientMetadata, VerifiedClientMetadata};
     /// # let metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &str, _: &VerifiedClientMetadata, _: &ClientCredentials) {};
-    /// # async {
-    /// let client = Client::builder().server_name("my_homeserver.org").build().await?;
+    /// # fn persist_client_registration (_: &str, _: &RegisteredClientData) {}
+    /// # _ = async {
+    /// let server_name = ServerName::parse("my_homeserver.org").unwrap();
+    /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oidc = client.oidc();
     ///
     /// if let Some(info) = oidc.authentication_server_info() {
@@ -531,7 +534,7 @@ impl Oidc {
     ///
     ///     persist_client_registration(&info.issuer, &client_data);
     /// }
-    /// # anyhow::Ok(()) }
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
@@ -663,14 +666,16 @@ impl Oidc {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{Client};
+    /// # use anyhow::anyhow;
+    /// use matrix_sdk::{Client};
+    /// # use matrix_sdk::oidc::AuthorizationResponse;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
     /// # let client_data = unimplemented!();
-    /// # async {
+    /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
     /// let oidc = client.oidc();
     ///
@@ -679,7 +684,7 @@ impl Oidc {
     ///     client_data,
     /// ).await;
     ///
-    /// let auth_data = oidc.login(redirect_uri, None).build().await?;
+    /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// // The full URL obtained is called here `redirected_to_uri`.
@@ -689,7 +694,7 @@ impl Oidc {
     /// let code = match auth_response {
     ///     AuthorizationResponse::Success(code) => code,
     ///     AuthorizationResponse::Error(error) => {
-    ///         return Err(format!("Authorization failed: {error}").into());
+    ///         return Err(anyhow!("Authorization failed: {:?}", error));
     ///     }
     /// };
     ///
