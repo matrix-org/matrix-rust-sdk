@@ -217,7 +217,7 @@ impl OidcCli {
             credentials: ClientCredentials::None { client_id: res.client_id.clone() },
             metadata,
         };
-        oidc.restore_registered_client(issuer_info, client_data).await;
+        oidc.restore_registered_client(issuer_info, client_data);
 
         println!("\nRegistered successfully");
 
