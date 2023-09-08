@@ -650,7 +650,7 @@ pub(crate) mod tests {
         ]
         .into_iter()
         .collect();
-        assert!(expected_set.difference(HashSet::from(room_ids)).is_empty());
+        assert!(expected_set.symmetric_difference(HashSet::from(room_ids)).is_empty());
 
         // Only disabled rules
         let room_ids = rules.get_rooms_with_user_defined_rules(Some(false));
@@ -674,6 +674,6 @@ pub(crate) mod tests {
         assert_eq!(room_ids.len(), 2);
         let expected_set: HashSet<String> =
             vec!["!room_a:matrix.org", "!room_d:matrix.org"].into_iter().collect();
-        assert!(expected_set.difference(HashSet::from(room_ids)).is_empty());
+        assert!(expected_set.symmetric_difference(HashSet::from(room_ids)).is_empty());
     }
 }
