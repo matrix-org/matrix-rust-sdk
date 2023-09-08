@@ -20,29 +20,7 @@ use std::{
     time::Duration,
 };
 
-pub use base64::DecodeError;
-use base64::{
-    alphabet,
-    engine::{general_purpose, GeneralPurpose},
-    Engine,
-};
 use matrix_sdk_common::instant::Instant;
-
-const STANDARD_NO_PAD: GeneralPurpose = GeneralPurpose::new(
-    &alphabet::STANDARD,
-    general_purpose::NO_PAD
-        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
-);
-
-/// Decode the input as base64 with no padding.
-pub fn base64_decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
-    STANDARD_NO_PAD.decode(input)
-}
-
-/// Encode the input as base64 with no padding.
-pub fn base64_encode(input: impl AsRef<[u8]>) -> String {
-    STANDARD_NO_PAD.encode(input)
-}
 
 #[cfg(test)]
 pub(crate) fn json_convert<T, U>(value: &T) -> serde_json::Result<U>

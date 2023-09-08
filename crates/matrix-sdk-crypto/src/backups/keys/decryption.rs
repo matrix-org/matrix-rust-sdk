@@ -44,7 +44,7 @@ pub enum DecodeError {
     Base58(#[from] bs58::decode::Error),
     /// The  recovery key isn't valid base64.
     #[error(transparent)]
-    Base64(#[from] base64::DecodeError),
+    Base64(#[from] vodozemac::Base64DecodeError),
     /// The recovery key is too short, we couldn't read enough data.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -121,7 +121,7 @@ impl BackupDecryptionKey {
 
     /// Try to create a [`BackupDecryptionKey`] from a base64 export.
     pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
-        let decoded = Zeroizing::new(crate::utilities::base64_decode(key)?);
+        let decoded = Zeroizing::new(vodozemac::base64_decode(key)?);
 
         if decoded.len() != Self::KEY_SIZE {
             Err(DecodeError::Length(Self::KEY_SIZE, decoded.len()))

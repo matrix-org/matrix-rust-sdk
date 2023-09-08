@@ -25,12 +25,10 @@ use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
+use vodozemac::{base64_decode, base64_encode};
 use zeroize::Zeroize;
 
-use crate::{
-    olm::ExportedRoomKey,
-    utilities::{base64_decode, base64_encode, DecodeError},
-};
+use crate::olm::ExportedRoomKey;
 
 type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
@@ -63,7 +61,7 @@ pub enum KeyExportError {
     Json(#[from] SerdeError),
     /// The key export string isn't valid base64.
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    Decode(#[from] vodozemac::Base64DecodeError),
     /// The key export doesn't all the required fields.
     #[error(transparent)]
     Io(#[from] std::io::Error),

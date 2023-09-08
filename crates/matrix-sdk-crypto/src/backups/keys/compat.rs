@@ -25,9 +25,7 @@ use hkdf::Hkdf;
 use hmac::{digest::MacError, Hmac, Mac as MacT};
 use sha2::Sha256;
 use thiserror::Error;
-use vodozemac::{Curve25519PublicKey, Curve25519SecretKey, KeyError, SharedSecret};
-
-use crate::utilities::base64_decode;
+use vodozemac::{base64_decode, Curve25519PublicKey, Curve25519SecretKey, KeyError, SharedSecret};
 
 type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
@@ -171,7 +169,7 @@ impl PkEncryption {
 #[derive(Debug, Error)]
 pub enum MessageDecodeError {
     #[error(transparent)]
-    Base64(#[from] base64::DecodeError),
+    Base64(#[from] vodozemac::Base64DecodeError),
     #[error(transparent)]
     Key(#[from] KeyError),
 }
@@ -214,10 +212,9 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use olm_rs::pk::{OlmPkDecryption, OlmPkEncryption, PkMessage};
-    use vodozemac::Curve25519PublicKey;
+    use vodozemac::{base64_encode, Curve25519PublicKey};
 
     use super::{Message, MessageDecodeError, PkDecryption, PkEncryption};
-    use crate::utilities::base64_encode;
 
     impl TryFrom<PkMessage> for Message {
         type Error = MessageDecodeError;
