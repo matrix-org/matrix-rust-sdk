@@ -433,7 +433,7 @@ impl AuthenticationService {
             },
             metadata: oidc_metadata,
         };
-        oidc.restore_registered_client(authentication_server, client_data).await;
+        oidc.restore_registered_client(authentication_server, client_data);
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(oidc).await?;
@@ -499,7 +499,7 @@ impl AuthenticationService {
             metadata: oidc_metadata,
         };
 
-        oidc.restore_registered_client(authentication_server.clone(), client_data).await;
+        oidc.restore_registered_client(authentication_server.clone(), client_data);
 
         true
     }
