@@ -145,6 +145,7 @@ futures-executor = { workspace = true }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+serde_urlencoded = "0.7.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
