@@ -681,7 +681,7 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_registered_client(
+    pub fn restore_registered_client(
         &self,
         issuer_info: AuthenticationServerInfo,
         client_data: RegisteredClientData,
@@ -854,7 +854,7 @@ impl Oidc {
     /// oidc.restore_registered_client(
     ///     issuer_info,
     ///     client_data,
-    /// ).await;
+    /// );
     ///
     /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
     ///
