@@ -102,6 +102,19 @@ impl HttpClient {
                     .record("status", status_code.as_u16())
                     .record("response_size", response_size.to_string_as(true));
 
+                // Record interesting headers. If you add more headers, ensure they're not
+                // confidential.
+                for (header_name, header_value) in response.headers() {
+                    let header_name = header_name.as_str().to_lowercase();
+
+                    // Header added in case of OIDC authentication failure, so we can correlate
+                    // failures with a Sentry event emitted by the OIDC authentication server.
+                    if header_name == "x-sentry-event-id" {
+                        tracing::Span::current()
+                            .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
+                    }
+                }
+
                 R::IncomingResponse::try_from_http_response(response)
                     .map_err(|e| error_type(HttpError::from(e)))
             }
