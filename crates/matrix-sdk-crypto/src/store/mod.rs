@@ -71,7 +71,7 @@ use crate::{
         ReadOnlyAccount, Session,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
-    utilities::encode,
+    utilities::base64_encode,
     verification::VerificationMachine,
     CrossSigningStatus, ReadOnlyOwnUserIdentity,
 };
@@ -339,7 +339,7 @@ impl BackupDecryptionKey {
 
     /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
-        encode(self.inner.as_slice())
+        base64_encode(self.inner.as_slice())
     }
 }
 

@@ -73,7 +73,7 @@ use crate::{
         },
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    utilities::encode,
+    utilities::base64_encode,
     CryptoStoreError, OlmError, SignatureError,
 };
 
@@ -148,7 +148,7 @@ impl OlmMessageHash {
             .chain_update(ciphertext)
             .finalize();
 
-        Self { sender_key, hash: encode(sha.as_slice()) }
+        Self { sender_key, hash: base64_encode(sha.as_slice()) }
     }
 }
 
@@ -602,7 +602,7 @@ impl ReadOnlyAccount {
     /// encoded as base64 will be used for the device ID.
     pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId = encode(account.identity_keys().curve25519.as_bytes()).into();
+        let device_id: OwnedDeviceId = base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
     }

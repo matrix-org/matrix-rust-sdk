@@ -121,7 +121,7 @@ impl BackupDecryptionKey {
 
     /// Try to create a [`BackupDecryptionKey`] from a base64 export.
     pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
-        let decoded = Zeroizing::new(crate::utilities::decode(key)?);
+        let decoded = Zeroizing::new(crate::utilities::base64_decode(key)?);
 
         if decoded.len() != Self::KEY_SIZE {
             Err(DecodeError::Length(Self::KEY_SIZE, decoded.len()))
