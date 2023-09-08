@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
@@ -161,7 +161,7 @@ impl Client {
     ) -> Result<Arc<Self>, ClientError> {
         if cross_process_refresh_lock_id.is_some() && session_delegate.is_none() {
             return Err(ClientError::Generic {
-                msg: "can't have a cross-process refresh lock without session delegates".to_owned(),
+                msg: "can't have a cross-process refresh lock without session delegate".to_owned(),
             });
         }
 
@@ -724,21 +724,16 @@ impl Client {
         }
     }
 
-    fn retrieve_session(&self) -> Result<SessionTokens, String> {
-        let Some(delegate) = self.session_delegate.as_ref() else {
-            return Err("A delegate hasn't been set.".to_owned());
-        };
+    fn retrieve_session(&self) -> anyhow::Result<SessionTokens> {
+        let delegate =
+            self.session_delegate.as_ref().context("A session delegate hasn't been set")?;
+        let user_id = self.user_id().context("No user ID found.")?;
 
-        let Ok(user_id) = self.user_id() else {
-            return Err("No user ID found.".to_owned());
-        };
-
-        let session =
-            delegate.retrieve_session_from_keychain(user_id).map_err(|e| e.to_string())?;
-        let auth_session = TryInto::<AuthSession>::try_into(session).map_err(|e| e.to_string())?;
+        let session = delegate.retrieve_session_from_keychain(user_id)?;
+        let auth_session = TryInto::<AuthSession>::try_into(session)?;
         match auth_session {
             AuthSession::Oidc(session) => Ok(session.user.tokens),
-            _ => Err("Unexpected session kind.".to_owned()),
+            _ => anyhow::bail!("Unexpected session kind."),
         }
     }
 
@@ -751,11 +746,9 @@ impl Client {
         Session::new(auth_api, homeserver_url, sliding_sync_proxy)
     }
 
-    async fn save_session(&self) -> Result<(), String> {
-        let Some(delegate) = self.session_delegate.as_ref() else {
-            return Err("A delegate hasn't been set.".to_owned());
-        };
-        let session = self.session_inner().await.map_err(|err| err.to_string())?;
+    async fn save_session(&self) -> anyhow::Result<()> {
+        let delegate = self.session_delegate.as_ref().context("A delegate hasn't been set")?;
+        let session = self.session_inner().await?;
         delegate.save_session_in_keychain(session);
         Ok(())
     }

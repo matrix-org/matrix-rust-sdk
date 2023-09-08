@@ -223,8 +223,8 @@ pub use self::{
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
 type SaveSessionCallback =
-    dyn Send + Sync + Fn() -> Pin<Box<dyn Send + Sync + Future<Output = Result<(), String>>>>;
-type ReloadSessionCallback = dyn Send + Sync + Fn() -> Result<SessionTokens, String>;
+    dyn Send + Sync + Fn() -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>>;
+type ReloadSessionCallback = dyn Send + Sync + Fn() -> anyhow::Result<SessionTokens>;
 
 #[derive(Default)]
 pub(crate) struct OidcContext {

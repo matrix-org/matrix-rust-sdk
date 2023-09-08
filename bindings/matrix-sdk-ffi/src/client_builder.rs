@@ -35,7 +35,7 @@ pub struct ClientBuilder {
     disable_automatic_token_refresh: bool,
     inner: MatrixClientBuilder,
     cross_process_refresh_lock_id: Option<String>,
-    session_delegates: Option<Arc<dyn ClientSessionDelegate>>,
+    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
 }
 
 #[uniffi::export]
@@ -48,17 +48,17 @@ impl ClientBuilder {
     pub fn enable_cross_process_refresh_lock(
         self: Arc<Self>,
         process_id: String,
-        session_delegates: Box<dyn ClientSessionDelegate>,
+        session_delegate: Box<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
-        self.enable_cross_process_refresh_lock_inner(process_id, session_delegates.into())
+        self.enable_cross_process_refresh_lock_inner(process_id, session_delegate.into())
     }
 
-    pub fn set_session_delegates(
+    pub fn set_session_delegate(
         self: Arc<Self>,
-        session_delegates: Box<dyn ClientSessionDelegate>,
+        session_delegate: Box<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_delegates = Some(session_delegates.into());
+        builder.session_delegate = Some(session_delegate.into());
         Arc::new(builder)
     }
 
@@ -138,20 +138,20 @@ impl ClientBuilder {
     pub(crate) fn enable_cross_process_refresh_lock_inner(
         self: Arc<Self>,
         process_id: String,
-        session_delegates: Arc<dyn ClientSessionDelegate>,
+        session_delegate: Arc<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.cross_process_refresh_lock_id = Some(process_id);
-        builder.session_delegates = Some(session_delegates);
+        builder.session_delegate = Some(session_delegate);
         Arc::new(builder)
     }
 
-    pub(crate) fn set_session_delegates_inner(
+    pub(crate) fn set_session_delegate_inner(
         self: Arc<Self>,
-        session_delegates: Arc<dyn ClientSessionDelegate>,
+        session_delegate: Arc<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_delegates = Some(session_delegates);
+        builder.session_delegate = Some(session_delegate);
         Arc::new(builder)
     }
 
@@ -242,7 +242,7 @@ impl ClientBuilder {
         Ok(Client::new(
             sdk_client,
             builder.cross_process_refresh_lock_id,
-            builder.session_delegates,
+            builder.session_delegate,
         )?)
     }
 }
@@ -263,7 +263,7 @@ impl Default for ClientBuilder {
             disable_automatic_token_refresh: false,
             inner: MatrixClient::builder(),
             cross_process_refresh_lock_id: None,
-            session_delegates: None,
+            session_delegate: None,
         }
     }
 }
