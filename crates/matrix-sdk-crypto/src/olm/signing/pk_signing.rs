@@ -16,7 +16,7 @@ use ruma::{encryption::KeyUsage, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
 use thiserror::Error;
-use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
+use vodozemac::{DecodeError, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 use zeroize::Zeroize;
 
 use crate::{
@@ -26,7 +26,6 @@ use crate::{
         CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, Signatures, SigningKeys,
         UserSigningPubkey,
     },
-    utilities::DecodeError,
     ReadOnlyUserIdentity,
 };
 

@@ -21,7 +21,6 @@ use aes::{
     cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
     Aes256,
 };
-use base64::DecodeError;
 use rand::{thread_rng, RngCore};
 use ruma::{
     events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
@@ -83,7 +82,7 @@ pub enum DecryptorError {
     /// Some data in the encrypted attachment coldn't be decoded, this may be a
     /// hash, the secret key, or the initialization vector.
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    Decode(#[from] vodozemac::Base64DecodeError),
     /// A hash is missing from the encryption info.
     #[error("The encryption info is missing a hash")]
     MissingHash,

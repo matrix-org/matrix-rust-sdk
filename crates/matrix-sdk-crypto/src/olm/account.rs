@@ -44,6 +44,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
 use vodozemac::{
+    base64_encode,
     olm::{
         Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage,
         OneTimeKeyGenerationResult, PreKeyMessage, SessionConfig,
@@ -73,7 +74,6 @@ use crate::{
         },
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    utilities::base64_encode,
     CryptoStoreError, OlmError, SignatureError,
 };
 
@@ -602,7 +602,8 @@ impl ReadOnlyAccount {
     /// encoded as base64 will be used for the device ID.
     pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId = base64_encode(account.identity_keys().curve25519.as_bytes()).into();
+        let device_id: OwnedDeviceId =
+            base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
     }

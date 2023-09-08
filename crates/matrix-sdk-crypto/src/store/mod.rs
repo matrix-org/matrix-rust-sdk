@@ -58,7 +58,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
 use crate::{
@@ -71,7 +71,6 @@ use crate::{
         ReadOnlyAccount, Session,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
-    utilities::base64_encode,
     verification::VerificationMachine,
     CrossSigningStatus, ReadOnlyOwnUserIdentity,
 };

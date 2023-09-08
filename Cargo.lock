@@ -3150,7 +3150,6 @@ dependencies = [
  "async-std",
  "async-trait",
  "atomic",
- "base64 0.21.2",
  "bs58",
  "byteorder",
  "cbc",
@@ -6431,7 +6430,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.4.0"
-source = "git+https://github.com/matrix-org/vodozemac/?rev=e3b658526f6f1dd0a9065c1c96346b796712c425#e3b658526f6f1dd0a9065c1c96346b796712c425"
+source = "git+https://github.com/matrix-org/vodozemac/?rev=23098d391d9a91db7d72a0ce19e69559b4340b13#23098d391d9a91db7d72a0ce19e69559b4340b13"
 dependencies = [
  "aes",
  "arrayvec",
