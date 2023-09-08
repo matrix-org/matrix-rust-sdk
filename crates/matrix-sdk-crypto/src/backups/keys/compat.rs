@@ -27,7 +27,7 @@ use sha2::Sha256;
 use thiserror::Error;
 use vodozemac::{Curve25519PublicKey, Curve25519SecretKey, KeyError, SharedSecret};
 
-use crate::utilities::decode;
+use crate::utilities::base64_decode;
 
 type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
@@ -190,8 +190,8 @@ impl Message {
         ephemeral_key: &str,
     ) -> Result<Self, MessageDecodeError> {
         Ok(Self {
-            ciphertext: decode(ciphertext)?,
-            mac: decode(mac)?,
+            ciphertext: base64_decode(ciphertext)?,
+            mac: base64_decode(mac)?,
             ephemeral_key: Curve25519PublicKey::from_base64(ephemeral_key)?,
         })
     }
@@ -217,7 +217,7 @@ mod tests {
     use vodozemac::Curve25519PublicKey;
 
     use super::{Message, MessageDecodeError, PkDecryption, PkEncryption};
-    use crate::utilities::encode;
+    use crate::utilities::base64_encode;
 
     impl TryFrom<PkMessage> for Message {
         type Error = MessageDecodeError;
@@ -230,8 +230,8 @@ mod tests {
     impl From<Message> for PkMessage {
         fn from(val: Message) -> Self {
             PkMessage {
-                ciphertext: encode(val.ciphertext),
-                mac: encode(val.mac),
+                ciphertext: base64_encode(val.ciphertext),
+                mac: base64_encode(val.mac),
                 ephemeral_key: val.ephemeral_key.to_base64(),
             }
         }

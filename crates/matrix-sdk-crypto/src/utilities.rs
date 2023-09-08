@@ -35,12 +35,12 @@ const STANDARD_NO_PAD: GeneralPurpose = GeneralPurpose::new(
 );
 
 /// Decode the input as base64 with no padding.
-pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
+pub fn base64_decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
     STANDARD_NO_PAD.decode(input)
 }
 
 /// Encode the input as base64 with no padding.
-pub fn encode(input: impl AsRef<[u8]>) -> String {
+pub fn base64_encode(input: impl AsRef<[u8]>) -> String {
     STANDARD_NO_PAD.encode(input)
 }
 

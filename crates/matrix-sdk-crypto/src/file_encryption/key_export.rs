@@ -29,7 +29,7 @@ use zeroize::Zeroize;
 
 use crate::{
     olm::ExportedRoomKey,
-    utilities::{decode, encode, DecodeError},
+    utilities::{base64_decode, base64_encode, DecodeError},
 };
 
 type Aes256Ctr = ctr::Ctr128BE<Aes256>;
@@ -199,11 +199,11 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
 
     derived_keys.zeroize();
 
-    encode(payload)
+    base64_encode(payload)
 }
 
 fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExportError> {
-    let decoded = decode(ciphertext)?;
+    let decoded = base64_decode(ciphertext)?;
 
     let mut decoded = Cursor::new(decoded);
 
@@ -284,7 +284,8 @@ mod tests {
     use ruma::{room_id, user_id};
 
     use super::{
-        decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
+        base64_decode, decrypt_helper, decrypt_room_key_export, encrypt_helper,
+        encrypt_room_key_export,
     };
     use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
@@ -314,7 +315,7 @@ mod tests {
     #[test]
     fn test_decode() {
         let export = export_without_headers();
-        decode(export).unwrap();
+        base64_decode(export).unwrap();
     }
 
     #[test]
