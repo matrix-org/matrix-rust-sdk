@@ -222,8 +222,10 @@ pub use self::{
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
-#[derive(Default)]
 pub(crate) struct OidcContext {
+    /// The authentication server info discovered from the homeserver.
+    authentication_server_info: Option<AuthenticationServerInfo>,
+
     /// Lock and state when multiple processes may refresh an OIDC session.
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
 
@@ -232,6 +234,16 @@ pub(crate) struct OidcContext {
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
     deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+}
+
+impl OidcContext {
+    pub(crate) fn new(authentication_server_info: Option<AuthenticationServerInfo>) -> Self {
+        Self {
+            authentication_server_info,
+            cross_process_token_refresh_manager: Default::default(),
+            deferred_cross_process_lock_init: Default::default(),
+        }
+    }
 }
 
 pub(crate) struct OidcAuthData {
@@ -351,7 +363,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.auth_ctx.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.oidc_context.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.

@@ -370,6 +370,7 @@ impl ClientBuilder {
 
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
+        #[cfg(feature = "experimental-oidc")]
         let mut authentication_server_info = None;
 
         #[cfg(feature = "experimental-sliding-sync")]
@@ -407,7 +408,10 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
-                authentication_server_info = well_known.authentication;
+                #[cfg(feature = "experimental-oidc")]
+                {
+                    authentication_server_info = well_known.authentication;
+                }
 
                 #[cfg(feature = "experimental-sliding-sync")]
                 if let Some(proxy) = well_known.sliding_sync_proxy.map(|p| p.url) {
@@ -426,7 +430,6 @@ impl ClientBuilder {
         let homeserver = Url::parse(&homeserver)?;
 
         let auth_ctx = Arc::new(AuthCtx {
-            authentication_server_info,
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
@@ -434,7 +437,7 @@ impl ClientBuilder {
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc_context: OidcContext::default(),
+            oidc_context: OidcContext::new(authentication_server_info),
         });
 
         let inner = Arc::new(ClientInner::new(
