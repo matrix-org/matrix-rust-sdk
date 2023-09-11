@@ -14,20 +14,24 @@
 
 use std::{
     collections::HashMap,
-    mem::ManuallyDrop,
+    future::Future,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
+use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoom};
+#[cfg(test)]
+use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptType},
         relation::Annotation,
         room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
@@ -35,7 +39,7 @@ use ruma::{
 };
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{ReactionState, TimelineInnerSettings};
+use super::{HandleManyEventsResult, ReactionState, TimelineInnerSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
@@ -71,6 +75,122 @@ impl TimelineInnerState {
         }
     }
 
+    #[tracing::instrument(skip_all)]
+    pub(super) async fn add_initial_events<P: RoomDataProvider>(
+        &mut self,
+        events: Vector<SyncTimelineEvent>,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
+        debug!("Adding {} initial events", events.len());
+
+        let mut txn = self.transaction();
+        for event in events {
+            txn.handle_remote_event(
+                event,
+                TimelineItemPosition::End { from_cache: true },
+                room_data_provider,
+                settings,
+            )
+            .await;
+        }
+        txn.commit();
+    }
+
+    pub(super) async fn handle_sync_timeline<P: RoomDataProvider>(
+        &mut self,
+        timeline: Timeline,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
+        let mut txn = self.transaction();
+        txn.handle_sync_timeline(timeline, room_data_provider, settings).await;
+        txn.commit();
+    }
+
+    #[instrument(skip_all)]
+    pub(super) async fn handle_joined_room_update<P: RoomDataProvider>(
+        &mut self,
+        update: JoinedRoom,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
+        let mut txn = self.transaction();
+        txn.handle_sync_timeline(update.timeline, room_data_provider, settings).await;
+
+        trace!("Handling account data");
+        for raw_event in update.account_data {
+            match raw_event.deserialize() {
+                Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
+                    txn.set_fully_read_event(ev.content.event_id);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Failed to deserialize account data: {e}");
+                }
+            }
+        }
+
+        if !update.ephemeral.is_empty() {
+            trace!("Handling ephemeral room events");
+            let own_user_id = room_data_provider.own_user_id();
+            for raw_event in update.ephemeral {
+                match raw_event.deserialize() {
+                    Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
+                        txn.handle_explicit_read_receipts(ev.content, own_user_id);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("Failed to deserialize ephemeral event: {e}");
+                    }
+                }
+            }
+        }
+
+        txn.commit();
+    }
+
+    #[instrument(skip_all)]
+    pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
+        &mut self,
+        events: Vec<TimelineEvent>,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) -> Option<HandleManyEventsResult> {
+        let mut txn = self.transaction();
+
+        let mut total = HandleManyEventsResult::default();
+        for event in events {
+            let res = txn
+                .handle_remote_event(
+                    event.into(),
+                    TimelineItemPosition::Start,
+                    room_data_provider,
+                    settings,
+                )
+                .await;
+
+            total.items_added = total.items_added.checked_add(res.item_added as u16)?;
+            total.items_updated = total.items_updated.checked_add(res.items_updated)?;
+        }
+
+        txn.commit();
+
+        Some(total)
+    }
+
+    #[cfg(test)]
+    pub(super) async fn handle_live_event<P: RoomDataProvider>(
+        &mut self,
+        event: SyncTimelineEvent,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
+        let mut txn = self.transaction();
+        txn.handle_live_event(event, room_data_provider, settings).await;
+        txn.commit();
+    }
+
     /// Handle the creation of a new local event.
     pub(super) fn handle_local_event(
         &mut self,
@@ -93,8 +213,10 @@ impl TimelineInnerState {
             flow: Flow::Local { txn_id },
         };
 
-        TimelineEventHandler::new(&mut self.transaction(), ctx, settings.track_read_receipts)
+        let mut txn = self.transaction();
+        TimelineEventHandler::new(&mut txn, ctx, settings.track_read_receipts)
             .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
+        txn.commit();
     }
 
     /// Handle the local redaction of an event.
@@ -120,9 +242,9 @@ impl TimelineInnerState {
             flow: Flow::Local { txn_id: txn_id.clone() },
         };
 
-        let mut state = self.transaction();
+        let mut txn = self.transaction();
         let timeline_event_handler =
-            TimelineEventHandler::new(&mut state, ctx, settings.track_read_receipts);
+            TimelineEventHandler::new(&mut txn, ctx, settings.track_read_receipts);
 
         match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
@@ -136,6 +258,54 @@ impl TimelineInnerState {
                     .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
             }
         }
+
+        txn.commit();
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
+        &mut self,
+        retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
+        retry_indices: Vec<usize>,
+        push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) where
+        Fut: Future<Output = Option<TimelineEvent>>,
+    {
+        let mut txn = self.transaction();
+
+        // Loop through all the indices, in order so we don't decrypt edits
+        // before the event being edited, if both were UTD. Keep track of
+        // index change as UTDs are removed instead of updated.
+        let mut offset = 0;
+        for idx in retry_indices {
+            let idx = idx - offset;
+            let Some(mut event) = retry_one(txn.items[idx].clone()).await else {
+                continue;
+            };
+
+            event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
+                push_rules.get_actions(&event.event, push_context).to_owned()
+            });
+
+            let result = txn
+                .handle_remote_event(
+                    event.into(),
+                    TimelineItemPosition::Update(idx),
+                    room_data_provider,
+                    settings,
+                )
+                .await;
+
+            // If the UTD was removed rather than updated, offset all
+            // subsequent loop iterations.
+            if result.item_removed {
+                offset += 1;
+            }
+        }
+
+        txn.commit();
     }
 
     pub(super) fn update_timeline_reaction(
@@ -236,11 +406,31 @@ impl TimelineInnerState {
         Ok(())
     }
 
-    pub fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
-        TimelineInnerStateTransaction {
-            items: ManuallyDrop::new(self.items.transaction()),
-            meta: &mut self.meta,
-        }
+    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
+        let mut txn = self.transaction();
+        txn.set_fully_read_event(fully_read_event_id);
+        txn.commit();
+    }
+
+    #[cfg(test)]
+    pub(super) fn handle_read_receipts(
+        &mut self,
+        receipt_event_content: ReceiptEventContent,
+        own_user_id: &UserId,
+    ) {
+        let mut txn = self.transaction();
+        txn.handle_explicit_read_receipts(receipt_event_content, own_user_id);
+        txn.commit();
+    }
+
+    pub(super) fn clear(&mut self) {
+        let mut txn = self.transaction();
+        txn.clear();
+        txn.commit();
+    }
+
+    fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
+        TimelineInnerStateTransaction { items: self.items.transaction(), meta: &mut self.meta }
     }
 }
 
@@ -259,12 +449,12 @@ impl DerefMut for TimelineInnerState {
 }
 
 pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
-    pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
+    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
     pub meta: &'a mut TimelineInnerMetadata,
 }
 
 impl TimelineInnerStateTransaction<'_> {
-    pub async fn handle_sync_timeline<P: RoomDataProvider>(
+    async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         timeline: Timeline,
         room_data_provider: &P,
@@ -286,7 +476,7 @@ impl TimelineInnerStateTransaction<'_> {
     ///
     /// Shorthand for `handle_remote_event` with a `position` of
     /// `TimelineItemPosition::End { from_cache: false }`.
-    pub(super) async fn handle_live_event<P: RoomDataProvider>(
+    async fn handle_live_event<P: RoomDataProvider>(
         &mut self,
         event: SyncTimelineEvent,
         room_data_provider: &P,
@@ -304,7 +494,7 @@ impl TimelineInnerStateTransaction<'_> {
     /// Handle a remote event.
     ///
     /// Returns the number of timeline updates that were made.
-    pub(super) async fn handle_remote_event<P: RoomDataProvider>(
+    async fn handle_remote_event<P: RoomDataProvider>(
         &mut self,
         event: SyncTimelineEvent,
         position: TimelineItemPosition,
@@ -371,7 +561,9 @@ impl TimelineInnerStateTransaction<'_> {
         TimelineEventHandler::new(self, ctx, settings.track_read_receipts).handle_event(event_kind)
     }
 
-    pub(super) fn clear(&mut self) {
+    fn clear(&mut self) {
+        trace!("Clearing timeline");
+
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
         // there will often not be any, and only emitting a single
@@ -407,7 +599,7 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     #[instrument(skip_all)]
-    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
+    fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
         if self.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
@@ -415,6 +607,10 @@ impl TimelineInnerStateTransaction<'_> {
 
         self.fully_read_event = Some(fully_read_event_id);
         self.meta.update_read_marker(&mut self.items);
+    }
+
+    fn commit(self) {
+        self.items.commit();
     }
 }
 
@@ -429,14 +625,6 @@ impl Deref for TimelineInnerStateTransaction<'_> {
 impl DerefMut for TimelineInnerStateTransaction<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.meta
-    }
-}
-
-impl Drop for TimelineInnerStateTransaction<'_> {
-    fn drop(&mut self) {
-        // Safety: self.items is not touched again
-        let txn = unsafe { ManuallyDrop::take(&mut self.items) };
-        txn.commit();
     }
 }
 

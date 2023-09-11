@@ -25,9 +25,10 @@ use itertools::Itertools;
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
-    sync::{JoinedRoom, Timeline},
+    sync::JoinedRoom,
     Error, Result, Room,
 };
+use matrix_sdk_base::sync::Timeline;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 #[cfg(all(test, feature = "e2e-encryption"))]
@@ -40,8 +41,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
         room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
-        AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
@@ -53,7 +53,6 @@ use tracing::{field, info_span, Instrument as _};
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
 use super::{
-    event_handler::TimelineItemPosition,
     event_item::EventItemIdentifier,
     item::timeline_item,
     reactions::ReactionToggleResult,
@@ -313,85 +312,33 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .insert(receipt_type, receipt);
     }
 
-    #[tracing::instrument(skip_all)]
     pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
         if events.is_empty() {
             return;
         }
 
-        debug!("Adding {} initial events", events.len());
-
         let mut state = self.state.write().await;
-        let mut txn = state.transaction();
-        for event in events {
-            txn.handle_remote_event(
-                event,
-                TimelineItemPosition::End { from_cache: true },
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await;
-        }
+        state.add_initial_events(events, &self.room_data_provider, &self.settings).await;
     }
 
     pub(super) async fn clear(&self) {
-        trace!("Clearing timeline");
-        self.state.write().await.transaction().clear();
+        self.state.write().await.clear();
     }
 
-    #[instrument(skip_all)]
     pub(super) async fn handle_joined_room_update(&self, update: JoinedRoom) {
         let mut state = self.state.write().await;
-        let mut txn = state.transaction();
-        txn.handle_sync_timeline(update.timeline, &self.room_data_provider, &self.settings).await;
-
-        trace!("Handling account data");
-        for raw_event in update.account_data {
-            match raw_event.deserialize() {
-                Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
-                    txn.set_fully_read_event(ev.content.event_id);
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!("Failed to deserialize account data: {e}");
-                }
-            }
-        }
-
-        if !update.ephemeral.is_empty() {
-            trace!("Handling ephemeral room events");
-            let own_user_id = self.room_data_provider.own_user_id();
-            for raw_event in update.ephemeral {
-                match raw_event.deserialize() {
-                    Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
-                        txn.handle_explicit_read_receipts(ev.content, own_user_id);
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        warn!("Failed to deserialize ephemeral event: {e}");
-                    }
-                }
-            }
-        }
+        state.handle_joined_room_update(update, &self.room_data_provider, &self.settings).await;
     }
 
     pub(super) async fn handle_sync_timeline(&self, timeline: Timeline) {
-        self.state
-            .write()
-            .await
-            .transaction()
-            .handle_sync_timeline(timeline, &self.room_data_provider, &self.settings)
-            .await;
+        let mut state = self.state.write().await;
+        state.handle_sync_timeline(timeline, &self.room_data_provider, &self.settings).await;
     }
 
     #[cfg(test)]
     pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
-        self.state
-            .write()
-            .await
-            .transaction()
-            .handle_live_event(event, &self.room_data_provider, &self.settings)
-            .await;
+        let mut state = self.state.write().await;
+        state.handle_live_event(event, &self.room_data_provider, &self.settings).await;
     }
 
     /// Handle the creation of a new local event.
@@ -624,34 +571,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     /// Returns the number of timeline updates that were made. Short-circuits
     /// and returns `None` if the number of items added or updated exceeds
     /// `u16::MAX`, which should practically never happen.
-    #[instrument(skip_all)]
     pub(super) async fn handle_back_paginated_events(
         &self,
         events: Vec<TimelineEvent>,
     ) -> Option<HandleManyEventsResult> {
         let mut state = self.state.write().await;
-        let mut txn = state.transaction();
-
-        let mut total = HandleManyEventsResult::default();
-        for event in events {
-            let res = txn
-                .handle_remote_event(
-                    event.into(),
-                    TimelineItemPosition::Start,
-                    &self.room_data_provider,
-                    &self.settings,
-                )
-                .await;
-
-            total.items_added = total.items_added.checked_add(res.item_added as u16)?;
-            total.items_updated = total.items_updated.checked_add(res.items_updated)?;
-        }
-
-        Some(total)
+        state.handle_back_paginated_events(events, &self.room_data_provider, &self.settings).await
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        self.state.write().await.transaction().set_fully_read_event(fully_read_event_id)
+        self.state.write().await.set_fully_read_event(fully_read_event_id);
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -770,38 +699,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 ))
             };
 
-            let mut txn = state.transaction();
-
-            // Loop through all the indices, in order so we don't decrypt edits
-            // before the event being edited, if both were UTD. Keep track of
-            // index change as UTDs are removed instead of updated.
-            let mut offset = 0;
-            for idx in retry_indices {
-                let idx = idx - offset;
-                let Some(mut event) = retry_one(txn.items[idx].clone()).await else {
-                    continue;
-                };
-
-                event.push_actions =
-                    push_rules_context.as_ref().map(|(push_rules, push_context)| {
-                        push_rules.get_actions(&event.event, push_context).to_owned()
-                    });
-
-                let result = txn
-                    .handle_remote_event(
-                        event.into(),
-                        TimelineItemPosition::Update(idx),
-                        &room_data_provider,
-                        &settings,
-                    )
-                    .await;
-
-                // If the UTD was removed rather than updated, offset all
-                // subsequent loop iterations.
-                if result.item_removed {
-                    offset += 1;
-                }
-            }
+            state
+                .retry_event_decryption(
+                    retry_one,
+                    retry_indices,
+                    push_rules_context,
+                    &room_data_provider,
+                    &settings,
+                )
+                .await;
         });
     }
 
@@ -868,11 +774,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     #[cfg(test)]
     pub(super) async fn handle_read_receipts(&self, receipt_event_content: ReceiptEventContent) {
         let own_user_id = self.room_data_provider.own_user_id();
-        self.state
-            .write()
-            .await
-            .transaction()
-            .handle_explicit_read_receipts(receipt_event_content, own_user_id);
+        self.state.write().await.handle_read_receipts(receipt_event_content, own_user_id);
     }
 }
 
