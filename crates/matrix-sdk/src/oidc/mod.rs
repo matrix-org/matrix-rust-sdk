@@ -222,7 +222,7 @@ pub use self::{
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
-pub(crate) struct OidcContext {
+pub(crate) struct OidcCtx {
     /// The authentication server info discovered from the homeserver.
     authentication_server_info: Option<AuthenticationServerInfo>,
 
@@ -236,7 +236,7 @@ pub(crate) struct OidcContext {
     deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
 }
 
-impl OidcContext {
+impl OidcCtx {
     pub(crate) fn new(authentication_server_info: Option<AuthenticationServerInfo>) -> Self {
         Self {
             authentication_server_info,
@@ -275,8 +275,8 @@ impl Oidc {
         Self { client }
     }
 
-    fn ctx(&self) -> &OidcContext {
-        &self.client.inner.auth_ctx.oidc_context
+    fn ctx(&self) -> &OidcCtx {
+        &self.client.inner.auth_ctx.oidc
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -363,7 +363,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.auth_ctx.oidc_context.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.oidc.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.

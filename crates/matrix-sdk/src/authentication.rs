@@ -20,7 +20,7 @@ use matrix_sdk_base::SessionMeta;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{self, Oidc, OidcAuthData, OidcContext};
+use crate::oidc::{self, Oidc, OidcAuthData, OidcCtx};
 use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
     Client, RefreshTokenError, SessionChange,
@@ -47,7 +47,7 @@ pub(crate) type ReloadSessionCallback =
 /// client and all its children.
 pub(crate) struct AuthCtx {
     #[cfg(feature = "experimental-oidc")]
-    pub(crate) oidc_context: OidcContext,
+    pub(crate) oidc: OidcCtx,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
