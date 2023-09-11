@@ -222,7 +222,7 @@ type SaveSessionCallback =
     dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
 type ReloadSessionCallback = dyn Fn(Client) -> anyhow::Result<SessionTokens> + Send + Sync;
 
-pub(crate) struct OidcContext {
+pub(crate) struct OidcCtx {
     /// The authentication server info discovered from the homeserver.
     authentication_server_info: Option<AuthenticationServerInfo>,
 
@@ -251,7 +251,7 @@ pub(crate) struct OidcContext {
     save_session_callback: Arc<OnceCell<Box<SaveSessionCallback>>>,
 }
 
-impl OidcContext {
+impl OidcCtx {
     pub(crate) fn new(authentication_server_info: Option<AuthenticationServerInfo>) -> Self {
         Self {
             authentication_server_info,
@@ -295,8 +295,8 @@ impl Oidc {
         Self { client: client.clone(), backend: Arc::new(OidcServer::new(client)) }
     }
 
-    fn ctx(&self) -> &OidcContext {
-        &self.client.inner.auth_ctx.oidc_context
+    fn ctx(&self) -> &OidcCtx {
+        &self.client.inner.auth_ctx.oidc
     }
 
     /// Sets the save/restore session callbacks for OIDC.
@@ -397,7 +397,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.auth_ctx.oidc_context.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.oidc.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.

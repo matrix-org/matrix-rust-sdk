@@ -29,7 +29,7 @@ use super::{Client, ClientInner};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::OidcContext;
+use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
     HttpError,
@@ -435,7 +435,7 @@ impl ClientBuilder {
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc_context: OidcContext::new(authentication_server_info),
+            oidc: OidcCtx::new(authentication_server_info),
         });
 
         let inner = Arc::new(ClientInner::new(
