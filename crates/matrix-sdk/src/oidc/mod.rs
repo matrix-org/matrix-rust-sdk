@@ -282,7 +282,7 @@ impl Oidc {
     }
 
     fn ctx(&self) -> &OidcContext {
-        &self.client.inner.oidc_context
+        &self.client.inner.auth_ctx.oidc_context
     }
 
     /// Sets the save/restore session callbacks for OIDC.

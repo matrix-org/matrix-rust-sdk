@@ -431,6 +431,8 @@ impl ClientBuilder {
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),
+            #[cfg(feature = "experimental-oidc")]
+            oidc_context: OidcContext::default(),
         });
 
         let inner = Arc::new(ClientInner::new(
@@ -442,8 +444,6 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
-            #[cfg(feature = "experimental-oidc")]
-            Arc::new(OidcContext::default()),
         ));
 
         debug!("Done building the Client");

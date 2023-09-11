@@ -18,7 +18,7 @@ use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{self, Oidc, OidcAuthData};
+use crate::oidc::{self, Oidc, OidcAuthData, OidcContext};
 use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
     RefreshTokenError, SessionChange,
@@ -30,6 +30,9 @@ pub(crate) struct AuthCtx {
     /// The authentication server info discovered from the homeserver.
     #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
     pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
+
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) oidc_context: OidcContext,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
