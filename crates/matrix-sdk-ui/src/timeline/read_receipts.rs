@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use eyeball_im::ObservableVector;
+use eyeball_im::ObservableVectorTransaction;
 use indexmap::IndexMap;
 use matrix_sdk::Room;
 use ruma::{
@@ -25,7 +25,7 @@ use tracing::{error, warn};
 
 use super::{
     event_item::EventTimelineItemKind,
-    inner::{TimelineInnerMetadata, TimelineInnerState},
+    inner::{TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction},
     item::timeline_item,
     traits::RoomDataProvider,
     util::{compare_events_positions, rfind_event_by_id, RelativePosition},
@@ -39,7 +39,7 @@ struct FullReceipt<'a> {
     receipt: &'a Receipt,
 }
 
-impl TimelineInnerState {
+impl TimelineInnerStateTransaction<'_> {
     /// Update the new item pointed to by the user's read receipt.
     fn add_read_receipt(
         &mut self,
@@ -98,6 +98,36 @@ impl TimelineInnerState {
         }
     }
 
+    /// Load the read receipts from the store for the given event ID.
+    pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
+        &mut self,
+        event_id: &EventId,
+        room_data_provider: &P,
+    ) -> IndexMap<OwnedUserId, Receipt> {
+        let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
+
+        // Filter out receipts for our own user.
+        let own_user_id = room_data_provider.own_user_id();
+        let read_receipts: IndexMap<OwnedUserId, Receipt> =
+            read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
+
+        // Keep track of the user's read receipt.
+        for (user_id, receipt) in read_receipts.clone() {
+            // Only insert the read receipt if the user is not known to avoid conflicts with
+            // `TimelineInner::handle_read_receipts`.
+            if !self.users_read_receipts.contains_key(&user_id) {
+                self.users_read_receipts
+                    .entry(user_id)
+                    .or_default()
+                    .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
+            }
+        }
+
+        read_receipts
+    }
+}
+
+impl TimelineInnerState {
     /// Get the latest read receipt for the given user.
     ///
     /// Useful to get the latest read receipt, whether it's private or public.
@@ -142,34 +172,6 @@ impl TimelineInnerState {
         // receipt.
         private_read_receipt
     }
-
-    /// Load the read receipts from the store for the given event ID.
-    pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
-        &mut self,
-        event_id: &EventId,
-        room_data_provider: &P,
-    ) -> IndexMap<OwnedUserId, Receipt> {
-        let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
-
-        // Filter out receipts for our own user.
-        let own_user_id = room_data_provider.own_user_id();
-        let read_receipts: IndexMap<OwnedUserId, Receipt> =
-            read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
-
-        // Keep track of the user's read receipt.
-        for (user_id, receipt) in read_receipts.clone() {
-            // Only insert the read receipt if the user is not known to avoid conflicts with
-            // `TimelineInner::handle_read_receipts`.
-            if !self.users_read_receipts.contains_key(&user_id) {
-                self.users_read_receipts
-                    .entry(user_id)
-                    .or_default()
-                    .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
-            }
-        }
-
-        read_receipts
-    }
 }
 
 impl TimelineInnerMetadata {
@@ -210,7 +212,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
     item_pos: usize,
     event_item: &mut EventTimelineItem,
     is_own_event: bool,
-    timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
+    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) {
     let EventTimelineItemKind::Remote(remote_event_item) = &mut event_item.kind else {
@@ -252,7 +254,7 @@ fn maybe_update_read_receipt(
     receipt: FullReceipt<'_>,
     new_item_pos: Option<usize>,
     is_own_user_id: bool,
-    timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
+    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) -> bool {
     let old_event_id = users_read_receipts
