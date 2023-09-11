@@ -264,7 +264,7 @@ impl Oidc {
     }
 
     fn ctx(&self) -> &OidcContext {
-        &self.client.inner.oidc_context
+        &self.client.inner.auth_ctx.oidc_context
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
