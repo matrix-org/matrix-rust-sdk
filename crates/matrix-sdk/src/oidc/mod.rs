@@ -205,7 +205,7 @@ use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
@@ -223,8 +223,8 @@ pub use self::{
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
 type SaveSessionCallback =
-    dyn Send + Sync + Fn() -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>>;
-type ReloadSessionCallback = dyn Send + Sync + Fn() -> anyhow::Result<SessionTokens>;
+    dyn Fn() -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
+type ReloadSessionCallback = dyn Fn() -> anyhow::Result<SessionTokens> + Send + Sync;
 
 #[derive(Default)]
 pub(crate) struct OidcContext {
@@ -339,7 +339,11 @@ impl Oidc {
             if prev_holder == lock_value {
                 return Ok(());
             }
-            warn!("recreating cross-process store refresh token lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
+            warn!(
+                prev_holder,
+                new_holder = lock_value,
+                "recreating cross-process store refresh token lock with a different holder value"
+            );
         }
 
         // FIXME We shouldn't be using the crypto store for that! see also https://github.com/matrix-org/matrix-rust-sdk/issues/2472
@@ -808,7 +812,7 @@ impl Oidc {
                 // effect.
             }
             Err(err) => {
-                tracing::error!("when reloading OIDC session tokens from callback: {err}");
+                error!("when reloading OIDC session tokens from callback: {err}");
             }
         }
 
@@ -1072,10 +1076,7 @@ impl Oidc {
 
         let jwks = self.fetch_jwks(provider_metadata.jwks_uri()).await?;
 
-        tracing::trace!(
-            "Token refresh: attempting to refresh with refresh_token {}",
-            hash(&refresh_token)
-        );
+        trace!("Token refresh: attempting to refresh with refresh_token {}", hash(&refresh_token));
 
         // Do not interrupt refresh access token requests and processing, by detaching
         // the request sending and response processing.
@@ -1107,7 +1108,7 @@ impl Oidc {
             .map_err(OidcError::from)
             {
                 Ok((response, _id_token)) => {
-                    tracing::trace!(
+                    trace!(
                         "Token refresh: new refresh_token: {:?} / access_token: {}",
                         response.refresh_token.as_ref().map(hash),
                         hash(&response.access_token)
@@ -1126,7 +1127,7 @@ impl Oidc {
                         // Satisfies the save_session_callback invariant: set_session_tokens has
                         // been called just above.
                         if let Err(err) = save_session_callback().await {
-                            tracing::error!("error when saving session after refresh: {err}");
+                            error!("when saving session after refresh: {err}");
                         }
                     }
 

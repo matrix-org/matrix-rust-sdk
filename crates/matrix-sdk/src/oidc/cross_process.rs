@@ -26,14 +26,14 @@ struct SessionHash(u64);
 fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
     // Subset of `SessionTokens` fit for hashing
     #[derive(Hash)]
-    struct HashableSessionTokens {
-        access_token: String,
-        refresh_token: Option<String>,
+    struct HashableSessionTokens<'a> {
+        access_token: &'a str,
+        refresh_token: Option<&'a str>,
     }
 
     SessionHash(hash(&HashableSessionTokens {
-        access_token: tokens.access_token.clone(),
-        refresh_token: tokens.refresh_token.clone(),
+        access_token: &tokens.access_token,
+        refresh_token: tokens.refresh_token.as_deref(),
     }))
 }
 
@@ -55,7 +55,7 @@ impl CrossProcessRefreshManager {
         self.store_lock.lock_holder()
     }
 
-    /// Will wait for 60 seconds to get a cross-process store lock, then either
+    /// Wait for up to 60 seconds to get a cross-process store lock, then either
     /// timeout (as an error) or return a lock guard.
     ///
     /// The guard also contains information useful to react upon another
@@ -126,7 +126,7 @@ impl CrossProcessRefreshManager {
 }
 
 pub(super) struct CrossProcessRefreshLockGuard {
-    /// The hash for the latest session, either we one we knew, or the latest
+    /// The hash for the latest session, either the one we knew, or the latest
     /// one read from the database, if it was more up to date.
     hash_guard: OwnedMutexGuard<Option<SessionHash>>,
 
@@ -147,8 +147,9 @@ pub(super) struct CrossProcessRefreshLockGuard {
     /// value known, but one was known in the database.
     pub hash_mismatch: bool,
 
-    /// Session hash previously stored in the DB. Used for debugging and testing
-    /// purposes.
+    /// Session hash previously stored in the DB.
+    ///
+    /// Used for debugging and testing purposes.
     db_hash: Option<SessionHash>,
 }
 
@@ -175,8 +176,6 @@ impl CrossProcessRefreshLockGuard {
         tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
-        // Note: fallible operation at the end, so the in-memory value at least is up to
-        // date.
         self.save_in_memory(hash);
         self.save_in_database(hash).await?;
         Ok(())
@@ -189,7 +188,7 @@ impl CrossProcessRefreshLockGuard {
         trusted_tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let new_hash = compute_session_hash(trusted_tokens);
-        trace!("Trusted OIDC tokens have hash {:?}; db had {:?}", new_hash, self.db_hash);
+        trace!("Trusted OIDC tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
 
         if let Some(db_hash) = &self.db_hash {
             if new_hash != *db_hash {
