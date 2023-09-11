@@ -259,7 +259,7 @@ mod tests {
         oidc::{
             r#impl::{TestImpl, ISSUER_URL},
             tests,
-            tests::fake_registered_client_data,
+            tests::{fake_client_credentials, fake_client_metadata},
             Oidc, SessionTokens,
         },
         test_utils::test_client_builder,
@@ -334,8 +334,11 @@ mod tests {
 
         // Restore registered client.
         let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-        let client_data = fake_registered_client_data();
-        oidc.restore_registered_client(issuer_info, client_data);
+        oidc.restore_registered_client(
+            issuer_info,
+            fake_client_metadata(),
+            fake_client_credentials(),
+        );
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;

@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
+        FullSession, OidcAccountManagementAction, SessionTokens,
     },
     ruma::{
         api::client::{
@@ -1011,10 +1011,8 @@ impl TryFrom<Session> for AuthSession {
             };
 
             let session = FullSession {
-                client: RegisteredClientData {
-                    credentials: ClientCredentials::None { client_id: oidc_data.client_id },
-                    metadata: oidc_data.client_metadata,
-                },
+                credentials: ClientCredentials::None { client_id: oidc_data.client_id },
+                metadata: oidc_data.client_metadata,
                 user: user_session,
             };
 

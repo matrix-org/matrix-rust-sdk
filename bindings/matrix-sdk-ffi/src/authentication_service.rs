@@ -14,7 +14,7 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::{GrantType, Prompt},
         },
-        AuthorizationResponse, Oidc, OidcError, RegisteredClientData,
+        AuthorizationResponse, Oidc, OidcError,
     },
     AuthSession,
 };
@@ -425,15 +425,11 @@ impl AuthenticationService {
             .register_client(&authentication_server.issuer, oidc_metadata.clone(), None)
             .await?;
 
-        let client_data = RegisteredClientData {
-            // The format of the credentials changes according to the client metadata that was sent.
-            // Public clients only get a client ID.
-            credentials: ClientCredentials::None {
-                client_id: registration_response.client_id.clone(),
-            },
-            metadata: oidc_metadata,
-        };
-        oidc.restore_registered_client(authentication_server, client_data);
+        // The format of the credentials changes according to the client metadata that
+        // was sent. Public clients only get a client ID.
+        let credentials =
+            ClientCredentials::None { client_id: registration_response.client_id.clone() };
+        oidc.restore_registered_client(authentication_server, oidc_metadata, credentials);
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(oidc).await?;
@@ -494,12 +490,11 @@ impl AuthenticationService {
             return false;
         };
 
-        let client_data = RegisteredClientData {
-            credentials: ClientCredentials::None { client_id: client_id.0 },
-            metadata: oidc_metadata,
-        };
-
-        oidc.restore_registered_client(authentication_server.clone(), client_data);
+        oidc.restore_registered_client(
+            authentication_server.clone(),
+            oidc_metadata,
+            ClientCredentials::None { client_id: client_id.0 },
+        );
 
         true
     }

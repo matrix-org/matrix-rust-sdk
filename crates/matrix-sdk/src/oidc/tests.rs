@@ -5,8 +5,10 @@ use assert_matches::assert_matches;
 use mas_oidc_client::{
     requests::authorization_code::AuthorizationValidationData,
     types::{
-        client_credentials::ClientCredentials, errors::ClientErrorCode,
-        iana::oauth::OAuthClientAuthenticationMethod, registration::ClientMetadata,
+        client_credentials::ClientCredentials,
+        errors::ClientErrorCode,
+        iana::oauth::OAuthClientAuthenticationMethod,
+        registration::{ClientMetadata, VerifiedClientMetadata},
     },
 };
 use matrix_sdk_base::SessionMeta;
@@ -17,7 +19,7 @@ use url::Url;
 
 use super::{
     r#impl::{TestImpl, ISSUER_URL},
-    FullSession, Oidc, RegisteredClientData, SessionTokens, UserSession,
+    FullSession, Oidc, SessionTokens, UserSession,
 };
 use crate::{
     oidc::{
@@ -29,22 +31,24 @@ use crate::{
 
 const CLIENT_ID: &str = "test_client_id";
 
-pub fn fake_registered_client_data() -> RegisteredClientData {
-    RegisteredClientData {
-        credentials: ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
-        metadata: ClientMetadata {
-            redirect_uris: Some(vec![]), // empty vector is ok lol
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            ..ClientMetadata::default()
-        }
-        .validate()
-        .expect("validate client metadata"),
+pub fn fake_client_credentials() -> ClientCredentials {
+    ClientCredentials::None { client_id: CLIENT_ID.to_owned() }
+}
+
+pub fn fake_client_metadata() -> VerifiedClientMetadata {
+    ClientMetadata {
+        redirect_uris: Some(vec![]), // empty vector is ok lol
+        token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+        ..ClientMetadata::default()
     }
+    .validate()
+    .expect("validate client metadata")
 }
 
 pub fn fake_session(tokens: SessionTokens) -> FullSession {
     FullSession {
-        client: fake_registered_client_data(),
+        credentials: fake_client_credentials(),
+        metadata: fake_client_metadata(),
         user: UserSession {
             meta: SessionMeta {
                 user_id: ruma::user_id!("@u:e.uk").to_owned(),
@@ -145,8 +149,7 @@ async fn test_login() -> anyhow::Result<()> {
     let oidc = Oidc { client: client.clone(), backend: Arc::new(TestImpl::new()) };
 
     let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-    let client_data = fake_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_data);
+    oidc.restore_registered_client(issuer_info, fake_client_metadata(), fake_client_credentials());
 
     let redirect_uri_str = "http://matrix.example.com/oidc/callback";
     let redirect_uri = Url::parse(redirect_uri_str)?;
@@ -247,8 +250,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
     };
 
     let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-    let client_data = fake_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_data);
+    oidc.restore_registered_client(issuer_info, fake_client_metadata(), fake_client_credentials());
 
     // If the state is missing, then any attempt to finish authorizing will fail.
     let res = oidc
