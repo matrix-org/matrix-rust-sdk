@@ -87,7 +87,7 @@ impl TimelineInnerState {
                         receipt_item_pos,
                         is_own_user_id,
                         &mut self.items,
-                        &mut self.users_read_receipts,
+                        &mut self.meta.users_read_receipts,
                     );
 
                     if read_receipt_updated && !is_own_user_id {

@@ -596,7 +596,7 @@ impl<'a> TimelineEventHandler<'a> {
                 _ => None,
             },
             not_found: || {
-                self.state.poll_pending_events.add_response(
+                self.state.meta.poll_pending_events.add_response(
                     &c.relates_to.event_id,
                     &self.ctx.sender,
                     self.ctx.timestamp,
@@ -623,7 +623,7 @@ impl<'a> TimelineEventHandler<'a> {
                 _ => None,
             },
             not_found: || {
-                self.state.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
+                self.state.meta.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
             }
         );
     }
@@ -705,7 +705,7 @@ impl<'a> TimelineEventHandler<'a> {
                 return None;
             }
 
-            Some(event_item.redact(&self.state.room_version))
+            Some(event_item.redact(&self.state.meta.room_version))
         });
 
         if self.result.items_updated == 0 {
@@ -719,7 +719,7 @@ impl<'a> TimelineEventHandler<'a> {
             let Some(in_reply_to) = message.in_reply_to() else { return };
             let TimelineDetails::Ready(replied_to_event) = &in_reply_to.event else { return };
             if redacts == in_reply_to.event_id {
-                let replied_to_event = replied_to_event.redact(&self.state.room_version);
+                let replied_to_event = replied_to_event.redact(&self.state.meta.room_version);
                 let in_reply_to = InReplyToDetails {
                     event_id: in_reply_to.event_id.clone(),
                     event: TimelineDetails::Ready(Box::new(replied_to_event)),
@@ -900,7 +900,7 @@ impl<'a> TimelineEventHandler<'a> {
                         &mut item,
                         self.ctx.is_own_event,
                         &mut self.state.items,
-                        &mut self.state.users_read_receipts,
+                        &mut self.state.meta.users_read_receipts,
                     );
                 }
 
@@ -954,7 +954,7 @@ impl<'a> TimelineEventHandler<'a> {
                                 &mut item,
                                 self.ctx.is_own_event,
                                 &mut self.state.items,
-                                &mut self.state.users_read_receipts,
+                                &mut self.state.meta.users_read_receipts,
                             );
                         }
 
@@ -1071,7 +1071,7 @@ impl<'a> TimelineEventHandler<'a> {
                         &mut item,
                         self.ctx.is_own_event,
                         &mut self.state.items,
-                        &mut self.state.users_read_receipts,
+                        &mut self.state.meta.users_read_receipts,
                     );
                 }
 
@@ -1104,8 +1104,8 @@ impl<'a> TimelineEventHandler<'a> {
         if self.state.event_should_update_fully_read_marker {
             update_read_marker(
                 &mut self.state.items,
-                self.state.fully_read_event.as_deref(),
-                &mut self.state.event_should_update_fully_read_marker,
+                self.state.meta.fully_read_event.as_deref(),
+                &mut self.state.meta.event_should_update_fully_read_marker,
             );
         }
     }
