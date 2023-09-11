@@ -52,12 +52,13 @@ use super::{
         EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
         RemoteEventTimelineItem,
     },
+    inner::TimelineInnerState,
     item::timeline_item,
     read_receipts::maybe_add_implicit_read_receipt,
     util::{find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
-    Sticker, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
-    VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
+    Sticker, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    DEFAULT_SANITIZER_MODE,
 };
 use crate::{events::SyncTimelineEventWithoutContent, timeline::polls::PollState};
 

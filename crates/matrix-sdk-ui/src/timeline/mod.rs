@@ -88,7 +88,7 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    inner::{ReactionAction, TimelineInner, TimelineInnerState},
+    inner::{ReactionAction, TimelineInner},
     queue::LocalMessage,
     reactions::ReactionToggleResult,
     util::rfind_event_by_id,
