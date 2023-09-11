@@ -100,24 +100,7 @@ impl fmt::Debug for TimelineInnerStateLock {
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
-    next_internal_id: u64,
-    pub reactions: Reactions,
-    pub poll_pending_events: PollPendingEvents,
-    pub fully_read_event: Option<OwnedEventId>,
-    /// Whether the fully-read marker item should try to be updated when an
-    /// event is added.
-    /// This is currently `true` in two cases:
-    /// - The fully-read marker points to an event that is not in the timeline,
-    /// - The fully-read marker item would be the last item in the timeline.
-    pub event_should_update_fully_read_marker: bool,
-    /// User ID => Receipt type => Read receipt of the user of the given
-    /// type.
-    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
-    /// the local reaction request state that is queued next
-    pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// the in flight reaction request state that is ongoing
-    pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
-    pub room_version: RoomVersionId,
+    pub meta: TimelineInnerMetadata,
 }
 
 impl TimelineInnerState {
@@ -127,15 +110,7 @@ impl TimelineInnerState {
             // sliding-sync tests with 20 events lag. This should still be
             // small enough.
             items: ObservableVector::with_capacity(32),
-            next_internal_id: Default::default(),
-            reactions: Default::default(),
-            poll_pending_events: Default::default(),
-            fully_read_event: Default::default(),
-            event_should_update_fully_read_marker: Default::default(),
-            users_read_receipts: Default::default(),
-            reaction_state: Default::default(),
-            in_flight_reaction: Default::default(),
-            room_version,
+            meta: TimelineInnerMetadata::new(room_version),
         }
     }
 
@@ -378,8 +353,8 @@ impl TimelineInnerState {
 
         update_read_marker(
             &mut self.items,
-            self.fully_read_event.as_deref(),
-            &mut self.event_should_update_fully_read_marker,
+            self.meta.fully_read_event.as_deref(),
+            &mut self.meta.event_should_update_fully_read_marker,
         );
     }
 
@@ -459,7 +434,7 @@ impl TimelineInnerState {
             // (should the local echo already be up-to-date after event handling?)
             if let Some(txn_id) = local_echo_to_remove {
                 let id = EventItemIdentifier::TransactionId(txn_id.clone());
-                if self.reactions.map.remove(&id).is_none() {
+                if self.meta.reactions.map.remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
                      find matching reaction in the reaction map"
@@ -468,7 +443,7 @@ impl TimelineInnerState {
             }
             // Add the remote echo to the reaction_map
             if let Some(event_id) = remote_echo_to_add {
-                self.reactions.map.insert(
+                self.meta.reactions.map.insert(
                     EventItemIdentifier::EventId(event_id.clone()),
                     (reaction_sender_data, annotation.clone()),
                 );
@@ -478,6 +453,58 @@ impl TimelineInnerState {
         self.items.set(idx, timeline_item(new_related, related.internal_id));
 
         Ok(())
+    }
+}
+
+impl Deref for TimelineInnerState {
+    type Target = TimelineInnerMetadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.meta
+    }
+}
+
+impl DerefMut for TimelineInnerState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.meta
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::timeline) struct TimelineInnerMetadata {
+    next_internal_id: u64,
+    pub reactions: Reactions,
+    pub poll_pending_events: PollPendingEvents,
+    pub fully_read_event: Option<OwnedEventId>,
+    /// Whether the fully-read marker item should try to be updated when an
+    /// event is added.
+    /// This is currently `true` in two cases:
+    /// - The fully-read marker points to an event that is not in the timeline,
+    /// - The fully-read marker item would be the last item in the timeline.
+    pub event_should_update_fully_read_marker: bool,
+    /// User ID => Receipt type => Read receipt of the user of the given
+    /// type.
+    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    /// the local reaction request state that is queued next
+    pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
+    /// the in flight reaction request state that is ongoing
+    pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
+    pub room_version: RoomVersionId,
+}
+
+impl TimelineInnerMetadata {
+    fn new(room_version: RoomVersionId) -> TimelineInnerMetadata {
+        Self {
+            next_internal_id: Default::default(),
+            reactions: Default::default(),
+            poll_pending_events: Default::default(),
+            fully_read_event: Default::default(),
+            event_should_update_fully_read_marker: Default::default(),
+            users_read_receipts: Default::default(),
+            reaction_state: Default::default(),
+            in_flight_reaction: Default::default(),
+            room_version,
+        }
     }
 }
 
