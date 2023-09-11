@@ -433,6 +433,8 @@ impl ClientBuilder {
             auth_data: OnceCell::default(),
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
+            #[cfg(feature = "experimental-oidc")]
+            oidc_context: OidcContext::default(),
         });
 
         let inner = Arc::new(ClientInner::new(
@@ -444,8 +446,6 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
-            #[cfg(feature = "experimental-oidc")]
-            Arc::new(OidcContext::default()),
         ));
 
         debug!("Done building the Client");
