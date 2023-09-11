@@ -253,23 +253,21 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        oidc::{FullSession, RegisteredClientData, SessionTokens, UserSession},
+        oidc::{FullSession, SessionTokens, UserSession},
         test_utils::test_client_builder,
         Error,
     };
 
     fn fake_session(tokens: SessionTokens) -> FullSession {
         FullSession {
-            client: RegisteredClientData {
-                credentials: ClientCredentials::None { client_id: "test_client_id".to_owned() },
-                metadata: ClientMetadata {
-                    redirect_uris: Some(vec![]), // empty vector is ok lol
-                    token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-                    ..ClientMetadata::default()
-                }
-                .validate()
-                .expect("validate client metadata"),
-            },
+            credentials: ClientCredentials::None { client_id: "test_client_id".to_owned() },
+            metadata: ClientMetadata {
+                redirect_uris: Some(vec![]), // empty vector is ok lol
+                token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+                ..ClientMetadata::default()
+            }
+            .validate()
+            .expect("validate client metadata"),
             user: UserSession {
                 meta: SessionMeta {
                     user_id: ruma::user_id!("@u:e.uk").to_owned(),

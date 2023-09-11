@@ -565,11 +565,11 @@ impl Oidc {
     pub fn full_session(&self) -> Option<FullSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        let client = RegisteredClientData {
+        Some(FullSession {
             credentials: data.credentials.clone(),
             metadata: data.metadata.clone(),
-        };
-        Some(FullSession { client, user })
+            user,
+        })
     }
 
     /// Register a client with an OpenID Connect Provider.
@@ -686,13 +686,13 @@ impl Oidc {
     pub fn restore_registered_client(
         &self,
         issuer_info: AuthenticationServerInfo,
-        client_data: RegisteredClientData,
+        client_metadata: VerifiedClientMetadata,
+        client_credentials: ClientCredentials,
     ) {
-        let RegisteredClientData { credentials, metadata } = client_data;
         let data = OidcAuthData {
             issuer_info,
-            credentials,
-            metadata,
+            credentials: client_credentials,
+            metadata: client_metadata,
             tokens: Default::default(),
             authorization_data: Default::default(),
         };
@@ -719,10 +719,8 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub async fn restore_session(&self, session: FullSession) -> Result<()> {
-        let FullSession {
-            client: RegisteredClientData { credentials, metadata },
-            user: UserSession { meta, tokens, issuer_info },
-        } = session;
+        let FullSession { credentials, metadata, user: UserSession { meta, tokens, issuer_info } } =
+            session;
 
         let data = OidcAuthData {
             issuer_info,
@@ -1304,21 +1302,14 @@ impl Oidc {
 /// A full session for the OpenID Connect API.
 #[derive(Debug, Clone)]
 pub struct FullSession {
-    /// The registered client data.
-    pub client: RegisteredClientData,
-
-    /// The user session.
-    pub user: UserSession,
-}
-
-/// The data used to identify a registered client for the OpenID Connect API.
-#[derive(Debug, Clone)]
-pub struct RegisteredClientData {
     /// The credentials obtained after registration.
     pub credentials: ClientCredentials,
 
     /// The client metadata sent for registration.
     pub metadata: VerifiedClientMetadata,
+
+    /// The user session.
+    pub user: UserSession,
 }
 
 /// A user session for the OpenID Connect API.
@@ -1541,10 +1532,7 @@ mod tests {
     use url::Url;
 
     use crate::{
-        oidc::{
-            FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
-            UserSession,
-        },
+        oidc::{FullSession, OidcAccountManagementAction, SessionTokens, UserSession},
         ClientBuilder,
     };
 
@@ -1556,15 +1544,13 @@ mod tests {
 
         client
             .restore_session(FullSession {
-                client: RegisteredClientData {
-                    credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
-                    metadata: ClientMetadata {
-                        redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
-                        ..Default::default()
-                    }
-                    .validate()
-                    .unwrap(),
-                },
+                credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
+                metadata: ClientMetadata {
+                    redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
+                    ..Default::default()
+                }
+                .validate()
+                .unwrap(),
                 user: UserSession {
                     meta: SessionMeta {
                         user_id: OwnedUserId::from_str("@user:example.com").unwrap(),
