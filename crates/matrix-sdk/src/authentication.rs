@@ -17,7 +17,6 @@ use std::pin::Pin;
 use as_variant::as_variant;
 use futures_core::Future;
 use matrix_sdk_base::SessionMeta;
-use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 #[cfg(feature = "experimental-oidc")]
@@ -47,10 +46,6 @@ pub(crate) type ReloadSessionCallback =
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
-    /// The authentication server info discovered from the homeserver.
-    #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
-    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
-
     #[cfg(feature = "experimental-oidc")]
     pub(crate) oidc_context: OidcContext,
 
