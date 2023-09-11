@@ -42,15 +42,15 @@ use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
         event_handler::{
-            update_read_marker, Flow, HandleEventResult, TimelineEventContext,
-            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
+            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
+            TimelineItemPosition,
         },
         event_item::EventItemIdentifier,
         item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         traits::RoomDataProvider,
-        util::{rfind_event_item, timestamp_to_date},
+        util::{find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date},
         AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
         TimelineItemKind, VirtualTimelineItem,
     },
@@ -112,27 +112,6 @@ impl TimelineInnerState {
             items: ObservableVector::with_capacity(32),
             meta: TimelineInnerMetadata::new(room_version),
         }
-    }
-
-    pub fn next_internal_id(&mut self) -> u64 {
-        let val = self.next_internal_id;
-        self.next_internal_id += 1;
-        val
-    }
-
-    pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
-        timeline_item(kind, self.next_internal_id())
-    }
-
-    /// Returns a new day divider item for the new timestamp if it is on a
-    /// different day than the old timestamp
-    pub fn maybe_create_day_divider_from_timestamps(
-        &mut self,
-        old_ts: MilliSecondsSinceUnixEpoch,
-        new_ts: MilliSecondsSinceUnixEpoch,
-    ) -> Option<Arc<TimelineItem>> {
-        (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
-            .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
     }
 
     pub async fn handle_sync_timeline<P: RoomDataProvider>(
@@ -350,12 +329,7 @@ impl TimelineInnerState {
         }
 
         self.fully_read_event = Some(fully_read_event_id);
-
-        update_read_marker(
-            &mut self.items,
-            self.meta.fully_read_event.as_deref(),
-            &mut self.meta.event_should_update_fully_read_marker,
-        );
+        self.meta.update_read_marker(&mut self.items);
     }
 
     pub(super) fn update_timeline_reaction(
@@ -504,6 +478,74 @@ impl TimelineInnerMetadata {
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
             room_version,
+        }
+    }
+
+    pub fn next_internal_id(&mut self) -> u64 {
+        let val = self.next_internal_id;
+        self.next_internal_id += 1;
+        val
+    }
+
+    pub fn new_timeline_item(&mut self, kind: impl Into<TimelineItemKind>) -> Arc<TimelineItem> {
+        timeline_item(kind, self.next_internal_id())
+    }
+
+    /// Returns a new day divider item for the new timestamp if it is on a
+    /// different day than the old timestamp
+    pub fn maybe_create_day_divider_from_timestamps(
+        &mut self,
+        old_ts: MilliSecondsSinceUnixEpoch,
+        new_ts: MilliSecondsSinceUnixEpoch,
+    ) -> Option<Arc<TimelineItem>> {
+        (timestamp_to_date(old_ts) != timestamp_to_date(new_ts))
+            .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
+    }
+
+    pub(crate) fn update_read_marker(&mut self, items: &mut ObservableVector<Arc<TimelineItem>>) {
+        let Some(fully_read_event) = &self.fully_read_event else { return };
+        trace!(?fully_read_event, "Updating read marker");
+
+        let read_marker_idx = find_read_marker(items);
+        let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+
+        match (read_marker_idx, fully_read_event_idx) {
+            (None, None) => {
+                self.event_should_update_fully_read_marker = true;
+            }
+            (None, Some(idx)) => {
+                // We don't want to insert the read marker if it is at the end of the timeline.
+                if idx + 1 < items.len() {
+                    self.event_should_update_fully_read_marker = false;
+                    items.insert(idx + 1, TimelineItem::read_marker());
+                } else {
+                    self.event_should_update_fully_read_marker = true;
+                }
+            }
+            (Some(_), None) => {
+                // Keep the current position of the read marker, hopefully we
+                // should have a new position later.
+                self.event_should_update_fully_read_marker = true;
+            }
+            (Some(from), Some(to)) => {
+                self.event_should_update_fully_read_marker = false;
+
+                // The read marker can't move backwards.
+                if from < to {
+                    let item = items.remove(from);
+
+                    // We don't want to re-insert the read marker if it is at the end of the
+                    // timeline.
+                    if to < items.len() {
+                        // Since the fully-read event's index was shifted to the left
+                        // by one position by the remove call above, insert the fully-
+                        // read marker at its previous position, rather than that + 1
+                        items.insert(to, item);
+                    } else {
+                        self.event_should_update_fully_read_marker = true;
+                    }
+                }
+            }
         }
     }
 }

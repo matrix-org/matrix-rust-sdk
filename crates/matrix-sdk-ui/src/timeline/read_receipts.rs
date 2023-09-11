@@ -25,7 +25,7 @@ use tracing::{error, warn};
 
 use super::{
     event_item::EventTimelineItemKind,
-    inner::TimelineInnerState,
+    inner::{TimelineInnerMetadata, TimelineInnerState},
     item::timeline_item,
     traits::RoomDataProvider,
     util::{compare_events_positions, rfind_event_by_id, RelativePosition},
@@ -98,59 +98,6 @@ impl TimelineInnerState {
         }
     }
 
-    /// Load the read receipts from the store for the given event ID.
-    pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
-        &mut self,
-        event_id: &EventId,
-        room_data_provider: &P,
-    ) -> IndexMap<OwnedUserId, Receipt> {
-        let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
-
-        // Filter out receipts for our own user.
-        let own_user_id = room_data_provider.own_user_id();
-        let read_receipts: IndexMap<OwnedUserId, Receipt> =
-            read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
-
-        // Keep track of the user's read receipt.
-        for (user_id, receipt) in read_receipts.clone() {
-            // Only insert the read receipt if the user is not known to avoid conflicts with
-            // `TimelineInner::handle_read_receipts`.
-            if !self.users_read_receipts.contains_key(&user_id) {
-                self.users_read_receipts
-                    .entry(user_id)
-                    .or_default()
-                    .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
-            }
-        }
-
-        read_receipts
-    }
-
-    /// Get the unthreaded receipt of the given type for the given user in the
-    /// timeline.
-    pub(super) async fn user_receipt(
-        &self,
-        user_id: &UserId,
-        receipt_type: ReceiptType,
-        room: &Room,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        if let Some(receipt) = self
-            .users_read_receipts
-            .get(user_id)
-            .and_then(|user_map| user_map.get(&receipt_type))
-            .cloned()
-        {
-            return Some(receipt);
-        }
-
-        room.user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Could not get user read receipt of type {receipt_type:?}: {e}");
-                None
-            })
-    }
-
     /// Get the latest read receipt for the given user.
     ///
     /// Useful to get the latest read receipt, whether it's private or public.
@@ -194,6 +141,61 @@ impl TimelineInnerState {
         // than a public read receipt, otherwise there's no point in the private read
         // receipt.
         private_read_receipt
+    }
+
+    /// Load the read receipts from the store for the given event ID.
+    pub(super) async fn load_read_receipts_for_event<P: RoomDataProvider>(
+        &mut self,
+        event_id: &EventId,
+        room_data_provider: &P,
+    ) -> IndexMap<OwnedUserId, Receipt> {
+        let read_receipts = room_data_provider.read_receipts_for_event(event_id).await;
+
+        // Filter out receipts for our own user.
+        let own_user_id = room_data_provider.own_user_id();
+        let read_receipts: IndexMap<OwnedUserId, Receipt> =
+            read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect();
+
+        // Keep track of the user's read receipt.
+        for (user_id, receipt) in read_receipts.clone() {
+            // Only insert the read receipt if the user is not known to avoid conflicts with
+            // `TimelineInner::handle_read_receipts`.
+            if !self.users_read_receipts.contains_key(&user_id) {
+                self.users_read_receipts
+                    .entry(user_id)
+                    .or_default()
+                    .insert(ReceiptType::Read, (event_id.to_owned(), receipt));
+            }
+        }
+
+        read_receipts
+    }
+}
+
+impl TimelineInnerMetadata {
+    /// Get the unthreaded receipt of the given type for the given user in the
+    /// timeline.
+    pub(super) async fn user_receipt(
+        &self,
+        user_id: &UserId,
+        receipt_type: ReceiptType,
+        room: &Room,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        if let Some(receipt) = self
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|user_map| user_map.get(&receipt_type))
+            .cloned()
+        {
+            return Some(receipt);
+        }
+
+        room.user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
+            .await
+            .unwrap_or_else(|e| {
+                error!("Could not get user read receipt of type {receipt_type:?}: {e}");
+                None
+            })
     }
 }
 

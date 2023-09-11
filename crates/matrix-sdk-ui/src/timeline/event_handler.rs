@@ -55,7 +55,7 @@ use super::{
     inner::TimelineInnerState,
     item::timeline_item,
     read_receipts::maybe_add_implicit_read_receipt,
-    util::{find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date},
+    util::{rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
     Sticker, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
     DEFAULT_SANITIZER_MODE,
@@ -882,8 +882,9 @@ impl<'a> TimelineEventHandler<'a> {
                 if let Some(VirtualTimelineItem::DayDivider(divider_ts)) =
                     self.state.items.front().and_then(|item| item.as_virtual())
                 {
+                    let divider_ts = *divider_ts;
                     if let Some(day_divider_item) =
-                        self.state.maybe_create_day_divider_from_timestamps(*divider_ts, timestamp)
+                        self.state.maybe_create_day_divider_from_timestamps(divider_ts, timestamp)
                     {
                         self.state.items.push_front(day_divider_item);
                     }
@@ -1102,11 +1103,7 @@ impl<'a> TimelineEventHandler<'a> {
 
         // See if we can update the read marker.
         if self.state.event_should_update_fully_read_marker {
-            update_read_marker(
-                &mut self.state.items,
-                self.state.meta.fully_read_event.as_deref(),
-                &mut self.state.meta.event_should_update_fully_read_marker,
-            );
+            self.state.meta.update_read_marker(&mut self.state.items);
         }
     }
 
@@ -1154,57 +1151,6 @@ fn transfer_details(item: &mut EventTimelineItem, old_item: &EventTimelineItem) 
 
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
-    }
-}
-
-pub(crate) fn update_read_marker(
-    items: &mut ObservableVector<Arc<TimelineItem>>,
-    fully_read_event: Option<&EventId>,
-    event_should_update_fully_read_marker: &mut bool,
-) {
-    let Some(fully_read_event) = fully_read_event else { return };
-    trace!(?fully_read_event, "Updating read marker");
-
-    let read_marker_idx = find_read_marker(items);
-    let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
-
-    match (read_marker_idx, fully_read_event_idx) {
-        (None, None) => {
-            *event_should_update_fully_read_marker = true;
-        }
-        (None, Some(idx)) => {
-            // We don't want to insert the read marker if it is at the end of the timeline.
-            if idx + 1 < items.len() {
-                *event_should_update_fully_read_marker = false;
-                items.insert(idx + 1, TimelineItem::read_marker());
-            } else {
-                *event_should_update_fully_read_marker = true;
-            }
-        }
-        (Some(_), None) => {
-            // Keep the current position of the read marker, hopefully we
-            // should have a new position later.
-            *event_should_update_fully_read_marker = true;
-        }
-        (Some(from), Some(to)) => {
-            *event_should_update_fully_read_marker = false;
-
-            // The read marker can't move backwards.
-            if from < to {
-                let item = items.remove(from);
-
-                // We don't want to re-insert the read marker if it is at the end of the
-                // timeline.
-                if to < items.len() {
-                    // Since the fully-read event's index was shifted to the left
-                    // by one position by the remove call above, insert the fully-
-                    // read marker at its previous position, rather than that + 1
-                    items.insert(to, item);
-                } else {
-                    *event_should_update_fully_read_marker = true;
-                }
-            }
-        }
     }
 }
 

@@ -65,7 +65,7 @@ use super::{
 
 mod state;
 
-pub(super) use self::state::TimelineInnerState;
+pub(super) use self::state::{TimelineInnerMetadata, TimelineInnerState};
 use self::state::{TimelineInnerStateLock, TimelineInnerStateWriteGuard};
 
 #[derive(Clone, Debug)]
