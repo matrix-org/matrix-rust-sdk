@@ -14,13 +14,12 @@
 
 use std::{
     collections::HashMap,
-    fmt,
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 
-use eyeball::{SharedObservable, Subscriber};
-use eyeball_im::{ObservableVector, ObservableVectorEntry};
+use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, sync::Timeline};
 use ruma::{
@@ -34,7 +33,6 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
     UserId,
 };
-use tokio::sync::{OwnedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{ReactionState, TimelineInnerSettings};
@@ -56,47 +54,6 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
-pub(in crate::timeline) struct TimelineInnerStateLock {
-    inner: Arc<RwLock<TimelineInnerState>>,
-    lock_release_ob: SharedObservable<()>,
-}
-
-impl TimelineInnerStateLock {
-    pub(super) fn new(state: TimelineInnerState) -> Self {
-        Self { inner: Arc::new(RwLock::new(state)), lock_release_ob: Default::default() }
-    }
-
-    pub(super) fn subscribe_lock_release(&self) -> Subscriber<()> {
-        self.lock_release_ob.subscribe()
-    }
-
-    pub async fn read(&self) -> RwLockReadGuard<'_, TimelineInnerState> {
-        self.inner.read().await
-    }
-
-    pub async fn write(&self) -> TimelineInnerStateWriteGuard<'_> {
-        TimelineInnerStateWriteGuard {
-            inner: self.inner.write().await,
-            lock_release_ob: self.lock_release_ob.clone(),
-        }
-    }
-
-    pub async fn write_owned(&self) -> TimelineInnerStateOwnedWriteGuard {
-        TimelineInnerStateOwnedWriteGuard {
-            inner: self.inner.clone().write_owned().await,
-            lock_release_ob: self.lock_release_ob.clone(),
-        }
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for TimelineInnerStateLock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt(f)
-    }
-}
-
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
@@ -114,6 +71,199 @@ impl TimelineInnerState {
         }
     }
 
+    /// Handle the creation of a new local event.
+    pub(super) fn handle_local_event(
+        &mut self,
+        own_user_id: OwnedUserId,
+        own_profile: Option<Profile>,
+        txn_id: OwnedTransactionId,
+        content: AnyMessageLikeEventContent,
+        settings: &TimelineInnerSettings,
+    ) {
+        let ctx = TimelineEventContext {
+            sender: own_user_id,
+            sender_profile: own_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            is_own_event: true,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+            read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
+            flow: Flow::Local { txn_id },
+        };
+
+        TimelineEventHandler::new(&mut self.transaction(), ctx, settings.track_read_receipts)
+            .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
+    }
+
+    /// Handle the local redaction of an event.
+    pub(super) fn handle_local_redaction(
+        &mut self,
+        own_user_id: OwnedUserId,
+        own_profile: Option<Profile>,
+        txn_id: OwnedTransactionId,
+        to_redact: EventItemIdentifier,
+        content: RoomRedactionEventContent,
+        settings: &TimelineInnerSettings,
+    ) {
+        let ctx = TimelineEventContext {
+            sender: own_user_id,
+            sender_profile: own_profile,
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            is_own_event: true,
+            // FIXME: Should we supply something here for encrypted rooms?
+            encryption_info: None,
+            read_receipts: Default::default(),
+            // An event sent by ourself is never matched against push rules.
+            is_highlighted: false,
+            flow: Flow::Local { txn_id: txn_id.clone() },
+        };
+
+        let mut state = self.transaction();
+        let timeline_event_handler =
+            TimelineEventHandler::new(&mut state, ctx, settings.track_read_receipts);
+
+        match to_redact {
+            EventItemIdentifier::TransactionId(txn_id) => {
+                timeline_event_handler.handle_event(TimelineEventKind::LocalRedaction {
+                    redacts: txn_id,
+                    content: content.clone(),
+                });
+            }
+            EventItemIdentifier::EventId(event_id) => {
+                timeline_event_handler
+                    .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
+            }
+        }
+    }
+
+    pub(super) fn update_timeline_reaction(
+        &mut self,
+        own_user_id: &UserId,
+        annotation: &Annotation,
+        result: &ReactionToggleResult,
+    ) -> Result<(), TimelineError> {
+        if matches!(result, ReactionToggleResult::RedactSuccess) {
+            // We did a successful redaction, so no need to update the item
+            // because the reaction is already gone.
+            return Ok(());
+        }
+
+        let (remote_echo_to_add, local_echo_to_remove) = match result {
+            ReactionToggleResult::AddSuccess { event_id, txn_id } => (Some(event_id), Some(txn_id)),
+            ReactionToggleResult::AddFailure { txn_id } => (None, Some(txn_id)),
+            ReactionToggleResult::RedactSuccess => (None, None),
+            ReactionToggleResult::RedactFailure { event_id } => (Some(event_id), None),
+        };
+
+        let related = rfind_event_item(&self.items, |it| {
+            it.event_id().is_some_and(|it| it == annotation.event_id)
+        });
+
+        let Some((idx, related)) = related else {
+            // Event isn't found at all.
+            warn!("Timeline item not found, can't update reaction ID");
+            return Err(TimelineError::FailedToToggleReaction);
+        };
+        let Some(remote_related) = related.as_remote() else {
+            error!("inconsistent state: reaction received on a non-remote event item");
+            return Err(TimelineError::FailedToToggleReaction);
+        };
+        // Note: remote event is not synced yet, so we're adding an item
+        // with the local timestamp.
+        let reaction_sender_data = ReactionSenderData {
+            sender_id: own_user_id.to_owned(),
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+        };
+
+        let new_reactions = {
+            let mut reactions = remote_related.reactions.clone();
+            let reaction_group = reactions.entry(annotation.key.clone()).or_default();
+
+            // Remove the local echo from the related event.
+            if let Some(txn_id) = local_echo_to_remove {
+                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                if reaction_group.0.remove(&id).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
+                         find matching reaction in the related event's reactions"
+                    );
+                }
+            }
+
+            // Add the remote echo to the related event
+            if let Some(event_id) = remote_echo_to_add {
+                reaction_group.0.insert(
+                    EventItemIdentifier::EventId(event_id.clone()),
+                    reaction_sender_data.clone(),
+                );
+            };
+
+            if reaction_group.0.is_empty() {
+                reactions.remove(&annotation.key);
+            }
+
+            reactions
+        };
+        let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
+
+        // Update the reactions stored in the timeline state
+        {
+            // Remove the local echo from reaction_map
+            // (should the local echo already be up-to-date after event handling?)
+            if let Some(txn_id) = local_echo_to_remove {
+                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                if self.meta.reactions.map.remove(&id).is_none() {
+                    warn!(
+                        "Tried to remove reaction by transaction ID, but didn't \
+                     find matching reaction in the reaction map"
+                    );
+                }
+            }
+            // Add the remote echo to the reaction_map
+            if let Some(event_id) = remote_echo_to_add {
+                self.meta.reactions.map.insert(
+                    EventItemIdentifier::EventId(event_id.clone()),
+                    (reaction_sender_data, annotation.clone()),
+                );
+            }
+        }
+
+        let item = timeline_item(new_related, related.internal_id);
+        self.items.set(idx, item);
+
+        Ok(())
+    }
+
+    pub fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
+        TimelineInnerStateTransaction {
+            items: ManuallyDrop::new(self.items.transaction()),
+            meta: &mut self.meta,
+        }
+    }
+}
+
+impl Deref for TimelineInnerState {
+    type Target = TimelineInnerMetadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.meta
+    }
+}
+
+impl DerefMut for TimelineInnerState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.meta
+    }
+}
+
+pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
+    pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
+    pub meta: &'a mut TimelineInnerMetadata,
+}
+
+impl TimelineInnerStateTransaction<'_> {
     pub async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
         timeline: Timeline,
@@ -221,71 +371,6 @@ impl TimelineInnerState {
         TimelineEventHandler::new(self, ctx, settings.track_read_receipts).handle_event(event_kind)
     }
 
-    /// Handle the creation of a new local event.
-    pub(super) fn handle_local_event(
-        &mut self,
-        own_user_id: OwnedUserId,
-        own_profile: Option<Profile>,
-        txn_id: OwnedTransactionId,
-        content: AnyMessageLikeEventContent,
-        settings: &TimelineInnerSettings,
-    ) {
-        let ctx = TimelineEventContext {
-            sender: own_user_id,
-            sender_profile: own_profile,
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
-            read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
-            is_highlighted: false,
-            flow: Flow::Local { txn_id },
-        };
-
-        TimelineEventHandler::new(self, ctx, settings.track_read_receipts)
-            .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
-    }
-
-    /// Handle the local redaction of an event.
-    pub(super) fn handle_local_redaction(
-        &mut self,
-        own_user_id: OwnedUserId,
-        own_profile: Option<Profile>,
-        txn_id: OwnedTransactionId,
-        to_redact: EventItemIdentifier,
-        content: RoomRedactionEventContent,
-        settings: &TimelineInnerSettings,
-    ) {
-        let ctx = TimelineEventContext {
-            sender: own_user_id,
-            sender_profile: own_profile,
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
-            read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
-            is_highlighted: false,
-            flow: Flow::Local { txn_id: txn_id.clone() },
-        };
-        let timeline_event_handler =
-            TimelineEventHandler::new(self, ctx, settings.track_read_receipts);
-
-        match to_redact {
-            EventItemIdentifier::TransactionId(txn_id) => {
-                timeline_event_handler.handle_event(TimelineEventKind::LocalRedaction {
-                    redacts: txn_id,
-                    content: content.clone(),
-                });
-            }
-            EventItemIdentifier::EventId(event_id) => {
-                timeline_event_handler
-                    .handle_event(TimelineEventKind::Redaction { redacts: event_id, content });
-            }
-        }
-    }
-
     pub(super) fn clear(&mut self) {
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
@@ -296,7 +381,7 @@ impl TimelineInnerState {
             // Remove all remote events and the read marker
             self.items.for_each(|entry| {
                 if entry.is_remote_event() || entry.is_read_marker() {
-                    ObservableVectorEntry::remove(entry);
+                    ObservableVectorTransactionEntry::remove(entry);
                 }
             });
 
@@ -331,116 +416,27 @@ impl TimelineInnerState {
         self.fully_read_event = Some(fully_read_event_id);
         self.meta.update_read_marker(&mut self.items);
     }
-
-    pub(super) fn update_timeline_reaction(
-        &mut self,
-        own_user_id: &UserId,
-        annotation: &Annotation,
-        result: &ReactionToggleResult,
-    ) -> Result<(), TimelineError> {
-        if matches!(result, ReactionToggleResult::RedactSuccess) {
-            // We did a successful redaction, so no need to update the item
-            // because the reaction is already gone.
-            return Ok(());
-        }
-
-        let (remote_echo_to_add, local_echo_to_remove) = match result {
-            ReactionToggleResult::AddSuccess { event_id, txn_id } => (Some(event_id), Some(txn_id)),
-            ReactionToggleResult::AddFailure { txn_id } => (None, Some(txn_id)),
-            ReactionToggleResult::RedactSuccess => (None, None),
-            ReactionToggleResult::RedactFailure { event_id } => (Some(event_id), None),
-        };
-
-        let related = rfind_event_item(&self.items, |it| {
-            it.event_id().is_some_and(|it| it == annotation.event_id)
-        });
-
-        let Some((idx, related)) = related else {
-            // Event isn't found at all.
-            warn!("Timeline item not found, can't update reaction ID");
-            return Err(TimelineError::FailedToToggleReaction);
-        };
-        let Some(remote_related) = related.as_remote() else {
-            error!("inconsistent state: reaction received on a non-remote event item");
-            return Err(TimelineError::FailedToToggleReaction);
-        };
-        // Note: remote event is not synced yet, so we're adding an item
-        // with the local timestamp.
-        let reaction_sender_data = ReactionSenderData {
-            sender_id: own_user_id.to_owned(),
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-        };
-
-        let new_reactions = {
-            let mut reactions = remote_related.reactions.clone();
-            let reaction_group = reactions.entry(annotation.key.clone()).or_default();
-
-            // Remove the local echo from the related event.
-            if let Some(txn_id) = local_echo_to_remove {
-                let id = EventItemIdentifier::TransactionId(txn_id.clone());
-                if reaction_group.0.remove(&id).is_none() {
-                    warn!(
-                        "Tried to remove reaction by transaction ID, but didn't \
-                         find matching reaction in the related event's reactions"
-                    );
-                }
-            }
-
-            // Add the remote echo to the related event
-            if let Some(event_id) = remote_echo_to_add {
-                reaction_group.0.insert(
-                    EventItemIdentifier::EventId(event_id.clone()),
-                    reaction_sender_data.clone(),
-                );
-            };
-
-            if reaction_group.0.is_empty() {
-                reactions.remove(&annotation.key);
-            }
-
-            reactions
-        };
-        let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
-
-        // Update the reactions stored in the timeline state
-        {
-            // Remove the local echo from reaction_map
-            // (should the local echo already be up-to-date after event handling?)
-            if let Some(txn_id) = local_echo_to_remove {
-                let id = EventItemIdentifier::TransactionId(txn_id.clone());
-                if self.meta.reactions.map.remove(&id).is_none() {
-                    warn!(
-                        "Tried to remove reaction by transaction ID, but didn't \
-                     find matching reaction in the reaction map"
-                    );
-                }
-            }
-            // Add the remote echo to the reaction_map
-            if let Some(event_id) = remote_echo_to_add {
-                self.meta.reactions.map.insert(
-                    EventItemIdentifier::EventId(event_id.clone()),
-                    (reaction_sender_data, annotation.clone()),
-                );
-            }
-        }
-
-        self.items.set(idx, timeline_item(new_related, related.internal_id));
-
-        Ok(())
-    }
 }
 
-impl Deref for TimelineInnerState {
+impl Deref for TimelineInnerStateTransaction<'_> {
     type Target = TimelineInnerMetadata;
 
     fn deref(&self) -> &Self::Target {
-        &self.meta
+        self.meta
     }
 }
 
-impl DerefMut for TimelineInnerState {
+impl DerefMut for TimelineInnerStateTransaction<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.meta
+        self.meta
+    }
+}
+
+impl Drop for TimelineInnerStateTransaction<'_> {
+    fn drop(&mut self) {
+        // Safety: self.items is not touched again
+        let txn = unsafe { ManuallyDrop::take(&mut self.items) };
+        txn.commit();
     }
 }
 
@@ -502,7 +498,10 @@ impl TimelineInnerMetadata {
             .then(|| self.new_timeline_item(VirtualTimelineItem::DayDivider(new_ts)))
     }
 
-    pub(crate) fn update_read_marker(&mut self, items: &mut ObservableVector<Arc<TimelineItem>>) {
+    pub(crate) fn update_read_marker(
+        &mut self,
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+    ) {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
@@ -547,55 +546,5 @@ impl TimelineInnerMetadata {
                 }
             }
         }
-    }
-}
-
-pub(in crate::timeline) struct TimelineInnerStateWriteGuard<'a> {
-    inner: RwLockWriteGuard<'a, TimelineInnerState>,
-    lock_release_ob: SharedObservable<()>,
-}
-
-impl Deref for TimelineInnerStateWriteGuard<'_> {
-    type Target = TimelineInnerState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for TimelineInnerStateWriteGuard<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl Drop for TimelineInnerStateWriteGuard<'_> {
-    fn drop(&mut self) {
-        self.lock_release_ob.set(());
-    }
-}
-
-pub(in crate::timeline) struct TimelineInnerStateOwnedWriteGuard {
-    inner: OwnedRwLockWriteGuard<TimelineInnerState>,
-    lock_release_ob: SharedObservable<()>,
-}
-
-impl Deref for TimelineInnerStateOwnedWriteGuard {
-    type Target = TimelineInnerState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for TimelineInnerStateOwnedWriteGuard {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl Drop for TimelineInnerStateOwnedWriteGuard {
-    fn drop(&mut self) {
-        self.lock_release_ob.set(());
     }
 }
