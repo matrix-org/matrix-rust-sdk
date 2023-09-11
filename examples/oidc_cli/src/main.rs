@@ -36,7 +36,7 @@ use matrix_sdk::{
             scope::{Scope, ScopeToken},
         },
         AuthorizationCode, AuthorizationResponse, FullSession, OidcAccountManagementAction,
-        OidcAuthorizationData, RegisteredClientData, UserSession,
+        OidcAuthorizationData, UserSession,
     },
     room::Room,
     ruma::{
@@ -211,13 +211,11 @@ impl OidcCli {
         // the JWT.
         let res = oidc.register_client(&issuer_info.issuer, metadata.clone(), None).await?;
 
-        let client_data = RegisteredClientData {
-            // The format of the credentials changes according to the client metadata that was sent.
-            // Public clients only get a client ID.
-            credentials: ClientCredentials::None { client_id: res.client_id.clone() },
+        oidc.restore_registered_client(
+            issuer_info,
             metadata,
-        };
-        oidc.restore_registered_client(issuer_info, client_data);
+            ClientCredentials::None { client_id: res.client_id.clone() },
+        );
 
         println!("\nRegistered successfully");
 
@@ -290,10 +288,8 @@ impl OidcCli {
         println!("Restoring session for {}…", user_session.meta.user_id);
 
         let session = FullSession {
-            client: RegisteredClientData {
-                credentials: ClientCredentials::None { client_id: client_credentials.client_id },
-                metadata: client_metadata(),
-            },
+            credentials: ClientCredentials::None { client_id: client_credentials.client_id },
+            metadata: client_metadata(),
             user: user_session,
         };
         // Restore the Matrix user session.
