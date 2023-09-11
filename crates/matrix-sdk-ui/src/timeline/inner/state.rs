@@ -432,7 +432,7 @@ impl TimelineInnerState {
                 if reaction_group.0.remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
-                     find matching reaction in the related event's reactions"
+                         find matching reaction in the related event's reactions"
                     );
                 }
             }
