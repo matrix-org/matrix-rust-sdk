@@ -333,7 +333,9 @@ impl Oidc {
 
     /// The OpenID Connect authentication data.
     ///
-    /// Returns `None` if the client's registration was not restored yet.
+    /// Returns `None` if the client registration was not restored with
+    /// [`Oidc::restore_registered_client()`] or
+    /// [`Oidc::restore_session()`].
     fn data(&self) -> Option<&OidcAuthData> {
         let data = self.client.inner.auth_ctx.auth_data.get()?;
         as_variant!(data, AuthData::Oidc)
@@ -457,8 +459,7 @@ impl Oidc {
     ///
     /// # Panics
     ///
-    /// Will panic if the `auth_data` field hasn't been set before with an OIDC
-    /// session.
+    /// Will panic if no OIDC client has been configured yet.
     fn set_session_tokens(&self, session_tokens: SessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
@@ -670,7 +671,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `issuer` - The OpenID Connect Provider to interact with.
+    /// * `issuer_info` - The [`AuthenticationServerInfo`] for the OpenID
+    ///   Connect Provider we're interacting with.
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
     ///   registered.
@@ -992,8 +994,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `code` - The response received as part of the redirect URI when the
-    ///   authorization was successful.
+    /// * `auth_code` - The response received as part of the redirect URI when
+    ///   the authorization was successful.
     ///
     /// Returns an error if a request fails.
     pub async fn finish_authorization(
