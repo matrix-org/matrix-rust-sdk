@@ -39,7 +39,7 @@ async fn get_notification_mode() {
     // Joined room with a user-defined rule
     let room = client.get_room(room_id).unwrap();
     assert_eq!(room.state(), RoomState::Joined);
-    let mode = room.notification_mode().await;
+    let mode = room.notification_mode(false).await;
     assert_matches!(mode, Some(RoomNotificationMode::AllMessages));
 
     // Joined room without user-defined rules
@@ -63,12 +63,15 @@ async fn get_notification_mode() {
 
     let room = client.get_room(room_no_rules_id).unwrap();
     assert_eq!(room.state(), RoomState::Joined);
-    let mode = room.notification_mode().await;
+    let mode = room.notification_mode(false).await;
     assert_matches!(mode, Some(RoomNotificationMode::MentionsAndKeywordsOnly));
+
+    let mode = room.notification_mode(true).await;
+    assert_matches!(mode, None);
 
     // Room not joined
     let room = client.get_room(room_not_joined_id).unwrap();
     assert_eq!(room.state(), RoomState::Invited);
-    let mode = room.notification_mode().await;
+    let mode = room.notification_mode(false).await;
     assert_eq!(mode, None);
 }

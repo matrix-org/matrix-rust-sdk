@@ -2362,7 +2362,11 @@ impl Room {
     }
 
     /// Get the notification mode
-    pub async fn notification_mode(&self) -> Option<RoomNotificationMode> {
+    ///
+    /// # Arguments
+    ///
+    /// * `user_defined_only` - Whether to get only the user-defined mode.
+    pub async fn notification_mode(&self, user_defined_only: bool) -> Option<RoomNotificationMode> {
         if !matches!(self.state(), RoomState::Joined) {
             return None;
         }
@@ -2371,7 +2375,7 @@ impl Room {
         // Get the user-defined mode if available
         let notification_mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
-        if notification_mode.is_some() {
+        if user_defined_only || notification_mode.is_some() {
             notification_mode
         } else if let Ok(is_encrypted) = self.is_encrypted().await {
             // Otherwise, if encrypted status is available, get the default mode for this
