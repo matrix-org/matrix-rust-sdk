@@ -66,7 +66,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, info, instrument, trace, Instrument, Span};
+use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "experimental-oidc")]
@@ -1290,7 +1290,6 @@ impl Client {
     }
 
     fn broadcast_unknown_token(&self, soft_logout: &bool) {
-        info!("An unknown token error has been encountered.");
         _ = self
             .inner
             .auth_ctx

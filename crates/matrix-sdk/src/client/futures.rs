@@ -1,9 +1,3 @@
-#[cfg(feature = "experimental-oidc")]
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    ops::Deref,
-};
 use std::{
     fmt::Debug,
     future::{Future, IntoFuture},
@@ -107,12 +101,6 @@ where
                     return res;
                 }
 
-                #[cfg(feature = "experimental-oidc")]
-                let refresh_token = client
-                    .session()
-                    .as_ref()
-                    .and_then(|s| s.get_refresh_token().map(ToOwned::to_owned));
-
                 // Try to refresh the token and retry the request.
                 if let Err(refresh_error) = client.refresh_access_token().await {
                     match &refresh_error {
@@ -124,8 +112,7 @@ where
 
                         #[cfg(feature = "experimental-oidc")]
                         RefreshTokenError::Oidc(oidc_error) => {
-                            let oidc_error = oidc_error.deref();
-                            match oidc_error {
+                            match **oidc_error {
                                 OidcError::Oidc(OidcClientError::TokenRefresh(
                                     TokenRefreshError::Token(TokenRequestError::Http(
                                         OidcHttpError {
@@ -138,13 +125,7 @@ where
                                         },
                                     )),
                                 )) => {
-                                    let hash = refresh_token.map(|t| {
-                                        let mut hasher = DefaultHasher::new();
-                                        t.hash(&mut hasher);
-                                        hasher.finish()
-                                    });
-
-                                    error!("Token refresh: OIDC refresh_token rejected {:?}", hash);
+                                    error!("Token refresh: OIDC refresh_token rejected with invalid grant");
                                     // The refresh was denied, signal to sign out the user.
                                     client.broadcast_unknown_token(soft_logout);
                                 }
