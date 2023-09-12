@@ -15,12 +15,11 @@
 //! `RoomListService` API.
 //!
 //! The `RoomListService` is a UI API dedicated to present a list of Matrix
-//! rooms to the user. The syncing is handled by
-//! [`SlidingSync`][matrix_sdk::SlidingSync]. The idea is to expose a simple API
-//! to handle most of the client app use cases, like: Showing and updating a
-//! list of rooms, filtering a list of rooms, handling particular updates of a
-//! range of rooms (the ones the client app is showing to the view, i.e. the
-//! rooms present in the viewport) etc.
+//! rooms to the user. The syncing is handled by [`SlidingSync`]. The idea is to
+//! expose a simple API to handle most of the client app use cases, like:
+//! Showing and updating a list of rooms, filtering a list of rooms, handling
+//! particular updates of a range of rooms (the ones the client app is showing
+//! to the view, i.e. the rooms present in the viewport) etc.
 //!
 //! As such, the `RoomListService` works as an opinionated state machine. The
 //! states are defined by [`State`]. Actions are attached to the each state

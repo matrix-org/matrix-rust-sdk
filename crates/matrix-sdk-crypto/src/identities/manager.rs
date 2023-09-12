@@ -661,8 +661,7 @@ impl IdentityManager {
     /// The response of a successful key query requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_query_response`].
     ///
-    /// [`OlmMachine`]: struct.OlmMachine.html
-    /// [`receive_keys_query_response`]: #method.receive_keys_query_response
+    /// [`receive_keys_query_response`]: Self::receive_keys_query_response
     pub async fn users_for_key_query(
         &self,
     ) -> StoreResult<BTreeMap<OwnedTransactionId, KeysQueryRequest>> {
