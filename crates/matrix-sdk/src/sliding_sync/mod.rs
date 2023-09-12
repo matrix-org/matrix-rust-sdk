@@ -310,8 +310,10 @@ impl SlidingSync {
             }
         }
 
-        // Compute `limited`.
-        {
+        let must_process_rooms_response = self.must_process_rooms_response().await;
+
+        // Compute `limited`, if we're interested in a room list query.
+        if must_process_rooms_response {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
         }
@@ -336,7 +338,7 @@ impl SlidingSync {
         // unrelated to the current connection's parameters.
         //
         // NOTE: SS proxy workaround.
-        if self.must_process_rooms_response().await {
+        if must_process_rooms_response {
             response_processor.handle_room_response(&sliding_sync_response).await?;
         }
 
