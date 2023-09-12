@@ -255,10 +255,10 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     ///
-    /// * `store` - A `Cryptostore` implementation that will be used to store
+    /// * `store` - A `CryptoStore` implementation that will be used to store
     /// the encryption keys.
     ///
-    /// [`Cryptostore`]: trait.CryptoStore.html
+    /// [`CryptoStore`]: crate::store::CryptoStore
     #[instrument(skip(store), fields(ed25519_key, curve25519_key))]
     pub async fn with_store(
         user_id: &UserId,
@@ -632,7 +632,6 @@ impl OlmMachine {
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
-    /// [`OlmMachine`]: struct.OlmMachine.html
     async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
         let (device_keys, one_time_keys, fallback_keys) =
             self.inner.account.keys_for_upload().await;
