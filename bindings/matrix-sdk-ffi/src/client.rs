@@ -431,7 +431,7 @@ impl Client {
     }
 
     pub fn account_url(&self) -> Option<String> {
-        self.inner.oidc().account_management_url().ok().flatten().map(|url| url.to_string())
+        self.inner.oidc().account_management_url(None).ok().flatten().map(|url| url.to_string())
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
