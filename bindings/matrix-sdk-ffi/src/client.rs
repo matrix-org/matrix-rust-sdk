@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, RegisteredClientData,
+        FullSession, OidcAccountManagementAction, RegisteredClientData,
     },
     ruma::{
         api::client::{
@@ -430,8 +430,17 @@ impl Client {
         })
     }
 
-    pub fn account_url(&self) -> Option<String> {
-        self.inner.oidc().account_management_url(None).ok().flatten().map(|url| url.to_string())
+    pub fn account_url(
+        &self,
+        action: Option<AccountManagementAction>,
+    ) -> Result<Option<String>, ClientError> {
+        match self.inner.oidc().account_management_url(action.map(Into::into)) {
+            Ok(url) => Ok(url.map(|u| u.to_string())),
+            Err(e) => {
+                tracing::error!("Failed retrieving account management URL: {e}");
+                Err(e.into())
+            }
+        }
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
@@ -966,6 +975,29 @@ impl OidcUnvalidatedSessionData {
             latest_id_token: self.latest_id_token,
             issuer_info: self.issuer_info,
         })
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum AccountManagementAction {
+    Profile,
+    SessionsList,
+    SessionView { device_id: String },
+    SessionEnd { device_id: String },
+}
+
+impl From<AccountManagementAction> for OidcAccountManagementAction {
+    fn from(value: AccountManagementAction) -> Self {
+        match value {
+            AccountManagementAction::Profile => Self::Profile,
+            AccountManagementAction::SessionsList => Self::SessionsList,
+            AccountManagementAction::SessionView { device_id } => {
+                Self::SessionView { device_id: device_id.into() }
+            }
+            AccountManagementAction::SessionEnd { device_id } => {
+                Self::SessionEnd { device_id: device_id.into() }
+            }
+        }
     }
 }
 
