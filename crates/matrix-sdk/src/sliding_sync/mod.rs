@@ -968,49 +968,51 @@ fn compute_limited(
             continue;
         }
 
-        // If the known room had some timeline events, consider it's a `limited` if
-        // there's absolutely no overlap between the known events and
-        // the new events in the timeline.
-        if let Some(known_room) = local_rooms.get(room_id) {
-            let local_events = known_room.timeline_queue();
-
-            if local_events.is_empty() {
-                trace!("local timeline had no events => not limited");
-                continue;
-            }
-
-            // Gather all the known event IDs. Ignore events that don't have an event ID.
-            let num_local_events = local_events.len();
-            let local_events_with_ids: HashSet<OwnedEventId> =
-                HashSet::from_iter(local_events.into_iter().filter_map(|event| event.event_id()));
-
-            // There's overlap if, and only if, there's at least one event in the
-            // response's timeline that matches an event id we've seen before.
-            let mut num_remote_events_missing_ids = 0;
-            let overlap = remote_events.iter().any(|remote_event| {
-                if let Some(remote_event_id) =
-                    remote_event.get_field::<OwnedEventId>("event_id").ok().flatten()
-                {
-                    local_events_with_ids.contains(&remote_event_id)
-                } else {
-                    num_remote_events_missing_ids += 1;
-                    false
-                }
-            });
-
-            remote_room.limited = !overlap;
-
-            trace!(
-                num_events_response = remote_events.len(),
-                num_local_events,
-                num_local_events_with_ids = local_events_with_ids.len(),
-                num_remote_events_missing_ids,
-                room_limited = remote_room.limited,
-                "done"
-            );
-        } else {
+        let Some(local_room) = local_rooms.get(room_id) else {
             trace!("room isn't known locally => not limited");
+            continue;
+        };
+
+        let local_events = local_room.timeline_queue();
+
+        if local_events.is_empty() {
+            trace!("local timeline had no events => not limited");
+            continue;
         }
+
+        // If the local room had some timeline events, consider it's a `limited` if
+        // there's absolutely no overlap between the known events and the new
+        // events in the timeline.
+
+        // Gather all the known event IDs. Ignore events that don't have an event ID.
+        let num_local_events = local_events.len();
+        let local_events_with_ids: HashSet<OwnedEventId> =
+            HashSet::from_iter(local_events.into_iter().filter_map(|event| event.event_id()));
+
+        // There's overlap if, and only if, there's at least one event in the response's
+        // timeline that matches an event id we've seen before.
+        let mut num_remote_events_missing_ids = 0;
+        let overlap = remote_events.iter().any(|remote_event| {
+            if let Some(remote_event_id) =
+                remote_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+            {
+                local_events_with_ids.contains(&remote_event_id)
+            } else {
+                num_remote_events_missing_ids += 1;
+                false
+            }
+        });
+
+        remote_room.limited = !overlap;
+
+        trace!(
+            num_events_response = remote_events.len(),
+            num_local_events,
+            num_local_events_with_ids = local_events_with_ids.len(),
+            num_remote_events_missing_ids,
+            room_limited = remote_room.limited,
+            "done"
+        );
     }
 }
 
