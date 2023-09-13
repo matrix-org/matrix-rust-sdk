@@ -231,13 +231,13 @@ impl OutgoingRequests {
 
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
-        OutgoingRequests::KeysQuery(request)
+        Self::KeysQuery(request)
     }
 }
 
 impl From<KeysBackupRequest> for OutgoingRequests {
     fn from(r: KeysBackupRequest) -> Self {
-        OutgoingRequests::KeysBackup(r)
+        Self::KeysBackup(r)
     }
 }
 
@@ -249,25 +249,25 @@ impl From<KeysClaimRequest> for OutgoingRequests {
 
 impl From<KeysUploadRequest> for OutgoingRequests {
     fn from(request: KeysUploadRequest) -> Self {
-        OutgoingRequests::KeysUpload(request)
+        Self::KeysUpload(request)
     }
 }
 
 impl From<ToDeviceRequest> for OutgoingRequests {
     fn from(request: ToDeviceRequest) -> Self {
-        OutgoingRequests::ToDeviceRequest(request)
+        Self::ToDeviceRequest(request)
     }
 }
 
 impl From<RoomMessageRequest> for OutgoingRequests {
     fn from(request: RoomMessageRequest) -> Self {
-        OutgoingRequests::RoomMessage(request)
+        Self::RoomMessage(request)
     }
 }
 
 impl From<SignatureUploadRequest> for OutgoingRequests {
     fn from(request: SignatureUploadRequest) -> Self {
-        OutgoingRequests::SignatureUpload(request)
+        Self::SignatureUpload(request)
     }
 }
 
