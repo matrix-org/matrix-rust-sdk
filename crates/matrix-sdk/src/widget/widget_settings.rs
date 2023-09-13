@@ -1,8 +1,10 @@
-use crate::Room;
 use language_tags::LanguageTag;
 use url::Url;
 use urlencoding::encode;
-/// Information about a widget.
+
+use crate::Room;
+
+/// Settings of the widget.
 #[derive(Debug)]
 pub struct WidgetSettings {
     /// Widget's unique identifier.
@@ -32,39 +34,25 @@ impl WidgetSettings {
     /// # Arguments
     ///
     /// * `room` - A matrix room which is used to query the logged in username
-    /// * `parent_url` - The parent url is used as the target for the
-    ///   postMessages send by the widget
-    /// Should be the url of the app hosting the widget.
-    /// In case the app hosting the widget is not a webapp the platform specific
-    /// value needs to be used or `"*"` a wildcard.
-    /// Be aware that this means the widget will receive its own postmessage
-    /// messages. The (js) matrix-widget-api ignores those however so this
-    /// works but it might break custom implementations. So always keep this
-    /// in mind.
-    /// * `font_scale` - The font scale used in the widget.
-    /// This should be in sync with the current client app configuration
-    /// * `lang` - the language e.g. en-us
-    /// * `analytics_id` - This can be used in case the widget wants to connect
-    ///   to the
-    /// same analytics provider as the client app only set this value on widgets
-    /// which are known.
-    pub fn get_url(
+    /// * `props` - Propertis from the client that can be used by a widget to
+    ///   adapt to the client. e.g. language, font-scale...
+
+    pub fn generate_url(
         &self,
-        room: Room,
-        parent_url: &str,
-        font_scale: f64,
-        lang: LanguageTag,
-        room_id: &str,
-    ) -> String {
-        // All arguement that are also used by other widgets will be replaced in this step
-        self.raw_url
-            .as_str()
-            .replace("$widgetId", &self.id)
-            .replace("$parentUrl", &encode(parent_url))
-            .replace("$userId", room.own_user_id().as_str())
-            .replace("$lang", lang.as_str())
-            .replace("$fontScale", &font_scale.to_string())
-            .replace("$roomId", &encode(room_id))
+        room: &Room,
+        props: ClientProperties,
+    ) -> Result<Url, url::ParseError> {
+        Url::parse(
+            &self
+                .raw_url
+                .as_str()
+                .replace("$widgetId", &self.id)
+                .replace("$parentUrl", &encode(&props.parent_url))
+                .replace("$userId", room.own_user_id().as_str())
+                .replace("$lang", props.lang.as_str())
+                .replace("$fontScale", &props.font_scale.to_string())
+                .replace("$roomId", &encode(room.room_id().as_str())),
+        )
     }
 
     /// `WidgetSettings` are usually created from a state event.
@@ -79,10 +67,12 @@ impl WidgetSettings {
     /// * `base_path` the path to the app e.g. https://call.element.io.
     /// * `id` the widget id.
     /// * `embed` the embed param for the widget.
-    /// * `hide_header` for Element Call this defines if the branding header should be hidden.
-    /// * `preload` if set, the lobby will be skipped and the widget will join the call on the `io.element.join` action.
+    /// * `hide_header` for Element Call this defines if the branding header
+    ///   should be hidden.
+    /// * `preload` if set, the lobby will be skipped and the widget will join
+    ///   the call on the `io.element.join` action.
     /// * `base_url` the url of the matrix homserver in use e.g. https://matrix-client.matrix.org.
-    /// * `analytics_id` can be used to pass a posthog id.
+    /// * `analytics_id` can be used to pass a posthog id to element call.
     pub fn new_virtual_element_call_widget(
         base_path: &str,
         id: String,
@@ -123,4 +113,25 @@ impl WidgetSettings {
     // TODO: add From<WidgetStateEvent> so that WidgetSetting can be build
     // by using the room state directly:
     // Something like: room.get_widgets() -> Vec<WidgetStateEvent>
+}
+
+/// The set of settings and propterties for the widget based on the client
+/// configuration. Those values are used generate the widget url.
+#[derive(Debug)]
+pub struct ClientProperties {
+    /// The url that is used as the target for the PostMessages sent by the
+    /// widget (to the client). For a web app client this is the client url.
+    /// In case of using other platforms the client most likely is
+    /// setup up to listen to postmessages in the same webview the widget is
+    /// hosted. In this case the parent_url is set to the url of the webview
+    /// with the widget.
+    /// Be aware, that this means, the widget will receive its own postmessage
+    /// messages. The matrix-widget-api (js) ignores those so this
+    /// works but it might break custom implementations. So always keep this
+    /// in mind.
+    parent_url: String,
+    /// The font scale configured in the client.
+    font_scale: f64,
+    /// The language the client is set to e.g. en-us.
+    lang: LanguageTag,
 }

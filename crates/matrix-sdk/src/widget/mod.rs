@@ -10,7 +10,6 @@ mod filter;
 mod permissions;
 mod widget_settings;
 
-use crate::Room;
 
 use self::client::{Action, ClientApi, Event};
 pub use self::{
@@ -18,6 +17,7 @@ pub use self::{
     permissions::{Permissions, PermissionsProvider},
     widget_settings::WidgetSettings,
 };
+use crate::Room;
 
 /// Describes a widget.
 #[derive(Debug)]
