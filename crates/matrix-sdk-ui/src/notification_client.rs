@@ -26,9 +26,11 @@ use ruma::{
     },
     assign,
     events::{
-        room::member::StrippedRoomMemberEvent, AnyFullStateEventContent, AnyStateEvent,
-        AnySyncTimelineEvent, FullStateEventContent, StateEventType, TimelineEventType,
+        room::{member::StrippedRoomMemberEvent, message::SyncRoomMessageEvent},
+        AnyFullStateEventContent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        FullStateEventContent, StateEventType, TimelineEventType,
     },
+    html::RemoveReplyFallback,
     push::Action,
     serde::Raw,
     uint, EventId, OwnedEventId, RoomId, UserId,
@@ -39,6 +41,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::{
     encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
     sync_service::SyncService,
+    DEFAULT_SANITIZER_MODE,
 };
 
 /// What kind of process setup do we have for this notification client?
@@ -604,9 +607,16 @@ impl NotificationItem {
         state_events: Vec<Raw<AnyStateEvent>>,
     ) -> Result<Self, Error> {
         let event = match raw_event {
-            RawNotificationEvent::Timeline(raw_event) => NotificationEvent::Timeline(
-                raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
-            ),
+            RawNotificationEvent::Timeline(raw_event) => {
+                let mut event = raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
+                if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+                    SyncRoomMessageEvent::Original(ev),
+                )) = &mut event
+                {
+                    ev.content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::Yes);
+                }
+                NotificationEvent::Timeline(event)
+            }
             RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(
                 raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
             ),

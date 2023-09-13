@@ -60,9 +60,8 @@ use super::{
     util::{rfind_event_by_id, rfind_event_item, timestamp_to_date},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
     Sticker, TimelineDetails, TimelineItem, TimelineItemContent, VirtualTimelineItem,
-    DEFAULT_SANITIZER_MODE,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, DEFAULT_SANITIZER_MODE};
 
 #[derive(Clone)]
 pub(super) enum Flow {

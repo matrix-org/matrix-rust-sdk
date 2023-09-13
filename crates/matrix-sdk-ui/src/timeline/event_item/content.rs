@@ -61,9 +61,12 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
-use crate::timeline::{
-    polls::PollState, traits::RoomDataProvider, Error as TimelineError, ReactionSenderData,
-    TimelineItem, DEFAULT_SANITIZER_MODE,
+use crate::{
+    timeline::{
+        polls::PollState, traits::RoomDataProvider, Error as TimelineError, ReactionSenderData,
+        TimelineItem,
+    },
+    DEFAULT_SANITIZER_MODE,
 };
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].

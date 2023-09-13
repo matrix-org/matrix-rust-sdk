@@ -43,7 +43,6 @@ use ruma::{
         room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent,
     },
-    html::HtmlSanitizerMode,
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
@@ -93,9 +92,6 @@ use self::{
     reactions::ReactionToggleResult,
     util::rfind_event_by_id,
 };
-
-/// The default sanitizer mode used when sanitizing HTML.
-const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 
 /// A high-level view into a regular¹ room's contents.
 ///
