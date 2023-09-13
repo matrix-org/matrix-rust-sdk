@@ -371,7 +371,7 @@ impl Timeline {
         // Always toggle the local reaction immediately
         let mut action = self.inner.toggle_reaction_local(annotation).await?;
 
-        // The local echo may have been updated while a reaction is is flight
+        // The local echo may have been updated while a reaction is in flight
         // so until it matches the state of the server, keep reconciling
         loop {
             let response = match action {
