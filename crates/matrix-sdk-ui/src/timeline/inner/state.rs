@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     future::Future,
+    mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -430,7 +431,8 @@ impl TimelineInnerState {
     }
 
     fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
-        TimelineInnerStateTransaction { items: self.items.transaction(), meta: &mut self.meta }
+        let items = ManuallyDrop::new(self.items.transaction());
+        TimelineInnerStateTransaction { items, meta: &mut self.meta }
     }
 }
 
@@ -449,7 +451,7 @@ impl DerefMut for TimelineInnerState {
 }
 
 pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
-    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
+    pub items: ManuallyDrop<ObservableVectorTransaction<'a, Arc<TimelineItem>>>,
     pub meta: &'a mut TimelineInnerMetadata,
 }
 
@@ -609,8 +611,29 @@ impl TimelineInnerStateTransaction<'_> {
         self.meta.update_read_marker(&mut self.items);
     }
 
-    fn commit(self) {
-        self.items.commit();
+    fn commit(mut self) {
+        let Self {
+            items,
+            // meta is just a reference, does not any dropping
+            meta: _,
+        } = &mut self;
+
+        // Safety: self is forgotten to avoid double free from drop
+        let items = unsafe { ManuallyDrop::take(items) };
+        mem::forget(self);
+
+        items.commit();
+    }
+}
+
+impl Drop for TimelineInnerStateTransaction<'_> {
+    fn drop(&mut self) {
+        warn!("timeline state transaction cancelled");
+        // Safety: self.items is not touched anymore, the only other place
+        // dropping is Self::commit which makes sure to skip this Drop impl.
+        unsafe {
+            ManuallyDrop::drop(&mut self.items);
+        }
     }
 }
 
