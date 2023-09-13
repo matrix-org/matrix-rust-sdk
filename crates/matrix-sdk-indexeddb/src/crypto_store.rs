@@ -791,15 +791,14 @@ impl_crypto_store! {
                 .get_all_with_key(&range)?
                 .await?
                 .iter()
-                .filter_map(|f| match self.deserialize_value(f) {
-                    Ok(p) => Some(Session::from_pickle(
+                .filter_map(|f| self.deserialize_value(f).ok().map(|p| {
+                    Session::from_pickle(
                         account_info.user_id.clone(),
                         account_info.device_id.clone(),
                         account_info.identity_keys.clone(),
                         p,
-                    )),
-                    _ => None,
-                })
+                    )
+                }))
                 .collect::<Vec<Session>>();
 
             self.session_cache.set_for_sender(sender_key, sessions);
