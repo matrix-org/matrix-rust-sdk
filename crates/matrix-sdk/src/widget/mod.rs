@@ -15,7 +15,7 @@ use self::client::{Action, ClientApi, Event};
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
-    widget_settings::WidgetSettings,
+    widget_settings::{ClientProperties, WidgetSettings},
 };
 use crate::Room;
 
