@@ -16,6 +16,7 @@
 use std::collections::BTreeSet;
 use std::{fmt, sync::Arc};
 
+use as_variant::as_variant;
 use eyeball_im::{ObservableVectorEntry, VectorDiff};
 use eyeball_im_util::vector;
 use futures_core::Stream;
@@ -376,10 +377,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let mut state = self.state.write().await;
         let mut items_txn = state.items.transaction();
 
-        let new_event_id: Option<&EventId> = match &send_state {
-            EventSendState::Sent { event_id } => Some(event_id),
-            _ => None,
-        };
+        let new_event_id: Option<&EventId> =
+            as_variant!(&send_state, EventSendState::Sent { event_id } => event_id);
 
         // The local echoes are always at the end of the timeline, we must first make
         // sure the remote echo hasn't showed up yet.

@@ -171,6 +171,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use as_variant::as_variant;
 use chrono::Utc;
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -253,10 +254,8 @@ impl Oidc {
     ///
     /// Returns `None` if the client's registration was not restored yet.
     fn data(&self) -> Option<&OidcAuthData> {
-        match self.client.inner.auth_ctx.auth_data.get()? {
-            AuthData::Oidc(data) => Some(data),
-            _ => None,
-        }
+        let data = self.client.inner.auth_ctx.auth_data.get()?;
+        as_variant!(data, AuthData::Oidc)
     }
 
     /// The authentication server info discovered from the homeserver.

@@ -14,6 +14,7 @@
 
 use std::{fmt, ops::Deref, sync::Arc};
 
+use as_variant::as_variant;
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -180,19 +181,13 @@ impl TimelineItemContent {
     /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
-        match self {
-            Self::Message(v) => Some(v),
-            _ => None,
-        }
+        as_variant!(self, Self::Message)
     }
 
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
     /// return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
-        match self {
-            Self::UnableToDecrypt(v) => Some(v),
-            _ => None,
-        }
+        as_variant!(self, Self::UnableToDecrypt)
     }
 
     pub(crate) fn is_redacted(&self) -> bool {

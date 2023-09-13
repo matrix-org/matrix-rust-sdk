@@ -13,6 +13,7 @@ native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 
 [dependencies]
+as_variant = { workspace = true }
 async_cell = "0.2.2"
 async-once-cell = "0.5.2"
 async-rx = { workspace = true }

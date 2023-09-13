@@ -17,6 +17,7 @@ use std::{
     convert::{TryFrom, TryInto},
 };
 
+use as_variant::as_variant;
 use ruma::{
     events::{
         key::verification::{
@@ -72,10 +73,9 @@ impl AnyEvent<'_> {
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             AnyEvent::Room(e) => Some(e.origin_server_ts()),
-            AnyEvent::ToDevice(e) => match e {
-                ToDeviceEvents::KeyVerificationRequest(e) => Some(e.content.timestamp),
-                _ => None,
-            },
+            AnyEvent::ToDevice(e) => {
+                as_variant!(e, ToDeviceEvents::KeyVerificationRequest(e) => e.content.timestamp)
+            }
         }
     }
 

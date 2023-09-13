@@ -3030,6 +3030,7 @@ version = "0.6.2"
 dependencies = [
  "anyhow",
  "anymap2",
+ "as_variant",
  "assert-json-diff",
  "assert_matches",
  "async-channel",
@@ -3088,6 +3089,7 @@ dependencies = [
 name = "matrix-sdk-base"
 version = "0.6.1"
 dependencies = [
+ "as_variant",
  "assert_matches",
  "assign",
  "async-trait",
@@ -3141,6 +3143,7 @@ version = "0.6.0"
 dependencies = [
  "aes",
  "anyhow",
+ "as_variant",
  "assert_matches",
  "async-std",
  "async-trait",
@@ -3218,6 +3221,7 @@ name = "matrix-sdk-ffi"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "as_variant",
  "async-compat",
  "base64 0.21.3",
  "extension-trait",
@@ -3389,6 +3393,7 @@ name = "matrix-sdk-ui"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "as_variant",
  "assert-json-diff",
  "assert_matches",
  "async-once-cell",

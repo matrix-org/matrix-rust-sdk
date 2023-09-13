@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
@@ -584,16 +585,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         update_timeline_item!(
             self,
             &c.relates_to.event_id,
-            found: |event_item| match event_item.content() {
-                TimelineItemContent::Poll(poll_state) => Some(event_item.with_content(
+            found: |event_item| {
+                let poll_state = as_variant!(event_item.content(), TimelineItemContent::Poll)?;
+                Some(event_item.with_content(
                     TimelineItemContent::Poll(poll_state.add_response(
                         &self.ctx.sender,
                         self.ctx.timestamp,
                         &c,
                     )),
                     None,
-                )),
-                _ => None,
+                ))
             },
             not_found: || {
                 self.meta.poll_pending_events.add_response(
@@ -610,17 +611,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         update_timeline_item!(
             self,
             &c.relates_to.event_id,
-            found: |event_item| match event_item.content() {
-                TimelineItemContent::Poll(poll_state) => {
-                    match poll_state.end(self.ctx.timestamp) {
-                        Ok(poll_state) => Some(event_item.with_content(TimelineItemContent::Poll(poll_state), None)),
-                        Err(_) => {
-                            info!("Got multiple poll end events, discarding");
-                            None
-                        },
-                    }
-                },
-                _ => None,
+            found: |event_item| {
+                let poll_state = as_variant!(event_item.content(), TimelineItemContent::Poll)?;
+                match poll_state.end(self.ctx.timestamp) {
+                    Ok(poll_state) => Some(event_item.with_content(
+                        TimelineItemContent::Poll(poll_state),
+                        None
+                    )),
+                    Err(_) => {
+                        info!("Got multiple poll end events, discarding");
+                        None
+                    },
+                }
             },
             not_found: || {
                 self.meta.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);

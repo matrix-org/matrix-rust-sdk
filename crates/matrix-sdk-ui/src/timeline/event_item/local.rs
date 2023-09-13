@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use matrix_sdk::Error;
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
@@ -33,10 +34,7 @@ impl LocalEventTimelineItem {
     /// Will be `Some` if and only if `send_state` is
     /// `EventSendState::Sent`.
     pub fn event_id(&self) -> Option<&EventId> {
-        match &self.send_state {
-            EventSendState::Sent { event_id } => Some(event_id),
-            _ => None,
-        }
+        as_variant!(&self.send_state, EventSendState::Sent { event_id } => event_id)
     }
 
     /// Clone the current event item, and update its `send_state`.
