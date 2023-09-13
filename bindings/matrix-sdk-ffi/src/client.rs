@@ -412,6 +412,14 @@ impl Client {
         })
     }
 
+    pub fn remove_avatar(&self) -> Result<(), ClientError> {
+        let client = self.inner.clone();
+        RUNTIME.block_on(async move {
+            client.account().set_avatar_url(None).await?;
+            Ok(())
+        })
+    }
+
     pub fn avatar_url(&self) -> Result<Option<String>, ClientError> {
         let l = self.inner.clone();
         RUNTIME.block_on(async move {
