@@ -149,10 +149,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
         trace!("Creating timeline items signal");
         let state = self.state.read().await;
-        // auto-deref to the inner vector's clone method
-        let items = state.items.clone();
-        let stream = state.items.subscribe().into_stream();
-        (items, stream)
+        (state.items.clone(), state.items.subscribe().into_stream())
     }
 
     pub(super) async fn subscribe_batched(
@@ -160,10 +157,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         trace!("Creating timeline items signal");
         let state = self.state.read().await;
-        // auto-deref to the inner vector's clone method
-        let items = state.items.clone();
-        let stream = state.items.subscribe().into_batched_stream();
-        (items, stream)
+        (state.items.clone(), state.items.subscribe().into_batched_stream())
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
