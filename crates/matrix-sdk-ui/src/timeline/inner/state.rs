@@ -469,7 +469,7 @@ impl TimelineInnerStateTransaction<'_> {
 
         let num_events = timeline.events.len();
         for (i, event) in timeline.events.into_iter().enumerate() {
-            trace!("Handling event {i} out of {num_events}");
+            trace!("Handling event {} out of {num_events}", i + 1);
             self.handle_live_event(event, room_data_provider, settings).await;
         }
     }
