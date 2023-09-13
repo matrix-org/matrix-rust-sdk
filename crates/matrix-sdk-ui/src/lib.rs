@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::html::HtmlSanitizerMode;
+
 mod events;
 
 pub mod authentication;
@@ -22,6 +24,9 @@ pub mod sync_service;
 pub mod timeline;
 
 pub use self::{room_list_service::RoomListService, timeline::Timeline};
+
+/// The default sanitizer mode used when sanitizing HTML.
+const DEFAULT_SANITIZER_MODE: HtmlSanitizerMode = HtmlSanitizerMode::Compat;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[ctor::ctor]
