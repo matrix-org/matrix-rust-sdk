@@ -139,9 +139,9 @@ impl AuthData {
 
     pub(crate) fn access_token(&self) -> Option<String> {
         let token = match self {
-            AuthData::Matrix(d) => d.tokens.get().access_token,
+            Self::Matrix(d) => d.tokens.get().access_token,
             #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(d) => d.tokens.get()?.get().access_token,
+            Self::Oidc(d) => d.tokens.get()?.get().access_token,
         };
 
         Some(token)

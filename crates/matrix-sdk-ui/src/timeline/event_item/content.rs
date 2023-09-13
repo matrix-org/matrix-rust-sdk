@@ -205,7 +205,7 @@ impl TimelineItemContent {
     }
 
     pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
-        TimelineItemContent::UnableToDecrypt(content.into())
+        Self::UnableToDecrypt(content.into())
     }
 
     pub(crate) fn room_member(
@@ -225,7 +225,7 @@ impl TimelineItemContent {
                 if let MChange::ProfileChanged { displayname_change, avatar_url_change } =
                     membership_change
                 {
-                    TimelineItemContent::ProfileChange(MemberProfileChange {
+                    Self::ProfileChange(MemberProfileChange {
                         user_id,
                         displayname_change: displayname_change.map(|c| Change {
                             new: c.new.map(ToOwned::to_owned),
@@ -258,20 +258,18 @@ impl TimelineItemContent {
                         _ => MembershipChange::NotImplemented,
                     };
 
-                    TimelineItemContent::MembershipChange(RoomMembershipChange {
+                    Self::MembershipChange(RoomMembershipChange {
                         user_id,
                         content: full_content,
                         change: Some(change),
                     })
                 }
             }
-            FullStateEventContent::Redacted(_) => {
-                TimelineItemContent::MembershipChange(RoomMembershipChange {
-                    user_id,
-                    content: full_content,
-                    change: None,
-                })
-            }
+            FullStateEventContent::Redacted(_) => Self::MembershipChange(RoomMembershipChange {
+                user_id,
+                content: full_content,
+                change: None,
+            }),
         }
     }
 
