@@ -16,6 +16,8 @@
 
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
+#[cfg(test)]
+use as_variant::as_variant;
 use ruma::{
     api::client::{
         backup::{add_backup_keys::v3::Response as KeysBackupResponse, RoomKeyBackup},
@@ -223,10 +225,7 @@ pub enum OutgoingRequests {
 #[cfg(test)]
 impl OutgoingRequests {
     pub fn to_device(&self) -> Option<&ToDeviceRequest> {
-        match self {
-            OutgoingRequests::ToDeviceRequest(r) => Some(r),
-            _ => None,
-        }
+        as_variant!(self, Self::ToDeviceRequest)
     }
 }
 
