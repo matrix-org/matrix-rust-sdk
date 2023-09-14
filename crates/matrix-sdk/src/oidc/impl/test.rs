@@ -35,7 +35,7 @@ use mas_oidc_client::{
 use url::Url;
 
 use super::{OidcError, OidcImpl, RefreshedSessionTokens};
-use crate::oidc::{AuthorizationCode, SessionTokens};
+use crate::oidc::{AuthorizationCode, OidcSessionTokens};
 
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
 pub(crate) const AUTHORIZATION_URL: &str = "https://oidc.example.com/authorization";
@@ -61,7 +61,7 @@ pub(crate) struct TestImpl {
     revocation_endpoint: String,
 
     /// The next session tokens that will be returned by a login or refresh.
-    next_session_tokens: Option<SessionTokens>,
+    next_session_tokens: Option<OidcSessionTokens>,
 
     /// The next refresh token that's expected for a refresh.
     expected_refresh_token: Option<String>,
@@ -88,7 +88,7 @@ impl TestImpl {
         }
     }
 
-    pub fn next_session_tokens(mut self, next_session_tokens: SessionTokens) -> Self {
+    pub fn next_session_tokens(mut self, next_session_tokens: OidcSessionTokens) -> Self {
         self.next_session_tokens = Some(next_session_tokens);
         self
     }
@@ -124,7 +124,7 @@ impl OidcImpl for TestImpl {
         _metadata: VerifiedClientMetadata,
         _auth_code: AuthorizationCode,
         _validation_data: AuthorizationValidationData,
-    ) -> Result<SessionTokens, OidcError> {
+    ) -> Result<OidcSessionTokens, OidcError> {
         Ok(self
             .next_session_tokens
             .as_ref()

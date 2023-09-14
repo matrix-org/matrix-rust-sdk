@@ -19,7 +19,7 @@ use url::Url;
 
 use super::{
     r#impl::{TestImpl, ISSUER_URL},
-    FullSession, Oidc, SessionTokens, UserSession,
+    FullSession, Oidc, OidcSessionTokens, UserSession,
 };
 use crate::{
     oidc::{
@@ -45,7 +45,7 @@ pub fn fake_client_metadata() -> VerifiedClientMetadata {
     .expect("validate client metadata")
 }
 
-pub fn fake_session(tokens: SessionTokens) -> FullSession {
+pub fn fake_session(tokens: OidcSessionTokens) -> FullSession {
     FullSession {
         credentials: fake_client_credentials(),
         metadata: fake_client_metadata(),
@@ -81,7 +81,7 @@ async fn test_account_management_url() {
                     user_id: owned_user_id!("@user:example.com"),
                     device_id: "device_id".into(),
                 },
-                tokens: SessionTokens {
+                tokens: OidcSessionTokens {
                     access_token: "access_token".to_owned(),
                     refresh_token: None,
                     latest_id_token: None,
@@ -239,7 +239,7 @@ fn test_authorization_response() -> anyhow::Result<()> {
 async fn test_finish_authorization() -> anyhow::Result<()> {
     let client = test_client_builder(None).build().await?;
 
-    let session_tokens = SessionTokens {
+    let session_tokens = OidcSessionTokens {
         access_token: "4cc3ss".to_owned(),
         refresh_token: Some("r3fr3$h".to_owned()),
         latest_id_token: None,

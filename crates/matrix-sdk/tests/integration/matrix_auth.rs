@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    matrix_auth::{Session, SessionTokens},
+    matrix_auth::{MatrixSessionTokens, Session},
     AuthApi, AuthSession, RumaApiError,
 };
 use matrix_sdk_base::SessionMeta;
@@ -290,7 +290,7 @@ fn serialize_session() {
             user_id: user_id!("@user:localhost").to_owned(),
             device_id: device_id!("EFGHIJ").to_owned(),
         },
-        tokens: SessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
+        tokens: MatrixSessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
     };
     assert_eq!(
         to_json_value(session.clone()).unwrap(),

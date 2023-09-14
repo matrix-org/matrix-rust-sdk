@@ -3,7 +3,7 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
     config::StoreConfig,
-    matrix_auth::{Session, SessionTokens},
+    matrix_auth::{MatrixSessionTokens, Session},
     Client, RoomInfo, RoomState, StateChanges,
 };
 use matrix_sdk_base::{store::MemoryStore, SessionMeta, StateStore as _};
@@ -51,7 +51,7 @@ pub fn restore_session(c: &mut Criterion) {
             user_id: user_id!("@somebody:example.com").to_owned(),
             device_id: device_id!("DEVICE_ID").to_owned(),
         },
-        tokens: SessionTokens { access_token: "OHEY".to_owned(), refresh_token: None },
+        tokens: MatrixSessionTokens { access_token: "OHEY".to_owned(), refresh_token: None },
     };
 
     // Start the benchmark.
