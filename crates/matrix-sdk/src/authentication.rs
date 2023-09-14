@@ -97,11 +97,11 @@ pub enum AuthApi {
 #[non_exhaustive]
 pub enum AuthSession {
     /// A session using the native Matrix authentication API.
-    Matrix(matrix_auth::Session),
+    Matrix(matrix_auth::MatrixSession),
 
     /// A session using the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(oidc::FullSession),
+    Oidc(oidc::OidcSession),
 }
 
 impl AuthSession {
@@ -142,15 +142,15 @@ impl AuthSession {
     }
 }
 
-impl From<matrix_auth::Session> for AuthSession {
-    fn from(session: matrix_auth::Session) -> Self {
+impl From<matrix_auth::MatrixSession> for AuthSession {
+    fn from(session: matrix_auth::MatrixSession) -> Self {
         Self::Matrix(session)
     }
 }
 
 #[cfg(feature = "experimental-oidc")]
-impl From<oidc::FullSession> for AuthSession {
-    fn from(session: oidc::FullSession) -> Self {
+impl From<oidc::OidcSession> for AuthSession {
+    fn from(session: oidc::OidcSession) -> Self {
         Self::Oidc(session)
     }
 }

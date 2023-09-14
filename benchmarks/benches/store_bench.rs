@@ -3,7 +3,7 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
     config::StoreConfig,
-    matrix_auth::{MatrixSessionTokens, Session},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, RoomInfo, RoomState, StateChanges,
 };
 use matrix_sdk_base::{store::MemoryStore, SessionMeta, StateStore as _};
@@ -46,7 +46,7 @@ pub fn restore_session(c: &mut Criterion) {
         changes.add_room(RoomInfo::new(&room_id, RoomState::Invited));
     }
 
-    let session = Session {
+    let session = MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@somebody:example.com").to_owned(),
             device_id: device_id!("DEVICE_ID").to_owned(),

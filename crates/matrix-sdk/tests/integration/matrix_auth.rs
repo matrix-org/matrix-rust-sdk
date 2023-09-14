@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    matrix_auth::{MatrixSessionTokens, Session},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     AuthApi, AuthSession, RumaApiError,
 };
 use matrix_sdk_base::SessionMeta;
@@ -262,7 +262,7 @@ fn deserialize_session() {
         "user_id": "@user:localhost",
         "device_id": "EFGHIJ",
     });
-    let session: Session = from_json_value(json).unwrap();
+    let session: MatrixSession = from_json_value(json).unwrap();
     assert_eq!(session.tokens.access_token, "abcd");
     assert_eq!(session.meta.user_id, "@user:localhost");
     assert_eq!(session.meta.device_id, "EFGHIJ");
@@ -275,7 +275,7 @@ fn deserialize_session() {
         "user_id": "@user:localhost",
         "device_id": "EFGHIJ",
     });
-    let session: Session = from_json_value(json).unwrap();
+    let session: MatrixSession = from_json_value(json).unwrap();
     assert_eq!(session.tokens.access_token, "abcd");
     assert_eq!(session.meta.user_id, "@user:localhost");
     assert_eq!(session.meta.device_id, "EFGHIJ");
@@ -285,7 +285,7 @@ fn deserialize_session() {
 #[test]
 fn serialize_session() {
     // Without refresh token.
-    let mut session = Session {
+    let mut session = MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@user:localhost").to_owned(),
             device_id: device_id!("EFGHIJ").to_owned(),

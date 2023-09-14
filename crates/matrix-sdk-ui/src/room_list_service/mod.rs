@@ -570,7 +570,7 @@ mod tests {
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
         config::RequestConfig,
-        matrix_auth::{MatrixSessionTokens, Session},
+        matrix_auth::{MatrixSession, MatrixSessionTokens},
         reqwest::Url,
         Client, SlidingSyncMode,
     };
@@ -583,7 +583,7 @@ mod tests {
     use super::{Error, RoomListService, State, ALL_ROOMS_LIST_NAME};
 
     async fn new_client() -> (Client, MockServer) {
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),

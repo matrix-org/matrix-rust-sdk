@@ -253,13 +253,13 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        oidc::{FullSession, OidcSessionTokens, UserSession},
+        oidc::{OidcSession, OidcSessionTokens, UserSession},
         test_utils::test_client_builder,
         Error,
     };
 
-    fn fake_session(tokens: OidcSessionTokens) -> FullSession {
-        FullSession {
+    fn fake_session(tokens: OidcSessionTokens) -> OidcSession {
+        OidcSession {
             credentials: ClientCredentials::None { client_id: "test_client_id".to_owned() },
             metadata: ClientMetadata {
                 redirect_uris: Some(vec![]), // empty vector is ok lol
