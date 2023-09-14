@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::pin::Pin;
+
 use as_variant::as_variant;
+use futures_core::Future;
 use matrix_sdk_base::SessionMeta;
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use tokio::sync::{broadcast, Mutex, OnceCell};
@@ -21,8 +24,25 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use crate::oidc::{self, Oidc, OidcAuthData};
 use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
-    RefreshTokenError, SessionChange,
+    Client, RefreshTokenError, SessionChange,
 };
+
+/// Session tokens, for any kind of authentication.
+#[allow(missing_debug_implementations, clippy::large_enum_variant)]
+pub enum SessionTokens {
+    /// Tokens for a [`matrix_auth`] session.
+    Matrix(matrix_auth::SessionTokens),
+    #[cfg(feature = "experimental-oidc")]
+    /// Tokens for an [`oidc`] session.
+    Oidc(oidc::SessionTokens),
+}
+
+pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
+pub(crate) type SaveSessionCallback = dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = Result<(), SessionCallbackError>>>>
+    + Send
+    + Sync;
+pub(crate) type ReloadSessionCallback =
+    dyn Fn(Client) -> Result<SessionTokens, SessionCallbackError> + Send + Sync;
 
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
@@ -45,6 +65,21 @@ pub(crate) struct AuthCtx {
 
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
+
+    /// A callback called whenever we need an absolute source of truth for the
+    /// current session tokens.
+    ///
+    /// This is required only in multiple processes setups.
+    pub(crate) reload_session_callback: OnceCell<Box<ReloadSessionCallback>>,
+
+    /// A callback to save a session back into the app's secure storage.
+    ///
+    /// This is always called, independently of the presence of a cross-process
+    /// lock.
+    ///
+    /// Internal invariant: this must be called only after `set_session_tokens`
+    /// has been called, not before.
+    pub(crate) save_session_callback: OnceCell<Box<SaveSessionCallback>>,
 }
 
 /// An enum over all the possible authentication APIs.

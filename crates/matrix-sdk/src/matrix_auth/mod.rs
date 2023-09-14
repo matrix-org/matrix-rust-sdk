@@ -473,6 +473,12 @@ impl MatrixAuth {
 
                     self.set_session_tokens(session_tokens);
 
+                    if let Some(save_session_callback) =
+                        self.client.inner.auth_ctx.save_session_callback.get()
+                    {
+                        save_session_callback(self.client.clone());
+                    }
+
                     _ = self
                         .client
                         .inner

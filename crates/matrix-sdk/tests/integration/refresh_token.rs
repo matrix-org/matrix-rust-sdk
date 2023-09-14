@@ -1,4 +1,8 @@
-use std::time::Duration;
+use std::{
+    future::ready,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
 use futures_util::StreamExt;
@@ -6,7 +10,7 @@ use matrix_sdk::{
     config::RequestConfig,
     executor::spawn,
     matrix_auth::{Session, SessionTokens},
-    HttpError, RefreshTokenError,
+    HttpError, RefreshTokenError, SessionChange,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
@@ -18,7 +22,7 @@ use ruma::{
     assign, device_id, user_id,
 };
 use serde_json::json;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     matchers::{body_partial_json, header, method, path},
     Mock, ResponseTemplate,
@@ -168,8 +172,24 @@ async fn refresh_token() {
         .unwrap();
     let auth = client.matrix_auth();
 
+    let num_save_session_callback_calls = Arc::new(Mutex::new(0));
+    client
+        .set_session_callbacks(Box::new(|_| panic!("reload session never called")), {
+            let num_save_session_callback_calls = num_save_session_callback_calls.clone();
+            Box::new(move |_client| {
+                *num_save_session_callback_calls.lock().unwrap() += 1;
+                Box::pin(ready(Ok(())))
+            })
+        })
+        .unwrap();
+
+    let mut session_changes = client.subscribe_to_session_changes();
+
     let session = session();
     auth.restore_session(session).await.unwrap();
+
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 0);
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 
     let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "1234");
@@ -190,6 +210,8 @@ async fn refresh_token() {
     let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "5678");
     assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 1);
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
 
     // Refresh token changes.
     Mock::given(method("POST"))
@@ -207,6 +229,10 @@ async fn refresh_token() {
     let tokens = auth.session_tokens().unwrap();
     assert_eq!(tokens.access_token, "9012");
     assert_eq!(tokens.refresh_token.as_deref(), Some("wxyz"));
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 2);
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[async_test]

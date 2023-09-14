@@ -229,6 +229,11 @@ pub enum CrossProcessRefreshLockError {
     #[error("reload session callback must be set with Oidc::set_callbacks() for the cross-process lock to work")]
     MissingReloadSession,
 
+    /// Session tokens returned by the reload_session callback were not for
+    /// OIDC.
+    #[error("session tokens returned by the reload_session callback were not for OIDC")]
+    InvalidSessionTokens,
+
     /// The store has been created twice.
     #[error(
         "the cross-process lock has been set up twice with `enable_cross_process_refresh_lock`"
@@ -292,11 +297,11 @@ mod tests {
 
         client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
 
-        client.oidc().set_callbacks(
+        client.set_session_callbacks(
             Box::new({
                 // This is only called because of extra checks in the code.
                 let tokens = tokens.clone();
-                move |_| Ok(tokens.clone())
+                move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
             }),
             Box::new(|_| panic!("save_session_callback shouldn't be called here")),
         )?;

@@ -169,14 +169,13 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
-    pin::Pin,
     sync::Arc,
 };
 
 use as_variant::as_variant;
 use chrono::Utc;
 use eyeball::SharedObservable;
-use futures_core::{Future, Stream};
+use futures_core::Stream;
 pub use mas_oidc_client::{error, types};
 use mas_oidc_client::{
     http_service::HttpService,
@@ -223,10 +222,6 @@ pub use self::{
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
-type SaveSessionCallback =
-    dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
-type ReloadSessionCallback = dyn Fn(Client) -> anyhow::Result<SessionTokens> + Send + Sync;
-
 #[derive(Default)]
 pub(crate) struct OidcContext {
     /// Lock and state when multiple processes may refresh an OIDC session.
@@ -237,21 +232,6 @@ pub(crate) struct OidcContext {
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
     deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
-
-    /// A callback called whenever we need an absolute source of truth for the
-    /// current session tokens.
-    ///
-    /// This is required only in multiple processes setups.
-    reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
-
-    /// A callback to save a session back into the app's secure storage.
-    ///
-    /// This is always called, independently of the presence of a cross-process
-    /// lock.
-    ///
-    /// Internal invariant: this must be called only after `set_session_tokens`
-    /// has been called, not before.
-    save_session_callback: Arc<OnceCell<Box<SaveSessionCallback>>>,
 }
 
 pub(crate) struct OidcAuthData {
@@ -285,25 +265,6 @@ impl Oidc {
 
     fn ctx(&self) -> &OidcContext {
         &self.client.inner.oidc_context
-    }
-
-    /// Sets the save/restore session callbacks for OIDC.
-    pub fn set_callbacks(
-        &self,
-        reload_session_callback: Box<ReloadSessionCallback>,
-        save_session_callback: Box<SaveSessionCallback>,
-    ) -> Result<(), OidcError> {
-        self.ctx()
-            .reload_session_callback
-            .set(reload_session_callback)
-            .map_err(|_| OidcError::DuplicateCallbacks)?;
-
-        self.ctx()
-            .save_session_callback
-            .set(save_session_callback)
-            .map_err(|_| OidcError::DuplicateCallbacks)?;
-
-        Ok(())
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -822,14 +783,21 @@ impl Oidc {
         trace!("Handling hash mismatch.");
 
         let callback = self
-            .ctx()
+            .client
+            .inner
+            .auth_ctx
             .reload_session_callback
             .get()
             .ok_or(CrossProcessRefreshLockError::MissingReloadSession)?;
 
         match callback(self.client.clone()) {
             Ok(tokens) => {
+                let crate::authentication::SessionTokens::Oidc(tokens) = tokens else {
+                    return Err(CrossProcessRefreshLockError::InvalidSessionTokens);
+                };
+
                 guard.handle_mismatch(&tokens).await?;
+
                 self.set_session_tokens(tokens.clone());
                 // The app's callback acted as authoritative here, so we're not
                 // saving the data back into the app, as that would have no
@@ -1149,7 +1117,9 @@ impl Oidc {
                     this.set_session_tokens(tokens.clone());
 
                     // Call the save_session_callback if set, while the optional lock is being held.
-                    if let Some(save_session_callback) = this.ctx().save_session_callback.get() {
+                    if let Some(save_session_callback) =
+                        this.client.inner.auth_ctx.save_session_callback.get()
+                    {
                         // Satisfies the save_session_callback invariant: set_session_tokens has
                         // been called just above.
                         if let Err(err) = save_session_callback(this.client.clone()).await {
@@ -1529,10 +1499,6 @@ pub enum OidcError {
     /// An error occurred caused by the cross-process locks.
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
-
-    /// Oidc callbacks have been set multiple times.
-    #[error("oidc callbacks have been set multiple times")]
-    DuplicateCallbacks,
 
     /// An unknown error occurred.
     #[error("unknown error")]

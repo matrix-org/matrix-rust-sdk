@@ -257,6 +257,10 @@ pub enum Error {
     #[error("The internal client state is inconsistent.")]
     InconsistentState,
 
+    /// Session callbacks have been set multiple times.
+    #[error("session callbacks have been set multiple times")]
+    MultipleSessionCallbacks,
+
     /// An error occurred interacting with the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
     #[error(transparent)]

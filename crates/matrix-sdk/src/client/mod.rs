@@ -74,7 +74,7 @@ use crate::oidc::Oidc;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcContext;
 use crate::{
-    authentication::{AuthCtx, AuthData},
+    authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
@@ -124,7 +124,7 @@ pub enum LoopCtrl {
 }
 
 /// Represents changes that can occur to a `Client`s `Session`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SessionChange {
     /// The session's token is no longer valid.
     UnknownToken {
@@ -905,9 +905,9 @@ impl Client {
         };
 
         match auth_api {
-            AuthApi::Matrix(a) => {
+            AuthApi::Matrix(api) => {
                 trace!("Token refresh: Using the homeserver.");
-                a.refresh_access_token().await?;
+                api.refresh_access_token().await?;
             }
             #[cfg(feature = "experimental-oidc")]
             AuthApi::Oidc(api) => {
@@ -1870,6 +1870,30 @@ impl Client {
     pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
         let broadcast = &self.inner.auth_ctx.session_change_sender;
         broadcast.subscribe()
+    }
+
+    /// Sets the save/restore session callbacks.
+    ///
+    /// This is another mechanism to get synchronous updates to session tokens,
+    /// while [`Self::subscribe_to_session_changes`] provides an async update.
+    pub fn set_session_callbacks(
+        &self,
+        reload_session_callback: Box<ReloadSessionCallback>,
+        save_session_callback: Box<SaveSessionCallback>,
+    ) -> Result<()> {
+        self.inner
+            .auth_ctx
+            .reload_session_callback
+            .set(reload_session_callback)
+            .map_err(|_| Error::MultipleSessionCallbacks)?;
+
+        self.inner
+            .auth_ctx
+            .save_session_callback
+            .set(save_session_callback)
+            .map_err(|_| Error::MultipleSessionCallbacks)?;
+
+        Ok(())
     }
 
     /// Sets a given pusher
