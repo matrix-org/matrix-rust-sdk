@@ -28,7 +28,7 @@ pub struct RoomInfo {
     joined_members_count: u64,
     highlight_count: u64,
     notification_count: u64,
-    notification_mode: Option<RoomNotificationMode>,
+    user_defined_notification_mode: Option<RoomNotificationMode>,
 }
 
 impl RoomInfo {
@@ -63,7 +63,10 @@ impl RoomInfo {
             joined_members_count: room.joined_members_count(),
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
-            notification_mode: room.notification_mode().await.map(Into::into),
+            user_defined_notification_mode: room
+                .user_defined_notification_mode()
+                .await
+                .map(Into::into),
         })
     }
 }

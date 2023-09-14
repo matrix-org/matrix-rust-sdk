@@ -2387,6 +2387,17 @@ impl Room {
             None
         }
     }
+
+    /// Get the user-defined notification mode
+    pub async fn user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
+        if !matches!(self.state(), RoomState::Joined) {
+            return None;
+        }
+        let notification_settings = self.client().notification_settings().await;
+
+        // Get the user-defined mode if available
+        notification_settings.get_user_defined_room_notification_mode(self.room_id()).await
+    }
 }
 
 /// Details of the (latest) invite.
