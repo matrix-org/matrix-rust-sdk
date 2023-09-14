@@ -1192,10 +1192,7 @@ impl Oidc {
         let Ok(mut refresh_status_guard) = refresh_status_lock else {
             // There's already a request to refresh happening in the same process. Wait for
             // it to finish.
-            return match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
-                Ok(_) => Ok(()),
-                Err(error) => Err(error.clone()),
-            };
+            return client.inner.auth_ctx.refresh_token_lock.lock().await.clone();
         };
 
         let cross_process_guard =
