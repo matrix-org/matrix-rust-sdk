@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, OidcAccountManagementAction, RegisteredClientData,
+        FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
     },
     ruma::{
         api::client::{
@@ -120,6 +120,12 @@ pub trait ClientDelegate: Sync + Send {
 }
 
 #[uniffi::export(callback_interface)]
+pub trait ClientSessionDelegate: Sync + Send {
+    fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
+    fn save_session_in_keychain(&self, session: Session);
+}
+
+#[uniffi::export(callback_interface)]
 pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
@@ -143,12 +149,23 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: MatrixClient,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
+    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
 
 impl Client {
-    pub fn new(sdk_client: MatrixClient) -> Arc<Self> {
+    pub fn new(
+        sdk_client: MatrixClient,
+        cross_process_refresh_lock_id: Option<String>,
+        session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+    ) -> Result<Arc<Self>, ClientError> {
+        if cross_process_refresh_lock_id.is_some() && session_delegate.is_none() {
+            return Err(ClientError::Generic {
+                msg: "can't have a cross-process refresh lock without session delegate".to_owned(),
+            });
+        }
+
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -165,6 +182,7 @@ impl Client {
         let client = Arc::new(Client {
             inner: sdk_client,
             delegate: RwLock::new(None),
+            session_delegate,
             session_verification_controller,
         });
 
@@ -183,7 +201,40 @@ impl Client {
             }
         });
 
-        client
+        if let Some(process_id) = cross_process_refresh_lock_id {
+            let session_delegate = client
+                .session_delegate
+                .clone()
+                .context("missing session delegates when enabling the cross-process lock")?;
+
+            RUNTIME.block_on(async {
+                let oidc = client.inner.oidc();
+
+                oidc.enable_cross_process_refresh_lock(process_id.clone()).await?;
+
+                oidc.set_callbacks(
+                    {
+                        let session_delegate = session_delegate.clone();
+                        Box::new(move |client| {
+                            let session_delegate = session_delegate.clone();
+                            let user_id = client.user_id().context("user isn't logged in")?;
+                            Self::retrieve_session(session_delegate, user_id)
+                        })
+                    },
+                    {
+                        let session_delegate = session_delegate.clone();
+                        Box::new(move |client| {
+                            let session_delegate = session_delegate.clone();
+                            Box::pin(
+                                async move { Self::save_session(session_delegate, client).await },
+                            )
+                        })
+                    },
+                )
+            })?;
+        }
+
+        Ok(client)
     }
 }
 
@@ -239,61 +290,10 @@ impl Client {
 
     /// Restores the client from a `Session`.
     pub fn restore_session(&self, session: Session) -> Result<(), ClientError> {
-        let Session {
-            access_token,
-            refresh_token,
-            user_id,
-            device_id,
-            homeserver_url: _,
-            oidc_data,
-            sliding_sync_proxy,
-        } = session;
+        let sliding_sync_proxy = session.sliding_sync_proxy.clone();
+        let auth_session: AuthSession = session.try_into()?;
 
-        if let Some(oidc_data) = oidc_data {
-            // Restore using an OIDC FullSession.
-            let oidc_data = serde_json::from_str::<OidcUnvalidatedSessionData>(&oidc_data)?
-                .validate()
-                .context("OIDC metadata validation failed.")?;
-            let latest_id_token = oidc_data
-                .latest_id_token
-                .map(TryInto::try_into)
-                .transpose()
-                .context("OIDC latest_id_token is invalid.")?;
-
-            let user_session = matrix_sdk::oidc::UserSession {
-                meta: matrix_sdk::SessionMeta {
-                    user_id: user_id.try_into()?,
-                    device_id: device_id.into(),
-                },
-                tokens: matrix_sdk::oidc::SessionTokens {
-                    access_token,
-                    refresh_token,
-                    latest_id_token,
-                },
-                issuer_info: oidc_data.issuer_info,
-            };
-
-            let session = FullSession {
-                client: RegisteredClientData {
-                    credentials: ClientCredentials::None { client_id: oidc_data.client_id },
-                    metadata: oidc_data.client_metadata,
-                },
-                user: user_session,
-            };
-
-            self.restore_session_inner(session)?;
-        } else {
-            // Restore using a regular Matrix Session.
-            let session = matrix_sdk::matrix_auth::Session {
-                meta: matrix_sdk::SessionMeta {
-                    user_id: user_id.try_into()?,
-                    device_id: device_id.into(),
-                },
-                tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
-            };
-
-            self.restore_session_inner(session)?;
-        }
+        self.restore_session_inner(auth_session)?;
 
         if let Some(sliding_sync_proxy) = sliding_sync_proxy {
             let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
@@ -362,72 +362,7 @@ impl Client {
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move {
-            let auth_api = self.inner.auth_api().context("Missing authentication API")?;
-
-            let homeserver_url = self.inner.homeserver().await.into();
-            let sliding_sync_proxy =
-                self.discovered_sliding_sync_proxy().map(|url| url.to_string());
-
-            match auth_api {
-                // Build the session from the regular Matrix Auth Session.
-                AuthApi::Matrix(a) => {
-                    let matrix_sdk::matrix_auth::Session {
-                        meta: matrix_sdk::SessionMeta { user_id, device_id },
-                        tokens:
-                            matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
-                    } = a.session().context("Missing session")?;
-
-                    Ok(Session {
-                        access_token,
-                        refresh_token,
-                        user_id: user_id.to_string(),
-                        device_id: device_id.to_string(),
-                        homeserver_url,
-                        oidc_data: None,
-                        sliding_sync_proxy,
-                    })
-                }
-                // Build the session from the OIDC UserSession.
-                AuthApi::Oidc(api) => {
-                    let matrix_sdk::oidc::UserSession {
-                        meta: matrix_sdk::SessionMeta { user_id, device_id },
-                        tokens:
-                            matrix_sdk::oidc::SessionTokens {
-                                access_token,
-                                refresh_token,
-                                latest_id_token,
-                            },
-                        issuer_info,
-                    } = api.user_session().context("Missing session")?;
-                    let client_id = api
-                        .client_credentials()
-                        .context("OIDC client credentials are missing.")?
-                        .client_id()
-                        .to_owned();
-                    let client_metadata =
-                        api.client_metadata().context("OIDC client metadata is missing.")?.clone();
-                    let oidc_data = OidcSessionData {
-                        client_id,
-                        client_metadata,
-                        latest_id_token: latest_id_token.map(|t| t.to_string()),
-                        issuer_info,
-                    };
-
-                    let oidc_data = serde_json::to_string(&oidc_data).ok();
-                    Ok(Session {
-                        access_token,
-                        refresh_token,
-                        user_id: user_id.to_string(),
-                        device_id: device_id.to_string(),
-                        homeserver_url,
-                        oidc_data,
-                        sliding_sync_proxy,
-                    })
-                }
-                _ => Err(anyhow!("Unknown authentication API").into()),
-            }
-        })
+        RUNTIME.block_on(async move { Self::session_inner(self.inner.clone()).await })
     }
 
     pub fn account_url(
@@ -818,6 +753,36 @@ impl Client {
             });
         }
     }
+
+    fn retrieve_session(
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+        user_id: &UserId,
+    ) -> anyhow::Result<SessionTokens> {
+        let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
+        let auth_session = TryInto::<AuthSession>::try_into(session)?;
+        match auth_session {
+            AuthSession::Oidc(session) => Ok(session.user.tokens),
+            _ => anyhow::bail!("Unexpected session kind."),
+        }
+    }
+
+    async fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
+        let auth_api = client.auth_api().context("Missing authentication API")?;
+
+        let homeserver_url = client.homeserver().await.into();
+        let sliding_sync_proxy = client.sliding_sync_proxy().map(|url| url.to_string());
+
+        Session::new(auth_api, homeserver_url, sliding_sync_proxy)
+    }
+
+    async fn save_session(
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+        client: matrix_sdk::Client,
+    ) -> anyhow::Result<()> {
+        let session = Self::session_inner(client).await?;
+        session_delegate.save_session_in_keychain(session);
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -944,6 +909,129 @@ pub struct Session {
     pub oidc_data: Option<String>,
     /// The URL for the sliding sync proxy used for this session.
     pub sliding_sync_proxy: Option<String>,
+}
+
+impl Session {
+    fn new(
+        auth_api: AuthApi,
+        homeserver_url: String,
+        sliding_sync_proxy: Option<String>,
+    ) -> Result<Session, ClientError> {
+        match auth_api {
+            // Build the session from the regular Matrix Auth Session.
+            AuthApi::Matrix(a) => {
+                let matrix_sdk::matrix_auth::Session {
+                    meta: matrix_sdk::SessionMeta { user_id, device_id },
+                    tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+                } = a.session().context("Missing session")?;
+
+                Ok(Session {
+                    access_token,
+                    refresh_token,
+                    user_id: user_id.to_string(),
+                    device_id: device_id.to_string(),
+                    homeserver_url,
+                    oidc_data: None,
+                    sliding_sync_proxy,
+                })
+            }
+            // Build the session from the OIDC UserSession.
+            AuthApi::Oidc(api) => {
+                let matrix_sdk::oidc::UserSession {
+                    meta: matrix_sdk::SessionMeta { user_id, device_id },
+                    tokens:
+                        matrix_sdk::oidc::SessionTokens { access_token, refresh_token, latest_id_token },
+                    issuer_info,
+                } = api.user_session().context("Missing session")?;
+                let client_id = api
+                    .client_credentials()
+                    .context("OIDC client credentials are missing.")?
+                    .client_id()
+                    .to_owned();
+                let client_metadata =
+                    api.client_metadata().context("OIDC client metadata is missing.")?.clone();
+                let oidc_data = OidcSessionData {
+                    client_id,
+                    client_metadata,
+                    latest_id_token: latest_id_token.map(|t| t.to_string()),
+                    issuer_info,
+                };
+
+                let oidc_data = serde_json::to_string(&oidc_data).ok();
+                Ok(Session {
+                    access_token,
+                    refresh_token,
+                    user_id: user_id.to_string(),
+                    device_id: device_id.to_string(),
+                    homeserver_url,
+                    oidc_data,
+                    sliding_sync_proxy,
+                })
+            }
+            _ => Err(anyhow!("Unknown authentication API").into()),
+        }
+    }
+}
+
+impl TryFrom<Session> for AuthSession {
+    type Error = ClientError;
+    fn try_from(value: Session) -> Result<Self, Self::Error> {
+        let Session {
+            access_token,
+            refresh_token,
+            user_id,
+            device_id,
+            homeserver_url: _,
+            oidc_data,
+            sliding_sync_proxy: _,
+        } = value;
+
+        if let Some(oidc_data) = oidc_data {
+            // Create an OIDC FullSession.
+            let oidc_data = serde_json::from_str::<OidcUnvalidatedSessionData>(&oidc_data)?
+                .validate()
+                .context("OIDC metadata validation failed.")?;
+            let latest_id_token = oidc_data
+                .latest_id_token
+                .map(TryInto::try_into)
+                .transpose()
+                .context("OIDC latest_id_token is invalid.")?;
+
+            let user_session = matrix_sdk::oidc::UserSession {
+                meta: matrix_sdk::SessionMeta {
+                    user_id: user_id.try_into()?,
+                    device_id: device_id.into(),
+                },
+                tokens: matrix_sdk::oidc::SessionTokens {
+                    access_token,
+                    refresh_token,
+                    latest_id_token,
+                },
+                issuer_info: oidc_data.issuer_info,
+            };
+
+            let session = FullSession {
+                client: RegisteredClientData {
+                    credentials: ClientCredentials::None { client_id: oidc_data.client_id },
+                    metadata: oidc_data.client_metadata,
+                },
+                user: user_session,
+            };
+
+            Ok(AuthSession::Oidc(session))
+        } else {
+            // Create a regular Matrix Session.
+            let session = matrix_sdk::matrix_auth::Session {
+                meta: matrix_sdk::SessionMeta {
+                    user_id: user_id.try_into()?,
+                    device_id: device_id.into(),
+                },
+                tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+            };
+
+            Ok(AuthSession::Matrix(session))
+        }
+    }
 }
 
 /// Represents a client registration against an OpenID Connect authentication

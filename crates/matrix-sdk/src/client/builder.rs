@@ -28,6 +28,8 @@ use url::Url;
 use super::{Client, ClientInner};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcContext;
 use crate::{
     authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
     HttpError,
@@ -440,6 +442,8 @@ impl ClientBuilder {
             base_client,
             self.server_versions,
             self.respect_login_well_known,
+            #[cfg(feature = "experimental-oidc")]
+            Arc::new(OidcContext::default()),
         ));
 
         debug!("Done building the Client");

@@ -27,7 +27,7 @@ use url::Url;
 use zeroize::Zeroize;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
-use crate::{client_builder::UrlScheme, error::ClientError};
+use crate::{client::ClientSessionDelegate, client_builder::UrlScheme, error::ClientError};
 
 #[derive(uniffi::Object)]
 pub struct AuthenticationService {
@@ -38,6 +38,8 @@ pub struct AuthenticationService {
     homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
     oidc_configuration: Option<OidcConfiguration>,
     custom_sliding_sync_proxy: RwLock<Option<String>>,
+    cross_process_refresh_lock_id: Option<String>,
+    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
 }
 
 impl Drop for AuthenticationService {
@@ -181,6 +183,8 @@ impl AuthenticationService {
         user_agent: Option<String>,
         oidc_configuration: Option<OidcConfiguration>,
         custom_sliding_sync_proxy: Option<String>,
+        session_delegate: Option<Box<dyn ClientSessionDelegate>>,
+        cross_process_refresh_lock_id: Option<String>,
     ) -> Arc<Self> {
         Arc::new(AuthenticationService {
             base_path,
@@ -190,6 +194,8 @@ impl AuthenticationService {
             homeserver_details: RwLock::new(None),
             oidc_configuration,
             custom_sliding_sync_proxy: RwLock::new(custom_sliding_sync_proxy),
+            session_delegate: session_delegate.map(Into::into),
+            cross_process_refresh_lock_id,
         })
     }
 
@@ -569,13 +575,26 @@ impl AuthenticationService {
             sliding_sync_proxy = None;
         }
 
-        let client = self
+        let mut client = self
             .new_client_builder()
             .passphrase(self.passphrase.clone())
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy)
-            .username(user_id.to_string())
-            .build_inner()?;
+            .username(user_id.to_string());
+
+        if let Some(id) = &self.cross_process_refresh_lock_id {
+            let Some(ref session_delegate) = self.session_delegate else {
+                return Err(AuthenticationError::OidcError {
+                    message: "cross-process refresh lock requires session delegate".to_owned(),
+                });
+            };
+            client = client
+                .enable_cross_process_refresh_lock_inner(id.clone(), session_delegate.clone());
+        } else if let Some(ref session_delegate) = self.session_delegate {
+            client = client.set_session_delegate_inner(session_delegate.clone());
+        }
+
+        let client = client.build_inner()?;
 
         // Restore the client using the session from the login request.
         client.restore_session_inner(session)?;

@@ -66,11 +66,13 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, info, instrument, trace, Instrument, Span};
+use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
+#[cfg(feature = "experimental-oidc")]
+use crate::oidc::OidcContext;
 use crate::{
     authentication::{AuthCtx, AuthData},
     config::RequestConfig,
@@ -183,6 +185,9 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) oidc_context: Arc<OidcContext>,
+
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
@@ -210,6 +215,11 @@ pub(crate) struct ClientInner {
 }
 
 impl ClientInner {
+    /// Create a new `ClientInner`.
+    ///
+    /// All the fields passed here are those that must be cloned upon
+    /// instantiation of a sub-client, e.g. a client specialized for
+    /// notifications.
     #[allow(clippy::too_many_arguments)]
     fn new(
         auth_ctx: Arc<AuthCtx>,
@@ -219,6 +229,7 @@ impl ClientInner {
         base_client: BaseClient,
         server_versions: Option<Box<[MatrixVersion]>>,
         respect_login_well_known: bool,
+        #[cfg(feature = "experimental-oidc")] oidc_context: Arc<OidcContext>,
     ) -> Self {
         Self {
             homeserver: RwLock::new(homeserver),
@@ -245,6 +256,8 @@ impl ClientInner {
             cross_process_crypto_store_lock: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
             crypto_store_generation: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "experimental-oidc")]
+            oidc_context,
         }
     }
 }
@@ -1277,7 +1290,6 @@ impl Client {
     }
 
     fn broadcast_unknown_token(&self, soft_logout: &bool) {
-        info!("An unknown token error has been encountered.");
         _ = self
             .inner
             .auth_ctx
@@ -1904,6 +1916,8 @@ impl Client {
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_versions.get().cloned(),
                 self.inner.respect_login_well_known,
+                #[cfg(feature = "experimental-oidc")]
+                self.inner.oidc_context.clone(),
             )),
         };
 

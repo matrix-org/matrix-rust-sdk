@@ -12,7 +12,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
-use crate::{error::ClientError, helpers::unwrap_or_clone_arc};
+use crate::{client::ClientSessionDelegate, error::ClientError, helpers::unwrap_or_clone_arc};
 
 #[derive(Clone)]
 pub(crate) enum UrlScheme {
@@ -34,6 +34,8 @@ pub struct ClientBuilder {
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     inner: MatrixClientBuilder,
+    cross_process_refresh_lock_id: Option<String>,
+    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
 }
 
 #[uniffi::export]
@@ -41,6 +43,23 @@ impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    pub fn enable_cross_process_refresh_lock(
+        self: Arc<Self>,
+        process_id: String,
+        session_delegate: Box<dyn ClientSessionDelegate>,
+    ) -> Arc<Self> {
+        self.enable_cross_process_refresh_lock_inner(process_id, session_delegate.into())
+    }
+
+    pub fn set_session_delegate(
+        self: Arc<Self>,
+        session_delegate: Box<dyn ClientSessionDelegate>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.session_delegate = Some(session_delegate.into());
+        Arc::new(builder)
     }
 
     pub fn base_path(self: Arc<Self>, path: String) -> Arc<Self> {
@@ -116,6 +135,26 @@ impl ClientBuilder {
 }
 
 impl ClientBuilder {
+    pub(crate) fn enable_cross_process_refresh_lock_inner(
+        self: Arc<Self>,
+        process_id: String,
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.cross_process_refresh_lock_id = Some(process_id);
+        builder.session_delegate = Some(session_delegate);
+        Arc::new(builder)
+    }
+
+    pub(crate) fn set_session_delegate_inner(
+        self: Arc<Self>,
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.session_delegate = Some(session_delegate);
+        Arc::new(builder)
+    }
+
     pub(crate) fn server_name_with_protocol(
         self: Arc<Self>,
         server_name: String,
@@ -200,7 +239,11 @@ impl ClientBuilder {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
         }
 
-        Ok(Client::new(sdk_client))
+        Ok(Client::new(
+            sdk_client,
+            builder.cross_process_refresh_lock_id,
+            builder.session_delegate,
+        )?)
     }
 }
 
@@ -219,6 +262,8 @@ impl Default for ClientBuilder {
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             inner: MatrixClient::builder(),
+            cross_process_refresh_lock_id: None,
+            session_delegate: None,
         }
     }
 }
