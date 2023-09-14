@@ -446,59 +446,60 @@ impl MatrixAuth {
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
-    pub async fn refresh_access_token(
-        &self,
-    ) -> Result<Option<refresh_token::v3::Response>, RefreshTokenError> {
-        let client = &self.client;
-        let lock = client.inner.auth_ctx.refresh_token_lock.try_lock();
-
-        if let Ok(mut guard) = lock {
-            let Some(mut session_tokens) = self.session_tokens() else {
-                *guard = Err(RefreshTokenError::RefreshTokenRequired);
-                return Err(RefreshTokenError::RefreshTokenRequired);
+    pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
+        macro_rules! fail {
+            ($lock:expr, $err:expr) => {
+                let error = $err;
+                *$lock = Err(error.clone());
+                return Err(error);
             };
-            let Some(refresh_token) = session_tokens.refresh_token.clone() else {
-                *guard = Err(RefreshTokenError::RefreshTokenRequired);
-                return Err(RefreshTokenError::RefreshTokenRequired);
-            };
+        }
 
-            let request = refresh_token::v3::Request::new(refresh_token);
-            let res = client.send_inner(request, None, None, Default::default()).await;
+        let refresh_token_lock = &self.client.inner.auth_ctx.refresh_token_lock;
+        let Ok(mut guard) = refresh_token_lock.try_lock() else {
+            // Somebody else is also doing a token refresh; wait for it to finish first.
+            return refresh_token_lock.lock().await.clone();
+        };
 
-            match res {
-                Ok(res) => {
-                    *guard = Ok(());
+        let Some(mut session_tokens) = self.session_tokens() else {
+            fail!(guard, RefreshTokenError::RefreshTokenRequired);
+        };
+        let Some(refresh_token) = session_tokens.refresh_token.clone() else {
+            fail!(guard, RefreshTokenError::RefreshTokenRequired);
+        };
 
-                    session_tokens.update_with_refresh_response(&res);
+        let request = refresh_token::v3::Request::new(refresh_token);
+        let res = self.client.send_inner(request, None, None, Default::default()).await;
 
-                    self.set_session_tokens(session_tokens);
+        match res {
+            Ok(res) => {
+                *guard = Ok(());
 
-                    if let Some(save_session_callback) =
-                        self.client.inner.auth_ctx.save_session_callback.get()
-                    {
-                        save_session_callback(self.client.clone());
-                    }
-
-                    _ = self
-                        .client
-                        .inner
-                        .auth_ctx
-                        .session_change_sender
-                        .send(SessionChange::TokensRefreshed);
-
-                    Ok(Some(res))
+                session_tokens.access_token = res.access_token;
+                if let Some(refresh_token) = res.refresh_token {
+                    session_tokens.refresh_token = Some(refresh_token);
                 }
-                Err(error) => {
-                    let error = RefreshTokenError::MatrixAuth(error.into());
-                    *guard = Err(error.clone());
 
-                    Err(error)
+                self.set_session_tokens(session_tokens);
+
+                if let Some(save_session_callback) =
+                    self.client.inner.auth_ctx.save_session_callback.get()
+                {
+                    save_session_callback(self.client.clone());
                 }
+
+                _ = self
+                    .client
+                    .inner
+                    .auth_ctx
+                    .session_change_sender
+                    .send(SessionChange::TokensRefreshed);
+
+                Ok(())
             }
-        } else {
-            match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
-                Ok(_) => Ok(None),
-                Err(error) => Err(error.clone()),
+            Err(error) => {
+                let error = RefreshTokenError::MatrixAuth(error.into());
+                fail!(guard, error);
             }
         }
     }
@@ -898,15 +899,4 @@ pub struct MatrixSessionTokens {
     /// [refreshing the access token]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-}
-
-impl MatrixSessionTokens {
-    /// Update this `MatrixSessionTokens` with the values found in the given
-    /// response.
-    pub fn update_with_refresh_response(&mut self, response: &refresh_token::v3::Response) {
-        self.access_token = response.access_token.clone();
-        if let Some(refresh_token) = response.refresh_token.clone() {
-            self.refresh_token = Some(refresh_token);
-        }
-    }
 }
