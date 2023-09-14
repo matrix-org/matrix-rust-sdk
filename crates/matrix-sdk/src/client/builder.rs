@@ -431,6 +431,8 @@ impl ClientBuilder {
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),
+            reload_session_callback: OnceCell::default(),
+            save_session_callback: OnceCell::default(),
         });
 
         let inner = Arc::new(ClientInner::new(

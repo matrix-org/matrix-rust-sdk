@@ -42,7 +42,6 @@ image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-oidc = [
-    "anyhow",
     "ruma/unstable-msc2967",
     "dep:chrono",
     "dep:language-tags",

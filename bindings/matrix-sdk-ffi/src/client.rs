@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
+        FullSession, OidcAccountManagementAction, RegisteredClientData,
     },
     ruma::{
         api::client::{
@@ -30,7 +30,7 @@ use matrix_sdk::{
         serde::Raw,
         EventEncryptionAlgorithm, TransactionId, UInt, UserId,
     },
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange,
+    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
 use mime::Mime;
@@ -149,7 +149,6 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: MatrixClient,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
-    session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -160,12 +159,6 @@ impl Client {
         cross_process_refresh_lock_id: Option<String>,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     ) -> Result<Arc<Self>, ClientError> {
-        if cross_process_refresh_lock_id.is_some() && session_delegate.is_none() {
-            return Err(ClientError::Generic {
-                msg: "can't have a cross-process refresh lock without session delegate".to_owned(),
-            });
-        }
-
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
@@ -182,7 +175,6 @@ impl Client {
         let client = Arc::new(Client {
             inner: sdk_client,
             delegate: RwLock::new(None),
-            session_delegate,
             session_verification_controller,
         });
 
@@ -202,36 +194,36 @@ impl Client {
         });
 
         if let Some(process_id) = cross_process_refresh_lock_id {
-            let session_delegate = client
-                .session_delegate
-                .clone()
-                .context("missing session delegates when enabling the cross-process lock")?;
-
+            if session_delegate.is_none() {
+                return Err(anyhow::anyhow!(
+                    "missing session delegates when enabling the cross-process lock"
+                ))?;
+            }
             RUNTIME.block_on(async {
-                let oidc = client.inner.oidc();
-
-                oidc.enable_cross_process_refresh_lock(process_id.clone()).await?;
-
-                oidc.set_callbacks(
-                    {
-                        let session_delegate = session_delegate.clone();
-                        Box::new(move |client| {
-                            let session_delegate = session_delegate.clone();
-                            let user_id = client.user_id().context("user isn't logged in")?;
-                            Self::retrieve_session(session_delegate, user_id)
-                        })
-                    },
-                    {
-                        let session_delegate = session_delegate.clone();
-                        Box::new(move |client| {
-                            let session_delegate = session_delegate.clone();
-                            Box::pin(
-                                async move { Self::save_session(session_delegate, client).await },
-                            )
-                        })
-                    },
-                )
+                client.inner.oidc().enable_cross_process_refresh_lock(process_id.clone()).await
             })?;
+        }
+
+        if let Some(session_delegate) = session_delegate {
+            client.inner.set_session_callbacks(
+                {
+                    let session_delegate = session_delegate.clone();
+                    Box::new(move |client| {
+                        let session_delegate = session_delegate.clone();
+                        let user_id = client.user_id().context("user isn't logged in")?;
+                        Ok(Self::retrieve_session(session_delegate, user_id)?)
+                    })
+                },
+                {
+                    let session_delegate = session_delegate.clone();
+                    Box::new(move |client| {
+                        let session_delegate = session_delegate.clone();
+                        Box::pin(
+                            async move { Ok(Self::save_session(session_delegate, client).await?) },
+                        )
+                    })
+                },
+            )?;
         }
 
         Ok(client)
@@ -769,7 +761,8 @@ impl Client {
         let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
         let auth_session = TryInto::<AuthSession>::try_into(session)?;
         match auth_session {
-            AuthSession::Oidc(session) => Ok(session.user.tokens),
+            AuthSession::Oidc(session) => Ok(SessionTokens::Oidc(session.user.tokens)),
+            AuthSession::Matrix(session) => Ok(SessionTokens::Matrix(session.tokens)),
             _ => anyhow::bail!("Unexpected session kind."),
         }
     }

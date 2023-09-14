@@ -53,7 +53,7 @@ pub mod sync;
 pub mod widget;
 
 pub use account::Account;
-pub use authentication::{AuthApi, AuthSession};
+pub use authentication::{AuthApi, AuthSession, SessionTokens};
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl, SendRequest, SessionChange};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
