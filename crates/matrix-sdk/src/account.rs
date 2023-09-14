@@ -26,7 +26,8 @@ use ruma::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
         },
-        config::set_global_account_data,
+        config::{get_global_account_data, set_global_account_data},
+        error::ErrorKind,
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
         },
@@ -692,6 +693,54 @@ impl Account {
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
         get_raw_content(self.client.store().get_account_data_event(event_type).await?)
+    }
+
+    /// Fetch an global account data event from the server.
+    ///
+    /// The content from the response will not be persisted in the store.
+    ///
+    /// Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
+    ///
+    /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
+    ///     let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+    ///
+    ///     println!("Ignored users:");
+    ///
+    ///     for user_id in content.ignored_users.keys() {
+    ///         println!("- {user_id}");
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    pub async fn fetch_account_data(
+        &self,
+        event_type: GlobalAccountDataEventType,
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = get_global_account_data::v3::Request::new(own_user.to_owned(), event_type);
+
+        match self.client.send(request, None).await {
+            Ok(r) => Ok(Some(r.account_data)),
+            Err(e) => {
+                if let Some(kind) = e.client_api_error_kind() {
+                    if kind == &ErrorKind::NotFound {
+                        Ok(None)
+                    } else {
+                        Err(e.into())
+                    }
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     /// Set the given account data event.
