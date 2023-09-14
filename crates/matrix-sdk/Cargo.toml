@@ -62,6 +62,7 @@ docsrs = ["e2e-encryption", "sqlite", "sso-login", "qrcode", "image-proc"]
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
+as_variant = { workspace = true }
 async-channel = "1.9.0"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -142,6 +143,7 @@ assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 dirs = "5.0.1"
 futures-executor = { workspace = true }
+matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false, features = ["testing"] }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test" }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 

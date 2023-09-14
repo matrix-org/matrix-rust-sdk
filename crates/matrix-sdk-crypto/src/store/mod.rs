@@ -58,7 +58,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
 
 use crate::{
@@ -71,7 +71,6 @@ use crate::{
         ReadOnlyAccount, Session,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
-    utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus, ReadOnlyOwnUserIdentity,
 };
@@ -339,7 +338,7 @@ impl BackupDecryptionKey {
 
     /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
-        encode(self.inner.as_slice())
+        base64_encode(self.inner.as_slice())
     }
 }
 
@@ -1071,6 +1070,9 @@ impl Store {
     ///
     /// If the reader of the stream lags too far behind, a warning will be
     /// logged and items will be dropped.
+    ///
+    /// The stream will terminate once all references to the underlying
+    /// `CryptoStoreWrapper` are dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         self.inner.store.room_keys_received_stream()
     }
@@ -1082,6 +1084,10 @@ impl Store {
     /// identity is discovered or when an existing identities information is
     /// changed. Users can subscribe to this stream and receive updates in
     /// real-time.
+    ///
+    /// Caution: the returned stream will never terminate, and it holds a
+    /// reference to the [`CryptoStore`]. Listeners should be careful to avoid
+    /// resource leaks.
     ///
     /// # Examples
     ///
@@ -1132,6 +1138,10 @@ impl Store {
     /// is discovered or when an existing device's information is changed. Users
     /// can subscribe to this stream and receive updates in real-time.
     ///
+    /// Caution: the returned stream will never terminate, and it holds a
+    /// reference to the [`CryptoStore`]. Listeners should be careful to avoid
+    /// resource leaks.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -1163,6 +1173,19 @@ impl Store {
                 devices,
             )
         })
+    }
+
+    /// Returns a [`Stream`] of user identity and device updates
+    ///
+    /// The stream returned by this method returns the same data as
+    /// [`Store::user_identities_stream`] and [`Store::devices_stream`] but does
+    /// not include references to the `VerificationMachine`. It is therefore a
+    /// lower-level view on that data.
+    ///
+    /// The stream will terminate once all references to the underlying
+    /// `CryptoStoreWrapper` are dropped.
+    pub fn identities_stream_raw(&self) -> impl Stream<Item = (IdentityChanges, DeviceChanges)> {
+        self.inner.store.identities_stream().map(|(_, identities, devices)| (identities, devices))
     }
 
     /// Creates a `CrossProcessStoreLock` for this store, that will contain the

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
+use as_variant::as_variant;
 use extension_trait::extension_trait;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
@@ -134,61 +135,40 @@ impl TimelineDiff {
 
     pub fn append(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::Append { values } => Some(values),
-            _ => None,
-        }
+        as_variant!(this, Self::Append { values } => values)
     }
 
     pub fn insert(self: Arc<Self>) -> Option<InsertData> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::Insert { index, value } => {
-                Some(InsertData { index: index.try_into().unwrap(), item: value })
-            }
-            _ => None,
-        }
+        as_variant!(this, Self::Insert { index, value } => {
+            InsertData { index: index.try_into().unwrap(), item: value }
+        })
     }
 
     pub fn set(self: Arc<Self>) -> Option<SetData> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::Set { index, value } => {
-                Some(SetData { index: index.try_into().unwrap(), item: value })
-            }
-            _ => None,
-        }
+        as_variant!(this, Self::Set { index, value } => {
+            SetData { index: index.try_into().unwrap(), item: value }
+        })
     }
 
     pub fn remove(&self) -> Option<u32> {
-        match self {
-            Self::Remove { index } => Some((*index).try_into().unwrap()),
-            _ => None,
-        }
+        as_variant!(self, Self::Remove { index } => (*index).try_into().unwrap())
     }
 
     pub fn push_back(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::PushBack { value } => Some(value),
-            _ => None,
-        }
+        as_variant!(this, Self::PushBack { value } => value)
     }
 
     pub fn push_front(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::PushFront { value } => Some(value),
-            _ => None,
-        }
+        as_variant!(this, Self::PushFront { value } => value)
     }
 
     pub fn reset(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
         let this = unwrap_or_clone_arc(self);
-        match this {
-            Self::Reset { values } => Some(values),
-            _ => None,
-        }
+        as_variant!(this, Self::Reset { values } => values)
     }
 }
 

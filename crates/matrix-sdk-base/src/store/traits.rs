@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
 };
 
+use as_variant::as_variant;
 use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
@@ -786,26 +787,17 @@ pub enum StateStoreDataValue {
 impl StateStoreDataValue {
     /// Get this value if it is a sync token.
     pub fn into_sync_token(self) -> Option<String> {
-        match self {
-            Self::SyncToken(token) => Some(token),
-            _ => None,
-        }
+        as_variant!(self, Self::SyncToken)
     }
 
     /// Get this value if it is a filter.
     pub fn into_filter(self) -> Option<String> {
-        match self {
-            Self::Filter(filter) => Some(filter),
-            _ => None,
-        }
+        as_variant!(self, Self::Filter)
     }
 
     /// Get this value if it is a user avatar url.
     pub fn into_user_avatar_url(self) -> Option<String> {
-        match self {
-            Self::UserAvatarUrl(user_avatar_url) => Some(user_avatar_url),
-            _ => None,
-        }
+        as_variant!(self, Self::UserAvatarUrl)
     }
 }
 

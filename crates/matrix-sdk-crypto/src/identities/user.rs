@@ -21,6 +21,7 @@ use std::{
     },
 };
 
+use as_variant::as_variant;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
@@ -53,19 +54,13 @@ impl UserIdentities {
     /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
     /// type.
     pub fn own(self) -> Option<OwnUserIdentity> {
-        match self {
-            Self::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
     pub fn other(self) -> Option<UserIdentity> {
-        match self {
-            Self::Other(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Other)
     }
 
     /// Get the ID of the user this identity belongs to.
@@ -344,26 +339,17 @@ impl ReadOnlyUserIdentities {
     /// Destructure the enum into an `ReadOnlyOwnUserIdentity` if it's of the
     /// correct type.
     pub fn own(&self) -> Option<&ReadOnlyOwnUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     pub(crate) fn into_own(self) -> Option<ReadOnlyOwnUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Own(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Own)
     }
 
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
     pub fn other(&self) -> Option<&ReadOnlyUserIdentity> {
-        match self {
-            ReadOnlyUserIdentities::Other(i) => Some(i),
-            _ => None,
-        }
+        as_variant!(self, Self::Other)
     }
 }
 

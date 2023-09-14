@@ -18,6 +18,7 @@ mod sas_state;
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use eyeball::{ObservableWriteGuard, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -434,15 +435,9 @@ impl Sas {
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
     pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
-        match self.state() {
-            SasState::Started { protocols } => {
-                let settings =
-                    AcceptSettings { allowed_methods: protocols.short_authentication_string };
-
-                self.accept_with_settings(settings)
-            }
-            _ => None,
-        }
+        let protocols = as_variant!(self.state(), SasState::Started { protocols } => protocols)?;
+        let settings = AcceptSettings { allowed_methods: protocols.short_authentication_string };
+        self.accept_with_settings(settings)
     }
 
     /// Accept the SAS verification customizing the accept method.

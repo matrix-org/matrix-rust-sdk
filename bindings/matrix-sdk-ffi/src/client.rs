@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, RegisteredClientData, SessionTokens,
+        FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
     },
     ruma::{
         api::client::{
@@ -33,6 +33,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange,
 };
 use matrix_sdk_ui::notification_client::NotificationProcessSetup as MatrixNotificationProcessSetup;
+use mime::Mime;
 use ruma::{
     api::client::discovery::discover_homeserver::AuthenticationServerInfo,
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
@@ -353,8 +354,17 @@ impl Client {
         RUNTIME.block_on(async move { self.session_inner().await })
     }
 
-    pub fn account_url(&self) -> Option<String> {
-        self.inner.oidc().account_management_url().ok().flatten().map(|url| url.to_string())
+    pub fn account_url(
+        &self,
+        action: Option<AccountManagementAction>,
+    ) -> Result<Option<String>, ClientError> {
+        match self.inner.oidc().account_management_url(action.map(Into::into)) {
+            Ok(url) => Ok(url.map(|u| u.to_string())),
+            Err(e) => {
+                tracing::error!("Failed retrieving account management URL: {e}");
+                Err(e.into())
+            }
+        }
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
@@ -378,6 +388,15 @@ impl Client {
                 .set_display_name(Some(name.as_str()))
                 .await
                 .context("Unable to set display name")?;
+            Ok(())
+        })
+    }
+
+    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
+        let client = self.inner.clone();
+        RUNTIME.block_on(async move {
+            let mime: Mime = mime_type.parse()?;
+            client.account().upload_avatar(&mime, data).await?;
             Ok(())
         })
     }
@@ -1032,6 +1051,29 @@ impl OidcUnvalidatedSessionData {
             latest_id_token: self.latest_id_token,
             issuer_info: self.issuer_info,
         })
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum AccountManagementAction {
+    Profile,
+    SessionsList,
+    SessionView { device_id: String },
+    SessionEnd { device_id: String },
+}
+
+impl From<AccountManagementAction> for OidcAccountManagementAction {
+    fn from(value: AccountManagementAction) -> Self {
+        match value {
+            AccountManagementAction::Profile => Self::Profile,
+            AccountManagementAction::SessionsList => Self::SessionsList,
+            AccountManagementAction::SessionView { device_id } => {
+                Self::SessionView { device_id: device_id.into() }
+            }
+            AccountManagementAction::SessionEnd { device_id } => {
+                Self::SessionEnd { device_id: device_id.into() }
+            }
+        }
     }
 }
 

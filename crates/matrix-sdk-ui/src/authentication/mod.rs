@@ -12,23 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod events;
+pub mod oidc;
 
-pub mod authentication;
-pub mod encryption_sync_service;
-pub mod notification_client;
-pub mod room_list_service;
-pub mod sync_service;
-pub mod timeline;
-
-pub use self::{room_list_service::RoomListService, timeline::Timeline};
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[ctor::ctor]
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .init();
-}
+// TODO(pixlwave) Move AuthenticationService from the FFI into here.

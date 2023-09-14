@@ -25,12 +25,10 @@ use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
+use vodozemac::{base64_decode, base64_encode};
 use zeroize::Zeroize;
 
-use crate::{
-    olm::ExportedRoomKey,
-    utilities::{decode, encode, DecodeError},
-};
+use crate::olm::ExportedRoomKey;
 
 type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
@@ -63,7 +61,7 @@ pub enum KeyExportError {
     Json(#[from] SerdeError),
     /// The key export string isn't valid base64.
     #[error(transparent)]
-    Decode(#[from] DecodeError),
+    Decode(#[from] vodozemac::Base64DecodeError),
     /// The key export doesn't all the required fields.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -199,11 +197,11 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
 
     derived_keys.zeroize();
 
-    encode(payload)
+    base64_encode(payload)
 }
 
 fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExportError> {
-    let decoded = decode(ciphertext)?;
+    let decoded = base64_decode(ciphertext)?;
 
     let mut decoded = Cursor::new(decoded);
 
@@ -284,7 +282,8 @@ mod tests {
     use ruma::{room_id, user_id};
 
     use super::{
-        decode, decrypt_helper, decrypt_room_key_export, encrypt_helper, encrypt_room_key_export,
+        base64_decode, decrypt_helper, decrypt_room_key_export, encrypt_helper,
+        encrypt_room_key_export,
     };
     use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
@@ -314,7 +313,7 @@ mod tests {
     #[test]
     fn test_decode() {
         let export = export_without_headers();
-        decode(export).unwrap();
+        base64_decode(export).unwrap();
     }
 
     #[test]

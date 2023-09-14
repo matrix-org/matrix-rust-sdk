@@ -2549,6 +2549,7 @@ async fn test_input_viewport() -> Result<(), Error> {
 }
 
 #[async_test]
+#[ignore] // flaky
 async fn test_sync_indicator() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 

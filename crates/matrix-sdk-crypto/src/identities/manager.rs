@@ -661,8 +661,7 @@ impl IdentityManager {
     /// The response of a successful key query requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_query_response`].
     ///
-    /// [`OlmMachine`]: struct.OlmMachine.html
-    /// [`receive_keys_query_response`]: #method.receive_keys_query_response
+    /// [`receive_keys_query_response`]: Self::receive_keys_query_response
     pub async fn users_for_key_query(
         &self,
     ) -> StoreResult<BTreeMap<OwnedTransactionId, KeysQueryRequest>> {
@@ -996,7 +995,7 @@ pub(crate) mod tests {
         device_id, user_id, TransactionId,
     };
     use serde_json::json;
-    use stream_assert::assert_ready;
+    use stream_assert::{assert_closed, assert_pending, assert_ready};
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
     use crate::identities::manager::testing::own_key_query;
@@ -1239,5 +1238,31 @@ pub(crate) mod tests {
 
         let update = assert_ready!(stream);
         assert!(!update.new.is_empty(), "The identities update should contain some identities");
+    }
+
+    #[async_test]
+    async fn identities_stream_raw() {
+        let mut manager = Some(manager().await);
+        let (request_id, _) = manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
+
+        let stream = manager.as_ref().unwrap().store.identities_stream_raw();
+        pin_mut!(stream);
+
+        manager
+            .as_ref()
+            .unwrap()
+            .receive_keys_query_response(&request_id, &own_key_query())
+            .await
+            .unwrap();
+
+        let (identity_update, _) = assert_ready!(stream);
+        assert_eq!(identity_update.new.len(), 1);
+        assert_eq!(identity_update.new[0].user_id(), user_id());
+
+        assert_pending!(stream);
+
+        // dropping the manager (and hence dropping the store) should close the stream
+        manager.take();
+        assert_closed!(stream);
     }
 }

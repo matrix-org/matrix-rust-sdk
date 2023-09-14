@@ -173,6 +173,7 @@ use std::{
     sync::Arc,
 };
 
+use as_variant::as_variant;
 use chrono::Utc;
 use eyeball::SharedObservable;
 use futures_core::{Future, Stream};
@@ -201,7 +202,7 @@ use mas_oidc_client::{
 };
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
+use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedDeviceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
@@ -373,10 +374,8 @@ impl Oidc {
     ///
     /// Returns `None` if the client's registration was not restored yet.
     fn data(&self) -> Option<&OidcAuthData> {
-        match self.client.inner.auth_ctx.auth_data.get()? {
-            AuthData::Oidc(data) => Some(data),
-            _ => None,
-        }
+        let data = self.client.inner.auth_ctx.auth_data.get()?;
+        as_variant!(data, AuthData::Oidc)
     }
 
     /// The authentication server info discovered from the homeserver.
@@ -407,7 +406,10 @@ impl Oidc {
     /// [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`], or if the homeserver doesn't advertise this
     /// URL. Returns an error if the URL could not be parsed
-    pub fn account_management_url(&self) -> Result<Option<Url>, url::ParseError> {
+    pub fn account_management_url(
+        &self,
+        action: Option<OidcAccountManagementAction>,
+    ) -> Result<Option<Url>, url::ParseError> {
         let Some(data) = self.data() else {
             return Ok(None);
         };
@@ -419,6 +421,25 @@ impl Oidc {
 
         if let Some(id_token) = self.session_tokens().and_then(|t| t.latest_id_token) {
             url.query_pairs_mut().append_pair("id_token_hint", id_token.as_str());
+        }
+
+        if let Some(action) = action {
+            match action {
+                OidcAccountManagementAction::Profile => {
+                    url.query_pairs_mut().append_pair("action", "profile");
+                }
+                OidcAccountManagementAction::SessionsList => {
+                    url.query_pairs_mut().append_pair("action", "sessions_list");
+                }
+                OidcAccountManagementAction::SessionView { device_id } => {
+                    url.query_pairs_mut().append_pair("action", "session_view");
+                    url.query_pairs_mut().append_pair("device_id", device_id.as_str());
+                }
+                OidcAccountManagementAction::SessionEnd { device_id } => {
+                    url.query_pairs_mut().append_pair("action", "session_end");
+                    url.query_pairs_mut().append_pair("device_id", device_id.as_str());
+                }
+            }
         }
 
         Ok(Some(url))
@@ -508,8 +529,8 @@ impl Oidc {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::matrix_auth::Session) {};
-    /// # async {
+    /// # fn persist_session(_: &matrix_sdk::oidc::FullSession) {}
+    /// # _ = async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
     ///     .homeserver_url(homeserver)
@@ -520,16 +541,17 @@ impl Oidc {
     /// // Login with the OpenID Connect API…
     ///
     /// let oidc = client.oidc();
-    /// let session = oidc.session().expect("Client should be logged in");
-    /// persist_session(session);
+    /// let session = oidc.full_session().expect("Client should be logged in");
+    /// persist_session(&session);
     ///
     /// // Handle when at least one of the tokens changed.
     /// let mut tokens_stream =
     ///     oidc.session_tokens_stream().expect("Client should be logged in");
     /// loop {
     ///     if tokens_stream.next().await.is_some() {
-    ///         let session = oidc.session().expect("Client should be logged in");
-    ///         persist_session(session);
+    ///         let session =
+    ///             oidc.full_session().expect("Client should be logged in");
+    ///         persist_session(&session);
     ///     }
     /// }
     /// # anyhow::Ok(()) };
@@ -620,13 +642,15 @@ impl Oidc {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::Client;
+    /// use matrix_sdk::{Client, ServerName};
     /// use matrix_sdk::oidc::types::client_credentials::ClientCredentials;
+    /// use matrix_sdk::oidc::RegisteredClientData;
     /// # use matrix_sdk::oidc::types::registration::{ClientMetadata, VerifiedClientMetadata};
     /// # let metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &str, _: &VerifiedClientMetadata, _: &ClientCredentials) {};
-    /// # async {
-    /// let client = Client::builder().server_name("my_homeserver.org").build().await?;
+    /// # fn persist_client_registration (_: &str, _: &RegisteredClientData) {}
+    /// # _ = async {
+    /// let server_name = ServerName::parse("my_homeserver.org").unwrap();
+    /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oidc = client.oidc();
     ///
     /// if let Some(info) = oidc.authentication_server_info() {
@@ -651,7 +675,7 @@ impl Oidc {
     ///
     ///     persist_client_registration(&info.issuer, &client_data);
     /// }
-    /// # anyhow::Ok(()) }
+    /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
@@ -846,14 +870,16 @@ impl Oidc {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{Client};
+    /// # use anyhow::anyhow;
+    /// use matrix_sdk::{Client};
+    /// # use matrix_sdk::oidc::AuthorizationResponse;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
     /// # let client_data = unimplemented!();
-    /// # async {
+    /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
     /// let oidc = client.oidc();
     ///
@@ -862,7 +888,7 @@ impl Oidc {
     ///     client_data,
     /// ).await;
     ///
-    /// let auth_data = oidc.login(redirect_uri, None).build().await?;
+    /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// // The full URL obtained is called here `redirected_to_uri`.
@@ -872,7 +898,7 @@ impl Oidc {
     /// let code = match auth_response {
     ///     AuthorizationResponse::Success(code) => code,
     ///     AuthorizationResponse::Error(error) => {
-    ///         return Err(format!("Authorization failed: {error}").into());
+    ///         return Err(anyhow!("Authorization failed: {:?}", error));
     ///     }
     /// };
     ///
@@ -1437,6 +1463,26 @@ pub enum RedirectUriQueryParseError {
     UnknownFormat,
 }
 
+/// Indicates the action that the user wishes to take when showing the account
+/// URL page.
+#[derive(Debug)]
+pub enum OidcAccountManagementAction {
+    /// The user wishes to view their profile (name, avatar, contact details).
+    Profile,
+    /// The user wishes to view a list of their sessions.
+    SessionsList,
+    /// The user wishes to view the details of a session.
+    SessionView {
+        /// The Matrix device ID to be shown.
+        device_id: OwnedDeviceId,
+    },
+    /// The user wishes to end/logout a session.
+    SessionEnd {
+        /// The Matrix device ID to be ended.
+        device_id: OwnedDeviceId,
+    },
+}
+
 /// All errors that can occur when using the OpenID Connect API.
 #[derive(Debug, Error)]
 pub enum OidcError {
@@ -1510,4 +1556,111 @@ fn hash<T: Hash>(x: &T) -> u64 {
     let mut hasher = DefaultHasher::new();
     x.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use mas_oidc_client::types::{
+        client_credentials::ClientCredentials, registration::ClientMetadata,
+    };
+    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::discovery::discover_homeserver::AuthenticationServerInfo, OwnedUserId,
+    };
+    use url::Url;
+
+    use crate::{
+        oidc::{
+            FullSession, OidcAccountManagementAction, RegisteredClientData, SessionTokens,
+            UserSession,
+        },
+        ClientBuilder,
+    };
+
+    #[async_test]
+    async fn test_account_management_url() {
+        let builder =
+            ClientBuilder::new().homeserver_url(Url::parse("https://example.com").unwrap());
+        let client = builder.build().await.unwrap();
+
+        client
+            .restore_session(FullSession {
+                client: RegisteredClientData {
+                    credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
+                    metadata: ClientMetadata {
+                        redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
+                        ..Default::default()
+                    }
+                    .validate()
+                    .unwrap(),
+                },
+                user: UserSession {
+                    meta: SessionMeta {
+                        user_id: OwnedUserId::from_str("@user:example.com").unwrap(),
+                        device_id: "device_id".into(),
+                    },
+                    tokens: SessionTokens {
+                        access_token: "access_token".to_owned(),
+                        refresh_token: None,
+                        latest_id_token: None,
+                    },
+                    issuer_info: AuthenticationServerInfo::new(
+                        "https://example.com".to_owned(),
+                        Some("https://example.com/account".to_owned()),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            client.oidc().account_management_url(None).unwrap(),
+            Some(Url::parse("https://example.com/account").unwrap())
+        );
+
+        assert_eq!(
+            client
+                .oidc()
+                .account_management_url(Some(OidcAccountManagementAction::Profile))
+                .unwrap(),
+            Some(Url::parse("https://example.com/account?action=profile").unwrap())
+        );
+
+        assert_eq!(
+            client
+                .oidc()
+                .account_management_url(Some(OidcAccountManagementAction::SessionsList))
+                .unwrap(),
+            Some(Url::parse("https://example.com/account?action=sessions_list").unwrap())
+        );
+
+        assert_eq!(
+            client
+                .oidc()
+                .account_management_url(Some(OidcAccountManagementAction::SessionView {
+                    device_id: "my_phone".into()
+                }))
+                .unwrap(),
+            Some(
+                Url::parse("https://example.com/account?action=session_view&device_id=my_phone")
+                    .unwrap()
+            )
+        );
+
+        assert_eq!(
+            client
+                .oidc()
+                .account_management_url(Some(OidcAccountManagementAction::SessionEnd {
+                    device_id: "my_old_phone".into()
+                }))
+                .unwrap(),
+            Some(
+                Url::parse("https://example.com/account?action=session_end&device_id=my_old_phone")
+                    .unwrap()
+            )
+        );
+    }
 }

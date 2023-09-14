@@ -28,6 +28,7 @@ experimental-sliding-sync = ["ruma/unstable-msc3575"]
 testing = ["dep:http", "dep:matrix-sdk-test", "dep:assert_matches", "matrix-sdk-crypto?/testing"]
 
 [dependencies]
+as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bitflags = "2.1.0"

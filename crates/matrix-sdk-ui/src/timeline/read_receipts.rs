@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use eyeball_im::ObservableVector;
+use eyeball_im::ObservableVectorTransaction;
 use indexmap::IndexMap;
 use matrix_sdk::Room;
 use ruma::{
@@ -25,7 +25,7 @@ use tracing::{error, warn};
 
 use super::{
     event_item::EventTimelineItemKind,
-    inner::TimelineInnerState,
+    inner::{TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction},
     item::timeline_item,
     traits::RoomDataProvider,
     util::{compare_events_positions, rfind_event_by_id, RelativePosition},
@@ -39,7 +39,7 @@ struct FullReceipt<'a> {
     receipt: &'a Receipt,
 }
 
-impl TimelineInnerState {
+impl TimelineInnerStateTransaction<'_> {
     /// Update the new item pointed to by the user's read receipt.
     fn add_read_receipt(
         &mut self,
@@ -87,7 +87,7 @@ impl TimelineInnerState {
                         receipt_item_pos,
                         is_own_user_id,
                         &mut self.items,
-                        &mut self.users_read_receipts,
+                        &mut self.meta.users_read_receipts,
                     );
 
                     if read_receipt_updated && !is_own_user_id {
@@ -125,32 +125,9 @@ impl TimelineInnerState {
 
         read_receipts
     }
+}
 
-    /// Get the unthreaded receipt of the given type for the given user in the
-    /// timeline.
-    pub(super) async fn user_receipt(
-        &self,
-        user_id: &UserId,
-        receipt_type: ReceiptType,
-        room: &Room,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        if let Some(receipt) = self
-            .users_read_receipts
-            .get(user_id)
-            .and_then(|user_map| user_map.get(&receipt_type))
-            .cloned()
-        {
-            return Some(receipt);
-        }
-
-        room.user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Could not get user read receipt of type {receipt_type:?}: {e}");
-                None
-            })
-    }
-
+impl TimelineInnerState {
     /// Get the latest read receipt for the given user.
     ///
     /// Useful to get the latest read receipt, whether it's private or public.
@@ -197,6 +174,33 @@ impl TimelineInnerState {
     }
 }
 
+impl TimelineInnerMetadata {
+    /// Get the unthreaded receipt of the given type for the given user in the
+    /// timeline.
+    pub(super) async fn user_receipt(
+        &self,
+        user_id: &UserId,
+        receipt_type: ReceiptType,
+        room: &Room,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        if let Some(receipt) = self
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|user_map| user_map.get(&receipt_type))
+            .cloned()
+        {
+            return Some(receipt);
+        }
+
+        room.user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
+            .await
+            .unwrap_or_else(|e| {
+                error!("Could not get user read receipt of type {receipt_type:?}: {e}");
+                None
+            })
+    }
+}
+
 /// Add an implicit read receipt to the given event item, if it is more recent
 /// than the current read receipt for the sender of the event.
 ///
@@ -208,7 +212,7 @@ pub(super) fn maybe_add_implicit_read_receipt(
     item_pos: usize,
     event_item: &mut EventTimelineItem,
     is_own_event: bool,
-    timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
+    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) {
     let EventTimelineItemKind::Remote(remote_event_item) = &mut event_item.kind else {
@@ -250,7 +254,7 @@ fn maybe_update_read_receipt(
     receipt: FullReceipt<'_>,
     new_item_pos: Option<usize>,
     is_own_user_id: bool,
-    timeline_items: &mut ObservableVector<Arc<TimelineItem>>,
+    timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     users_read_receipts: &mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 ) -> bool {
     let old_event_id = users_read_receipts

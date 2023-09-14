@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use as_variant::as_variant;
 use matrix_sdk_base::SessionMeta;
 use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use tokio::sync::{broadcast, Mutex, OnceCell};
@@ -133,18 +134,14 @@ pub(crate) enum AuthData {
 
 impl AuthData {
     pub(crate) fn as_matrix(&self) -> Option<&MatrixAuthData> {
-        match self {
-            AuthData::Matrix(d) => Some(d),
-            #[cfg(feature = "experimental-oidc")]
-            _ => None,
-        }
+        as_variant!(self, Self::Matrix)
     }
 
     pub(crate) fn access_token(&self) -> Option<String> {
         let token = match self {
-            AuthData::Matrix(d) => d.tokens.get().access_token,
+            Self::Matrix(d) => d.tokens.get().access_token,
             #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(d) => d.tokens.get()?.get().access_token,
+            Self::Oidc(d) => d.tokens.get()?.get().access_token,
         };
 
         Some(token)

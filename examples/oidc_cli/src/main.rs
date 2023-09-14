@@ -35,8 +35,8 @@ use matrix_sdk::{
             requests::GrantType,
             scope::{Scope, ScopeToken},
         },
-        AuthorizationCode, AuthorizationResponse, FullSession, OidcAuthorizationData,
-        RegisteredClientData, UserSession,
+        AuthorizationCode, AuthorizationResponse, FullSession, OidcAccountManagementAction,
+        OidcAuthorizationData, RegisteredClientData, UserSession,
     },
     room::Room,
     ruma::{
@@ -322,7 +322,13 @@ impl OidcCli {
                     self.whoami().await;
                 }
                 Some("account") => {
-                    self.account();
+                    self.account(None);
+                }
+                Some("profile") => {
+                    self.account(Some(OidcAccountManagementAction::Profile));
+                }
+                Some("sessions") => {
+                    self.account(Some(OidcAccountManagementAction::SessionsList));
                 }
                 Some("watch") => {
                     self.watch().await?;
@@ -379,8 +385,8 @@ impl OidcCli {
     }
 
     /// Get the account management URL.
-    fn account(&self) {
-        match self.client.oidc().account_management_url() {
+    fn account(&self, action: Option<OidcAccountManagementAction>) {
+        match self.client.oidc().account_management_url(action) {
             Ok(Some(url)) => {
                 println!("\nTo manage your account, visit: {url}");
             }
