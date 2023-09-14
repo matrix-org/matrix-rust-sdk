@@ -63,7 +63,10 @@ impl RoomInfo {
             joined_members_count: room.joined_members_count(),
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
-            user_defined_notification_mode: room.user_defined_notification_mode().await.map(Into::into),
+            user_defined_notification_mode: room
+                .user_defined_notification_mode()
+                .await
+                .map(Into::into),
         })
     }
 }
