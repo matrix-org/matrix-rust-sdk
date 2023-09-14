@@ -12,13 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, sync::Arc};
+use std::{cell::RefCell, future::ready, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
+use eyeball_im_util::vector::DynamicLimit;
 use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
@@ -105,45 +106,49 @@ impl RoomList {
     }
 
     /// Similar to [`Self::entries`] except that it's possible to provide a
-    /// filter that will filter out room list entries.
-    pub fn entries_with_static_filter<F>(
-        &self,
-        filter: F,
-    ) -> (Vector<RoomListEntry>, impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>)
-    where
-        F: Fn(&RoomListEntry) -> bool,
-    {
-        self.sliding_sync_list.room_list_filtered_stream(filter)
-    }
-
-    /// Similar to [`Self::entries_with_static_filter`] except that it's
-    /// possible to change the filter dynamically.
+    /// filter that will filter out room list entries, and that it's also
+    /// possible to “paginate” over the entries by `page_size`.
     ///
     /// The returned stream will only start yielding diffs once a filter is set
-    /// through the returned `DynamicRoomListFilter`. For every call to
-    /// [`DynamicRoomListFilter::set`], the stream will yield a
+    /// through the returned `DynamicRoomListController`. For every call to
+    /// [`DynamicRoomListController::set`], the stream will yield a
     /// [`VectorDiff::Reset`] followed by any updates of the room list under
     /// that filter (until the next reset).
-    pub fn entries_with_dynamic_filter(
+    pub fn entries_with_dynamic_adapters(
         &self,
-    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, DynamicRoomListFilter) {
-        let filter_fn_cell = AsyncCell::shared();
-        let dynamic_filter = DynamicRoomListFilter::new(filter_fn_cell.clone());
-
+        page_size: usize,
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListEntry>>>, RoomListDynamicEntriesController)
+    {
         let list = self.sliding_sync_list.clone();
+
+        let filter_fn_cell = AsyncCell::shared();
+
+        let dynamic_limit = SharedObservable::<usize>::new(0);
+        let dynamic_limit_stream = dynamic_limit.subscribe();
+
+        let dynamic_entries_controller = RoomListDynamicEntriesController::new(
+            filter_fn_cell.clone(),
+            page_size,
+            dynamic_limit.clone(),
+            list.maximum_number_of_rooms_stream(),
+        );
+
         let stream = stream! {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
+                let stream = DynamicLimit::new(items, stream, dynamic_limit_stream.clone());
 
-                // Reset the stream with all its items.
-                yield stream::once(ready(vec![VectorDiff::Reset { values: items }]))
+                dynamic_limit.set(page_size);
+
+                // Reset the stream by truncating it.
+                yield stream::once(ready(vec![VectorDiff::Truncate { length: 0 }]))
                     .chain(stream);
             }
         }
         .switch();
 
-        (stream, dynamic_filter)
+        (stream, dynamic_entries_controller)
     }
 }
 
@@ -190,31 +195,70 @@ pub enum RoomListLoadingState {
 
 type BoxedFilterFn = Box<dyn Fn(&RoomListEntry) -> bool + Send + Sync>;
 
-/// Dynamic filter for the [`RoomList`] entries.
+/// Controller for the [`RoomList`] dynamic entries.
 ///
-/// To get one value of this type, use [`RoomList::entries_with_dynamic_filter`]
-pub struct DynamicRoomListFilter {
-    inner: Arc<AsyncCell<BoxedFilterFn>>,
+/// To get one value of this type, use
+/// [`RoomList::entries_with_dynamic_adapters`]
+pub struct RoomListDynamicEntriesController {
+    filter: Arc<AsyncCell<BoxedFilterFn>>,
+    page_size: usize,
+    limit: SharedObservable<usize>,
+    maximum_number_of_rooms: RefCell<Subscriber<Option<u32>>>,
 }
 
-impl DynamicRoomListFilter {
-    fn new(inner: Arc<AsyncCell<BoxedFilterFn>>) -> Self {
-        Self { inner }
+impl RoomListDynamicEntriesController {
+    fn new(
+        filter: Arc<AsyncCell<BoxedFilterFn>>,
+        page_size: usize,
+        limit_stream: SharedObservable<usize>,
+        maximum_number_of_rooms: Subscriber<Option<u32>>,
+    ) -> Self {
+        Self {
+            filter,
+            page_size,
+            limit: limit_stream,
+            maximum_number_of_rooms: RefCell::new(maximum_number_of_rooms),
+        }
     }
 
     /// Set the filter.
     ///
     /// If the associated stream has been dropped, returns `false` to indicate
     /// the operation didn't have an effect.
-    pub fn set(&self, filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static) -> bool {
-        if Arc::strong_count(&self.inner) == 1 {
+    pub fn set_filter(
+        &self,
+        filter: impl Fn(&RoomListEntry) -> bool + Send + Sync + 'static,
+    ) -> bool {
+        if Arc::strong_count(&self.filter) == 1 {
             // there is no other reference to the boxed filter fn, setting it
             // would be pointless (no new references can be created from self,
             // either)
             false
         } else {
-            self.inner.set(Box::new(filter));
+            self.filter.set(Box::new(filter));
             true
         }
+    }
+
+    /// Add one page.
+    pub fn add_one_page(&self) {
+        if let Some(max) = self.maximum_number_of_rooms.borrow_mut().next_now() {
+            let max: usize = max.try_into().unwrap();
+            let limit = self.limit.get();
+
+            if limit < max {
+                // With this logic, it is possible that `limit` becomes greater than `max` if
+                // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
+                // `limit` greater than `max`, but it's not OK to increase the limit
+                // indefinitely.
+                self.limit.set(limit + self.page_size);
+            }
+        }
+    }
+
+    /// Reset the one page, i.e. forget all pages and move back to the first
+    /// page.
+    pub fn reset_to_one_page(&self) {
+        self.limit.set(self.page_size);
     }
 }
