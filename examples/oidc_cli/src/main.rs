@@ -35,8 +35,8 @@ use matrix_sdk::{
             requests::GrantType,
             scope::{Scope, ScopeToken},
         },
-        AuthorizationCode, AuthorizationResponse, FullSession, OidcAccountManagementAction,
-        OidcAuthorizationData, UserSession,
+        AuthorizationCode, AuthorizationResponse, OidcAccountManagementAction,
+        OidcAuthorizationData, OidcSession, UserSession,
     },
     room::Room,
     ruma::{
@@ -287,7 +287,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session = FullSession {
+        let session = OidcSession {
             credentials: ClientCredentials::None { client_id: client_credentials.client_id },
             metadata: client_metadata(),
             user: user_session,

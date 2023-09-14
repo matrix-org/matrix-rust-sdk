@@ -532,7 +532,7 @@ impl Oidc {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::oidc::FullSession) {}
+    /// # fn persist_session(_: &matrix_sdk::oidc::OidcSession) {}
     /// # _ = async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
@@ -603,10 +603,10 @@ impl Oidc {
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
-    pub fn full_session(&self) -> Option<FullSession> {
+    pub fn full_session(&self) -> Option<OidcSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        Some(FullSession {
+        Some(OidcSession {
             credentials: data.credentials.clone(),
             metadata: data.metadata.clone(),
             user,
@@ -755,8 +755,8 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_session(&self, session: FullSession) -> Result<()> {
-        let FullSession { credentials, metadata, user: UserSession { meta, tokens, issuer_info } } =
+    pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
+        let OidcSession { credentials, metadata, user: UserSession { meta, tokens, issuer_info } } =
             session;
 
         let data = OidcAuthData {
@@ -1304,7 +1304,7 @@ impl Oidc {
 
 /// A full session for the OpenID Connect API.
 #[derive(Debug, Clone)]
-pub struct FullSession {
+pub struct OidcSession {
     /// The credentials obtained after registration.
     pub credentials: ClientCredentials,
 

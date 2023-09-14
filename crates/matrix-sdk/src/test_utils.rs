@@ -7,7 +7,7 @@ use ruma::{api::MatrixVersion, device_id, user_id};
 
 use crate::{
     config::RequestConfig,
-    matrix_auth::{MatrixSessionTokens, Session},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
 
@@ -25,7 +25,7 @@ pub(crate) async fn no_retry_test_client(homeserver_url: Option<String>) -> Clie
 }
 
 pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-    let session = Session {
+    let session = MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
