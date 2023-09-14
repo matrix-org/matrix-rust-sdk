@@ -218,9 +218,11 @@ use self::{
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
-type SaveSessionCallback =
-    dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
-type ReloadSessionCallback = dyn Fn(Client) -> anyhow::Result<SessionTokens> + Send + Sync;
+type CallbackError = Box<dyn std::error::Error + Send + Sync>;
+type SaveSessionCallback = dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = Result<(), CallbackError>>>>
+    + Send
+    + Sync;
+type ReloadSessionCallback = dyn Fn(Client) -> Result<SessionTokens, CallbackError> + Send + Sync;
 
 pub(crate) struct OidcCtx {
     /// The authentication server info discovered from the homeserver.

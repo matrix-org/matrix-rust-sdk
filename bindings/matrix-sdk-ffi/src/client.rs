@@ -217,17 +217,19 @@ impl Client {
                         let session_delegate = session_delegate.clone();
                         Box::new(move |client| {
                             let session_delegate = session_delegate.clone();
-                            let user_id = client.user_id().context("user isn't logged in")?;
-                            Self::retrieve_session(session_delegate, user_id)
+                            let user_id = client
+                                .user_id()
+                                .ok_or_else(|| anyhow::anyhow!("user isn't logged in"))?;
+                            Ok(Self::retrieve_session(session_delegate, user_id)?)
                         })
                     },
                     {
                         let session_delegate = session_delegate.clone();
                         Box::new(move |client| {
                             let session_delegate = session_delegate.clone();
-                            Box::pin(
-                                async move { Self::save_session(session_delegate, client).await },
-                            )
+                            Box::pin(async move {
+                                Ok(Self::save_session(session_delegate, client).await?)
+                            })
                         })
                     },
                 )
