@@ -224,8 +224,8 @@ pub use self::{
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
 type SaveSessionCallback =
-    dyn Fn() -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
-type ReloadSessionCallback = dyn Fn() -> anyhow::Result<SessionTokens> + Send + Sync;
+    dyn Fn(Client) -> Pin<Box<dyn Send + Sync + Future<Output = anyhow::Result<()>>>> + Send + Sync;
+type ReloadSessionCallback = dyn Fn(Client) -> anyhow::Result<SessionTokens> + Send + Sync;
 
 #[derive(Default)]
 pub(crate) struct OidcContext {
@@ -827,7 +827,7 @@ impl Oidc {
             .get()
             .ok_or(CrossProcessRefreshLockError::MissingReloadSession)?;
 
-        match callback() {
+        match callback(self.client.clone()) {
             Ok(tokens) => {
                 guard.handle_mismatch(&tokens).await?;
                 self.set_session_tokens(tokens.clone());
@@ -1152,7 +1152,7 @@ impl Oidc {
                     if let Some(save_session_callback) = this.ctx().save_session_callback.get() {
                         // Satisfies the save_session_callback invariant: set_session_tokens has
                         // been called just above.
-                        if let Err(err) = save_session_callback().await {
+                        if let Err(err) = save_session_callback(this.client.clone()).await {
                             error!("when saving session after refresh: {err}");
                         }
                     }

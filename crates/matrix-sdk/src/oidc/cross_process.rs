@@ -296,9 +296,9 @@ mod tests {
             Box::new({
                 // This is only called because of extra checks in the code.
                 let tokens = tokens.clone();
-                move || Ok(tokens.clone())
+                move |_| Ok(tokens.clone())
             }),
-            Box::new(|| panic!("save_session_callback shouldn't be called here")),
+            Box::new(|_| panic!("save_session_callback shouldn't be called here")),
         )?;
 
         let session_hash = compute_session_hash(&tokens);

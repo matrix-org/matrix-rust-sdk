@@ -202,6 +202,11 @@ impl Client {
         });
 
         if let Some(process_id) = cross_process_refresh_lock_id {
+            let session_delegate = client
+                .session_delegate
+                .clone()
+                .context("missing session delegates when enabling the cross-process lock")?;
+
             RUNTIME.block_on(async {
                 let oidc = client.inner.oidc();
 
@@ -209,14 +214,20 @@ impl Client {
 
                 oidc.set_callbacks(
                     {
-                        let client = client.clone();
-                        Box::new(move || client.retrieve_session())
+                        let session_delegate = session_delegate.clone();
+                        Box::new(move |client| {
+                            let session_delegate = session_delegate.clone();
+                            let user_id = client.user_id().context("user isn't logged in")?;
+                            Self::retrieve_session(session_delegate, user_id)
+                        })
                     },
                     {
-                        let client = client.clone();
-                        Box::new(move || {
-                            let client = client.clone();
-                            Box::pin(async move { client.save_session().await })
+                        let session_delegate = session_delegate.clone();
+                        Box::new(move |client| {
+                            let session_delegate = session_delegate.clone();
+                            Box::pin(
+                                async move { Self::save_session(session_delegate, client).await },
+                            )
                         })
                     },
                 )
@@ -351,7 +362,7 @@ impl Client {
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
-        RUNTIME.block_on(async move { self.session_inner().await })
+        RUNTIME.block_on(async move { Self::session_inner(self.inner.clone()).await })
     }
 
     pub fn account_url(
@@ -743,12 +754,11 @@ impl Client {
         }
     }
 
-    fn retrieve_session(&self) -> anyhow::Result<SessionTokens> {
-        let delegate =
-            self.session_delegate.as_ref().context("A session delegate hasn't been set")?;
-        let user_id = self.user_id().context("No user ID found.")?;
-
-        let session = delegate.retrieve_session_from_keychain(user_id)?;
+    fn retrieve_session(
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+        user_id: &UserId,
+    ) -> anyhow::Result<SessionTokens> {
+        let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
         let auth_session = TryInto::<AuthSession>::try_into(session)?;
         match auth_session {
             AuthSession::Oidc(session) => Ok(session.user.tokens),
@@ -756,19 +766,21 @@ impl Client {
         }
     }
 
-    async fn session_inner(&self) -> Result<Session, ClientError> {
-        let auth_api = self.inner.auth_api().context("Missing authentication API")?;
+    async fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
+        let auth_api = client.auth_api().context("Missing authentication API")?;
 
-        let homeserver_url = self.inner.homeserver().await.into();
-        let sliding_sync_proxy = self.discovered_sliding_sync_proxy().map(|url| url.to_string());
+        let homeserver_url = client.homeserver().await.into();
+        let sliding_sync_proxy = client.sliding_sync_proxy().map(|url| url.to_string());
 
         Session::new(auth_api, homeserver_url, sliding_sync_proxy)
     }
 
-    async fn save_session(&self) -> anyhow::Result<()> {
-        let delegate = self.session_delegate.as_ref().context("A delegate hasn't been set")?;
-        let session = self.session_inner().await?;
-        delegate.save_session_in_keychain(session);
+    async fn save_session(
+        session_delegate: Arc<dyn ClientSessionDelegate>,
+        client: matrix_sdk::Client,
+    ) -> anyhow::Result<()> {
+        let session = Self::session_inner(client).await?;
+        session_delegate.save_session_in_keychain(session);
         Ok(())
     }
 }
