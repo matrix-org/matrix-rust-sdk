@@ -945,7 +945,7 @@ impl StickyData for SlidingSyncStickyParameters {
 /// TODO remove this workaround as soon as support of the `limited` flag is
 /// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
 // NOTE: SS proxy workaround.
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(room_id))]
 fn compute_limited(
     local_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     remote_rooms: &mut BTreeMap<OwnedRoomId, v4::SlidingSyncRoom>,
@@ -961,6 +961,8 @@ fn compute_limited(
             // If the room was already marked as limited, the server knew more than we do.
             continue;
         }
+
+        Span::current().record("room_id", tracing::field::debug(room_id));
 
         let remote_events = &remote_room.timeline;
         if remote_events.is_empty() {
