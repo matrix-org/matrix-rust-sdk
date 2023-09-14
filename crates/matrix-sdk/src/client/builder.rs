@@ -436,6 +436,8 @@ impl ClientBuilder {
             auth_data: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
             oidc: OidcCtx::new(authentication_server_info),
+            reload_session_callback: OnceCell::default(),
+            save_session_callback: OnceCell::default(),
         });
 
         let inner = Arc::new(ClientInner::new(
