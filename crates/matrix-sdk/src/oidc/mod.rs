@@ -618,10 +618,10 @@ impl Oidc {
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
     /// use matrix_sdk::oidc::types::client_credentials::ClientCredentials;
-    /// use matrix_sdk::oidc::RegisteredClientData;
-    /// # use matrix_sdk::oidc::types::registration::{ClientMetadata, VerifiedClientMetadata};
-    /// # let metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &str, _: &RegisteredClientData) {}
+    /// use matrix_sdk::oidc::types::registration::ClientMetadata;
+    /// # use matrix_sdk::oidc::types::registration::VerifiedClientMetadata;
+    /// # let client_metadata = ClientMetadata::default().validate().unwrap();
+    /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientCredentials) {}
     /// # _ = async {
     /// let server_name = ServerName::parse("my_homeserver.org").unwrap();
     /// let client = Client::builder().server_name(&server_name).build().await?;
@@ -629,7 +629,7 @@ impl Oidc {
     ///
     /// if let Some(info) = oidc.authentication_server_info() {
     ///     let response = oidc
-    ///         .register_client(&info.issuer, metadata.clone(), None)
+    ///         .register_client(&info.issuer, client_metadata.clone(), None)
     ///         .await?;
     ///
     ///     println!(
@@ -642,12 +642,7 @@ impl Oidc {
     ///         client_id: response.client_id,
     ///     };
     ///
-    ///     let client_data = RegisteredClientData {
-    ///         credentials,
-    ///         metadata,
-    ///     };
-    ///
-    ///     persist_client_registration(&info.issuer, &client_data);
+    ///     persist_client_registration(&info.issuer, &client_metadata, &credentials);
     /// }
     /// # anyhow::Ok(()) };
     /// ```
@@ -858,14 +853,16 @@ impl Oidc {
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
-    /// # let client_data = unimplemented!();
+    /// # let client_metadata = unimplemented!();
+    /// # let client_credentials = unimplemented!();
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
     /// let oidc = client.oidc();
     ///
     /// oidc.restore_registered_client(
     ///     issuer_info,
-    ///     client_data,
+    ///     client_metadata,
+    ///     client_credentials,
     /// );
     ///
     /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
