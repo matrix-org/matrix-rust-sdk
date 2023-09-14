@@ -999,30 +999,23 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 // Local echoes that are pending should stick to the bottom,
                 // find the latest event that isn't that.
-                let mut latest_event_stream = self
+                let (latest_event_idx, latest_event) = self
                     .items
                     .iter()
                     .enumerate()
                     .rev()
-                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)));
-
-                // Find the latest event, independently of success or failure status.
-                let latest_event = latest_event_stream.clone().next().unzip().1;
-
-                // Find the index of the latest non-failure event.
-                let latest_nonfailed_event_idx = latest_event_stream
-                    .find(|(_, evt)| {
+                    .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
+                    .find(|(_, item)| {
                         !matches!(
-                            evt.send_state(),
+                            item.send_state(),
                             Some(EventSendState::NotSentYet | EventSendState::Sent { .. })
                         )
                     })
-                    .unzip()
-                    .0;
+                    .unzip();
 
-                // Insert the next item after the latest non-failed event item,
-                // or at the start if there is no such item.
-                let mut insert_idx = latest_nonfailed_event_idx.map_or(0, |idx| idx + 1);
+                // Insert the next item after the latest event item that's not a
+                // pending local echo, or at the start if there is no such item.
+                let mut insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
                 // Keep push semantics, if we're inserting at the end.
                 let should_push = insert_idx == self.items.len();
