@@ -165,3 +165,49 @@ async fn remote_echo_new_position() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
 }
+
+#[async_test]
+async fn day_divider_duplication() {
+    let timeline = TestTimeline::new();
+
+    // Given two remote events from one day, and a local event from another day…
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("A")).await;
+    timeline.handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("B")).await;
+    timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("C"),
+        ))
+        .await;
+
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 5);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+    assert!(items[2].is_remote_event());
+    assert!(items[3].is_day_divider());
+    assert!(items[4].is_local_echo());
+
+    // … when the second remote event is re-received (day still the same)
+    let event_id = items[2].as_event().unwrap().event_id().unwrap();
+    timeline
+        .handle_live_custom_event(json!({
+            "content": {
+                "body": "B",
+                "msgtype": "m.text",
+            },
+            "sender": &*BOB,
+            "event_id": event_id,
+            "origin_server_ts": 1,
+            "type": "m.room.message",
+        }))
+        .await;
+
+    // … it should not impact the day dividers.
+    let items = timeline.inner.items().await;
+    assert_eq!(items.len(), 5);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+    assert!(items[2].is_remote_event());
+    assert!(items[3].is_day_divider());
+    assert!(items[4].is_local_echo());
+}
