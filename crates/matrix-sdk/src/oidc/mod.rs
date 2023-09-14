@@ -825,7 +825,7 @@ impl Oidc {
             .ctx()
             .reload_session_callback
             .get()
-            .ok_or(CrossProcessRefreshLockError::MissingLock)?;
+            .ok_or(CrossProcessRefreshLockError::MissingReloadSession)?;
 
         match callback() {
             Ok(tokens) => {

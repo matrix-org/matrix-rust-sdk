@@ -225,6 +225,10 @@ pub enum CrossProcessRefreshLockError {
     #[error("the cross-process lock hasn't been set up with `enable_cross_process_refresh_lock")]
     MissingLock,
 
+    /// Cross-process lock was set, but without session callbacks.
+    #[error("reload session callback must be set with Oidc::set_callbacks() for the cross-process lock to work")]
+    MissingReloadSession,
+
     /// The store has been created twice.
     #[error(
         "the cross-process lock has been set up twice with `enable_cross_process_refresh_lock`"
