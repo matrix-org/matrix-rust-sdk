@@ -236,13 +236,13 @@ pub(crate) struct OidcCtx {
     ///
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
-    deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    deferred_cross_process_lock_init: Mutex<Option<String>>,
 
     /// A callback called whenever we need an absolute source of truth for the
     /// current session tokens.
     ///
     /// This is required only in multiple processes setups.
-    reload_session_callback: Arc<OnceCell<Box<ReloadSessionCallback>>>,
+    reload_session_callback: OnceCell<Box<ReloadSessionCallback>>,
 
     /// A callback to save a session back into the app's secure storage.
     ///
@@ -251,7 +251,7 @@ pub(crate) struct OidcCtx {
     ///
     /// Internal invariant: this must be called only after `set_session_tokens`
     /// has been called, not before.
-    save_session_callback: Arc<OnceCell<Box<SaveSessionCallback>>>,
+    save_session_callback: OnceCell<Box<SaveSessionCallback>>,
 }
 
 impl OidcCtx {
