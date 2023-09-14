@@ -12,7 +12,7 @@ use mas_oidc_client::{
 use matrix_sdk_base::SessionMeta;
 #[cfg(test)]
 use matrix_sdk_test::async_test;
-use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
+use ruma::{api::client::discovery::discover_homeserver::AuthenticationServerInfo, owned_user_id};
 use url::Url;
 
 use super::{
@@ -22,7 +22,7 @@ use super::{
 use crate::{
     oidc::{
         r#impl::AUTHORIZATION_URL, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-        OidcError, RedirectUriQueryParseError,
+        OidcAccountManagementAction, OidcError, RedirectUriQueryParseError,
     },
     test_utils::test_client_builder,
 };
@@ -54,6 +54,88 @@ pub fn fake_session(tokens: SessionTokens) -> FullSession {
             issuer_info: AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None),
         },
     }
+}
+
+#[async_test]
+async fn test_account_management_url() {
+    let builder = test_client_builder(Some("https://example.com".to_owned()));
+    let client = builder.build().await.unwrap();
+
+    client
+        .restore_session(FullSession {
+            client: RegisteredClientData {
+                credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
+
+                metadata: ClientMetadata {
+                    redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
+                    ..Default::default()
+                }
+                .validate()
+                .unwrap(),
+            },
+
+            user: UserSession {
+                meta: SessionMeta {
+                    user_id: owned_user_id!("@user:example.com"),
+                    device_id: "device_id".into(),
+                },
+                tokens: SessionTokens {
+                    access_token: "access_token".to_owned(),
+                    refresh_token: None,
+                    latest_id_token: None,
+                },
+                issuer_info: AuthenticationServerInfo::new(
+                    "https://example.com".to_owned(),
+                    Some("https://example.com/account".to_owned()),
+                ),
+            },
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        client.oidc().account_management_url(None).unwrap(),
+        Some(Url::parse("https://example.com/account").unwrap())
+    );
+
+    assert_eq!(
+        client.oidc().account_management_url(Some(OidcAccountManagementAction::Profile)).unwrap(),
+        Some(Url::parse("https://example.com/account?action=profile").unwrap())
+    );
+
+    assert_eq!(
+        client
+            .oidc()
+            .account_management_url(Some(OidcAccountManagementAction::SessionsList))
+            .unwrap(),
+        Some(Url::parse("https://example.com/account?action=sessions_list").unwrap())
+    );
+
+    assert_eq!(
+        client
+            .oidc()
+            .account_management_url(Some(OidcAccountManagementAction::SessionView {
+                device_id: "my_phone".into()
+            }))
+            .unwrap(),
+        Some(
+            Url::parse("https://example.com/account?action=session_view&device_id=my_phone")
+                .unwrap()
+        )
+    );
+
+    assert_eq!(
+        client
+            .oidc()
+            .account_management_url(Some(OidcAccountManagementAction::SessionEnd {
+                device_id: "my_old_phone".into()
+            }))
+            .unwrap(),
+        Some(
+            Url::parse("https://example.com/account?action=session_end&device_id=my_old_phone")
+                .unwrap()
+        )
+    );
 }
 
 #[async_test]
