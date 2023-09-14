@@ -250,7 +250,7 @@ pub(crate) struct OidcAuthData {
     pub(crate) issuer_info: AuthenticationServerInfo,
     pub(crate) credentials: ClientCredentials,
     pub(crate) metadata: VerifiedClientMetadata,
-    pub(crate) tokens: OnceCell<SharedObservable<SessionTokens>>,
+    pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
     /// The data necessary to validate authorization responses.
     pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
 }
@@ -472,7 +472,7 @@ impl Oidc {
     /// # Panics
     ///
     /// Will panic if no OIDC client has been configured yet.
-    fn set_session_tokens(&self, session_tokens: SessionTokens) {
+    fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {
@@ -486,7 +486,7 @@ impl Oidc {
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
-    pub fn session_tokens(&self) -> Option<SessionTokens> {
+    pub fn session_tokens(&self) -> Option<OidcSessionTokens> {
         Some(self.data()?.tokens.get()?.get())
     }
 
@@ -530,7 +530,7 @@ impl Oidc {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
+    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = OidcSessionTokens>> {
         Some(self.data()?.tokens.get()?.subscribe())
     }
 
@@ -1041,7 +1041,7 @@ impl Oidc {
         )
         .await?;
 
-        self.set_session_tokens(SessionTokens {
+        self.set_session_tokens(OidcSessionTokens {
             access_token: response.access_token.clone(),
             refresh_token: response.refresh_token.clone(),
             latest_id_token: id_token,
@@ -1120,7 +1120,7 @@ impl Oidc {
                         hash(&response.access_token)
                     );
 
-                    let tokens = SessionTokens {
+                    let tokens = OidcSessionTokens {
                         access_token: response.access_token,
                         refresh_token: response.refresh_token.clone().or(Some(refresh_token)),
                         latest_id_token,
@@ -1333,7 +1333,7 @@ pub struct UserSession {
 
     /// The tokens used for authentication.
     #[serde(flatten)]
-    pub tokens: SessionTokens,
+    pub tokens: OidcSessionTokens,
 
     /// Information about the OpenID Connect provider used for this session.
     pub issuer_info: AuthenticationServerInfo,
@@ -1342,7 +1342,7 @@ pub struct UserSession {
 /// The tokens for a user session obtained with the OpenID Connect API.
 #[derive(Clone, Eq, PartialEq)]
 #[allow(missing_debug_implementations)]
-pub struct SessionTokens {
+pub struct OidcSessionTokens {
     /// The access token used for this session.
     pub access_token: String,
 
@@ -1353,7 +1353,7 @@ pub struct SessionTokens {
     pub latest_id_token: Option<IdToken<'static>>,
 }
 
-impl fmt::Debug for SessionTokens {
+impl fmt::Debug for OidcSessionTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionTokens").finish_non_exhaustive()
     }
@@ -1544,7 +1544,7 @@ mod tests {
     use url::Url;
 
     use crate::{
-        oidc::{FullSession, OidcAccountManagementAction, SessionTokens, UserSession},
+        oidc::{FullSession, OidcAccountManagementAction, OidcSessionTokens, UserSession},
         ClientBuilder,
     };
 
@@ -1568,7 +1568,7 @@ mod tests {
                         user_id: OwnedUserId::from_str("@user:example.com").unwrap(),
                         device_id: "device_id".into(),
                     },
-                    tokens: SessionTokens {
+                    tokens: OidcSessionTokens {
                         access_token: "access_token".to_owned(),
                         refresh_token: None,
                         latest_id_token: None,

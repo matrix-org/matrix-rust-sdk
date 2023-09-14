@@ -2486,7 +2486,7 @@ mod tests {
 
     use crate::{
         config::RequestConfig,
-        matrix_auth::{Session, SessionTokens},
+        matrix_auth::{MatrixSessionTokens, Session},
         Client,
     };
 
@@ -2499,7 +2499,7 @@ mod tests {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),
             },
-            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let client = Client::builder()

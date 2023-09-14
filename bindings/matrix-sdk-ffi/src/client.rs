@@ -923,7 +923,8 @@ impl Session {
             AuthApi::Matrix(a) => {
                 let matrix_sdk::matrix_auth::Session {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
-                    tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+                    tokens:
+                        matrix_sdk::matrix_auth::MatrixSessionTokens { access_token, refresh_token },
                 } = a.session().context("Missing session")?;
 
                 Ok(Session {
@@ -941,7 +942,11 @@ impl Session {
                 let matrix_sdk::oidc::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
-                        matrix_sdk::oidc::SessionTokens { access_token, refresh_token, latest_id_token },
+                        matrix_sdk::oidc::OidcSessionTokens {
+                            access_token,
+                            refresh_token,
+                            latest_id_token,
+                        },
                     issuer_info,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api
@@ -1003,7 +1008,7 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::oidc::SessionTokens {
+                tokens: matrix_sdk::oidc::OidcSessionTokens {
                     access_token,
                     refresh_token,
                     latest_id_token,
@@ -1025,7 +1030,10 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::matrix_auth::SessionTokens { access_token, refresh_token },
+                tokens: matrix_sdk::matrix_auth::MatrixSessionTokens {
+                    access_token,
+                    refresh_token,
+                },
             };
 
             Ok(AuthSession::Matrix(session))
