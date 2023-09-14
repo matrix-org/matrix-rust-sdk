@@ -2486,7 +2486,7 @@ mod tests {
 
     use crate::{
         config::RequestConfig,
-        matrix_auth::{MatrixSessionTokens, Session},
+        matrix_auth::{MatrixSession, MatrixSessionTokens},
         Client,
     };
 
@@ -2494,7 +2494,7 @@ mod tests {
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),

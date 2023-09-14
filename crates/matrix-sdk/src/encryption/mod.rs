@@ -1070,7 +1070,7 @@ mod tests {
 
     use crate::{
         config::RequestConfig,
-        matrix_auth::{MatrixSessionTokens, Session},
+        matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::logged_in_client,
         Client,
     };
@@ -1199,7 +1199,7 @@ mod tests {
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
         let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),
@@ -1283,7 +1283,7 @@ mod tests {
         // Create two clients using the same sqlite database.
         let sqlite_path =
             std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),

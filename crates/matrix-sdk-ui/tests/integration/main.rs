@@ -14,7 +14,7 @@
 
 use matrix_sdk::{
     config::RequestConfig,
-    matrix_auth::{MatrixSessionTokens, Session},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
 use matrix_sdk_base::SessionMeta;
@@ -58,7 +58,7 @@ async fn no_retry_test_client() -> (Client, MockServer) {
 }
 
 async fn logged_in_client() -> (Client, MockServer) {
-    let session = Session {
+    let session = MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),

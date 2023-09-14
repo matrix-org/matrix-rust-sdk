@@ -10,7 +10,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        FullSession, OidcAccountManagementAction,
+        OidcAccountManagementAction, OidcSession,
     },
     ruma::{
         api::client::{
@@ -921,7 +921,7 @@ impl Session {
         match auth_api {
             // Build the session from the regular Matrix Auth Session.
             AuthApi::Matrix(a) => {
-                let matrix_sdk::matrix_auth::Session {
+                let matrix_sdk::matrix_auth::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
                         matrix_sdk::matrix_auth::MatrixSessionTokens { access_token, refresh_token },
@@ -993,7 +993,7 @@ impl TryFrom<Session> for AuthSession {
         } = value;
 
         if let Some(oidc_data) = oidc_data {
-            // Create an OIDC FullSession.
+            // Create an OidcSession.
             let oidc_data = serde_json::from_str::<OidcUnvalidatedSessionData>(&oidc_data)?
                 .validate()
                 .context("OIDC metadata validation failed.")?;
@@ -1016,7 +1016,7 @@ impl TryFrom<Session> for AuthSession {
                 issuer_info: oidc_data.issuer_info,
             };
 
-            let session = FullSession {
+            let session = OidcSession {
                 credentials: ClientCredentials::None { client_id: oidc_data.client_id },
                 metadata: oidc_data.client_metadata,
                 user: user_session,
@@ -1025,7 +1025,7 @@ impl TryFrom<Session> for AuthSession {
             Ok(AuthSession::Oidc(session))
         } else {
             // Create a regular Matrix Session.
-            let session = matrix_sdk::matrix_auth::Session {
+            let session = matrix_sdk::matrix_auth::MatrixSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),

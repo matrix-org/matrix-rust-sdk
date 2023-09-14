@@ -5,7 +5,7 @@ use std::{
 
 use matrix_sdk::{
     config::SyncSettings,
-    matrix_auth::Session,
+    matrix_auth::MatrixSession,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
@@ -36,7 +36,7 @@ struct FullSession {
     client_session: ClientSession,
 
     /// The Matrix user session.
-    user_session: Session,
+    user_session: MatrixSession,
 
     /// The latest sync token.
     ///
