@@ -819,18 +819,29 @@ impl Account {
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
-        let mut content = self
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
+
+        // TODO: Uncomment this once we can rely on `/sync`. Because of the
+        // `unwrap_or_default()` we're using, this may lead to us resetting the
+        // `m.direct` account data event and unmarking the user's DMs.
+        // let mut content = self
+        //     .account_data::<DirectEventContent>()
+        //     .await?
+        //     .map(|c| c.deserialize())
+        //     .transpose()?
+        //     .unwrap_or_default();
+
+        // We are fetching the content from the server because we currently can't rely
+        // on `/sync` giving us the correct data in a timely manner.
+        let raw_content = self.fetch_account_data(GlobalAccountDataEventType::Direct).await?;
+        let mut content = raw_content
+            .and_then(|content| content.deserialize_as::<DirectEventContent>().ok())
             .unwrap_or_default();
 
         for user_id in user_ids {
             content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
         }
 
-        // TODO We should probably save the fact that we need to send this out
+        // TODO: We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
         self.set_account_data(content).await?;
