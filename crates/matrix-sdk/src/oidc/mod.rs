@@ -233,7 +233,7 @@ pub(crate) struct OidcCtx {
     ///
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
-    deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    deferred_cross_process_lock_init: Mutex<Option<String>>,
 }
 
 impl OidcCtx {
