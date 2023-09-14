@@ -30,10 +30,10 @@ use crate::{
 #[allow(missing_debug_implementations, clippy::large_enum_variant)]
 pub enum SessionTokens {
     /// Tokens for a [`matrix_auth`] session.
-    Matrix(matrix_auth::SessionTokens),
+    Matrix(matrix_auth::MatrixSessionTokens),
     #[cfg(feature = "experimental-oidc")]
     /// Tokens for an [`oidc`] session.
-    Oidc(oidc::SessionTokens),
+    Oidc(oidc::OidcSessionTokens),
 }
 
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
