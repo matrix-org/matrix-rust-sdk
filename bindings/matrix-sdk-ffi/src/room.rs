@@ -14,7 +14,6 @@ use matrix_sdk::{
             location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
             poll::unstable_start::{
                 UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
-                UnstablePollStartEventContent,
             },
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
@@ -31,7 +30,9 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
 use ruma::events::poll::{
-    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
+    unstable_end::UnstablePollEndEventContent,
+    unstable_response::UnstablePollResponseEventContent,
+    unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
 };
 use tokio::{
     sync::{Mutex, RwLock},
@@ -445,8 +446,10 @@ impl Room {
             .fold(question, |acc, (index, answer)| format!("{acc}\n{}. {answer}", index + 1));
 
         let poll_start_event_content =
-            UnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content);
+            NewUnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
+            UnstablePollStartEventContent::New(poll_start_event_content),
+        );
 
         RUNTIME.spawn(async move {
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;

@@ -37,6 +37,7 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     assign,
     events::{
+        poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
@@ -492,9 +493,9 @@ impl Timeline {
             | TimelineItemContent::FailedToParseState { .. } => {
                 error_return!("Invalid state: attempting to retry a failed-to-parse item");
             }
-            TimelineItemContent::Poll(poll_state) => {
-                AnyMessageLikeEventContent::UnstablePollStart(poll_state.into())
-            }
+            TimelineItemContent::Poll(poll_state) => AnyMessageLikeEventContent::UnstablePollStart(
+                UnstablePollStartEventContent::New(poll_state.into()),
+            ),
         };
 
         let txn_id = txn_id.to_owned();
