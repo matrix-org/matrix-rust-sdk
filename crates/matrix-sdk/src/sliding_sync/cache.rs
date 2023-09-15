@@ -279,7 +279,6 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use assert_matches::assert_matches;
-    use futures_util::StreamExt;
     use matrix_sdk_test::async_test;
 
     use super::{
