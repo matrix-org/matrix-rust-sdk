@@ -14,28 +14,18 @@
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use aes::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
-    Aes256,
-};
 use byteorder::{BigEndian, ReadBytesExt};
-use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2;
 use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
-use sha2::{Sha256, Sha512};
 use thiserror::Error;
 use vodozemac::{base64_decode, base64_encode};
 use zeroize::Zeroize;
 
-use crate::olm::ExportedRoomKey;
+use crate::{
+    ciphers::{AesHmacSha2Key, IV_SIZE, MAC_SIZE, SALT_SIZE},
+    olm::ExportedRoomKey,
+};
 
-type Aes256Ctr = ctr::Ctr128BE<Aes256>;
-
-const SALT_SIZE: usize = 16;
-const IV_SIZE: usize = 16;
-const MAC_SIZE: usize = 32;
-const KEY_SIZE: usize = 32;
 const VERSION: u8 = 1;
 
 const HEADER: &str = "-----BEGIN MEGOLM SESSION DATA-----";
@@ -150,52 +140,33 @@ pub fn encrypt_room_key_export(
     rounds: u32,
 ) -> Result<String, SerdeError> {
     let mut plaintext = serde_json::to_string(keys)?.into_bytes();
-    let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
+    let ciphertext = encrypt_helper(&plaintext, passphrase, rounds);
 
     plaintext.zeroize();
 
     Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
-fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
+fn encrypt_helper(plaintext: &[u8], passphrase: &str, rounds: u32) -> String {
     let mut salt = [0u8; SALT_SIZE];
-    let mut iv = [0u8; IV_SIZE];
-    let mut derived_keys = [0u8; KEY_SIZE * 2];
-
     let mut rng = thread_rng();
 
     rng.fill_bytes(&mut salt);
-    rng.fill_bytes(&mut iv);
 
-    let mut iv = u128::from_be_bytes(iv);
-    iv &= !(1 << 63);
-    let iv = iv.to_be_bytes();
+    let key = AesHmacSha2Key::from_passphrase(passphrase, rounds, &salt);
+    let (ciphertext, initialization_vector) = key.encrypt(plaintext.to_owned());
 
-    pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
-    let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
+    let mut payload = [
+        VERSION.to_be_bytes().as_slice(),
+        &salt,
+        &initialization_vector,
+        rounds.to_be_bytes().as_slice(),
+        &ciphertext,
+    ]
+    .concat();
 
-    // This is fine because the key is guaranteed to be 32 bytes, derive 64
-    // bytes and split at the middle.
-    let key_array = GenericArray::from_slice(key);
-
-    let mut aes = Aes256Ctr::new(key_array, &iv.into());
-    aes.apply_keystream(plaintext);
-
-    let mut payload: Vec<u8> = vec![];
-
-    payload.extend(VERSION.to_be_bytes());
-    payload.extend(salt);
-    payload.extend(iv);
-    payload.extend(rounds.to_be_bytes());
-    payload.extend_from_slice(plaintext);
-
-    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create HMAC object");
-    hmac.update(&payload);
-    let mac = hmac.finalize();
-
-    payload.extend(mac.into_bytes());
-
-    derived_keys.zeroize();
+    let mac = key.create_mac_tag(&payload);
+    payload.extend(mac.as_bytes());
 
     base64_encode(payload)
 }
@@ -208,7 +179,6 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     let mut salt = [0u8; SALT_SIZE];
     let mut iv = [0u8; IV_SIZE];
     let mut mac = [0u8; MAC_SIZE];
-    let mut derived_keys = [0u8; KEY_SIZE * 2];
 
     let version = decoded.read_u8()?;
     decoded.read_exact(&mut salt)?;
@@ -228,25 +198,12 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
         return Err(KeyExportError::UnsupportedVersion);
     }
 
-    pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
-    let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
-
-    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create an HMAC object");
-    hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
-
-    // This is fine because the key is guaranteed to be 32 bytes, derive 64
-    // bytes and split at the middle.
-    let key_array = GenericArray::from_slice(key);
+    let key = AesHmacSha2Key::from_passphrase(passphrase, rounds, &salt);
+    key.verify_mac(&decoded[0..ciphertext_end], &mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let mut aes = Aes256Ctr::new(key_array, &iv.into());
-    aes.apply_keystream(ciphertext);
-
-    let ret = String::from_utf8(ciphertext.to_owned());
-
-    derived_keys.zeroize();
-    ciphertext.zeroize();
+    let plaintext = key.decrypt(ciphertext.to_owned(), &iv);
+    let ret = String::from_utf8(plaintext);
 
     Ok(ret?)
 }
@@ -260,9 +217,9 @@ mod proptests {
     proptest! {
         #[test]
         fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
-            let mut plaintext_bytes = plaintext.clone().into_bytes();
+            let plaintext_bytes = plaintext.clone().into_bytes();
 
-            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
+            let ciphertext = encrypt_helper(&plaintext_bytes, "test", 1);
             let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
 
             prop_assert!(plaintext == decrypted);
@@ -319,9 +276,9 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt() {
         let data = "It's a secret to everybody";
-        let mut bytes = data.to_owned().into_bytes();
+        let bytes = data.to_owned().into_bytes();
 
-        let encrypted = encrypt_helper(&mut bytes, PASSPHRASE, 10);
+        let encrypted = encrypt_helper(&bytes, PASSPHRASE, 10);
         let decrypted = decrypt_helper(&encrypted, PASSPHRASE).unwrap();
 
         assert_eq!(data, decrypted);
