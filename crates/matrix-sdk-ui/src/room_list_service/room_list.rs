@@ -22,7 +22,7 @@ use async_rx::StreamExt as _;
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
-use eyeball_im_util::vector::DynamicLimit;
+use eyeball_im_util::vector::Limit;
 use futures_util::{pin_mut, stream, Stream, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
@@ -140,11 +140,11 @@ impl RoomList {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
-                let stream = DynamicLimit::new(items, stream, dynamic_limit_stream.clone());
+                let stream = Limit::dynamic(items, stream, dynamic_limit_stream.clone());
 
                 dynamic_limit.set(page_size);
 
-                // Clearing the stream.
+                // Clearing the stream before chaining with the real stream.
                 yield stream::once(ready(vec![VectorDiff::Clear]))
                     .chain(stream);
             }
