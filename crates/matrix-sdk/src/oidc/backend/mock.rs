@@ -34,7 +34,7 @@ use mas_oidc_client::{
 };
 use url::Url;
 
-use super::{OidcError, OidcImpl, RefreshedSessionTokens};
+use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::oidc::{AuthorizationCode, SessionTokens};
 
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
@@ -44,7 +44,7 @@ pub(crate) const TOKEN_URL: &str = "https://oidc.example.com/token";
 pub(crate) const JWKS_URL: &str = "https://oidc.example.com/jwks";
 
 #[derive(Debug)]
-pub(crate) struct TestImpl {
+pub(crate) struct MockImpl {
     /// Must be an HTTPS URL.
     issuer: String,
 
@@ -73,7 +73,7 @@ pub(crate) struct TestImpl {
     pub revoked_tokens: Arc<Mutex<Vec<String>>>,
 }
 
-impl TestImpl {
+impl MockImpl {
     pub fn new() -> Self {
         Self {
             issuer: ISSUER_URL.to_owned(),
@@ -100,7 +100,7 @@ impl TestImpl {
 }
 
 #[async_trait::async_trait]
-impl OidcImpl for TestImpl {
+impl OidcBackend for MockImpl {
     async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError> {
         Ok(ProviderMetadata {
             issuer: Some(self.issuer.clone()),

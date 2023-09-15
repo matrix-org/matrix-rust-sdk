@@ -30,13 +30,10 @@ use url::Url;
 
 use super::{AuthorizationCode, OidcError, SessionTokens};
 
-mod server;
-pub(crate) use server::*;
+pub(crate) mod server;
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
-pub(crate) use test::*;
+pub(crate) mod mock;
 
 pub(super) struct RefreshedSessionTokens {
     pub access_token: String,
@@ -44,7 +41,7 @@ pub(super) struct RefreshedSessionTokens {
 }
 
 #[async_trait::async_trait]
-pub(super) trait OidcImpl: std::fmt::Debug + Send + Sync {
+pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
     async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError>;
 
     async fn register_client(

@@ -40,7 +40,7 @@ use mas_oidc_client::{
 };
 use url::Url;
 
-use super::{OidcError, OidcImpl, RefreshedSessionTokens};
+use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::{
     oidc::{rng, AuthorizationCode, SessionTokens},
     Client,
@@ -70,7 +70,7 @@ impl OidcServer {
 }
 
 #[async_trait::async_trait]
-impl OidcImpl for OidcServer {
+impl OidcBackend for OidcServer {
     async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError> {
         discover(&self.http_service(), issuer).await.map_err(Into::into)
     }

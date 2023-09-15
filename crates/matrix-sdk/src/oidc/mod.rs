@@ -198,10 +198,10 @@ use tracing::{error, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
+mod backend;
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
-mod r#impl;
 #[cfg(test)]
 mod tests;
 
@@ -210,10 +210,10 @@ pub use self::{
     end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
 };
 use self::{
+    backend::{server::OidcServer, OidcBackend},
     cross_process::{
         CrossProcessRefreshLockError, CrossProcessRefreshLockGuard, CrossProcessRefreshManager,
     },
-    r#impl::{OidcImpl, OidcServer},
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
@@ -253,7 +253,7 @@ pub struct Oidc {
     client: Client,
 
     /// The implementation of the OIDC backend.
-    backend: Arc<dyn OidcImpl>,
+    backend: Arc<dyn OidcBackend>,
 }
 
 impl Oidc {

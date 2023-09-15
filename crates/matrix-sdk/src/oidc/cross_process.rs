@@ -241,8 +241,7 @@ pub enum CrossProcessRefreshLockError {
     DuplicatedLock,
 }
 
-#[cfg(feature = "e2e-encryption")]
-#[cfg(test)]
+#[cfg(all(test, feature = "e2e-encryption"))]
 mod tests {
     use std::sync::Arc;
 
@@ -262,9 +261,9 @@ mod tests {
     use super::compute_session_hash;
     use crate::{
         oidc::{
-            r#impl::{TestImpl, ISSUER_URL},
+            backend::mock::{MockImpl, ISSUER_URL},
             tests,
-            tests::fake_registered_client_data,
+            tests::mock_registered_client_data,
             Oidc, SessionTokens,
         },
         test_utils::test_client_builder,
@@ -296,7 +295,7 @@ mod tests {
         )?;
 
         let session_hash = compute_session_hash(&tokens);
-        client.oidc().restore_session(tests::fake_session(tokens.clone())).await?;
+        client.oidc().restore_session(tests::mock_session(tokens.clone())).await?;
 
         assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
 
@@ -335,11 +334,11 @@ mod tests {
         let client =
             test_client_builder(Some(server.uri())).sqlite_store(tmp_dir, None).build().await?;
 
-        let oidc = Oidc { client: client.clone(), backend: Arc::new(TestImpl::new()) };
+        let oidc = Oidc { client: client.clone(), backend: Arc::new(MockImpl::new()) };
 
         // Restore registered client.
         let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-        let client_data = fake_registered_client_data();
+        let client_data = mock_registered_client_data();
         oidc.restore_registered_client(issuer_info, client_data).await;
 
         // Enable cross-process lock.
@@ -401,7 +400,7 @@ mod tests {
         };
 
         let backend = Arc::new(
-            TestImpl::new()
+            MockImpl::new()
                 .next_session_tokens(next_tokens.clone())
                 .expected_refresh_token(prev_tokens.refresh_token.clone().unwrap()),
         );
@@ -411,7 +410,7 @@ mod tests {
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(tests::fake_session(prev_tokens.clone())).await?;
+        oidc.restore_session(tests::mock_session(prev_tokens.clone())).await?;
 
         // Immediately try to refresh the access token twice in parallel.
         for result in join_all([oidc.refresh_access_token(), oidc.refresh_access_token()]).await {
@@ -447,14 +446,14 @@ mod tests {
             latest_id_token: None,
         };
 
-        let backend = Arc::new(TestImpl::new());
+        let backend = Arc::new(MockImpl::new());
         let oidc = Oidc { client: client.clone(), backend: backend.clone() };
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(tests::fake_session(tokens.clone())).await?;
+        oidc.restore_session(tests::mock_session(tokens.clone())).await?;
 
         let end_session_builder = oidc.logout().await?;
 
