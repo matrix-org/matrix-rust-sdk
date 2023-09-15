@@ -110,10 +110,10 @@ impl RoomList {
     /// possible to “paginate” over the entries by `page_size`.
     ///
     /// The returned stream will only start yielding diffs once a filter is set
-    /// through the returned `DynamicRoomListController`. For every call to
-    /// [`DynamicRoomListController::set`], the stream will yield a
-    /// [`VectorDiff::Reset`] followed by any updates of the room list under
-    /// that filter (until the next reset).
+    /// through the returned [`RoomListDynamicEntriesController`]. For every
+    /// call to [`RoomListDynamicEntriesController::set_filter`], the stream
+    /// will yield a [`VectorDiff::Truncate`] followed by any updates of the
+    /// room list under that filter (until the next reset).
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
@@ -240,7 +240,8 @@ impl RoomListDynamicEntriesController {
         }
     }
 
-    /// Add one page.
+    /// Add one page, i.e. view `page_size` more entries in the room list if
+    /// any.
     pub fn add_one_page(&self) {
         if let Some(max) = self.maximum_number_of_rooms.borrow_mut().next_now() {
             let max: usize = max.try_into().unwrap();

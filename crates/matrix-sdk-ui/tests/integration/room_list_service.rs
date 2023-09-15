@@ -1809,6 +1809,34 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
     assert_pending!(dynamic_entries_stream);
 
+    // Let's reset to one page.
+    dynamic_entries.reset_to_one_page();
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive a `truncate`.
+        truncate [5];
+        end;
+    }
+    assert_pending!(dynamic_entries_stream);
+
+    // Let's ask one more page again, because it's fun.
+    dynamic_entries.add_one_page();
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive the next values.
+        append [
+            F("!r5:bar.org"),
+            F("!r6:bar.org"),
+            F("!r7:bar.org"),
+        ];
+        end;
+    };
+    assert_pending!(dynamic_entries_stream);
+
     Ok(())
 }
 
