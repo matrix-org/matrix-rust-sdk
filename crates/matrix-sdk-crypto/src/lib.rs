@@ -18,6 +18,7 @@
 
 #[cfg(feature = "backups_v1")]
 pub mod backups;
+mod ciphers;
 pub mod dehydrated_devices;
 mod error;
 mod file_encryption;
