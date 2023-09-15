@@ -115,7 +115,7 @@ impl RoomList {
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned [`RoomListDynamicEntriesController`]. For every
     /// call to [`RoomListDynamicEntriesController::set_filter`], the stream
-    /// will yield a [`VectorDiff::Truncate`] followed by any updates of the
+    /// will yield a [`VectorDiff::Clear`] followed by any updates of the
     /// room list under that filter (until the next reset).
     pub fn entries_with_dynamic_adapters(
         &self,
@@ -144,8 +144,8 @@ impl RoomList {
 
                 dynamic_limit.set(page_size);
 
-                // Reset the stream by truncating it.
-                yield stream::once(ready(vec![VectorDiff::Truncate { length: 0 }]))
+                // Clearing the stream.
+                yield stream::once(ready(vec![VectorDiff::Clear]))
                     .chain(stream);
             }
         }

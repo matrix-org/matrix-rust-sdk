@@ -190,6 +190,22 @@ macro_rules! assert_entries_batch {
         )
     };
 
+    // `clear`
+    ( @_ [ $entries:ident ] [ clear ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_eq!(
+                    $entries.next(),
+                    Some(&VectorDiff::Clear),
+                );
+            ]
+        )
+    };
+
     // `truncate [$length]`
     ( @_ [ $entries:ident ] [ truncate [ $length:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
@@ -1594,8 +1610,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `truncate` because the filter has been reset/set for the first time.
-        truncate [0];
+        // Receive a `clear` because the filter has been reset/set for the first time.
+        clear;
         end;
     };
     assert_entries_batch! {
@@ -1756,8 +1772,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `truncate` again because the filter has been reset.
-        truncate [0];
+        // Receive a `clear` again because the filter has been reset.
+        clear;
         end;
     }
     assert_entries_batch! {
@@ -1774,8 +1790,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `truncate` again because the filter has been reset.
-        truncate [0];
+        // Receive a `clear` again because the filter has been reset.
+        clear;
         end;
     }
     assert_entries_batch! {
