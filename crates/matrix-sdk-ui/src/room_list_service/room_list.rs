@@ -246,17 +246,19 @@ impl RoomListDynamicEntriesController {
     /// Add one page, i.e. view `page_size` more entries in the room list if
     /// any.
     pub fn add_one_page(&self) {
-        if let Some(max) = self.maximum_number_of_rooms.lock().unwrap().next_now() {
-            let max: usize = max.try_into().unwrap();
-            let limit = self.limit.get();
+        let Some(max) = self.maximum_number_of_rooms.lock().unwrap().next_now() else {
+            return;
+        };
 
-            if limit < max {
-                // With this logic, it is possible that `limit` becomes greater than `max` if
-                // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
-                // `limit` greater than `max`, but it's not OK to increase the limit
-                // indefinitely.
-                self.limit.set(limit + self.page_size);
-            }
+        let max: usize = max.try_into().unwrap();
+        let limit = self.limit.get();
+
+        if limit < max {
+            // With this logic, it is possible that `limit` becomes greater than `max` if
+            // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
+            // `limit` greater than `max`, but it's not OK to increase the limit
+            // indefinitely.
+            self.limit.set(limit + self.page_size);
         }
     }
 
