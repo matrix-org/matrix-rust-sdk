@@ -45,6 +45,7 @@ use matrix_sdk::{
     },
     Client, ClientBuildError, Result, RoomState, ServerName,
 };
+use matrix_sdk_ui::sync_service::SyncService;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, net::TcpListener, sync::oneshot};
@@ -91,7 +92,7 @@ fn help() {
     println!("Commands:");
     println!("  whoami                 Get information about this session");
     println!("  account                Get the URL to manage this account");
-    println!("  watch                  Watch new incoming messages until an error occurs");
+    println!("  watch [sliding]        Watch new incoming messages until an error occurs");
     println!("  authorize [scope…]     Authorize the given scope");
     println!("  refresh                Refresh the access token");
     println!("  logout                 Log out of this account");
@@ -278,9 +279,33 @@ impl OidcCli {
         let StoredSession { client_session, user_session, client_credentials } =
             serde_json::from_str(&serialized_session)?;
 
+        println!("homeserver = {}", client_session.homeserver);
+        let (homeserver, insecure) =
+            if let Some(base) = client_session.homeserver.strip_prefix("http://") {
+                (base, true)
+            } else {
+                (
+                    client_session
+                        .homeserver
+                        .strip_prefix("https://")
+                        .unwrap_or(&client_session.homeserver),
+                    false,
+                )
+            };
+        let homeserver = homeserver.strip_suffix('/').unwrap_or(homeserver);
+        let server_name = ServerName::parse(homeserver)?;
+
         // Build the client with the previous settings from the session.
-        let client = Client::builder()
-            .homeserver_url(client_session.homeserver)
+        let mut client = Client::builder();
+
+        if insecure {
+            client = client.insecure_server_name_no_tls(&server_name);
+        } else {
+            client = client.server_name(&server_name);
+        }
+
+        let client = client
+            .handle_refresh_tokens()
             .sqlite_store(client_session.db_path, Some(&client_session.passphrase))
             .build()
             .await?;
@@ -326,9 +351,16 @@ impl OidcCli {
                 Some("sessions") => {
                     self.account(Some(OidcAccountManagementAction::SessionsList));
                 }
-                Some("watch") => {
-                    self.watch().await?;
-                }
+                Some("watch") => match args.next() {
+                    Some(sub) => {
+                        if sub == "--sliding" || sub == "sliding" {
+                            self.sliding_sync().await?;
+                        } else {
+                            println!("unknown subcommand for watch: available is --sliding");
+                        }
+                    }
+                    None => self.watch().await?,
+                },
                 Some("authorize") => {
                     let mut scopes = args.peekable();
                     if scopes.peek().is_some() {
@@ -415,6 +447,79 @@ impl OidcCli {
             }
         }
 
+        Ok(())
+    }
+
+    async fn sliding_sync(&self) -> anyhow::Result<()> {
+        let sync_service = Arc::new(SyncService::builder(self.client.clone()).build().await?);
+
+        sync_service.start().await;
+
+        println!("press enter to exit the sync loop");
+
+        let mut sync_service_state = sync_service.state();
+
+        let sync_service_clone = sync_service.clone();
+        let task = tokio::spawn(async move {
+            let mut num_errors = 0;
+            let mut num_running = 0;
+
+            let mut _unused = String::new();
+            let stdin = async_std::io::stdin();
+
+            loop {
+                tokio::select! {
+                    res = sync_service_state.next() => {
+                        if let Some(state) = res {
+                            match state {
+                                matrix_sdk_ui::sync_service::State::Idle
+                                | matrix_sdk_ui::sync_service::State::Terminated => {
+                                    num_errors = 0;
+                                    num_running = 0;
+                                }
+
+                                matrix_sdk_ui::sync_service::State::Running => {
+                                    num_running += 1;
+                                    if num_running > 1 {
+                                        num_errors = 0;
+                                    }
+                                }
+
+                                matrix_sdk_ui::sync_service::State::Error => {
+                                    num_errors += 1;
+                                    num_running = 0;
+
+                                    if num_errors == 5 {
+                                        println!("ran into 5 errors in a row, terminating");
+                                        break;
+                                    }
+
+                                    sync_service_clone.start().await;
+                                }
+                            }
+                            println!("New sync service state update: {state:?}");
+                        } else {
+                            break;
+                        }
+                    }
+
+                    _ = stdin.read_line(&mut _unused) => {
+                        println!("Stopping loop because of user request");
+
+                        if let Err(err) = sync_service.stop().await {
+                            println!("Error when stopping the sync service: {err}");
+                        }
+
+                        break;
+                    }
+                }
+            }
+        });
+
+        println!("waiting for sync service to stop...");
+        task.await.unwrap();
+
+        println!("done!");
         Ok(())
     }
 
@@ -529,6 +634,13 @@ async fn build_client(
         io::stdout().flush().expect("Unable to write to stdout");
         io::stdin().read_line(&mut homeserver).expect("Unable to read user input");
 
+        let homeserver = homeserver.trim();
+        let (homeserver, insecure) = if let Some(base) = homeserver.strip_prefix("http://") {
+            (base, true)
+        } else {
+            (homeserver, false)
+        };
+
         let server_name = match ServerName::parse(homeserver.trim()) {
             Ok(s) => s,
             Err(error) => {
@@ -539,10 +651,19 @@ async fn build_client(
 
         println!("\nChecking homeserver…");
 
-        match Client::builder()
-            // We need to use server autodiscovery to get the authentication issuer advertised by
-            // the homeserver.
-            .server_name(&server_name)
+        let mut client = Client::builder();
+
+        // We need to use server autodiscovery to get the authentication issuer
+        // advertised by the homeserver.
+        if insecure {
+            client = client.insecure_server_name_no_tls(&server_name);
+        } else {
+            client = client.server_name(&server_name);
+        }
+
+        match client
+            // Make sure to automatically refresh tokens if needs be.
+            .handle_refresh_tokens()
             // We use the sqlite store, which is available by default. This is the crucial part to
             // persist the encryption setup.
             // Note that other store backends are available and you can even implement your own.
