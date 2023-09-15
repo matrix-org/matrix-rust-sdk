@@ -20,7 +20,10 @@ use ruma::{
     },
     assign, device_id,
     directory::Filter,
-    events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+    events::{
+        direct::DirectEventContent,
+        room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+    },
     mxc_uri, room_id, uint, user_id,
 };
 use serde_json::json;
@@ -429,4 +432,77 @@ async fn request_encryption_event_before_sending() {
         first_encrypted, second_encrypted,
         "Both attempts to find out if the room is encrypted should return the same result."
     );
+}
+
+// Check that we're fetching account data from the server when marking a room as
+// a DM.
+#[async_test]
+async fn marking_room_as_dm() {
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
+    let (client, server) = logged_in_client().await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    client
+        .sync_once(SyncSettings::default())
+        .await
+        .expect("We should be able to performa an initial sync");
+
+    let account_data = client
+        .account()
+        .account_data::<DirectEventContent>()
+        .await
+        .expect("We should be able to fetch the account data event from the store");
+
+    assert!(account_data.is_none(), "We should not have any account data initially");
+
+    let bob = user_id!("@bob:example.com");
+    let users = vec![bob.to_owned()];
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "@bob:example.com": [
+                "!abcdefgh:example.com",
+                "!hgfedcba:example.com"
+            ],
+            "alice:example.com": [
+                "!abcdefgh:example.com",
+            ]
+        })))
+        .expect(1..)
+        .named("m.direct account data GET")
+        .mount(&server)
+        .await;
+
+    let put_direct_content_matcher = |request: &wiremock::Request| {
+        let content: DirectEventContent = request.body_json().expect(
+            "The body of the PUT /account_data request should be a valid DirectEventContent",
+        );
+
+        let bob_entry = content.get(bob).expect("We should have bob in the direct event content");
+
+        assert_eq!(content.len(), 2, "We should have entries for bob and foo");
+        assert_eq!(bob_entry.len(), 3, "Bob should have 3 direct rooms");
+
+        content.len() == 2 && bob_entry.len() == 3
+    };
+
+    Mock::given(method("PUT"))
+        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(put_direct_content_matcher)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1..)
+        .named("m.direct account data PUT")
+        .mount(&server)
+        .await;
+
+    client
+        .account()
+        .mark_as_dm(room_id, &users)
+        .await
+        .expect("We should be able to mark the room as a DM");
+
+    server.verify().await;
 }

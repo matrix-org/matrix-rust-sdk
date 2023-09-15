@@ -809,11 +809,7 @@ impl Account {
     ///
     /// * `room_id` - The room id of the DM room.
     /// * `user_ids` - The user ids of the invitees for the DM room.
-    pub(crate) async fn mark_as_dm(
-        &self,
-        room_id: &RoomId,
-        user_ids: &[OwnedUserId],
-    ) -> Result<()> {
+    pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
