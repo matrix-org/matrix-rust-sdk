@@ -4,7 +4,7 @@ use ruma::{
         room::{
             avatar::{RoomAvatarEventContent, StrippedRoomAvatarEvent},
             canonical_alias::{RoomCanonicalAliasEventContent, StrippedRoomCanonicalAliasEvent},
-            create::{RoomCreateEventContent, StrippedRoomCreateEvent},
+            create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             guest_access::{
                 RedactedRoomGuestAccessEventContent, RoomGuestAccessEventContent,
                 StrippedRoomGuestAccessEvent,
@@ -27,6 +27,8 @@ use ruma::{
     EventId, OwnedEventId, RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::rooms::RoomCreateWithCreatorEventContent;
 
 // #[serde(bound)] instead of DeserializeOwned in type where clause does not
 // work, it can only be a single bound that replaces the default and if a helper
@@ -181,6 +183,27 @@ where
     }
 }
 
+impl From<&SyncRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
+    fn from(ev: &SyncRoomCreateEvent) -> Self {
+        match ev {
+            SyncStateEvent::Original(ev) => Self::Original(OriginalMinimalStateEvent {
+                content: RoomCreateWithCreatorEventContent::from_event_content(
+                    ev.content.clone(),
+                    ev.sender.clone(),
+                ),
+                event_id: Some(ev.event_id.clone()),
+            }),
+            SyncStateEvent::Redacted(ev) => Self::Redacted(RedactedMinimalStateEvent {
+                content: RoomCreateWithCreatorEventContent::from_event_content(
+                    ev.content.clone(),
+                    ev.sender.clone(),
+                ),
+                event_id: Some(ev.event_id.clone()),
+            }),
+        }
+    }
+}
+
 impl From<&StrippedRoomAvatarEvent> for MinimalStateEvent<RoomAvatarEventContent> {
     fn from(event: &StrippedRoomAvatarEvent) -> Self {
         let content = assign!(RoomAvatarEventContent::new(), {
@@ -208,14 +231,15 @@ impl From<&StrippedRoomNameEvent> for MinimalStateEvent<RoomNameEventContent> {
     }
 }
 
-impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateEventContent> {
+impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
     fn from(event: &StrippedRoomCreateEvent) -> Self {
-        let content = assign!(RoomCreateEventContent::new_v1(event.sender.clone()), {
+        let content = RoomCreateWithCreatorEventContent {
+            creator: event.sender.clone(),
             federate: event.content.federate,
             room_version: event.content.room_version.clone(),
             predecessor: event.content.predecessor.clone(),
             room_type: event.content.room_type.clone(),
-        });
+        };
         Self::Original(OriginalMinimalStateEvent { content, event_id: None })
     }
 }

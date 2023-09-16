@@ -35,7 +35,6 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            create::RoomCreateEventContent,
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -59,7 +58,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomMember,
+    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -257,10 +256,7 @@ impl Room {
     /// This usually isn't optional but some servers might not send an
     /// `m.room.create` event as the first event for a given room, thus this can
     /// be optional.
-    ///
-    /// It can also be redacted in current room versions, leaving only the
-    /// `creator` field.
-    pub fn create_content(&self) -> Option<RoomCreateEventContent> {
+    pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
         self.inner
             .read()
             .base_info
@@ -995,10 +991,9 @@ impl RoomInfo {
     }
 
     fn creator(&self) -> Option<&UserId> {
-        #[allow(deprecated)]
         match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => ev.content.creator.as_deref(),
-            MinimalStateEvent::Redacted(ev) => ev.content.creator.as_deref(),
+            MinimalStateEvent::Original(ev) => Some(&ev.content.creator),
+            MinimalStateEvent::Redacted(ev) => Some(&ev.content.creator),
         }
     }
 
