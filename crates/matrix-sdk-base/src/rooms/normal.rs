@@ -256,13 +256,15 @@ impl Room {
     /// This usually isn't optional but some servers might not send an
     /// `m.room.create` event as the first event for a given room, thus this can
     /// be optional.
+    ///
+    /// For room versions earlier than room version 11, if the event is
+    /// redacted, all fields except `creator` will be set to their default
+    /// value.
     pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
-        self.inner
-            .read()
-            .base_info
-            .create
-            .as_ref()
-            .and_then(|e| e.as_original().map(|e| e.content.clone()))
+        match self.inner.read().base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => Some(ev.content.clone()),
+            MinimalStateEvent::Redacted(ev) => Some(ev.content.clone()),
+        }
     }
 
     /// Is this room considered a direct message.
@@ -987,7 +989,10 @@ impl RoomInfo {
 
     /// Get the room type of this room.
     pub fn room_type(&self) -> Option<&RoomType> {
-        self.base_info.create.as_ref()?.as_original()?.content.room_type.as_ref()
+        match self.base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => ev.content.room_type.as_ref(),
+            MinimalStateEvent::Redacted(ev) => ev.content.room_type.as_ref(),
+        }
     }
 
     fn creator(&self) -> Option<&UserId> {
