@@ -117,8 +117,14 @@ impl BaseRoomInfo {
     }
 
     /// Get the room version of this room.
+    ///
+    /// For room versions earlier than room version 11, if the event is
+    /// redacted, this will return the default of [`RoomVersionId::V1`].
     pub fn room_version(&self) -> Option<&RoomVersionId> {
-        Some(&self.create.as_ref()?.as_original()?.content.room_version)
+        match self.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => Some(&ev.content.room_version),
+            MinimalStateEvent::Redacted(ev) => Some(&ev.content.room_version),
+        }
     }
 
     /// Handle a state event for this room and update our info accordingly.
