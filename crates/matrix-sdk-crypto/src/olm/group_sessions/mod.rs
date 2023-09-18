@@ -37,6 +37,7 @@ use crate::types::{
 };
 use crate::olm::utility::SignedJsonObject;
 
+use once_cell::sync::Lazy;
 
 /// An error type for the creation of group sessions.
 #[derive(Debug, Error)]
@@ -123,7 +124,7 @@ pub struct BackedUpRoomKey {
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 
     /// Signatures of the backed up room key
-    pub signatures: Signatures,
+    pub signatures: Option<Signatures>,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -191,7 +192,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key: k.session_key,
             sender_claimed_keys: k.sender_claimed_keys,
             forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
-            signatures: Signatures::new(),
+            signatures: None,
         }
     }
 }
@@ -238,6 +239,7 @@ impl SignedJsonObject for BackedUpRoomKey {
     // FIXME: after verifying, the canonical JSON buffer should be zeroed
     // since it contains secrets
     fn signatures(&self) -> &Signatures {
-        &self.signatures
+        static EMPTY_SIGS: Lazy<Signatures> = Lazy::new(|| Signatures::new());
+        self.signatures.as_ref().unwrap_or(&EMPTY_SIGS)
     }
 }
