@@ -11,7 +11,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::trace;
 
-use super::SessionTokens;
+use super::OidcSessionTokens;
 use crate::oidc::hash;
 
 /// Key in the database for the custom value holding the current session tokens
@@ -23,7 +23,7 @@ const OIDC_SESSION_HASH_KEY: &str = "oidc_session_hash";
 struct SessionHash(u64);
 
 /// Compute a hash uniquely identifying the OIDC session tokens.
-fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
+fn compute_session_hash(tokens: &OidcSessionTokens) -> SessionHash {
     // Subset of `SessionTokens` fit for hashing
     #[derive(Hash)]
     struct HashableSessionTokens<'a> {
@@ -110,7 +110,7 @@ impl CrossProcessRefreshManager {
         Ok(guard)
     }
 
-    pub async fn restore_session(&self, tokens: &SessionTokens) {
+    pub async fn restore_session(&self, tokens: &OidcSessionTokens) {
         let prev_tokens_hash = compute_session_hash(tokens);
         *self.known_session_hash.lock().await = Some(prev_tokens_hash);
     }
@@ -173,7 +173,7 @@ impl CrossProcessRefreshLockGuard {
     /// Must be called after a successful refresh.
     pub async fn save_in_memory_and_db(
         &mut self,
-        tokens: &SessionTokens,
+        tokens: &OidcSessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
         self.save_in_memory(hash);
@@ -185,7 +185,7 @@ impl CrossProcessRefreshLockGuard {
     /// tokens we trust.
     pub async fn handle_mismatch(
         &mut self,
-        trusted_tokens: &SessionTokens,
+        trusted_tokens: &OidcSessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let new_hash = compute_session_hash(trusted_tokens);
         trace!("Trusted OIDC tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
@@ -264,7 +264,7 @@ mod tests {
             backend::mock::{MockImpl, ISSUER_URL},
             tests,
             tests::mock_registered_client_data,
-            Oidc, SessionTokens,
+            Oidc, OidcSessionTokens,
         },
         test_utils::test_client_builder,
         Error,
@@ -277,7 +277,7 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await.unwrap();
 
-        let tokens = SessionTokens {
+        let tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),
             refresh_token: Some("prev-refresh-token".to_owned()),
             latest_id_token: None,
@@ -338,14 +338,14 @@ mod tests {
 
         // Restore registered client.
         let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-        let client_data = mock_registered_client_data();
-        oidc.restore_registered_client(issuer_info, client_data).await;
+        let (client_credentials, client_metadata) = mock_registered_client_data();
+        oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Simulate we've done finalize_authorization / restore_session before.
-        let session_tokens = SessionTokens {
+        let session_tokens = OidcSessionTokens {
             access_token: "access".to_owned(),
             refresh_token: Some("refresh".to_owned()),
             latest_id_token: None,
@@ -387,13 +387,13 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await?;
 
-        let prev_tokens = SessionTokens {
+        let prev_tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),
             refresh_token: Some("prev-refresh-token".to_owned()),
             latest_id_token: None,
         };
 
-        let next_tokens = SessionTokens {
+        let next_tokens = OidcSessionTokens {
             access_token: "next-access-token".to_owned(),
             refresh_token: Some("next-refresh-token".to_owned()),
             latest_id_token: None,
@@ -440,7 +440,7 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await?;
 
-        let tokens = SessionTokens {
+        let tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),
             refresh_token: Some("prev-refresh-token".to_owned()),
             latest_id_token: None,

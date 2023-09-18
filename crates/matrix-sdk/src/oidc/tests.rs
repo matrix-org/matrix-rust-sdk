@@ -5,8 +5,10 @@ use assert_matches::assert_matches;
 use mas_oidc_client::{
     requests::authorization_code::AuthorizationValidationData,
     types::{
-        client_credentials::ClientCredentials, errors::ClientErrorCode,
-        iana::oauth::OAuthClientAuthenticationMethod, registration::ClientMetadata,
+        client_credentials::ClientCredentials,
+        errors::ClientErrorCode,
+        iana::oauth::OAuthClientAuthenticationMethod,
+        registration::{ClientMetadata, VerifiedClientMetadata},
     },
 };
 use matrix_sdk_base::SessionMeta;
@@ -17,30 +19,32 @@ use url::Url;
 
 use super::{
     backend::mock::{MockImpl, AUTHORIZATION_URL, ISSUER_URL},
-    AuthorizationCode, AuthorizationError, AuthorizationResponse, FullSession, Oidc,
-    OidcAccountManagementAction, OidcError, RedirectUriQueryParseError, RegisteredClientData,
-    SessionTokens, UserSession,
+    AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc,
+    OidcAccountManagementAction, OidcError, OidcSession, OidcSessionTokens,
+    RedirectUriQueryParseError, UserSession,
 };
 use crate::test_utils::test_client_builder;
 
 const CLIENT_ID: &str = "test_client_id";
 
-pub fn mock_registered_client_data() -> RegisteredClientData {
-    RegisteredClientData {
-        credentials: ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
-        metadata: ClientMetadata {
+pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetadata) {
+    (
+        ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
+        ClientMetadata {
             redirect_uris: Some(vec![]), // empty vector is ok lol
             token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
             ..ClientMetadata::default()
         }
         .validate()
         .expect("validate client metadata"),
-    }
+    )
 }
 
-pub fn mock_session(tokens: SessionTokens) -> FullSession {
-    FullSession {
-        client: mock_registered_client_data(),
+pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
+    let (credentials, metadata) = mock_registered_client_data();
+    OidcSession {
+        credentials,
+        metadata,
         user: UserSession {
             meta: SessionMeta {
                 user_id: ruma::user_id!("@u:e.uk").to_owned(),
@@ -58,24 +62,22 @@ async fn test_account_management_url() {
     let client = builder.build().await.unwrap();
 
     client
-        .restore_session(FullSession {
-            client: RegisteredClientData {
-                credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
+        .restore_session(OidcSession {
+            credentials: ClientCredentials::None { client_id: "client_id".to_owned() },
 
-                metadata: ClientMetadata {
-                    redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
-                    ..Default::default()
-                }
-                .validate()
-                .unwrap(),
-            },
+            metadata: ClientMetadata {
+                redirect_uris: Some(vec![Url::parse("https://example.com/login").unwrap()]),
+                ..Default::default()
+            }
+            .validate()
+            .unwrap(),
 
             user: UserSession {
                 meta: SessionMeta {
                     user_id: owned_user_id!("@user:example.com"),
                     device_id: "device_id".into(),
                 },
-                tokens: SessionTokens {
+                tokens: OidcSessionTokens {
                     access_token: "access_token".to_owned(),
                     refresh_token: None,
                     latest_id_token: None,
@@ -143,8 +145,8 @@ async fn test_login() -> anyhow::Result<()> {
     let oidc = Oidc { client: client.clone(), backend: Arc::new(MockImpl::new()) };
 
     let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-    let client_data = mock_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_data).await;
+    let (client_credentials, client_metadata) = mock_registered_client_data();
+    oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
 
     let redirect_uri_str = "http://matrix.example.com/oidc/callback";
     let redirect_uri = Url::parse(redirect_uri_str)?;
@@ -234,7 +236,7 @@ fn test_authorization_response() -> anyhow::Result<()> {
 async fn test_finish_authorization() -> anyhow::Result<()> {
     let client = test_client_builder(None).build().await?;
 
-    let session_tokens = SessionTokens {
+    let session_tokens = OidcSessionTokens {
         access_token: "4cc3ss".to_owned(),
         refresh_token: Some("r3fr3$h".to_owned()),
         latest_id_token: None,
@@ -245,8 +247,8 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
     };
 
     let issuer_info = AuthenticationServerInfo::new(ISSUER_URL.to_owned(), None);
-    let client_data = mock_registered_client_data();
-    oidc.restore_registered_client(issuer_info, client_data).await;
+    let (client_credentials, client_metadata) = mock_registered_client_data();
+    oidc.restore_registered_client(issuer_info, client_metadata, client_credentials);
 
     // If the state is missing, then any attempt to finish authorizing will fail.
     let res = oidc

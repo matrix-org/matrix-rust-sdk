@@ -24,7 +24,8 @@ use ruma::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
             unstable_start::{
-                UnstablePollStartEventContent, UnstablePollStartEventContentWithoutRelation,
+                NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
+                UnstablePollStartEventContent,
             },
         },
         reaction::ReactionEventContent,
@@ -303,13 +304,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
                 }
-                AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent {
-                    relates_to: Some(message::Relation::Replacement(re)),
-                    ..
-                }) => self.handle_poll_start_edit(re),
-                AnyMessageLikeEventContent::UnstablePollStart(c) => {
-                    self.handle_poll_start(c, should_add)
-                }
+                AnyMessageLikeEventContent::UnstablePollStart(
+                    UnstablePollStartEventContent::Replacement(c),
+                ) => self.handle_poll_start_edit(c.relates_to),
+                AnyMessageLikeEventContent::UnstablePollStart(
+                    UnstablePollStartEventContent::New(c),
+                ) => self.handle_poll_start(c, should_add),
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
                 // TODO
@@ -530,7 +530,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
     fn handle_poll_start_edit(
         &mut self,
-        replacement: Replacement<UnstablePollStartEventContentWithoutRelation>,
+        replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
     ) {
         update_timeline_item!(self, &replacement.event_id, "poll edit", |event_item| {
             if self.ctx.sender != event_item.sender() {
@@ -570,7 +570,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         });
     }
 
-    fn handle_poll_start(&mut self, c: UnstablePollStartEventContent, should_add: bool) {
+    fn handle_poll_start(&mut self, c: NewUnstablePollStartEventContent, should_add: bool) {
         let mut poll_state = PollState::new(c);
         if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
             // Applying the cache to remote events only because local echoes

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
+use eyeball::{Observable, Subscriber};
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, VectorDiff};
 use eyeball_im_util::vector;
 use futures_core::Stream;
@@ -189,7 +189,7 @@ impl SlidingSyncList {
     ///
     /// There's no guarantee of ordering between items emitted by this stream
     /// and those emitted by other streams exposed on this structure.
-    pub fn maximum_number_of_rooms_stream(&self) -> impl Stream<Item = Option<u32>> {
+    pub fn maximum_number_of_rooms_stream(&self) -> Subscriber<Option<u32>> {
         Observable::subscribe(&self.inner.maximum_number_of_rooms.read().unwrap())
     }
 

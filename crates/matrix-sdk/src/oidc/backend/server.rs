@@ -42,7 +42,7 @@ use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::{
-    oidc::{rng, AuthorizationCode, SessionTokens},
+    oidc::{rng, AuthorizationCode, OidcSessionTokens},
     Client,
 };
 
@@ -82,7 +82,7 @@ impl OidcBackend for OidcServer {
         metadata: VerifiedClientMetadata,
         auth_code: AuthorizationCode,
         validation_data: AuthorizationValidationData,
-    ) -> Result<SessionTokens, OidcError> {
+    ) -> Result<OidcSessionTokens, OidcError> {
         let jwks = self.fetch_jwks(provider_metadata.jwks_uri()).await?;
 
         let id_token_verification_data = JwtVerificationData {
@@ -104,7 +104,7 @@ impl OidcBackend for OidcServer {
         )
         .await?;
 
-        Ok(SessionTokens {
+        Ok(OidcSessionTokens {
             access_token: response.access_token,
             refresh_token: response.refresh_token,
             latest_id_token: id_token,

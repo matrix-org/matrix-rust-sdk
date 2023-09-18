@@ -28,7 +28,7 @@ use mas_oidc_client::{
 };
 use url::Url;
 
-use super::{AuthorizationCode, OidcError, SessionTokens};
+use super::{AuthorizationCode, OidcError, OidcSessionTokens};
 
 pub(crate) mod server;
 
@@ -58,7 +58,7 @@ pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
         metadata: VerifiedClientMetadata,
         auth_code: AuthorizationCode,
         validation_data: AuthorizationValidationData,
-    ) -> Result<SessionTokens, OidcError>;
+    ) -> Result<OidcSessionTokens, OidcError>;
 
     async fn refresh_access_token(
         &self,

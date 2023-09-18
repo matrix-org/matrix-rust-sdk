@@ -26,7 +26,8 @@ use ruma::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
         },
-        config::set_global_account_data,
+        config::{get_global_account_data, set_global_account_data},
+        error::ErrorKind,
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
         },
@@ -694,6 +695,54 @@ impl Account {
         get_raw_content(self.client.store().get_account_data_event(event_type).await?)
     }
 
+    /// Fetch a global account data event from the server.
+    ///
+    /// The content from the response will not be persisted in the store.
+    ///
+    /// Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async {
+    /// # let client = Client::new("http://localhost:8080".parse()?).await?;
+    /// # let account = client.account();
+    /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
+    ///
+    /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
+    ///     let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+    ///
+    ///     println!("Ignored users:");
+    ///
+    ///     for user_id in content.ignored_users.keys() {
+    ///         println!("- {user_id}");
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    pub async fn fetch_account_data(
+        &self,
+        event_type: GlobalAccountDataEventType,
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
+        let own_user =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let request = get_global_account_data::v3::Request::new(own_user.to_owned(), event_type);
+
+        match self.client.send(request, None).await {
+            Ok(r) => Ok(Some(r.account_data)),
+            Err(e) => {
+                if let Some(kind) = e.client_api_error_kind() {
+                    if kind == &ErrorKind::NotFound {
+                        Ok(None)
+                    } else {
+                        Err(e.into())
+                    }
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
+    }
+
     /// Set the given account data event.
     ///
     /// # Examples
@@ -760,28 +809,35 @@ impl Account {
     ///
     /// * `room_id` - The room id of the DM room.
     /// * `user_ids` - The user ids of the invitees for the DM room.
-    pub(crate) async fn mark_as_dm(
-        &self,
-        room_id: &RoomId,
-        user_ids: &[OwnedUserId],
-    ) -> Result<()> {
+    pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
-        let mut content = self
-            .account_data::<DirectEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
+
+        // TODO: Uncomment this once we can rely on `/sync`. Because of the
+        // `unwrap_or_default()` we're using, this may lead to us resetting the
+        // `m.direct` account data event and unmarking the user's DMs.
+        // let mut content = self
+        //     .account_data::<DirectEventContent>()
+        //     .await?
+        //     .map(|c| c.deserialize())
+        //     .transpose()?
+        //     .unwrap_or_default();
+
+        // We are fetching the content from the server because we currently can't rely
+        // on `/sync` giving us the correct data in a timely manner.
+        let raw_content = self.fetch_account_data(GlobalAccountDataEventType::Direct).await?;
+        let mut content = raw_content
+            .and_then(|content| content.deserialize_as::<DirectEventContent>().ok())
             .unwrap_or_default();
 
         for user_id in user_ids {
             content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
         }
 
-        // TODO We should probably save the fact that we need to send this out
+        // TODO: We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
         self.set_account_data(content).await?;

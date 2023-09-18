@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
@@ -118,9 +118,14 @@ impl RoomListService {
 
     fn sync_indicator(
         &self,
+        delay_before_showing_in_ms: u32,
+        delay_before_hiding_in_ms: u32,
         listener: Box<dyn RoomListServiceSyncIndicatorListener>,
     ) -> Arc<TaskHandle> {
-        let sync_indicator_stream = self.inner.sync_indicator();
+        let sync_indicator_stream = self.inner.sync_indicator(
+            Duration::from_millis(delay_before_showing_in_ms.into()),
+            Duration::from_millis(delay_before_hiding_in_ms.into()),
+        );
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(sync_indicator_stream);
@@ -173,15 +178,17 @@ impl RoomList {
         }
     }
 
-    fn entries_with_dynamic_filter(
+    fn entries_with_dynamic_adapters(
         &self,
+        page_size: u32,
         listener: Box<dyn RoomListEntriesListener>,
-    ) -> RoomListEntriesWithDynamicFilterResult {
-        let (entries_stream, dynamic_filter) = self.inner.entries_with_dynamic_filter();
+    ) -> RoomListEntriesWithDynamicAdaptersResult {
+        let (entries_stream, dynamic_entries_controller) =
+            self.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
 
-        RoomListEntriesWithDynamicFilterResult {
-            dynamic_filter: Arc::new(RoomListEntriesDynamicFilter::new(
-                dynamic_filter,
+        RoomListEntriesWithDynamicAdaptersResult {
+            controller: Arc::new(RoomListDynamicEntriesController::new(
+                dynamic_entries_controller,
                 self.room_list_service.inner.client(),
             )),
             entries_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
@@ -206,8 +213,8 @@ pub struct RoomListEntriesResult {
 }
 
 #[derive(uniffi::Record)]
-pub struct RoomListEntriesWithDynamicFilterResult {
-    pub dynamic_filter: Arc<RoomListEntriesDynamicFilter>,
+pub struct RoomListEntriesWithDynamicAdaptersResult {
+    pub controller: Arc<RoomListDynamicEntriesController>,
     pub entries_stream: Arc<TaskHandle>,
 }
 
@@ -304,6 +311,7 @@ pub enum RoomListEntriesUpdate {
     Insert { index: u32, value: RoomListEntry },
     Set { index: u32, value: RoomListEntry },
     Remove { index: u32 },
+    Truncate { length: u32 },
     Reset { values: Vec<RoomListEntry> },
 }
 
@@ -325,6 +333,9 @@ impl From<VectorDiff<matrix_sdk::RoomListEntry>> for RoomListEntriesUpdate {
                 Self::Set { index: u32::try_from(index).unwrap(), value: value.into() }
             }
             VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
+            VectorDiff::Truncate { length } => {
+                Self::Truncate { length: u32::try_from(length).unwrap() }
+            }
             VectorDiff::Reset { values } => {
                 Self::Reset { values: values.into_iter().map(Into::into).collect() }
             }
@@ -338,34 +349,42 @@ pub trait RoomListEntriesListener: Send + Sync + Debug {
 }
 
 #[derive(uniffi::Object)]
-pub struct RoomListEntriesDynamicFilter {
-    inner: matrix_sdk_ui::room_list_service::DynamicRoomListFilter,
+pub struct RoomListDynamicEntriesController {
+    inner: matrix_sdk_ui::room_list_service::RoomListDynamicEntriesController,
     client: matrix_sdk::Client,
 }
 
-impl RoomListEntriesDynamicFilter {
+impl RoomListDynamicEntriesController {
     fn new(
-        dynamic_filter: matrix_sdk_ui::room_list_service::DynamicRoomListFilter,
+        dynamic_entries_controller: matrix_sdk_ui::room_list_service::RoomListDynamicEntriesController,
         client: &matrix_sdk::Client,
     ) -> Self {
-        Self { inner: dynamic_filter, client: client.clone() }
+        Self { inner: dynamic_entries_controller, client: client.clone() }
     }
 }
 
 #[uniffi::export]
-impl RoomListEntriesDynamicFilter {
-    fn set(&self, kind: RoomListEntriesDynamicFilterKind) -> bool {
+impl RoomListDynamicEntriesController {
+    fn set_filter(&self, kind: RoomListEntriesDynamicFilterKind) -> bool {
         use RoomListEntriesDynamicFilterKind as Kind;
 
         match kind {
-            Kind::All => self.inner.set(new_filter_all()),
+            Kind::All => self.inner.set_filter(new_filter_all()),
             Kind::NormalizedMatchRoomName { pattern } => {
-                self.inner.set(new_filter_normalized_match_room_name(&self.client, &pattern))
+                self.inner.set_filter(new_filter_normalized_match_room_name(&self.client, &pattern))
             }
             Kind::FuzzyMatchRoomName { pattern } => {
-                self.inner.set(new_filter_fuzzy_match_room_name(&self.client, &pattern))
+                self.inner.set_filter(new_filter_fuzzy_match_room_name(&self.client, &pattern))
             }
         }
+    }
+
+    fn add_one_page(&self) {
+        self.inner.add_one_page();
+    }
+
+    fn reset_to_one_page(&self) {
+        self.inner.reset_to_one_page();
     }
 }
 

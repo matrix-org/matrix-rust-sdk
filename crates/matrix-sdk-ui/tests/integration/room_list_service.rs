@@ -14,7 +14,6 @@ use matrix_sdk_ui::{
         filters::{new_filter_all, new_filter_fuzzy_match_room_name},
         Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
-        SYNC_INDICATOR_DELAY_BEFORE_HIDING, SYNC_INDICATOR_DELAY_BEFORE_SHOWING,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
@@ -119,10 +118,10 @@ macro_rules! entries {
     };
 }
 
-macro_rules! assert_entries_stream {
+macro_rules! assert_entries_batch {
     // `append [$entries]`
     ( @_ [ $entries:ident ] [ append [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -140,7 +139,7 @@ macro_rules! assert_entries_stream {
 
     // `set [$nth] [$entry]`
     ( @_ [ $entries:ident ] [ set [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -158,7 +157,7 @@ macro_rules! assert_entries_stream {
 
     // `remove [$nth]`
     ( @_ [ $entries:ident ] [ remove [ $index:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -174,7 +173,7 @@ macro_rules! assert_entries_stream {
 
     // `insert [$nth] [$entry]`
     ( @_ [ $entries:ident ] [ insert [ $index:literal ] [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -190,9 +189,25 @@ macro_rules! assert_entries_stream {
         )
     };
 
+    // `truncate [$length]`
+    ( @_ [ $entries:ident ] [ truncate [ $length:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_eq!(
+                    $entries.next(),
+                    Some(&VectorDiff::Truncate { length: $length }),
+                );
+            ]
+        )
+    };
+
     // `reset [$entries]`
     ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -208,9 +223,9 @@ macro_rules! assert_entries_stream {
         )
     };
 
-    // `pending`
-    ( @_ [ $entries:ident ] [ pending ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_stream!(
+    // `end`
+    ( @_ [ $entries:ident ] [ end ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
             @_
             [ $entries ]
             [ $( $rest )* ]
@@ -237,7 +252,7 @@ macro_rules! assert_entries_stream {
 
         let mut entries = entries.iter();
 
-        assert_entries_stream!( @_ [ entries ] [ $( $all )* ] [] )
+        assert_entries_batch!( @_ [ entries ] [ $( $all )* ] [] )
     };
 }
 
@@ -1279,108 +1294,157 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 
 #[async_test]
 async fn test_loading_states() -> Result<(), Error> {
-    let (_, server, room_list) = new_room_list_service().await?;
+    // Test with an empty client, so no cache.
+    let (client, server) = {
+        let (client, server, room_list) = new_room_list_service().await?;
 
-    let sync = room_list.sync();
-    pin_mut!(sync);
+        let sync = room_list.sync();
+        pin_mut!(sync);
 
-    let all_rooms = room_list.all_rooms().await?;
-    let mut all_rooms_loading_state = all_rooms.loading_state();
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
 
-    // The loading is not loaded.
-    assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
-    assert_pending!(all_rooms_loading_state);
+        // The loading is not loaded.
+        assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
+        assert_pending!(all_rooms_loading_state);
 
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 19]],
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
                 },
             },
-        },
-        respond with = {
-            "pos": "0",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 10,
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // There is a loading state update, it's loaded now!
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
+        );
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = SettingUp => Running,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 9]],
+                    },
                 },
             },
-            "rooms": {},
-        },
+            respond with = {
+                "pos": "1",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 12, // 2 more rooms
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // There is a loading state update because the number of rooms has been updated.
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Running => Running,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 11]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "2",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 12, // no more rooms
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // No loading state update.
+        assert_pending!(all_rooms_loading_state);
+
+        (client, server)
     };
 
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
+    // Now, let's try with a cache!
+    {
+        let room_list = RoomListService::new(client).await?;
 
-    // There is a loading state update, it's loaded now!
-    assert_next_matches!(
-        all_rooms_loading_state,
-        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
-            assert_eq!(maximum_number_of_rooms, Some(10));
-        }
-    );
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
 
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = SettingUp => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 9]],
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        // The loading state is loaded! Indeed, there is data loaded from the cache.
+        assert_matches!(
+            all_rooms_loading_state.get(),
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+        assert_pending!(all_rooms_loading_state);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
                 },
             },
-        },
-        respond with = {
-            "pos": "1",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 12, // 2 more rooms
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 13, // 1 more room
+                    },
                 },
+                "rooms": {},
             },
-            "rooms": {},
-        },
-    };
+        };
 
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
 
-    // There is a loading state update because the number of rooms has been updated.
-    assert_next_matches!(
-        all_rooms_loading_state,
-        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
-            assert_eq!(maximum_number_of_rooms, Some(12));
-        }
-    );
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Running => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 11]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 12, // no more rooms
-                },
-            },
-            "rooms": {},
-        },
-    };
-
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
-
-    // No loading state update.
-    assert_pending!(all_rooms_loading_state);
+        // The loading state has been updated.
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(13) }
+        );
+    }
 
     Ok(())
 }
@@ -1446,13 +1510,13 @@ async fn test_entries_stream() -> Result<(), Error> {
     };
 
     assert!(previous_entries.is_empty());
-    assert_entries_stream! {
+    assert_entries_batch! {
         [entries_stream]
         append [ E, E, E, E, E, E, E, E, E, E ];
         set[0] [ F("!r0:bar.org") ];
         set[1] [ F("!r1:bar.org") ];
         set[2] [ F("!r2:bar.org") ];
-        pending;
+        end;
     };
 
     sync_then_assert_request_and_fake_response! {
@@ -1509,19 +1573,19 @@ async fn test_entries_stream() -> Result<(), Error> {
         },
     };
 
-    assert_entries_stream! {
+    assert_entries_batch! {
         [entries_stream]
         remove[1];
         remove[0];
         insert[0] [ F("!r3:bar.org") ];
-        pending;
+        end;
     };
 
     Ok(())
 }
 
 #[async_test]
-async fn test_entries_stream_with_filters() -> Result<(), Error> {
+async fn test_dynamic_entries_stream() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
@@ -1529,8 +1593,8 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
 
     let all_rooms = room_list.all_rooms().await?;
 
-    let (previous_entries, entries_stream) = all_rooms.entries();
-    pin_mut!(entries_stream);
+    let (dynamic_entries_stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(5);
+    pin_mut!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1568,40 +1632,21 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
         },
     };
 
-    assert!(previous_entries.is_empty());
-    assert_entries_stream! {
-        [entries_stream]
-        append [ E, E, E, E, E, E, E, E, E, E ];
-        set[0] [ F("!r0:bar.org") ];
-        pending;
-    };
-
-    // 1. Test with a static filter.
-    let (previous_entries_static_filter, entries_stream_static_filter) =
-        all_rooms.entries_with_static_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
-    pin_mut!(entries_stream_static_filter);
-
-    // 2. Test with a dynamic filter.
-    let (entries_stream_dynamic_filter, dynamic_filter) = all_rooms.entries_with_dynamic_filter();
-    pin_mut!(entries_stream_dynamic_filter);
-
-    // Assert the static filter.
-    assert_eq!(previous_entries_static_filter, entries![F("!r0:bar.org")]);
-
-    // Ensure the dynamic filter stream is pending because there is no filter set
+    // Ensure the dynamic entries' stream is pending because there is no filter set
     // yet.
-    assert_pending!(entries_stream_dynamic_filter);
+    assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
-    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "mat ba"));
+    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "mat ba"));
 
-    // Assert the dynamic filter.
-    assert_entries_stream! {
-        [entries_stream_dynamic_filter]
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
         // Receive a `reset` because the filter has been reset/set for the first time.
         reset [ F("!r0:bar.org") ];
-        pending;
+        end;
     };
+    assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1669,21 +1714,14 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
         },
     };
 
-    // Assert the static filter.
-    assert_entries_stream! {
-        [entries_stream_static_filter]
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
         insert[1] [ F("!r1:bar.org") ];
         insert[2] [ F("!r4:bar.org") ];
-        pending;
+        end;
     };
-
-    // Assert the dynamic filter.
-    assert_entries_stream! {
-        [entries_stream_dynamic_filter]
-        insert[1] [ F("!r1:bar.org") ];
-        insert[2] [ F("!r4:bar.org") ];
-        pending;
-    };
+    assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1745,39 +1783,33 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
         },
     };
 
-    // Assert the static filter.
-    assert_entries_stream! {
-        [entries_stream_static_filter]
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
         insert[3] [ F("!r5:bar.org") ];
         insert[4] [ F("!r7:bar.org") ];
-        pending;
+        end;
     };
+    assert_pending!(dynamic_entries_stream);
 
-    // Assert the dynamic filter.
-    assert_entries_stream! {
-        [entries_stream_dynamic_filter]
-        insert[3] [ F("!r5:bar.org") ];
-        insert[4] [ F("!r7:bar.org") ];
-        pending;
-    };
+    // Now, let's change the dynamic entries!
+    dynamic_entries.set_filter(new_filter_fuzzy_match_room_name(&client, "hell"));
 
-    // Now, let's change the dynamic filter!
-    dynamic_filter.set(new_filter_fuzzy_match_room_name(&client, "hell"));
-
-    // Assert the dynamic filter.
-    assert_entries_stream! {
-        [entries_stream_dynamic_filter]
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
         reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
-        pending;
-    };
+        end;
+    }
+    assert_pending!(dynamic_entries_stream);
 
     // Now, let's change again the dynamic filter!
-    dynamic_filter.set(new_filter_all());
+    dynamic_entries.set_filter(new_filter_all());
 
-    // Assert the dynamic filter.
-    assert_entries_stream! {
-        [entries_stream_dynamic_filter]
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
         reset [
             F("!r0:bar.org"),
@@ -1785,12 +1817,55 @@ async fn test_entries_stream_with_filters() -> Result<(), Error> {
             F("!r2:bar.org"),
             F("!r3:bar.org"),
             F("!r4:bar.org"),
+            // Stop! The page is full :-).
+        ];
+        end;
+    }
+    assert_pending!(dynamic_entries_stream);
+
+    // Let's ask one more page.
+    dynamic_entries.add_one_page();
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive the next values.
+        append [
             F("!r5:bar.org"),
             F("!r6:bar.org"),
             F("!r7:bar.org"),
         ];
-        pending;
+        end;
     };
+    assert_pending!(dynamic_entries_stream);
+
+    // Let's reset to one page.
+    dynamic_entries.reset_to_one_page();
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive a `truncate`.
+        truncate [5];
+        end;
+    }
+    assert_pending!(dynamic_entries_stream);
+
+    // Let's ask one more page again, because it's fun.
+    dynamic_entries.add_one_page();
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive the next values.
+        append [
+            F("!r5:bar.org"),
+            F("!r6:bar.org"),
+            F("!r7:bar.org"),
+        ];
+        end;
+    };
+    assert_pending!(dynamic_entries_stream);
 
     Ok(())
 }
@@ -1908,11 +1983,11 @@ async fn test_invites_stream() -> Result<(), Error> {
         },
     };
 
-    assert_entries_stream! {
+    assert_entries_batch! {
         [invites_stream]
         remove[0];
         insert[0] [ F("!r1:bar.org") ];
-        pending;
+        end;
     };
 
     Ok(())
@@ -2549,20 +2624,22 @@ async fn test_input_viewport() -> Result<(), Error> {
 }
 
 #[async_test]
-#[ignore] // flaky
 async fn test_sync_indicator() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
+
+    const DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(20);
+    const DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let sync_indicator = room_list.sync_indicator();
+    let sync_indicator = room_list.sync_indicator(DELAY_BEFORE_SHOWING, DELAY_BEFORE_HIDING);
 
     let request_margin = Duration::from_millis(100);
-    let request_1_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
-    let request_2_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 3;
-    let request_4_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
-    let request_5_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
+    let request_1_delay = DELAY_BEFORE_SHOWING * 2;
+    let request_2_delay = DELAY_BEFORE_SHOWING * 3;
+    let request_4_delay = DELAY_BEFORE_SHOWING * 2;
+    let request_5_delay = DELAY_BEFORE_SHOWING * 2;
 
     let (in_between_requests_synchronizer_sender, mut in_between_requests_synchronizer) =
         channel(1);
@@ -2591,15 +2668,15 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
 
             // Then, once the sync is done, the `SyncIndicator` must be hidden.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
-                under request_1_delay - SYNC_INDICATOR_DELAY_BEFORE_SHOWING
-                    + SYNC_INDICATOR_DELAY_BEFORE_HIDING
+                under request_1_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
                     + request_margin,
             );
         }
@@ -2634,7 +2711,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
         }
 
@@ -2647,7 +2724,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
 
             // But finally, the system has recovered and is running. Time to hide the
@@ -2655,8 +2732,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
-                under request_5_delay - SYNC_INDICATOR_DELAY_BEFORE_SHOWING
-                    + SYNC_INDICATOR_DELAY_BEFORE_HIDING
+                under request_5_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
                     + request_margin,
             );
         }

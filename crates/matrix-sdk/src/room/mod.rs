@@ -401,6 +401,7 @@ impl Room {
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
+            // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
             let response = Box::pin(
                 self.client.base_client().receive_members(self.inner.room_id(), &response),
             )
@@ -2486,7 +2487,7 @@ mod tests {
 
     use crate::{
         config::RequestConfig,
-        matrix_auth::{Session, SessionTokens},
+        matrix_auth::{MatrixSession, MatrixSessionTokens},
         Client,
     };
 
@@ -2494,12 +2495,12 @@ mod tests {
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),
             },
-            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let client = Client::builder()

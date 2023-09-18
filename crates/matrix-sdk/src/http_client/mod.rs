@@ -97,6 +97,7 @@ impl HttpClient {
         fields(
             config,
             path,
+            method,
             request_size,
             request_body,
             request_id,
@@ -142,7 +143,8 @@ impl HttpClient {
                 self.serialize_request(request, config, homeserver, access_token, server_versions)?;
 
             let request_size = ByteSize(request.body().len().try_into().unwrap_or(u64::MAX));
-            span.record("request_size", request_size.to_string_as(true));
+            span.record("request_size", request_size.to_string_as(true))
+                .record("method", debug(request.method()));
 
             // Since sliding sync is experimental, and the proxy might not do what we expect
             // it to do given a specific request body, it's useful to log the
@@ -150,8 +152,8 @@ impl HttpClient {
             // TODO: Remove this once sliding sync isn't experimental anymore.
             #[cfg(feature = "experimental-sliding-sync")]
             if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
-                span.record("request_body", debug(request.body()));
-                span.record("path", request.uri().path_and_query().map(|p| p.as_str()));
+                span.record("request_body", debug(request.body()))
+                    .record("path", request.uri().path_and_query().map(|p| p.as_str()));
             } else {
                 span.record("path", request.uri().path());
             }

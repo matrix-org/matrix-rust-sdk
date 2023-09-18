@@ -4,10 +4,11 @@ use ruma::{
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
-            unstable_start::{UnstablePollStartContentBlock, UnstablePollStartEventContent},
+            unstable_start::{
+                NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
+                UnstablePollStartContentBlock,
+            },
         },
-        relation::Replacement,
-        room::message::Relation,
         AnyMessageLikeEventContent,
     },
     serde::Raw,
@@ -201,7 +202,7 @@ impl TestTimeline {
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::new(content),
+            NewUnstablePollStartEventContent::new(content).into(),
         );
         self.handle_live_message_event(sender, event_content).await;
     }
@@ -213,7 +214,7 @@ impl TestTimeline {
         content: UnstablePollStartContentBlock,
     ) {
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::new(content),
+            NewUnstablePollStartEventContent::new(content).into(),
         );
         let event = self.make_message_event_with_id(sender, event_content, event_id.to_owned());
         let raw = Raw::new(&event).unwrap().cast();
@@ -243,12 +244,9 @@ impl TestTimeline {
         original_id: &EventId,
         content: UnstablePollStartContentBlock,
     ) {
-        let mut content = UnstablePollStartEventContent::new(content);
-        content.relates_to = Some(Relation::Replacement(Replacement::new(
-            original_id.to_owned(),
-            content.clone().into(),
-        )));
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(content);
+        let content =
+            ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned());
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(content.into());
         self.handle_live_message_event(sender, event_content).await
     }
 }

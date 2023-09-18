@@ -3,7 +3,7 @@
 
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
-    matrix_auth::{Session, SessionTokens},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
 use matrix_sdk_base::SessionMeta;
@@ -45,12 +45,12 @@ async fn no_retry_test_client() -> (Client, MockServer) {
 }
 
 async fn logged_in_client() -> (Client, MockServer) {
-    let session = Session {
+    let session = MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         },
-        tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
     };
     let (client, server) = no_retry_test_client().await;
     client.restore_session(session).await.unwrap();

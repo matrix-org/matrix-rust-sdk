@@ -17,11 +17,10 @@ use std::pin::Pin;
 use as_variant::as_variant;
 use futures_core::Future;
 use matrix_sdk_base::SessionMeta;
-use ruma::api::client::discovery::discover_homeserver::AuthenticationServerInfo;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{self, Oidc, OidcAuthData};
+use crate::oidc::{self, Oidc, OidcAuthData, OidcCtx};
 use crate::{
     matrix_auth::{self, MatrixAuth, MatrixAuthData},
     Client, RefreshTokenError, SessionChange,
@@ -31,10 +30,10 @@ use crate::{
 #[allow(missing_debug_implementations, clippy::large_enum_variant)]
 pub enum SessionTokens {
     /// Tokens for a [`matrix_auth`] session.
-    Matrix(matrix_auth::SessionTokens),
+    Matrix(matrix_auth::MatrixSessionTokens),
     #[cfg(feature = "experimental-oidc")]
     /// Tokens for an [`oidc`] session.
-    Oidc(oidc::SessionTokens),
+    Oidc(oidc::OidcSessionTokens),
 }
 
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
@@ -47,9 +46,8 @@ pub(crate) type ReloadSessionCallback =
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
-    /// The authentication server info discovered from the homeserver.
-    #[cfg_attr(not(feature = "experimental-oidc"), allow(dead_code))]
-    pub(crate) authentication_server_info: Option<AuthenticationServerInfo>,
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) oidc: OidcCtx,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
@@ -99,11 +97,11 @@ pub enum AuthApi {
 #[non_exhaustive]
 pub enum AuthSession {
     /// A session using the native Matrix authentication API.
-    Matrix(matrix_auth::Session),
+    Matrix(matrix_auth::MatrixSession),
 
     /// A session using the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(oidc::FullSession),
+    Oidc(oidc::OidcSession),
 }
 
 impl AuthSession {
@@ -144,15 +142,15 @@ impl AuthSession {
     }
 }
 
-impl From<matrix_auth::Session> for AuthSession {
-    fn from(session: matrix_auth::Session) -> Self {
+impl From<matrix_auth::MatrixSession> for AuthSession {
+    fn from(session: matrix_auth::MatrixSession) -> Self {
         Self::Matrix(session)
     }
 }
 
 #[cfg(feature = "experimental-oidc")]
-impl From<oidc::FullSession> for AuthSession {
-    fn from(session: oidc::FullSession) -> Self {
+impl From<oidc::OidcSession> for AuthSession {
+    fn from(session: oidc::OidcSession) -> Self {
         Self::Oidc(session)
     }
 }

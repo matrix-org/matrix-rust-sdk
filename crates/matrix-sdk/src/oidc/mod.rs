@@ -217,8 +217,10 @@ use self::{
 };
 use crate::{authentication::AuthData, client::SessionChange, Client, RefreshTokenError, Result};
 
-#[derive(Default)]
-pub(crate) struct OidcContext {
+pub(crate) struct OidcCtx {
+    /// The authentication server info discovered from the homeserver.
+    authentication_server_info: Option<AuthenticationServerInfo>,
+
     /// Lock and state when multiple processes may refresh an OIDC session.
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
 
@@ -226,14 +228,24 @@ pub(crate) struct OidcContext {
     ///
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
-    deferred_cross_process_lock_init: Arc<Mutex<Option<String>>>,
+    deferred_cross_process_lock_init: Mutex<Option<String>>,
+}
+
+impl OidcCtx {
+    pub(crate) fn new(authentication_server_info: Option<AuthenticationServerInfo>) -> Self {
+        Self {
+            authentication_server_info,
+            cross_process_token_refresh_manager: Default::default(),
+            deferred_cross_process_lock_init: Default::default(),
+        }
+    }
 }
 
 pub(crate) struct OidcAuthData {
     pub(crate) issuer_info: AuthenticationServerInfo,
     pub(crate) credentials: ClientCredentials,
     pub(crate) metadata: VerifiedClientMetadata,
-    pub(crate) tokens: OnceCell<SharedObservable<SessionTokens>>,
+    pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
     /// The data necessary to validate authorization responses.
     pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
 }
@@ -261,8 +273,8 @@ impl Oidc {
         Self { client: client.clone(), backend: Arc::new(OidcServer::new(client)) }
     }
 
-    fn ctx(&self) -> &OidcContext {
-        &self.client.inner.oidc_context
+    fn ctx(&self) -> &OidcCtx {
+        &self.client.inner.auth_ctx.oidc
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -326,7 +338,9 @@ impl Oidc {
 
     /// The OpenID Connect authentication data.
     ///
-    /// Returns `None` if the client's registration was not restored yet.
+    /// Returns `None` if the client registration was not restored with
+    /// [`Oidc::restore_registered_client()`] or
+    /// [`Oidc::restore_session()`].
     fn data(&self) -> Option<&OidcAuthData> {
         let data = self.client.inner.auth_ctx.auth_data.get()?;
         as_variant!(data, AuthData::Oidc)
@@ -342,7 +356,7 @@ impl Oidc {
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     /// [`ClientBuilder::server_name()`]: crate::ClientBuilder::server_name()
     pub fn authentication_server_info(&self) -> Option<&AuthenticationServerInfo> {
-        self.client.inner.auth_ctx.authentication_server_info.as_ref()
+        self.client.inner.auth_ctx.oidc.authentication_server_info.as_ref()
     }
 
     /// The OpenID Connect Provider used for authorization.
@@ -442,9 +456,8 @@ impl Oidc {
     ///
     /// # Panics
     ///
-    /// Will panic if the `auth_data` field hasn't been set before with an OIDC
-    /// session.
-    fn set_session_tokens(&self, session_tokens: SessionTokens) {
+    /// Will panic if no OIDC client has been configured yet.
+    fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {
@@ -458,7 +471,7 @@ impl Oidc {
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
-    pub fn session_tokens(&self) -> Option<SessionTokens> {
+    pub fn session_tokens(&self) -> Option<OidcSessionTokens> {
         Some(self.data()?.tokens.get()?.get())
     }
 
@@ -475,7 +488,7 @@ impl Oidc {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::oidc::FullSession) {}
+    /// # fn persist_session(_: &matrix_sdk::oidc::OidcSession) {}
     /// # _ = async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
@@ -502,7 +515,7 @@ impl Oidc {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
+    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = OidcSessionTokens>> {
         Some(self.data()?.tokens.get()?.subscribe())
     }
 
@@ -546,14 +559,14 @@ impl Oidc {
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
-    pub fn full_session(&self) -> Option<FullSession> {
+    pub fn full_session(&self) -> Option<OidcSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        let client = RegisteredClientData {
+        Some(OidcSession {
             credentials: data.credentials.clone(),
             metadata: data.metadata.clone(),
-        };
-        Some(FullSession { client, user })
+            user,
+        })
     }
 
     /// Register a client with an OpenID Connect Provider.
@@ -590,10 +603,10 @@ impl Oidc {
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
     /// use matrix_sdk::oidc::types::client_credentials::ClientCredentials;
-    /// use matrix_sdk::oidc::RegisteredClientData;
-    /// # use matrix_sdk::oidc::types::registration::{ClientMetadata, VerifiedClientMetadata};
-    /// # let metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &str, _: &RegisteredClientData) {}
+    /// use matrix_sdk::oidc::types::registration::ClientMetadata;
+    /// # use matrix_sdk::oidc::types::registration::VerifiedClientMetadata;
+    /// # let client_metadata = ClientMetadata::default().validate().unwrap();
+    /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientCredentials) {}
     /// # _ = async {
     /// let server_name = ServerName::parse("my_homeserver.org").unwrap();
     /// let client = Client::builder().server_name(&server_name).build().await?;
@@ -601,7 +614,7 @@ impl Oidc {
     ///
     /// if let Some(info) = oidc.authentication_server_info() {
     ///     let response = oidc
-    ///         .register_client(&info.issuer, metadata.clone(), None)
+    ///         .register_client(&info.issuer, client_metadata.clone(), None)
     ///         .await?;
     ///
     ///     println!(
@@ -614,12 +627,7 @@ impl Oidc {
     ///         client_id: response.client_id,
     ///     };
     ///
-    ///     let client_data = RegisteredClientData {
-    ///         credentials,
-    ///         metadata,
-    ///     };
-    ///
-    ///     persist_client_registration(&info.issuer, &client_data);
+    ///     persist_client_registration(&info.issuer, &client_metadata, &credentials);
     /// }
     /// # anyhow::Ok(()) };
     /// ```
@@ -651,7 +659,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `issuer` - The OpenID Connect Provider to interact with.
+    /// * `issuer_info` - The [`AuthenticationServerInfo`] for the OpenID
+    ///   Connect Provider we're interacting with.
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
     ///   registered.
@@ -662,16 +671,16 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_registered_client(
+    pub fn restore_registered_client(
         &self,
         issuer_info: AuthenticationServerInfo,
-        client_data: RegisteredClientData,
+        client_metadata: VerifiedClientMetadata,
+        client_credentials: ClientCredentials,
     ) {
-        let RegisteredClientData { credentials, metadata } = client_data;
         let data = OidcAuthData {
             issuer_info,
-            credentials,
-            metadata,
+            credentials: client_credentials,
+            metadata: client_metadata,
             tokens: Default::default(),
             authorization_data: Default::default(),
         };
@@ -697,11 +706,9 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_session(&self, session: FullSession) -> Result<()> {
-        let FullSession {
-            client: RegisteredClientData { credentials, metadata },
-            user: UserSession { meta, tokens, issuer_info },
-        } = session;
+    pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
+        let OidcSession { credentials, metadata, user: UserSession { meta, tokens, issuer_info } } =
+            session;
 
         let data = OidcAuthData {
             issuer_info,
@@ -827,15 +834,17 @@ impl Oidc {
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
-    /// # let client_data = unimplemented!();
+    /// # let client_metadata = unimplemented!();
+    /// # let client_credentials = unimplemented!();
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
     /// let oidc = client.oidc();
     ///
     /// oidc.restore_registered_client(
     ///     issuer_info,
-    ///     client_data,
-    /// ).await;
+    ///     client_metadata,
+    ///     client_credentials,
+    /// );
     ///
     /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
     ///
@@ -973,8 +982,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `code` - The response received as part of the redirect URI when the
-    ///   authorization was successful.
+    /// * `auth_code` - The response received as part of the redirect URI when
+    ///   the authorization was successful.
     ///
     /// Returns an error if a request fails.
     pub async fn finish_authorization(
@@ -1069,7 +1078,7 @@ impl Oidc {
                         hash(&new_tokens.access_token)
                     );
 
-                    let tokens = SessionTokens {
+                    let tokens = OidcSessionTokens {
                         access_token: new_tokens.access_token,
                         refresh_token: new_tokens.refresh_token.clone().or(Some(refresh_token)),
                         latest_id_token,
@@ -1141,10 +1150,7 @@ impl Oidc {
         let Ok(mut refresh_status_guard) = refresh_status_lock else {
             // There's already a request to refresh happening in the same process. Wait for
             // it to finish.
-            return match client.inner.auth_ctx.refresh_token_lock.lock().await.as_ref() {
-                Ok(_) => Ok(()),
-                Err(error) => Err(error.clone()),
-            };
+            return client.inner.auth_ctx.refresh_token_lock.lock().await.clone();
         };
 
         let cross_process_guard =
@@ -1257,22 +1263,15 @@ impl Oidc {
 
 /// A full session for the OpenID Connect API.
 #[derive(Debug, Clone)]
-pub struct FullSession {
-    /// The registered client data.
-    pub client: RegisteredClientData,
-
-    /// The user session.
-    pub user: UserSession,
-}
-
-/// The data used to identify a registered client for the OpenID Connect API.
-#[derive(Debug, Clone)]
-pub struct RegisteredClientData {
+pub struct OidcSession {
     /// The credentials obtained after registration.
     pub credentials: ClientCredentials,
 
     /// The client metadata sent for registration.
     pub metadata: VerifiedClientMetadata,
+
+    /// The user session.
+    pub user: UserSession,
 }
 
 /// A user session for the OpenID Connect API.
@@ -1284,7 +1283,7 @@ pub struct UserSession {
 
     /// The tokens used for authentication.
     #[serde(flatten)]
-    pub tokens: SessionTokens,
+    pub tokens: OidcSessionTokens,
 
     /// Information about the OpenID Connect provider used for this session.
     pub issuer_info: AuthenticationServerInfo,
@@ -1293,7 +1292,7 @@ pub struct UserSession {
 /// The tokens for a user session obtained with the OpenID Connect API.
 #[derive(Clone, Eq, PartialEq)]
 #[allow(missing_debug_implementations)]
-pub struct SessionTokens {
+pub struct OidcSessionTokens {
     /// The access token used for this session.
     pub access_token: String,
 
@@ -1304,7 +1303,7 @@ pub struct SessionTokens {
     pub latest_id_token: Option<IdToken<'static>>,
 }
 
-impl fmt::Debug for SessionTokens {
+impl fmt::Debug for OidcSessionTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionTokens").finish_non_exhaustive()
     }

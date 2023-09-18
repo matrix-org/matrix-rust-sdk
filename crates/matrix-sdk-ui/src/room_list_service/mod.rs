@@ -95,18 +95,6 @@ use tokio::{
     time::timeout,
 };
 
-/// Delay time before actually sending a [`SyncIndicator::Show`].
-///
-/// It's not because a `SyncIndicator` should be shown that it must be done
-/// immediately. In case of a normal network conditions, without any delay, it
-/// can lead to a “blinking” visual effect. This constant configures how long it
-/// takes to consider that a request is “slow”, and that the `SyncIndicator` is
-/// necessary to be shown.
-pub const SYNC_INDICATOR_DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(200);
-
-/// Delay time before actually sending a [`SyncIndicator::Hide`].
-pub const SYNC_INDICATOR_DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
-
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
@@ -194,7 +182,7 @@ impl RoomListService {
             ))
             .await
             .map_err(Error::SlidingSync)?
-            .add_cached_list(
+            .add_list(
                 SlidingSyncList::builder(INVITES_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective().add_range(INVITES_DEFAULT_SELECTIVE_RANGE),
@@ -213,8 +201,6 @@ impl RoomListService {
 
                     }))),
             )
-            .await
-            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map(Arc::new)
@@ -340,7 +326,11 @@ impl RoomListService {
     /// Get a [`Stream`] of [`SyncIndicator`].
     ///
     /// Read the documentation of [`SyncIndicator`] to learn more about it.
-    pub fn sync_indicator(&self) -> impl Stream<Item = SyncIndicator> {
+    pub fn sync_indicator(
+        &self,
+        delay_before_showing: Duration,
+        delay_before_hiding: Duration,
+    ) -> impl Stream<Item = SyncIndicator> {
         let mut state = self.state();
 
         stream! {
@@ -354,11 +344,11 @@ impl RoomListService {
             loop {
                 let (sync_indicator, yield_delay) = match current_state {
                     State::Init | State::Recovering | State::Error { .. } => {
-                        (SyncIndicator::Show, SYNC_INDICATOR_DELAY_BEFORE_SHOWING)
+                        (SyncIndicator::Show, delay_before_showing)
                     }
 
                     State::SettingUp | State::Running | State::Terminated { .. } => {
-                        (SyncIndicator::Hide, SYNC_INDICATOR_DELAY_BEFORE_HIDING)
+                        (SyncIndicator::Hide, delay_before_hiding)
                     }
                 };
 
@@ -570,7 +560,7 @@ mod tests {
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
         config::RequestConfig,
-        matrix_auth::{Session, SessionTokens},
+        matrix_auth::{MatrixSession, MatrixSessionTokens},
         reqwest::Url,
         Client, SlidingSyncMode,
     };
@@ -583,12 +573,12 @@ mod tests {
     use super::{Error, RoomListService, State, ALL_ROOMS_LIST_NAME};
 
     async fn new_client() -> (Client, MockServer) {
-        let session = Session {
+        let session = MatrixSession {
             meta: SessionMeta {
                 user_id: user_id!("@example:localhost").to_owned(),
                 device_id: device_id!("DEVICEID").to_owned(),
             },
-            tokens: SessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
         };
 
         let server = MockServer::start().await;

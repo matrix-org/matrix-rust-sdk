@@ -9,7 +9,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     config::RequestConfig,
     executor::spawn,
-    matrix_auth::{Session, SessionTokens},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     HttpError, RefreshTokenError, SessionChange,
 };
 use matrix_sdk_base::SessionMeta;
@@ -30,13 +30,13 @@ use wiremock::{
 
 use crate::{logged_in_client, no_retry_test_client, test_client_builder};
 
-fn session() -> Session {
-    Session {
+fn session() -> MatrixSession {
+    MatrixSession {
         meta: SessionMeta {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         },
-        tokens: SessionTokens {
+        tokens: MatrixSessionTokens {
             access_token: "1234".to_owned(),
             refresh_token: Some("abcd".to_owned()),
         },

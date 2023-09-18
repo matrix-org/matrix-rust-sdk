@@ -8,8 +8,8 @@ use ruma::{
         start::PollKind,
         unstable_response::UnstablePollResponseEventContent,
         unstable_start::{
-            UnstablePollStartContentBlock, UnstablePollStartEventContent,
-            UnstablePollStartEventContentWithoutRelation,
+            NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
+            UnstablePollStartContentBlock,
         },
         PollResponseData,
     },
@@ -23,7 +23,7 @@ use ruma::{
 /// to the same poll start event.
 #[derive(Clone, Debug)]
 pub struct PollState {
-    pub(super) start_event_content: UnstablePollStartEventContent,
+    pub(super) start_event_content: NewUnstablePollStartEventContent,
     pub(super) response_data: Vec<ResponseData>,
     pub(super) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
@@ -36,13 +36,13 @@ pub(super) struct ResponseData {
 }
 
 impl PollState {
-    pub(super) fn new(content: UnstablePollStartEventContent) -> Self {
+    pub(super) fn new(content: NewUnstablePollStartEventContent) -> Self {
         Self { start_event_content: content, response_data: vec![], end_event_timestamp: None }
     }
 
     pub(super) fn edit(
         &self,
-        replacement: &UnstablePollStartEventContentWithoutRelation,
+        replacement: &NewUnstablePollStartEventContentWithoutRelation,
     ) -> Result<Self, ()> {
         if self.response_data.is_empty() && self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
@@ -117,16 +117,16 @@ impl PollState {
     }
 }
 
-impl From<PollState> for UnstablePollStartEventContent {
+impl From<PollState> for NewUnstablePollStartEventContent {
     fn from(value: PollState) -> Self {
         let content = UnstablePollStartContentBlock::new(
             value.start_event_content.poll_start.question.text.clone(),
             value.start_event_content.poll_start.answers.clone(),
         );
         if let Some(text) = value.fallback_text() {
-            UnstablePollStartEventContent::plain_text(text, content)
+            NewUnstablePollStartEventContent::plain_text(text, content)
         } else {
-            UnstablePollStartEventContent::new(content)
+            NewUnstablePollStartEventContent::new(content)
         }
     }
 }

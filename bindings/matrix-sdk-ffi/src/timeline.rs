@@ -83,6 +83,7 @@ pub enum TimelineDiff {
     Insert { index: usize, value: Arc<TimelineItem> },
     Set { index: usize, value: Arc<TimelineItem> },
     Remove { index: usize },
+    Truncate { length: usize },
     Reset { values: Vec<Arc<TimelineItem>> },
 }
 
@@ -99,6 +100,7 @@ impl TimelineDiff {
             VectorDiff::Set { index, value } => {
                 Self::Set { index, value: TimelineItem::from_arc(value) }
             }
+            VectorDiff::Truncate { length } => Self::Truncate { length },
             VectorDiff::Remove { index } => Self::Remove { index },
             VectorDiff::PushBack { value } => {
                 Self::PushBack { value: TimelineItem::from_arc(value) }
@@ -129,6 +131,7 @@ impl TimelineDiff {
             Self::PopBack => TimelineChange::PopBack,
             Self::PopFront => TimelineChange::PopFront,
             Self::Clear => TimelineChange::Clear,
+            Self::Truncate { .. } => TimelineChange::Truncate,
             Self::Reset { .. } => TimelineChange::Reset,
         }
     }
@@ -195,6 +198,7 @@ pub enum TimelineChange {
     PushFront,
     PopBack,
     PopFront,
+    Truncate,
     Reset,
 }
 
