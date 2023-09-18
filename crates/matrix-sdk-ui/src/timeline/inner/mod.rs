@@ -18,7 +18,7 @@ use std::{fmt, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorEntry, VectorDiff};
-use eyeball_im_util::vector;
+use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
 use itertools::Itertools;
@@ -170,8 +170,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         F: Fn(Arc<TimelineItem>) -> Option<U>,
     {
         trace!("Creating timeline items signal");
-        let state = self.state.read().await;
-        vector::FilterMap::new(state.items.clone(), state.items.subscribe().into_stream(), f)
+        self.state.read().await.items.subscribe().filter_map(f)
     }
 
     pub(super) async fn toggle_reaction_local(

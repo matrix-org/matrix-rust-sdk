@@ -14,7 +14,7 @@ use std::{
 
 use eyeball::{Observable, Subscriber};
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, VectorDiff};
-use eyeball_im_util::vector;
+use eyeball_im_util::vector::{VectorObserverExt, VectorSubscriberExt};
 use futures_core::Stream;
 use imbl::Vector;
 use ruma::{api::client::sync::sync_events::v4, assign, OwnedRoomId, TransactionId};
@@ -169,11 +169,7 @@ impl SlidingSyncList {
     where
         F: Fn(&RoomListEntry) -> bool,
     {
-        let read_lock = self.inner.room_list.read().unwrap();
-        let values = (*read_lock).clone();
-        let subscriber = ObservableVector::subscribe(&read_lock);
-
-        vector::Filter::new(values, subscriber.into_batched_stream(), filter)
+        self.inner.room_list.read().unwrap().subscribe().batched().filter(filter)
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
