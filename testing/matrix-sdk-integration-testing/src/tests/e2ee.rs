@@ -33,7 +33,6 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
 
     bob.sync_once().await?;
     bob.get_room(alice_room.room_id()).unwrap().join().await?;
-    bob.sync_once().await?; // TODO poljar says this shouldn't be required, but it is in practice?
 
     warn!("bob has joined");
 
@@ -50,31 +49,82 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     // Bob sends message WITHOUT syncing.
     warn!("bob sends message...");
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
-    bob_room.send(RoomMessageEventContent::text_plain("Hello world!"), None).await?;
+    let message = "Hello world!";
+    let bob_message_content = Arc::new(Mutex::new(message));
+    bob_room.send(RoomMessageEventContent::text_plain(message), None).await?;
     warn!("bob is done sending the message");
 
-    // All the other uses get to decrypt the message.
-    for user in [alice, carl] {
-        warn!("{} is looking for decrypted message", user.user_id().unwrap());
+    // Alice was in the room when Bob sent the message, so they'll see it.
+    let alice_found_event = Arc::new(Mutex::new(false));
+    {
+        warn!("alice is looking for decrypted message");
 
-        let found_event = Arc::new(Mutex::new(false));
-
-        let found_event_handler = found_event.clone();
-        user.add_event_handler(move |event: SyncRoomMessageEvent| async move {
+        let found_event_handler = alice_found_event.clone();
+        let bob_message_content = bob_message_content.clone();
+        alice.add_event_handler(move |event: SyncRoomMessageEvent| async move {
             warn!("Found a message \\o/ {event:?}");
             let MessageType::Text(text_content) = &event.as_original().unwrap().content.msgtype
             else {
                 return;
             };
-            if text_content.body == "Hello world!" {
+            if text_content.body == *bob_message_content.lock().unwrap() {
                 *found_event_handler.lock().unwrap() = true;
             }
         });
 
-        user.sync_once().await?;
+        alice.sync_once().await?;
 
-        let found = *found_event.lock().unwrap();
-        assert!(found, "event has not been found for {}", user.user_id().unwrap());
+        let found = *alice_found_event.lock().unwrap();
+        assert!(found, "event has not been found for alice");
+    }
+
+    // Bob wasn't aware of Carl's presence (no sync() since Carl joined), so Carl
+    // won't see it first.
+    let carl_found_event = Arc::new(Mutex::new(false));
+    {
+        warn!("carl is looking for decrypted message");
+
+        let found_event_handler = carl_found_event.clone();
+        let bob_message_content = bob_message_content.clone();
+        carl.add_event_handler(move |event: SyncRoomMessageEvent| async move {
+            warn!("Found a message \\o/ {event:?}");
+            let MessageType::Text(text_content) = &event.as_original().unwrap().content.msgtype
+            else {
+                return;
+            };
+            if text_content.body == *bob_message_content.lock().unwrap() {
+                *found_event_handler.lock().unwrap() = true;
+            }
+        });
+
+        carl.sync_once().await?;
+
+        let found = *carl_found_event.lock().unwrap();
+        assert!(!found, "event has been unexpectedly found for carl");
+    }
+
+    // Now Bob syncs, thus notices the presence of Carl.
+    bob.sync_once().await?;
+
+    warn!("bob sends another message...");
+    let bob_room = bob.get_room(alice_room.room_id()).unwrap();
+    let message = "Wassup";
+    *bob_message_content.lock().unwrap() = message;
+    bob_room.send(RoomMessageEventContent::text_plain(message), None).await?;
+    warn!("bob is done sending another message");
+
+    {
+        *alice_found_event.lock().unwrap() = false;
+        alice.sync_once().await?;
+        let found = *alice_found_event.lock().unwrap();
+        assert!(found, "second message has not been found for alice");
+    }
+
+    {
+        *carl_found_event.lock().unwrap() = false;
+        carl.sync_once().await?;
+        let found = *carl_found_event.lock().unwrap();
+        assert!(found, "second message has not been found for carl");
     }
 
     Ok(())
