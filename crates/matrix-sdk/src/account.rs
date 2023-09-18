@@ -695,7 +695,7 @@ impl Account {
         get_raw_content(self.client.store().get_account_data_event(event_type).await?)
     }
 
-    /// Fetch an global account data event from the server.
+    /// Fetch a global account data event from the server.
     ///
     /// The content from the response will not be persisted in the store.
     ///
