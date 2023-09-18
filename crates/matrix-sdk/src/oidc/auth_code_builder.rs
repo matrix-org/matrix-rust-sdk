@@ -14,12 +14,9 @@
 
 use std::{collections::HashSet, num::NonZeroU32};
 
-use chrono::Utc;
 use language_tags::LanguageTag;
 use mas_oidc_client::{
-    requests::authorization_code::{
-        build_authorization_url, build_par_authorization_url, AuthorizationRequestData,
-    },
+    requests::authorization_code::{build_authorization_url, AuthorizationRequestData},
     types::{
         requests::{Display, Prompt},
         scope::Scope,
@@ -187,16 +184,15 @@ impl OidcAuthCodeUrlBuilder {
             let client_credentials =
                 oidc.client_credentials().ok_or(OidcError::NotAuthenticated)?;
 
-            let res = build_par_authorization_url(
-                &oidc.http_service(),
-                client_credentials.clone(),
-                par_endpoint,
-                authorization_endpoint.clone(),
-                authorization_data.clone(),
-                Utc::now(),
-                &mut rng,
-            )
-            .await;
+            let res = oidc
+                .backend
+                .build_par_authorization_url(
+                    client_credentials.clone(),
+                    par_endpoint,
+                    authorization_endpoint.clone(),
+                    authorization_data.clone(),
+                )
+                .await;
 
             match res {
                 Ok(res) => res,
@@ -209,8 +205,8 @@ impl OidcAuthCodeUrlBuilder {
 
                     // If the client said that PAR should be enforced, we should not try without
                     // it, so just return the error.
-                    if client_metadata.require_pushed_authorization_requests.unwrap_or_default() {
-                        return Err(error.into());
+                    if client_metadata.require_pushed_authorization_requests.unwrap_or(false) {
+                        return Err(error);
                     }
 
                     error!(
