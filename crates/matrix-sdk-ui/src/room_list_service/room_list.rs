@@ -132,13 +132,13 @@ impl RoomList {
 
         let filter_fn_cell = AsyncCell::shared();
 
-        let dynamic_limit = SharedObservable::<usize>::new(0);
-        let dynamic_limit_stream = dynamic_limit.subscribe();
+        let limit = SharedObservable::<usize>::new(page_size);
+        let limit_stream = limit.subscribe();
 
         let dynamic_entries_controller = RoomListDynamicEntriesController::new(
             filter_fn_cell.clone(),
             page_size,
-            dynamic_limit.clone(),
+            limit.clone(),
             list.maximum_number_of_rooms_stream(),
         );
 
@@ -146,12 +146,10 @@ impl RoomList {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (items, stream) = list.room_list_filtered_stream(filter_fn);
-                let stream = Limit::dynamic(items, stream, dynamic_limit_stream.clone());
-
-                dynamic_limit.set(page_size);
+                let (items, stream) = Limit::dynamic_with_initial_limit(items, stream, page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
-                yield stream::once(ready(vec![VectorDiff::Clear]))
+                yield stream::once(ready(vec![VectorDiff::Reset { values: items }]))
                     .chain(stream);
             }
         }

@@ -190,22 +190,6 @@ macro_rules! assert_entries_batch {
         )
     };
 
-    // `clear`
-    ( @_ [ $entries:ident ] [ clear ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
-        assert_entries_batch!(
-            @_
-            [ $entries ]
-            [ $( $rest )* ]
-            [
-                $( $accumulator )*
-                assert_eq!(
-                    $entries.next(),
-                    Some(&VectorDiff::Clear),
-                );
-            ]
-        )
-    };
-
     // `truncate [$length]`
     ( @_ [ $entries:ident ] [ truncate [ $length:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
@@ -1659,14 +1643,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `clear` because the filter has been reset/set for the first time.
-        clear;
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        // Receive the initial values.
-        append [ F("!r0:bar.org") ];
+        // Receive a `reset` because the filter has been reset/set for the first time.
+        reset [ F("!r0:bar.org") ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1821,16 +1799,10 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `clear` again because the filter has been reset.
-        clear;
+        // Receive a `reset` again because the filter has been reset.
+        reset [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
         end;
     }
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        // Receive the new initial values.
-        append [ F("!r2:bar.org"), F("!r3:bar.org"), F("!r6:bar.org") ];
-        end;
-    };
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change again the dynamic filter!
@@ -1839,14 +1811,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        // Receive a `clear` again because the filter has been reset.
-        clear;
-        end;
-    }
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        // Receive the new initial values.
-        append [
+        // Receive a `reset` again because the filter has been reset.
+        reset [
             F("!r0:bar.org"),
             F("!r1:bar.org"),
             F("!r2:bar.org"),
@@ -1855,7 +1821,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             // Stop! The page is full :-).
         ];
         end;
-    };
+    }
     assert_pending!(dynamic_entries_stream);
 
     // Let's ask one more page.
