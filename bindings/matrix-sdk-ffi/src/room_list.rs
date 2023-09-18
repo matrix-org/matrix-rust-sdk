@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
@@ -118,9 +118,14 @@ impl RoomListService {
 
     fn sync_indicator(
         &self,
+        delay_before_showing_in_ms: u32,
+        delay_before_hiding_in_ms: u32,
         listener: Box<dyn RoomListServiceSyncIndicatorListener>,
     ) -> Arc<TaskHandle> {
-        let sync_indicator_stream = self.inner.sync_indicator();
+        let sync_indicator_stream = self.inner.sync_indicator(
+            Duration::from_millis(delay_before_showing_in_ms.into()),
+            Duration::from_millis(delay_before_hiding_in_ms.into()),
+        );
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(sync_indicator_stream);
