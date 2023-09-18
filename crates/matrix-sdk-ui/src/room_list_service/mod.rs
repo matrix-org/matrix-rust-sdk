@@ -194,7 +194,7 @@ impl RoomListService {
             ))
             .await
             .map_err(Error::SlidingSync)?
-            .add_cached_list(
+            .add_list(
                 SlidingSyncList::builder(INVITES_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective().add_range(INVITES_DEFAULT_SELECTIVE_RANGE),
@@ -213,8 +213,6 @@ impl RoomListService {
 
                     }))),
             )
-            .await
-            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map(Arc::new)
