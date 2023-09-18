@@ -14,7 +14,6 @@ use matrix_sdk_ui::{
         filters::{new_filter_all, new_filter_fuzzy_match_room_name},
         Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
-        SYNC_INDICATOR_DELAY_BEFORE_HIDING, SYNC_INDICATOR_DELAY_BEFORE_SHOWING,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
     },
     timeline::{TimelineItemKind, VirtualTimelineItem},
@@ -2625,20 +2624,22 @@ async fn test_input_viewport() -> Result<(), Error> {
 }
 
 #[async_test]
-#[ignore] // flaky
 async fn test_sync_indicator() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
+
+    const DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(20);
+    const DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    let sync_indicator = room_list.sync_indicator();
+    let sync_indicator = room_list.sync_indicator(DELAY_BEFORE_SHOWING, DELAY_BEFORE_HIDING);
 
     let request_margin = Duration::from_millis(100);
-    let request_1_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
-    let request_2_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 3;
-    let request_4_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
-    let request_5_delay = SYNC_INDICATOR_DELAY_BEFORE_SHOWING * 2;
+    let request_1_delay = DELAY_BEFORE_SHOWING * 2;
+    let request_2_delay = DELAY_BEFORE_SHOWING * 3;
+    let request_4_delay = DELAY_BEFORE_SHOWING * 2;
+    let request_5_delay = DELAY_BEFORE_SHOWING * 2;
 
     let (in_between_requests_synchronizer_sender, mut in_between_requests_synchronizer) =
         channel(1);
@@ -2667,15 +2668,15 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
 
             // Then, once the sync is done, the `SyncIndicator` must be hidden.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
-                under request_1_delay - SYNC_INDICATOR_DELAY_BEFORE_SHOWING
-                    + SYNC_INDICATOR_DELAY_BEFORE_HIDING
+                under request_1_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
                     + request_margin,
             );
         }
@@ -2710,7 +2711,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
         }
 
@@ -2723,7 +2724,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
-                under SYNC_INDICATOR_DELAY_BEFORE_SHOWING + request_margin,
+                under DELAY_BEFORE_SHOWING + request_margin,
             );
 
             // But finally, the system has recovered and is running. Time to hide the
@@ -2731,8 +2732,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
-                under request_5_delay - SYNC_INDICATOR_DELAY_BEFORE_SHOWING
-                    + SYNC_INDICATOR_DELAY_BEFORE_HIDING
+                under request_5_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
                     + request_margin,
             );
         }
