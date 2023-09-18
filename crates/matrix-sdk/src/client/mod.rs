@@ -163,6 +163,8 @@ pub(crate) struct ClientInner {
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
+    /// Lock to ensure that only one members request is running at a time, per
+    /// room.
     pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     /// Locks for requests on the encryption state of rooms.
     pub(crate) encryption_state_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,

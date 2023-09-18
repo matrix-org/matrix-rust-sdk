@@ -401,6 +401,7 @@ impl Room {
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
             let response = self.client.send(request, None).await?;
 
+            // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
             let response = Box::pin(
                 self.client.base_client().receive_members(self.inner.room_id(), &response),
             )

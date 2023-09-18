@@ -42,6 +42,7 @@ use uuid::Uuid;
 
 use super::RUNTIME;
 use crate::{
+    chunk_iterator::ChunkIterator,
     client::ProgressWatcher,
     error::{ClientError, RoomError},
     room_info::RoomInfo,
@@ -173,15 +174,17 @@ impl Room {
         });
     }
 
-    pub fn fetch_members(&self) -> Result<Arc<TaskHandle>, ClientError> {
-        let timeline = RUNTIME
-            .block_on(self.timeline.read())
+    pub async fn fetch_members(&self) -> Result<(), ClientError> {
+        let timeline = self
+            .timeline
+            .read()
+            .await
             .clone()
             .context("Timeline not set up, can't fetch members")?;
 
-        Ok(Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            timeline.fetch_members().await;
-        }))))
+        timeline.fetch_members().await;
+
+        Ok(())
     }
 
     pub fn display_name(&self) -> Result<String, ClientError> {
@@ -197,26 +200,14 @@ impl Room {
         })
     }
 
-    pub fn members(&self) -> Result<Vec<Arc<RoomMember>>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let members = room
-                .members(RoomMemberships::empty())
-                .await?
-                .iter()
-                .map(|m| Arc::new(RoomMember::new(m.clone())))
-                .collect();
-            Ok(members)
-        })
+    pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
+        Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
     }
 
-    pub fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
-        let room = self.inner.clone();
-        RUNTIME.block_on(async move {
-            let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
-            let member = room.get_member(&user_id).await?.context("No user found")?;
-            Ok(Arc::new(RoomMember::new(member)))
-        })
+    pub async fn member(&self, user_id: String) -> Result<Arc<RoomMember>, ClientError> {
+        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let member = self.inner.get_member(&user_id).await?.context("No user found")?;
+        Ok(Arc::new(RoomMember::new(member)))
     }
 
     pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
@@ -1146,5 +1137,29 @@ impl From<AssetType> for RumaAssetType {
             AssetType::Sender => Self::Self_,
             AssetType::Pin => Self::Pin,
         }
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct RoomMembersIterator {
+    chunk_iterator: ChunkIterator<matrix_sdk::room::RoomMember>,
+}
+
+impl RoomMembersIterator {
+    fn new(members: Vec<matrix_sdk::room::RoomMember>) -> Self {
+        Self { chunk_iterator: ChunkIterator::new(members) }
+    }
+}
+
+#[uniffi::export]
+impl RoomMembersIterator {
+    fn len(&self) -> u32 {
+        self.chunk_iterator.len()
+    }
+
+    fn next_chunk(&self, chunk_size: u32) -> Option<Vec<Arc<RoomMember>>> {
+        self.chunk_iterator
+            .next(chunk_size)
+            .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
     }
 }
