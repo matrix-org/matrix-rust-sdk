@@ -1449,7 +1449,10 @@ impl Room {
         let (req_id, request) =
             olm.query_keys_for_users(members_with_unknown_devices.map(|owned| owned.borrow()));
 
-        self.client.keys_query(&req_id, request.device_keys).await?;
+        if !request.device_keys.is_empty() {
+            self.client.keys_query(&req_id, request.device_keys).await?;
+        }
+
         Ok(())
     }
 
@@ -1549,10 +1552,14 @@ impl Room {
 
                 if !self.are_members_synced() {
                     self.sync_members().await?;
-
-                    // Query keys in case we don't have them for newly synced members.
-                    self.query_keys_for_untracked_users().await?;
                 }
+
+                // Query keys in case we don't have them for newly synced members.
+                //
+                // Note we do it all the time, because we might have sync'd members before
+                // sending a message (so didn't enter the above branch), but
+                // could have not query their keys ever.
+                self.query_keys_for_untracked_users().await?;
 
                 self.preshare_room_key().await?;
 
