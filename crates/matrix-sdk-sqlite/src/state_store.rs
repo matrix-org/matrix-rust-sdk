@@ -1565,12 +1565,6 @@ where
     Query: Fn(Vec<Key>) -> Fut,
     Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>>,
 {
-    let mut all_results = if let Some(capacity) = result_capacity {
-        Vec::with_capacity(capacity)
-    } else {
-        Vec::new()
-    };
-
     // `Limit` has a `repr(i32)`, it's safe to cast it to `i32`. Then divide by 2 to
     // let space for more static parameters (not part of `keys_to_chunk`).
     let maximum_chunk_size = Limit::SQLITE_LIMIT_VARIABLE_NUMBER as i32 / 2;
@@ -1578,15 +1572,29 @@ where
         .try_into()
         .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
 
-    while !keys_to_chunk.is_empty() {
-        let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
+    if keys_to_chunk.len() < maximum_chunk_size {
+        // Chunking isn't necessary.
         let chunk = keys_to_chunk;
-        keys_to_chunk = tail;
 
-        all_results.extend(do_query(chunk).await?);
+        Ok(do_query(chunk).await?)
+    } else {
+        // Chunking _is_ necessary.
+
+        // Define the accumulator.
+        let capacity = result_capacity.unwrap_or_default();
+        let mut all_results = Vec::with_capacity(capacity);
+
+        while !keys_to_chunk.is_empty() {
+            // Chunk and run the query.
+            let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
+            let chunk = keys_to_chunk;
+            keys_to_chunk = tail;
+
+            all_results.extend(do_query(chunk).await?);
+        }
+
+        Ok(all_results)
     }
-
-    Ok(all_results)
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
