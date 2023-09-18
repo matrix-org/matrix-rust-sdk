@@ -22,7 +22,7 @@ testing = ["matrix-sdk-crypto?/testing"]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
-gloo-utils = { version = "0.1", features = ["serde"] }
+gloo-utils = { version = "0.2.0", features = ["serde"] }
 indexed_db_futures = "0.3.0"
 js-sys = { version = "0.3.58" }
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", features = ["js"] }
