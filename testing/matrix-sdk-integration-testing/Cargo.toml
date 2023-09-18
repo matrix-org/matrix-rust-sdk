@@ -14,7 +14,6 @@ assert_matches = { workspace = true }
 anyhow = { workspace = true }
 assign = "1"
 ctor = { workspace = true }
-eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }

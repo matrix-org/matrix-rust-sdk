@@ -25,7 +25,6 @@ anyhow = { workspace = true }
 as_variant = { workspace = true }
 async-compat = "0.2.1"
 base64 = "0.21"
-eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-core = { workspace = true }
