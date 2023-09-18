@@ -32,7 +32,6 @@ indexmap = "2.0.0"
 itertools = { workspace = true }
 matrix-sdk = { version = "0.6.2", path = "../matrix-sdk", default-features = false, features = ["experimental-oidc", "experimental-sliding-sync"] }
 matrix-sdk-base = { version = "0.6.1", path = "../matrix-sdk-base" }
-matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto" }
 mime = "0.3.16"
 once_cell = { workspace = true }
 pin-project-lite = "0.2.9"
