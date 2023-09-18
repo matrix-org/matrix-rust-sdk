@@ -42,7 +42,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
     time::Duration,
 };
 
@@ -57,7 +57,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -125,8 +125,7 @@ struct StoreInner {
     // condition variable that is notified each time an update is received for a user.
     users_for_key_query_condvar: Condvar,
 
-    tracked_user_loading_lock: Mutex<()>,
-    tracked_users_loaded: AtomicBool,
+    tracked_user_loading_lock: RwLock<bool>,
 }
 
 /// Aggregated changes to be saved in the database.
@@ -521,8 +520,7 @@ impl Store {
             tracked_users_cache: DashSet::new(),
             users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
             users_for_key_query_condvar: Condvar::new(),
-            tracked_users_loaded: AtomicBool::new(false),
-            tracked_user_loading_lock: Mutex::new(()),
+            tracked_user_loading_lock: RwLock::new(false),
         });
 
         Self { inner }
@@ -950,28 +948,35 @@ impl Store {
     /// actual [`CryptoStore`] once, it will also make sure that any
     /// concurrent calls to this method get deduplicated.
     async fn load_tracked_users(&self) -> Result<()> {
-        // If the users are loaded do nothing, otherwise acquire a lock.
-        if !self.inner.tracked_users_loaded.load(Ordering::SeqCst) {
-            let _lock = self.inner.tracked_user_loading_lock.lock().await;
+        // Check if the users are loaded, and in that case do nothing.
+        let loaded = self.inner.tracked_user_loading_lock.read().await;
+        if *loaded {
+            return Ok(());
+        }
 
-            // Check again if the users have been loaded, in case another call to this
-            // method loaded the tracked users between the time we tried to
-            // acquire the lock and the time we actually acquired the lock.
-            if !self.inner.tracked_users_loaded.load(Ordering::SeqCst) {
-                let tracked_users = self.inner.store.load_tracked_users().await?;
+        // Otherwise, we may load the users.
+        drop(loaded);
+        let mut loaded = self.inner.tracked_user_loading_lock.write().await;
 
-                let mut query_users_lock = self.inner.users_for_key_query.lock().await;
-                for user in tracked_users {
-                    self.inner.tracked_users_cache.insert(user.user_id.to_owned());
+        // Check again if the users have been loaded, in case another call to this
+        // method loaded the tracked users between the time we tried to
+        // acquire the lock and the time we actually acquired the lock.
+        if *loaded {
+            return Ok(());
+        }
 
-                    if user.dirty {
-                        query_users_lock.insert_user(&user.user_id);
-                    }
-                }
+        let tracked_users = self.inner.store.load_tracked_users().await?;
 
-                self.inner.tracked_users_loaded.store(true, Ordering::SeqCst);
+        let mut query_users_lock = self.inner.users_for_key_query.lock().await;
+        for user in tracked_users {
+            self.inner.tracked_users_cache.insert(user.user_id.to_owned());
+
+            if user.dirty {
+                query_users_lock.insert_user(&user.user_id);
             }
         }
+
+        *loaded = true;
 
         Ok(())
     }
