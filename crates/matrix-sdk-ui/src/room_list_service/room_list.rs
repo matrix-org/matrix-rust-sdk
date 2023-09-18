@@ -57,7 +57,13 @@ impl RoomList {
             .await
             .ok_or_else(|| Error::UnknownList(sliding_sync_list_name.to_owned()))?;
 
-        let loading_state = SharedObservable::new(RoomListLoadingState::NotLoaded);
+        let loading_state =
+            SharedObservable::new(match sliding_sync_list.maximum_number_of_rooms() {
+                Some(maximum_number_of_rooms) => RoomListLoadingState::Loaded {
+                    maximum_number_of_rooms: Some(maximum_number_of_rooms),
+                },
+                None => RoomListLoadingState::NotLoaded,
+            });
 
         Ok(Self {
             sliding_sync_list: sliding_sync_list.clone(),
