@@ -6,7 +6,7 @@ use ruma::{
             unstable_response::UnstablePollResponseEventContent,
             unstable_start::{
                 NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
-                UnstablePollStartContentBlock, UnstablePollStartEventContent,
+                UnstablePollStartContentBlock,
             },
         },
         AnyMessageLikeEventContent,
@@ -202,7 +202,7 @@ impl TestTimeline {
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::new(content)),
+            NewUnstablePollStartEventContent::new(content).into(),
         );
         self.handle_live_message_event(sender, event_content).await;
     }
@@ -214,7 +214,7 @@ impl TestTimeline {
         content: UnstablePollStartContentBlock,
     ) {
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::new(content)),
+            NewUnstablePollStartEventContent::new(content).into(),
         );
         let event = self.make_message_event_with_id(sender, event_content, event_id.to_owned());
         let raw = Raw::new(&event).unwrap().cast();
@@ -246,9 +246,7 @@ impl TestTimeline {
     ) {
         let content =
             ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned());
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::Replacement(content),
-        );
+        let event_content = AnyMessageLikeEventContent::UnstablePollStart(content.into());
         self.handle_live_message_event(sender, event_content).await
     }
 }

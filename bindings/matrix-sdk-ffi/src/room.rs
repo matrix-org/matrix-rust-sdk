@@ -30,9 +30,8 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
 use ruma::events::poll::{
-    unstable_end::UnstablePollEndEventContent,
-    unstable_response::UnstablePollResponseEventContent,
-    unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
+    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
+    unstable_start::NewUnstablePollStartEventContent,
 };
 use tokio::{
     sync::{Mutex, RwLock},
@@ -447,9 +446,8 @@ impl Room {
 
         let poll_start_event_content =
             NewUnstablePollStartEventContent::plain_text(fallback_text, poll_content_block);
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            UnstablePollStartEventContent::New(poll_start_event_content),
-        );
+        let event_content =
+            AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
         RUNTIME.spawn(async move {
             timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
