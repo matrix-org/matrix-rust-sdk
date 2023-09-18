@@ -1221,7 +1221,7 @@ impl Room {
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
             // send a message right after it's enabled.
-            self.client.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
         }
 
         Ok(())
