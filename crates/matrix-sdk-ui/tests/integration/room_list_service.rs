@@ -1311,108 +1311,157 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 
 #[async_test]
 async fn test_loading_states() -> Result<(), Error> {
-    let (_, server, room_list) = new_room_list_service().await?;
+    // Test with an empty client, so no cache.
+    let (client, server) = {
+        let (client, server, room_list) = new_room_list_service().await?;
 
-    let sync = room_list.sync();
-    pin_mut!(sync);
+        let sync = room_list.sync();
+        pin_mut!(sync);
 
-    let all_rooms = room_list.all_rooms().await?;
-    let mut all_rooms_loading_state = all_rooms.loading_state();
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
 
-    // The loading is not loaded.
-    assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
-    assert_pending!(all_rooms_loading_state);
+        // The loading is not loaded.
+        assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
+        assert_pending!(all_rooms_loading_state);
 
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 19]],
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
                 },
             },
-        },
-        respond with = {
-            "pos": "0",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 10,
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // There is a loading state update, it's loaded now!
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
+        );
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = SettingUp => Running,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 9]],
+                    },
                 },
             },
-            "rooms": {},
-        },
+            respond with = {
+                "pos": "1",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 12, // 2 more rooms
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // There is a loading state update because the number of rooms has been updated.
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Running => Running,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 11]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "2",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 12, // no more rooms
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // No loading state update.
+        assert_pending!(all_rooms_loading_state);
+
+        (client, server)
     };
 
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
+    // Now, let's try with a cache!
+    {
+        let room_list = RoomListService::new(client).await?;
 
-    // There is a loading state update, it's loaded now!
-    assert_next_matches!(
-        all_rooms_loading_state,
-        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
-            assert_eq!(maximum_number_of_rooms, Some(10));
-        }
-    );
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
 
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = SettingUp => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 9]],
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        // The loading state is loaded! Indeed, there is data loaded from the cache.
+        assert_matches!(
+            all_rooms_loading_state.get(),
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+        assert_pending!(all_rooms_loading_state);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
                 },
             },
-        },
-        respond with = {
-            "pos": "1",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 12, // 2 more rooms
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 13, // 1 more room
+                    },
                 },
+                "rooms": {},
             },
-            "rooms": {},
-        },
-    };
+        };
 
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
 
-    // There is a loading state update because the number of rooms has been updated.
-    assert_next_matches!(
-        all_rooms_loading_state,
-        RoomListLoadingState::Loaded { maximum_number_of_rooms } => {
-            assert_eq!(maximum_number_of_rooms, Some(12));
-        }
-    );
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Running => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 11]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 12, // no more rooms
-                },
-            },
-            "rooms": {},
-        },
-    };
-
-    // Wait on Tokio to run all the tasks. Necessary only when testing.
-    yield_now().await;
-
-    // No loading state update.
-    assert_pending!(all_rooms_loading_state);
+        // The loading state has been updated.
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(13) }
+        );
+    }
 
     Ok(())
 }
