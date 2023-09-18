@@ -1581,11 +1581,8 @@ where
         // Chunking _is_ necessary.
 
         // Define the accumulator.
-        let mut all_results = if let Some(capacity) = result_capacity {
-            Vec::with_capacity(capacity)
-        } else {
-            Vec::new()
-        };
+        let capacity = result_capacity.unwrap_or_default();
+        let mut all_results = Vec::with_capacity(capacity);
 
         while !keys_to_chunk.is_empty() {
             // Chunk and run the query.
