@@ -32,7 +32,7 @@ tokio = { workspace = true, features = ["rt", "time", "sync"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
-gloo-timers = { version = "0.2.6", features = ["futures"] }
+gloo-timers = { version = "0.3.0", features = ["futures"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

@@ -70,7 +70,7 @@ bytesize = "1.1"
 cfg-vis = "0.3.0"
 chrono = { version = "0.4.23", optional = true }
 dashmap = { workspace = true }
-event-listener = "2.5.2"
+event-listener = "3.0.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyeball-im-util = { workspace = true, optional = true }
@@ -125,7 +125,7 @@ rev = "4280045b24bc71ef1fa100c0a046ed15e6e20748"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-gloo-timers = { version = "0.2.6", features = ["futures"] }
+gloo-timers = { version = "0.3.0", features = ["futures"] }
 reqwest = { version = "0.11.10", default_features = false }
 tokio = { workspace = true }
 
