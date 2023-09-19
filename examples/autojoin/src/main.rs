@@ -2,7 +2,6 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent, Client, Room,
-    RoomState,
 };
 use tokio::time::{sleep, Duration};
 
@@ -12,9 +11,6 @@ async fn on_stripped_state_member(
     room: Room,
 ) {
     if room_member.state_key != client.user_id().unwrap() {
-        return;
-    }
-    if room.state() != RoomState::Joined {
         return;
     }
 
