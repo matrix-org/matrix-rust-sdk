@@ -1851,6 +1851,10 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     }
     assert_pending!(dynamic_entries_stream);
 
+    // Let's reset to one page again, it should do nothing.
+    dynamic_entries.reset_to_one_page();
+    assert_pending!(dynamic_entries_stream);
+
     // Let's ask one more page again, because it's fun.
     dynamic_entries.add_one_page();
 
