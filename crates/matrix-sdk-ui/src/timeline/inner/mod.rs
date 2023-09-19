@@ -58,7 +58,7 @@ use super::{
     item::timeline_item,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
-    util::{compare_events_positions, rfind_event_by_id, rfind_event_item, RelativePosition},
+    util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
@@ -904,7 +904,7 @@ impl TimelineInner {
                     state.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
                     if let Some(relative_pos) =
-                        compare_events_positions(&old_pub_read, event_id, &state.items)
+                        state.meta.compare_events_positions(&old_pub_read, event_id)
                     {
                         return relative_pos == RelativePosition::After;
                     }
@@ -917,7 +917,7 @@ impl TimelineInner {
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
                     if let Some(relative_pos) =
-                        compare_events_positions(&old_priv_read, event_id, &state.items)
+                        state.meta.compare_events_positions(&old_priv_read, event_id)
                     {
                         return relative_pos == RelativePosition::After;
                     }
@@ -925,11 +925,10 @@ impl TimelineInner {
             }
             SendReceiptType::FullyRead => {
                 if let Some(old_fully_read) = self.fully_read_event().await {
-                    if let Some(relative_pos) = compare_events_positions(
-                        &old_fully_read.content.event_id,
-                        event_id,
-                        &state.items,
-                    ) {
+                    if let Some(relative_pos) = state
+                        .meta
+                        .compare_events_positions(&old_fully_read.content.event_id, event_id)
+                    {
                         return relative_pos == RelativePosition::After;
                     }
                 }

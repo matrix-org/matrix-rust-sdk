@@ -82,25 +82,6 @@ pub(super) enum RelativePosition {
     Before,
 }
 
-pub(super) fn compare_events_positions(
-    event_a: &EventId,
-    event_b: &EventId,
-    timeline_items: &Vector<Arc<TimelineItem>>,
-) -> Option<RelativePosition> {
-    if event_a == event_b {
-        return Some(RelativePosition::Same);
-    }
-
-    let (pos_event_a, _) = rfind_event_by_id(timeline_items, event_a)?;
-    let (pos_event_b, _) = rfind_event_by_id(timeline_items, event_b)?;
-
-    if pos_event_a > pos_event_b {
-        Some(RelativePosition::Before)
-    } else {
-        Some(RelativePosition::After)
-    }
-}
-
 #[derive(PartialEq)]
 pub(super) struct Date {
     year: i32,

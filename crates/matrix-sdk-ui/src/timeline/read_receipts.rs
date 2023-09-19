@@ -28,7 +28,7 @@ use super::{
     inner::{TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction},
     item::timeline_item,
     traits::RoomDataProvider,
-    util::{compare_events_positions, rfind_event_by_id, RelativePosition},
+    util::{rfind_event_by_id, RelativePosition},
     EventTimelineItem, TimelineItem,
 };
 
@@ -148,8 +148,7 @@ impl TimelineInnerState {
         };
 
         // Compare by position in the timeline.
-        if let Some(relative_pos) =
-            compare_events_positions(pub_event_id, priv_event_id, &self.items)
+        if let Some(relative_pos) = self.meta.compare_events_positions(pub_event_id, priv_event_id)
         {
             if relative_pos == RelativePosition::After {
                 return private_read_receipt;
