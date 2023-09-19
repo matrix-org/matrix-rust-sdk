@@ -65,8 +65,16 @@ impl SyncService {
         self.inner.start().await;
     }
 
+    pub fn start_blocking(self: Arc<Self>) {
+        RUNTIME.block_on(async move { self.start().await });
+    }
+
     pub async fn stop(&self) -> Result<(), ClientError> {
         Ok(self.inner.stop().await?)
+    }
+
+    pub fn stop_blocking(self: Arc<Self>) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move { self.stop().await })
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
@@ -104,5 +112,9 @@ impl SyncServiceBuilder {
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
         Ok(Arc::new(SyncService { inner: Arc::new(this.builder.build().await?) }))
+    }
+
+    pub fn finish_blocking(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
+        RUNTIME.block_on(self.finish())
     }
 }
