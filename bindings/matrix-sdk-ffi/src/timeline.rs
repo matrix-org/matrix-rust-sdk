@@ -688,8 +688,8 @@ pub struct AudioMessageContent {
     pub body: String,
     pub source: Arc<MediaSource>,
     pub info: Option<AudioInfo>,
-    pub audio: Option<AudioDetailsContent>,
-    pub voice: Option<VoiceContent>,
+    pub audio: Option<UnstableAudioDetailsContent>,
+    pub voice: Option<UnstableVoiceContent>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -783,12 +783,12 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
 }
 
 #[derive(Clone, uniffi::Record)]
-pub struct AudioDetailsContent {
+pub struct UnstableAudioDetailsContent {
     pub duration: Duration,
     pub waveform: Vec<u16>,
 }
 
-impl From<RumaUnstableAudioDetailsContentBlock> for AudioDetailsContent {
+impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent {
     fn from(details: RumaUnstableAudioDetailsContentBlock) -> Self {
         Self {
             duration: details.duration,
@@ -802,9 +802,9 @@ impl From<RumaUnstableAudioDetailsContentBlock> for AudioDetailsContent {
 }
 
 #[derive(Clone, uniffi::Record)]
-pub struct VoiceContent {}
+pub struct UnstableVoiceContent {}
 
-impl From<RumaUnstableVoiceContentBlock> for VoiceContent {
+impl From<RumaUnstableVoiceContentBlock> for UnstableVoiceContent {
     fn from(_details: RumaUnstableVoiceContentBlock) -> Self {
         Self {}
     }
