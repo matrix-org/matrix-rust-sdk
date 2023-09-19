@@ -135,7 +135,7 @@ impl RoomList {
         let dynamic_entries_controller = RoomListDynamicEntriesController::new(
             filter_fn_cell.clone(),
             page_size,
-            limit.clone(),
+            limit,
             list.maximum_number_of_rooms_stream(),
         );
 
