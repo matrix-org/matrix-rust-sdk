@@ -12,10 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    future::ready,
-    sync::{Arc, Mutex},
-};
+use std::{future::ready, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
@@ -211,7 +208,7 @@ pub struct RoomListDynamicEntriesController {
     filter: Arc<AsyncCell<BoxedFilterFn>>,
     page_size: usize,
     limit: SharedObservable<usize>,
-    maximum_number_of_rooms: Mutex<Subscriber<Option<u32>>>,
+    maximum_number_of_rooms: Subscriber<Option<u32>>,
 }
 
 impl RoomListDynamicEntriesController {
@@ -221,12 +218,7 @@ impl RoomListDynamicEntriesController {
         limit_stream: SharedObservable<usize>,
         maximum_number_of_rooms: Subscriber<Option<u32>>,
     ) -> Self {
-        Self {
-            filter,
-            page_size,
-            limit: limit_stream,
-            maximum_number_of_rooms: Mutex::new(maximum_number_of_rooms),
-        }
+        Self { filter, page_size, limit: limit_stream, maximum_number_of_rooms }
     }
 
     /// Set the filter.
@@ -251,7 +243,7 @@ impl RoomListDynamicEntriesController {
     /// Add one page, i.e. view `page_size` more entries in the room list if
     /// any.
     pub fn add_one_page(&self) {
-        let Some(max) = self.maximum_number_of_rooms.lock().unwrap().next_now() else {
+        let Some(max) = self.maximum_number_of_rooms.get() else {
             return;
         };
 
