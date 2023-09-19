@@ -497,7 +497,7 @@ pub enum Error {
     UnknownList(String),
 
     /// An input was asked to be applied but it wasn't possible to apply it.
-    #[error("The input cannot be applied")]
+    #[error("The input cannot be applied: {0:?}")]
     InputCannotBeApplied(Input),
 
     /// The requested room doesn't exist.
