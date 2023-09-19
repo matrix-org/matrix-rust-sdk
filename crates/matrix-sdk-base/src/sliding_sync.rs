@@ -478,6 +478,20 @@ fn cache_latest_events(room: &Room, room_info: &mut RoomInfo, events: &[SyncTime
                     // older.
                     break;
                 }
+                PossibleLatestEvent::YesPoll(_) => {
+                    // poll - we found one! Store it.
+
+                    // Store it in the return RoomInfo, and in the Room, to make sure they are
+                    // consistent
+                    room_info.latest_event = Some(e.clone());
+                    room.set_latest_event(Some(e.clone()));
+                    // We don't need any of the older encrypted events because we have a new
+                    // decrypted one.
+                    room.latest_encrypted_events.write().unwrap().clear();
+                    // We can stop looking through the timeline now because everything else is
+                    // older.
+                    break;
+                }
                 PossibleLatestEvent::NoEncrypted => {
                     // m.room.encrypted - this might be the latest event later - we can't tell until
                     // we are able to decrypt it, so store it for now

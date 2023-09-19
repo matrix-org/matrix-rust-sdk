@@ -27,6 +27,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        poll::unstable_start::{NewUnstablePollStartEventContent, SyncUnstablePollStartEvent},
         relation::InReplyTo,
         room::{
             aliases::RoomAliasesEventContent,
@@ -129,6 +130,9 @@ impl TimelineItemContent {
             PossibleLatestEvent::YesMessageLike(m) => {
                 Some(Self::from_suitable_latest_event_content(m))
             }
+            PossibleLatestEvent::YesPoll(poll) => {
+                Some(Self::from_suitable_latest_poll_event_content(poll))
+            }
             PossibleLatestEvent::NoUnsupportedEventType => {
                 // TODO: when we support state events in message previews, this will need change
                 warn!("Found a state event cached as latest_event! ID={}", event.event_id());
@@ -178,6 +182,23 @@ impl TimelineItemContent {
                 ))
             }
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
+    /// extracts a TimelineItemContent from a poll start event for use as a
+    /// latest event in a message preview.
+    fn from_suitable_latest_poll_event_content(
+        event: &SyncUnstablePollStartEvent,
+    ) -> TimelineItemContent {
+        match event {
+            SyncUnstablePollStartEvent::Original(event) => TimelineItemContent::Poll(PollState {
+                start_event_content: NewUnstablePollStartEventContent::new(
+                    event.content.poll_start().clone(),
+                ),
+                response_data: vec![],
+                end_event_timestamp: None,
+            }),
+            SyncUnstablePollStartEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
 
