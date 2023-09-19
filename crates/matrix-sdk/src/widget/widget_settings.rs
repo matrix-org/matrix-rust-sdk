@@ -159,7 +159,7 @@ impl WidgetSettings {
     // Something like: room.get_widgets() -> Vec<WidgetStateEvent>
 }
 
-/// The set of settings and propterties for the widget based on the client
+/// The set of settings and properties for the widget based on the client
 /// configuration. Those values are used generate the widget url.
 #[derive(Debug)]
 pub struct ClientProperties {
