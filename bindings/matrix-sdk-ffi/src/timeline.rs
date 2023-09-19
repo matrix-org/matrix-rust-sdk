@@ -21,7 +21,10 @@ use matrix_sdk::{
                 MessageType as RumaMessageType,
                 NoticeMessageEventContent as RumaNoticeMessageEventContent,
                 RoomMessageEventContentWithoutRelation,
-                TextMessageEventContent as RumaTextMessageEventContent, VideoInfo as RumaVideoInfo,
+                TextMessageEventContent as RumaTextMessageEventContent,
+                UnstableAudioDetailsContentBlock as RumaUnstableAudioDetailsContentBlock,
+                UnstableVoiceContentBlock as RumaUnstableVoiceContentBlock,
+                VideoInfo as RumaVideoInfo,
                 VideoMessageEventContent as RumaVideoMessageEventContent,
             },
             ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
@@ -613,6 +616,8 @@ impl TryFrom<RumaMessageType> for MessageType {
                     body: c.body.clone(),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
+                    audio: c.audio.map(Into::into),
+                    voice: c.voice.map(Into::into),
                 },
             },
             RumaMessageType::Video(c) => MessageType::Video {
@@ -683,6 +688,8 @@ pub struct AudioMessageContent {
     pub body: String,
     pub source: Arc<MediaSource>,
     pub info: Option<AudioInfo>,
+    pub audio: Option<UnstableAudioDetailsContent>,
+    pub voice: Option<UnstableVoiceContent>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -772,6 +779,34 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
             .map_err(|_| TimelineError::InvalidMediaInfoField)?;
 
         Ok(BaseAudioInfo { duration: Some(duration), size: Some(size) })
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct UnstableAudioDetailsContent {
+    pub duration: Duration,
+    pub waveform: Vec<u16>,
+}
+
+impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent {
+    fn from(details: RumaUnstableAudioDetailsContentBlock) -> Self {
+        Self {
+            duration: details.duration,
+            waveform: details
+                .waveform
+                .iter()
+                .map(|x| u16::try_from(x.get()).unwrap_or(0))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct UnstableVoiceContent {}
+
+impl From<RumaUnstableVoiceContentBlock> for UnstableVoiceContent {
+    fn from(_details: RumaUnstableVoiceContentBlock) -> Self {
+        Self {}
     }
 }
 
