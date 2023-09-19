@@ -255,13 +255,13 @@ impl RoomListDynamicEntriesController {
             // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
             // `limit` greater than `max`, but it's not OK to increase the limit
             // indefinitely.
-            self.limit.set(limit + self.page_size);
+            self.limit.set_if_not_eq(limit + self.page_size);
         }
     }
 
     /// Reset the one page, i.e. forget all pages and move back to the first
     /// page.
     pub fn reset_to_one_page(&self) {
-        self.limit.set(self.page_size);
+        self.limit.set_if_not_eq(self.page_size);
     }
 }
