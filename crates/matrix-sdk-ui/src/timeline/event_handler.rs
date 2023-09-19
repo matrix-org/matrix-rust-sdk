@@ -197,7 +197,7 @@ impl TimelineEventKind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum TimelineItemPosition {
     Start,
     End {
