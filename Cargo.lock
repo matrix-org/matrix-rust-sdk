@@ -1700,9 +1700,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78a7b57c052e83f2bd8d756fc379132e43d3786f3767856026ee3757868f099f"
+checksum = "42482893d982111055ce4b24234d6250396d3785767c6b04cedd84612a0b80fb"
 dependencies = [
  "futures-core",
  "readlock",
@@ -1723,9 +1723,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab7f39f487a12e6184d446116df807bc4e5d1fb68398cd991ac8dfd4bf8762b0"
+checksum = "191adac85d269e80f4e44c2b3e8fc2b193b2e3574a997962066b5980cab1fcc1"
 dependencies = [
  "eyeball-im",
  "futures-core",
