@@ -759,6 +759,7 @@ impl Room {
     ///   image/jpeg
     /// * `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
+    /// * `media_info` - The media info used as avatar image info.
     pub fn upload_avatar(
         &self,
         mime_type: String,
