@@ -17,9 +17,12 @@ use matrix_sdk::{
             },
             receipt::ReceiptThread,
             relation::{Annotation, Replacement},
-            room::message::{
-                AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
-                RoomMessageEvent, RoomMessageEventContentWithoutRelation,
+            room::{
+                avatar::ImageInfo as RumaAvatarImageInfo,
+                message::{
+                    AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
+                    RoomMessageEvent, RoomMessageEventContentWithoutRelation,
+                },
             },
             AnyMessageLikeEventContent,
         },
@@ -29,9 +32,16 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{BackPaginationStatus, RoomExt, Timeline};
 use mime::Mime;
-use ruma::events::poll::{
-    unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent,
-    unstable_start::NewUnstablePollStartEventContent,
+use ruma::{
+    assign,
+    events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+            unstable_start::NewUnstablePollStartEventContent,
+        },
+        room::MediaSource,
+    },
 };
 use tokio::{
     sync::{Mutex, RwLock},
@@ -44,12 +54,12 @@ use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     client::ProgressWatcher,
-    error::{ClientError, RoomError},
+    error::{ClientError, MediaInfoError, RoomError},
     room_info::RoomInfo,
     room_member::{MessageLikeEventType, RoomMember, StateEventType},
     timeline::{
-        AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo, TimelineDiff,
-        TimelineItem, TimelineListener, VideoInfo,
+        u64_to_uint, AudioInfo, EventTimelineItem, FileInfo, ImageInfo, PollKind, ThumbnailInfo,
+        TimelineDiff, TimelineItem, TimelineListener, VideoInfo,
     },
     TaskHandle,
 };
@@ -749,11 +759,24 @@ impl Room {
     ///   image/jpeg
     /// * `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
-    pub fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
+    pub fn upload_avatar(
+        &self,
+        mime_type: String,
+        data: Vec<u8>,
+        media_info: Option<ImageInfo>,
+    ) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let mime: Mime = mime_type.parse()?;
-            // TODO: We could add an FFI ImageInfo struct in the future
-            self.inner.upload_avatar(&mime, data, None).await?;
+            self.inner
+                .upload_avatar(
+                    &mime,
+                    data,
+                    media_info
+                        .map(TryInto::try_into)
+                        .transpose()
+                        .map_err(|_| RoomError::InvalidMediaInfo)?,
+                )
+                .await?;
             Ok(())
         })
     }
@@ -1231,5 +1254,30 @@ impl RoomMembersIterator {
         self.chunk_iterator
             .next(chunk_size)
             .map(|members| members.into_iter().map(RoomMember::new).map(Arc::new).collect())
+    }
+}
+
+impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
+    type Error = MediaInfoError;
+
+    fn try_from(value: ImageInfo) -> Result<Self, MediaInfoError> {
+        let thumbnail_url = if let Some(media_source) = value.thumbnail_source {
+            match media_source.as_ref() {
+                MediaSource::Plain(mxc_uri) => Some(mxc_uri.clone()),
+                MediaSource::Encrypted(_) => return Err(MediaInfoError::InvalidField),
+            }
+        } else {
+            None
+        };
+
+        Ok(assign!(RumaAvatarImageInfo::new(), {
+            height: value.height.map(u64_to_uint),
+            width: value.width.map(u64_to_uint),
+            mimetype: value.mimetype,
+            size: value.size.map(u64_to_uint),
+            thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
+            thumbnail_url: thumbnail_url,
+            blurhash: value.blurhash,
+        }))
     }
 }

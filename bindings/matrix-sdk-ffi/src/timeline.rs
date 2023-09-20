@@ -1052,7 +1052,7 @@ impl From<&RumaFileInfo> for FileInfo {
     }
 }
 
-fn u64_to_uint(u: u64) -> UInt {
+pub(crate) fn u64_to_uint(u: u64) -> UInt {
     UInt::new(u).unwrap_or_else(|| {
         warn!("u64 -> UInt conversion overflowed, falling back to UInt::MAX");
         UInt::MAX
