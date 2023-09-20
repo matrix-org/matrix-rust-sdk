@@ -465,7 +465,7 @@ fn cache_latest_events(room: &Room, room_info: &mut RoomInfo, events: &[SyncTime
         if let Ok(timeline_event) = e.event.deserialize() {
             match is_suitable_for_latest_event(&timeline_event) {
                 PossibleLatestEvent::YesRoomMessage(_) | PossibleLatestEvent::YesPoll(_) => {
-                    // m.room.message or m.poll.start" - we found one! Store it.
+                    // m.room.message or m.poll.start - we found one! Store it.
 
                     // Store it in the return RoomInfo, and in the Room, to make sure they are
                     // consistent
