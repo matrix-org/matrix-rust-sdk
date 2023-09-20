@@ -4,8 +4,8 @@
 #![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 
 use ruma::events::{
-    poll::unstable_start::UnstablePollStartEventContent, room::message::RoomMessageEventContent,
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
+    AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
 
 /// Represents a decision about whether an event could be stored as the latest
@@ -15,9 +15,9 @@ use ruma::events::{
 #[derive(Debug)]
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
-    YesRoomMessage(&'a SyncMessageLikeEvent<RoomMessageEventContent>),
+    YesRoomMessage(&'a SyncRoomMessageEvent),
     /// This message is suitable - it is a poll
-    YesPoll(&'a SyncMessageLikeEvent<UnstablePollStartEventContent>),
+    YesPoll(&'a SyncUnstablePollStartEvent),
     // Later: YesState(),
     // Later: YesReaction(),
     /// Not suitable - it's a state event
