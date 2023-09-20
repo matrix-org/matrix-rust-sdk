@@ -41,7 +41,12 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
+        room::{
+            message::{
+                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
+            },
+            redaction::RoomRedactionEventContent,
+        },
         AnyMessageLikeEventContent,
     },
     EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
@@ -73,7 +78,7 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
-    error::Error,
+    error::{Error, UnsupportedReplyItem},
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
@@ -355,6 +360,73 @@ impl Timeline {
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
         }
+    }
+
+    /// Send a reply to the given event.
+    ///
+    /// Currently only supports events events with an event ID and JSON being
+    /// available (which can be removed by local redactions). This is subject to
+    /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
+    /// whether to render a reply button.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the reply
+    ///
+    /// * `reply_item` - The event item you want to reply to
+    ///
+    /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
+    ///   reply to show up in the main timeline even though the `reply_item` is
+    ///   part of a thread
+    ///
+    /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
+    ///   propagated according to user intent, `No` otherwise
+    ///
+    /// * `txn_id` - Optional transaction ID, usually `None`
+    #[instrument(skip(self, content, reply_item, txn_id))]
+    pub async fn send_reply(
+        &self,
+        content: RoomMessageEventContent,
+        reply_item: &EventTimelineItem,
+        forward_thread: ForwardThread,
+        add_mentions: AddMentions,
+        txn_id: Option<&TransactionId>,
+    ) -> Result<(), UnsupportedReplyItem> {
+        // Error returns here must be in sync with
+        // `EventTimelineItem::can_be_replied_to`
+        let Some(event_id) = reply_item.event_id() else {
+            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+        };
+
+        let content = match reply_item.content() {
+            TimelineItemContent::Message(msg) => {
+                let event = OriginalRoomMessageEvent {
+                    event_id: event_id.to_owned(),
+                    sender: reply_item.sender().to_owned(),
+                    origin_server_ts: reply_item.timestamp(),
+                    room_id: self.room().room_id().to_owned(),
+                    content: msg.to_content(),
+                    unsigned: Default::default(),
+                };
+                content.make_reply_to(&event, forward_thread, add_mentions)
+            }
+            _ => {
+                let Some(raw_event) = reply_item.latest_json() else {
+                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                };
+
+                content.make_reply_to_raw(
+                    raw_event,
+                    event_id.to_owned(),
+                    self.room().room_id(),
+                    forward_thread,
+                    add_mentions,
+                )
+            }
+        };
+
+        self.send(content.into(), txn_id).await;
+        Ok(())
     }
 
     /// Toggle a reaction on an event

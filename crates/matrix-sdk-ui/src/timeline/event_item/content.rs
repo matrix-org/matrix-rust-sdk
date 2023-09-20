@@ -408,6 +408,15 @@ impl Message {
         self.edited
     }
 
+    pub(in crate::timeline) fn to_content(&self) -> RoomMessageEventContent {
+        // Like the `impl From<Message> for RoomMessageEventContent` below, but
+        // takes &self and only copies what's needed.
+        let relates_to = self.in_reply_to.as_ref().map(|details| message::Relation::Reply {
+            in_reply_to: InReplyTo::new(details.event_id.clone()),
+        });
+        assign!(RoomMessageEventContent::new(self.msgtype.clone()), { relates_to })
+    }
+
     pub(in crate::timeline) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
     }

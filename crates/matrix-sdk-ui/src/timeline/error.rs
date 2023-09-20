@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -53,4 +55,27 @@ pub enum Error {
     /// Could not get user
     #[error("User ID is not available")]
     UserIdNotAvailable,
+}
+
+#[derive(Error)]
+#[error("{0}")]
+pub struct UnsupportedReplyItem(UnsupportedReplyItemInner);
+
+impl UnsupportedReplyItem {
+    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedReplyItemInner::MissingEventId);
+    pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
+}
+
+impl fmt::Debug for UnsupportedReplyItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Error)]
+enum UnsupportedReplyItemInner {
+    #[error("local messages whose event ID is not known can't be replied to currently")]
+    MissingEventId,
+    #[error("redacted events whose JSON form isn't available can't be replied")]
+    MissingJson,
 }
