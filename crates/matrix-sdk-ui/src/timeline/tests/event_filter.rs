@@ -126,11 +126,7 @@ async fn filter_always_false() {
         .await;
 
     timeline
-        .handle_live_state_event(
-            &ALICE,
-            RoomNameEventContent::new(Some("Alice's room".to_owned())),
-            None,
-        )
+        .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
         .await;
 
     assert_eq!(timeline.inner.items().await.len(), 0);
@@ -166,11 +162,7 @@ async fn custom_filter() {
         .await;
 
     timeline
-        .handle_live_state_event(
-            &ALICE,
-            RoomNameEventContent::new(Some("Alice's room".to_owned())),
-            None,
-        )
+        .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
         .await;
 
     assert_eq!(timeline.inner.items().await.len(), 3);

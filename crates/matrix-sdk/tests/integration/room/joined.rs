@@ -588,5 +588,5 @@ async fn set_name() {
         .mount(&server)
         .await;
 
-    room.set_name(Some(name.to_owned())).await.unwrap();
+    room.set_name(name.to_owned()).await.unwrap();
 }

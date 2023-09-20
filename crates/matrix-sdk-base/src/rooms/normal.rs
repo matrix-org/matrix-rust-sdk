@@ -909,7 +909,7 @@ impl RoomInfo {
     /// Update the room name
     pub fn update_name(&mut self, name: String) {
         self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
-            content: RoomNameEventContent::new(Some(name)),
+            content: RoomNameEventContent::new(name),
             event_id: None,
         }));
     }
@@ -1022,7 +1022,7 @@ impl RoomInfo {
     }
 
     fn name(&self) -> Option<&str> {
-        Some(self.base_info.name.as_ref()?.as_original()?.content.name.as_ref()?.as_ref())
+        Some(&self.base_info.name.as_ref()?.as_original()?.content.name)
     }
 
     fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
@@ -1386,7 +1386,7 @@ mod tests {
 
     fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
         MinimalStateEvent::Original(OriginalMinimalStateEvent {
-            content: RoomNameEventContent::new(Some("Test Room".try_into().unwrap())),
+            content: RoomNameEventContent::new("Test Room".try_into().unwrap()),
             event_id: None,
         })
     }
@@ -1534,17 +1534,7 @@ mod tests {
 
         // And that is implemented by making a fake event
         assert_eq!(
-            room_info
-                .base_info
-                .name
-                .as_ref()
-                .unwrap()
-                .as_original()
-                .unwrap()
-                .content
-                .name
-                .as_ref()
-                .unwrap(),
+            room_info.base_info.name.as_ref().unwrap().as_original().unwrap().content.name,
             "new name"
         );
     }

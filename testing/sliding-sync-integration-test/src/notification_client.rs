@@ -54,7 +54,7 @@ async fn test_notification() -> Result<()> {
     let alice_room = alice.create_room(request).await?;
 
     const ROOM_NAME: &str = "Kingdom of Integration Testing";
-    alice_room.set_name(Some(ROOM_NAME.to_owned())).await?;
+    alice_room.set_name(ROOM_NAME.to_owned()).await?;
 
     let room_id = alice_room.room_id().to_owned();
 

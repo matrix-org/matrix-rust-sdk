@@ -45,7 +45,7 @@ async fn redact_state_event() {
     timeline
         .handle_live_state_event(
             &ALICE,
-            RoomNameEventContent::new(Some("Fancy room name".to_owned())),
+            RoomNameEventContent::new("Fancy room name".to_owned()),
             None,
         )
         .await;

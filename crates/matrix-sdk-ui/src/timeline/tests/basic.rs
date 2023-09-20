@@ -167,11 +167,7 @@ async fn other_state() {
     let mut stream = timeline.subscribe().await;
 
     timeline
-        .handle_live_state_event(
-            &ALICE,
-            RoomNameEventContent::new(Some("Alice's room".to_owned())),
-            None,
-        )
+        .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
         .await;
 
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -181,7 +177,7 @@ async fn other_state() {
     let full_content =
         assert_matches!(ev.content(), AnyOtherFullStateEventContent::RoomName(c) => c);
     let (content, prev_content) = assert_matches!(full_content, FullStateEventContent::Original { content, prev_content } => (content, prev_content));
-    assert_eq!(content.name.as_ref().unwrap(), "Alice's room");
+    assert_eq!(content.name, "Alice's room");
     assert_matches!(prev_content, None);
 
     timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;

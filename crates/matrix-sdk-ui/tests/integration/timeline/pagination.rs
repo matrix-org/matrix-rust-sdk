@@ -117,7 +117,7 @@ async fn back_pagination() {
             FullStateEventContent::Original { content, prev_content }
         ) => (content, prev_content)
     );
-    assert_eq!(content.name.as_ref().unwrap(), "New room name");
+    assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
     Mock::given(method("GET"))

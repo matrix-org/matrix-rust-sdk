@@ -1270,7 +1270,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::RoomJoinRules(_) => Self::RoomJoinRules,
             Content::RoomName(c) => {
                 let name = match c {
-                    FullContent::Original { content, .. } => content.name.clone(),
+                    FullContent::Original { content, .. } => Some(content.name.clone()),
                     FullContent::Redacted(_) => None,
                 };
                 Self::RoomName { name }
