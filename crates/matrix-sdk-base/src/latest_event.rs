@@ -4,8 +4,8 @@
 #![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 
 use ruma::events::{
-    room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
+    AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
 
 /// Represents a decision about whether an event could be stored as the latest
@@ -15,7 +15,9 @@ use ruma::events::{
 #[derive(Debug)]
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
-    YesMessageLike(&'a SyncMessageLikeEvent<RoomMessageEventContent>),
+    YesRoomMessage(&'a SyncRoomMessageEvent),
+    /// This message is suitable - it is a poll
+    YesPoll(&'a SyncUnstablePollStartEvent),
     // Later: YesState(),
     // Later: YesReaction(),
     /// Not suitable - it's a state event
@@ -32,7 +34,11 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
     match event {
         // Suitable - we have an m.room.message that was not redacted
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
-            PossibleLatestEvent::YesMessageLike(message)
+            PossibleLatestEvent::YesRoomMessage(message)
+        }
+
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(poll)) => {
+            PossibleLatestEvent::YesPoll(poll)
         }
 
         // Encrypted events are not suitable
@@ -59,6 +65,10 @@ mod tests {
     use assert_matches::assert_matches;
     use ruma::{
         events::{
+            poll::unstable_start::{
+                NewUnstablePollStartEventContent, SyncUnstablePollStartEvent, UnstablePollAnswer,
+                UnstablePollStartContentBlock,
+            },
             room::{
                 encrypted::{
                     EncryptedEventScheme, OlmV1Curve25519AesSha2Content, RoomEncryptedEventContent,
@@ -101,10 +111,33 @@ mod tests {
         ));
         let m = assert_matches!(
             is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesMessageLike(SyncMessageLikeEvent::Original(m)) => m
+            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) => m
         );
 
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
+    }
+
+    #[test]
+    fn polls_are_suitable() {
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
+            SyncUnstablePollStartEvent::Original(OriginalSyncMessageLikeEvent {
+                content: NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
+                    "do you like rust?",
+                    vec![UnstablePollAnswer::new("id", "yes")].try_into().unwrap(),
+                ))
+                .into(),
+                event_id: owned_event_id!("$1"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+        let m = assert_matches!(
+            is_suitable_for_latest_event(&event),
+            PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) => m
+        );
+
+        assert_eq!(m.content.poll_start().question.text, "do you like rust?");
     }
 
     #[test]
@@ -153,7 +186,7 @@ mod tests {
 
         assert_matches!(
             is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesMessageLike(SyncMessageLikeEvent::Redacted(_))
+            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Redacted(_))
         );
     }
 
