@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, fs, sync::Arc};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     attachment::{
@@ -575,29 +575,10 @@ impl Room {
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
-        let event_id: &EventId =
-            original_event_id.as_str().try_into().context("Failed to create EventId.")?;
-
-        let edited_content = RUNTIME.block_on(async move {
-            let timeline_event =
-                self.inner.event(event_id).await.context("Couldn't find event.")?;
-
-            let event_content = timeline_event
-                .event
-                .deserialize_as::<RoomMessageEvent>()
-                .context("Couldn't deserialise event")?;
-
-            if self.inner.own_user_id() != event_content.sender() {
-                bail!("Can't edit an event not sent by own user");
-            }
-
-            let replacement: Replacement<RoomMessageEventContentWithoutRelation> =
-                Replacement::new(event_id.to_owned(), (*new_msg).clone().to_owned());
-
-            let mut edited_content = (*new_msg).clone().with_relation(None);
-            edited_content.relates_to = Some(Relation::Replacement(replacement));
-            Ok(edited_content)
-        })?;
+        let event_id = EventId::parse(original_event_id).context("Failed to create EventId.")?;
+        let edited_content = (*new_msg).clone().with_relation(Some(Relation::Replacement(
+            Replacement::new(event_id, (*new_msg).clone()),
+        )));
 
         RUNTIME.spawn(async move {
             timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
