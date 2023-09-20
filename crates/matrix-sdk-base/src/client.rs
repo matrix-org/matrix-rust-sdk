@@ -635,7 +635,7 @@ impl BaseClient {
                 // We found an event we can decrypt
                 if let Ok(any_sync_event) = decrypted.event.deserialize() {
                     // We can deserialize it to find its type
-                    if let PossibleLatestEvent::YesMessageLike(_) =
+                    if let PossibleLatestEvent::YesRoomMessage(_) =
                         is_suitable_for_latest_event(&any_sync_event)
                     {
                         // The event is the right type for us to use as latest_event

@@ -15,7 +15,7 @@ use ruma::events::{
 #[derive(Debug)]
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
-    YesMessageLike(&'a SyncMessageLikeEvent<RoomMessageEventContent>),
+    YesRoomMessage(&'a SyncMessageLikeEvent<RoomMessageEventContent>),
     /// This message is suitable - it is a poll
     YesPoll(&'a SyncMessageLikeEvent<UnstablePollStartEventContent>),
     // Later: YesState(),
@@ -34,7 +34,7 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
     match event {
         // Suitable - we have an m.room.message that was not redacted
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
-            PossibleLatestEvent::YesMessageLike(message)
+            PossibleLatestEvent::YesRoomMessage(message)
         }
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(poll)) => {
@@ -111,7 +111,7 @@ mod tests {
         ));
         let m = assert_matches!(
             is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesMessageLike(SyncMessageLikeEvent::Original(m)) => m
+            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) => m
         );
 
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
@@ -186,7 +186,7 @@ mod tests {
 
         assert_matches!(
             is_suitable_for_latest_event(&event),
-            PossibleLatestEvent::YesMessageLike(SyncMessageLikeEvent::Redacted(_))
+            PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Redacted(_))
         );
     }
 

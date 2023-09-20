@@ -127,7 +127,7 @@ impl TimelineItemContent {
         event: AnySyncTimelineEvent,
     ) -> Option<TimelineItemContent> {
         match is_suitable_for_latest_event(&event) {
-            PossibleLatestEvent::YesMessageLike(m) => {
+            PossibleLatestEvent::YesRoomMessage(m) => {
                 Some(Self::from_suitable_latest_event_content(m))
             }
             PossibleLatestEvent::YesPoll(poll) => {
