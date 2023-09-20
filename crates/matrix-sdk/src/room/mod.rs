@@ -1760,7 +1760,7 @@ impl Room {
     }
 
     /// Sets the name of this room.
-    pub async fn set_name(&self, name: Option<String>) -> Result<send_state_event::v3::Response> {
+    pub async fn set_name(&self, name: String) -> Result<send_state_event::v3::Response> {
         self.send_state_event(RoomNameEventContent::new(name)).await
     }
 

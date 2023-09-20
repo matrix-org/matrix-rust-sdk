@@ -14,7 +14,7 @@ use ruma::{
             },
             join_rules::{RoomJoinRulesEventContent, StrippedRoomJoinRulesEvent},
             member::{MembershipState, RoomMemberEventContent},
-            name::{RoomNameEventContent, StrippedRoomNameEvent},
+            name::{RedactedRoomNameEventContent, RoomNameEventContent, StrippedRoomNameEvent},
             tombstone::{
                 RedactedRoomTombstoneEventContent, RoomTombstoneEventContent,
                 StrippedRoomTombstoneEvent,
@@ -195,8 +195,16 @@ impl From<&StrippedRoomAvatarEvent> for MinimalStateEvent<RoomAvatarEventContent
 
 impl From<&StrippedRoomNameEvent> for MinimalStateEvent<RoomNameEventContent> {
     fn from(event: &StrippedRoomNameEvent) -> Self {
-        let content = RoomNameEventContent::new(event.content.name.clone());
-        Self::Original(OriginalMinimalStateEvent { content, event_id: None })
+        match event.content.name.clone() {
+            Some(name) => {
+                let content = RoomNameEventContent::new(name);
+                Self::Original(OriginalMinimalStateEvent { content, event_id: None })
+            }
+            None => {
+                let content = RedactedRoomNameEventContent::new();
+                Self::Redacted(RedactedMinimalStateEvent { content, event_id: None })
+            }
+        }
     }
 }
 

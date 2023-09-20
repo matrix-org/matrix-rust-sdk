@@ -10,7 +10,7 @@ publish = false
 helpers = []
 
 [dependencies]
-assert_matches = { workspace = true }
+assert_matches.workspace = true
 anyhow = { workspace = true }
 assign = "1"
 ctor = { workspace = true }

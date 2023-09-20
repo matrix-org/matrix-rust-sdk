@@ -703,7 +703,7 @@ impl Room {
     }
 
     /// Sets a new name to the room.
-    pub fn set_name(&self, name: Option<String>) -> Result<(), ClientError> {
+    pub fn set_name(&self, name: String) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             self.inner.set_name(name).await?;
             Ok(())
