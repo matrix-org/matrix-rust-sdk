@@ -21,7 +21,7 @@ use matrix_sdk::{
                 avatar::ImageInfo as RumaAvatarImageInfo,
                 message::{
                     AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
-                    RoomMessageEvent, RoomMessageEventContentWithoutRelation,
+                    RoomMessageEventContentWithoutRelation,
                 },
             },
             AnyMessageLikeEventContent,
@@ -538,7 +538,7 @@ impl Room {
     pub fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        in_reply_to_event_id: String,
+        reply_item: Arc<EventTimelineItem>,
         txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
@@ -546,31 +546,19 @@ impl Room {
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
-        let event_id: &EventId =
-            in_reply_to_event_id.as_str().try_into().context("Failed to create EventId.")?;
-
-        let reply_content = RUNTIME.block_on(async move {
-            let timeline_event =
-                self.inner.event(event_id).await.context("Couldn't find event.")?;
-
-            let event_content = timeline_event
-                .event
-                .deserialize_as::<RoomMessageEvent>()
-                .context("Couldn't deserialize event")?;
-
-            let original_message =
-                event_content.as_original().context("Couldn't retrieve original message.")?;
-
-            anyhow::Ok((*msg).to_owned().with_relation(None).make_reply_to(
-                original_message,
-                ForwardThread::Yes,
-                AddMentions::No,
-            ))
+        RUNTIME.block_on(async move {
+            timeline
+                .send_reply(
+                    (*msg).clone().with_relation(None),
+                    &reply_item.0,
+                    ForwardThread::Yes,
+                    AddMentions::No,
+                    txn_id.as_deref().map(Into::into),
+                )
+                .await?;
+            anyhow::Ok(())
         })?;
 
-        RUNTIME.spawn(async move {
-            timeline.send(reply_content.into(), txn_id.as_deref().map(Into::into)).await;
-        });
         Ok(())
     }
 
@@ -958,6 +946,29 @@ impl Room {
                 info!(txn_id, "Failed to discard local echo: Not found");
             }
         });
+    }
+
+    pub fn get_event_timeline_item_by_event_id(
+        &self,
+        event_id: String,
+    ) -> Result<Arc<EventTimelineItem>, ClientError> {
+        RUNTIME.block_on(async move {
+            let timeline = self
+                .timeline
+                .read()
+                .await
+                .clone()
+                .context("Timeline not set up, can't get event ")?;
+
+            let event_id = EventId::parse(event_id)?;
+
+            let item = timeline
+                .item_by_event_id(&event_id)
+                .await
+                .context("Item with given event ID not found")?;
+
+            Ok(Arc::new(EventTimelineItem(item)))
+        })
     }
 
     pub fn get_timeline_event_content_by_event_id(
