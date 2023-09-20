@@ -191,13 +191,11 @@ impl TimelineItemContent {
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
         match event {
-            SyncUnstablePollStartEvent::Original(event) => TimelineItemContent::Poll(PollState {
-                start_event_content: NewUnstablePollStartEventContent::new(
+            SyncUnstablePollStartEvent::Original(event) => {
+                TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
                     event.content.poll_start().clone(),
-                ),
-                response_data: vec![],
-                end_event_timestamp: None,
-            }),
+                )))
+            }
             SyncUnstablePollStartEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
