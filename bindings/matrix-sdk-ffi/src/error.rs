@@ -119,11 +119,11 @@ pub enum RoomError {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
-pub enum TimelineError {
+pub enum MediaInfoError {
     #[error("Required value missing from the media info")]
-    MissingMediaInfoField,
+    MissingField,
     #[error("Media info field invalid")]
-    InvalidMediaInfoField,
+    InvalidField,
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
