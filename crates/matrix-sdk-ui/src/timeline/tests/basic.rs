@@ -15,7 +15,8 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
-use matrix_sdk_test::async_test;
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_test::{async_test, sync_timeline_event};
 use ruma::{
     assign,
     events::{
@@ -29,10 +30,9 @@ use ruma::{
         FullStateEventContent,
     },
 };
-use serde_json::json;
 use stream_assert::assert_next_matches;
 
-use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
+use super::{TestTimeline, ALICE, BOB};
 use crate::timeline::{
     event_item::AnyOtherFullStateEventContent, tests::CAROL, MembershipChange, TimelineDetails,
     TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -46,10 +46,10 @@ async fn initial_events() {
     timeline
         .inner
         .add_initial_events(vector![
-            sync_timeline_event(
+            SyncTimelineEvent::new(
                 timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
             ),
-            sync_timeline_event(
+            SyncTimelineEvent::new(
                 timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
             ),
         ])
@@ -69,7 +69,7 @@ async fn sticker() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "Happy sticker",
                 "info": {
@@ -195,7 +195,11 @@ async fn dedup_pagination() {
 
     let event = timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
     timeline.handle_live_custom_event(event.clone()).await;
-    timeline.handle_back_paginated_custom_event(event).await;
+    // This cast is not actually correct, sync events aren't valid
+    // back-paginated events, as they are missing `room_id`. However, the
+    // timeline doesn't care about that `room_id` and casts back to
+    // `Raw<AnySyncTimelineEvent>` before attempting to deserialize.
+    timeline.handle_back_paginated_custom_event(event.cast()).await;
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 2);
@@ -210,13 +214,13 @@ async fn dedup_pagination() {
 async fn dedup_initial() {
     let mut timeline = TestTimeline::new();
 
-    let event_a = sync_timeline_event(
+    let event_a = SyncTimelineEvent::new(
         timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
     );
-    let event_b = sync_timeline_event(
+    let event_b = SyncTimelineEvent::new(
         timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
-    let event_c = sync_timeline_event(
+    let event_c = SyncTimelineEvent::new(
         timeline.make_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
     );
 

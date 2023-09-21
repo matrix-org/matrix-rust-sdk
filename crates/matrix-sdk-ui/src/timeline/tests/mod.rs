@@ -29,15 +29,16 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
+use matrix_sdk_test::sync_timeline_event;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::Annotation,
         room::redaction::RoomRedactionEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, EmptyStateKey, MessageLikeEventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
-        StaticStateEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent, EmptyStateKey,
+        MessageLikeEventContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
+        StateEventContent, StaticStateEventContent,
     },
     int,
     power_levels::NotificationPowerLevels,
@@ -74,11 +75,6 @@ mod virt;
 static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
 static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
 static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
-
-fn sync_timeline_event(event: JsonValue) -> SyncTimelineEvent {
-    let event = serde_json::from_value(event).unwrap();
-    SyncTimelineEvent { event, encryption_info: None, push_actions: Vec::default() }
-}
 
 struct TestTimeline {
     inner: TimelineInner<TestRoomDataProvider>,
@@ -133,7 +129,7 @@ impl TestTimeline {
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = self.make_state_event(sender, "", content, prev_content);
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+        self.handle_live_event(ev).await;
     }
 
     async fn handle_live_state_event_with_state_key<C>(
@@ -169,13 +165,12 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
-    async fn handle_live_custom_event(&self, event: JsonValue) {
-        let raw = Raw::new(&event).unwrap().cast();
-        self.handle_live_event(raw).await;
+    async fn handle_live_custom_event(&self, event: Raw<AnySyncTimelineEvent>) {
+        self.handle_live_event(event).await;
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = json!({
+        let ev = sync_timeline_event!({
             "type": "m.room.redaction",
             "content": {},
             "redacts": redacts,
@@ -183,13 +178,12 @@ impl TestTimeline {
             "sender": sender,
             "origin_server_ts": self.next_server_ts(),
         });
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.handle_live_event(raw).await;
+        self.handle_live_event(ev).await;
     }
 
     async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
         let event_id = EventId::new(server_name!("dummy.server"));
-        let ev = json!({
+        let ev = sync_timeline_event!({
             "type": "m.reaction",
             "content": {
                 "m.relates_to": {
@@ -202,8 +196,7 @@ impl TestTimeline {
             "sender": sender,
             "origin_server_ts": self.next_server_ts(),
         });
-        let raw = Raw::new(&ev).unwrap().cast();
-        self.handle_live_event(raw).await;
+        self.handle_live_event(ev).await;
         event_id
     }
 
@@ -228,8 +221,8 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_back_paginated_custom_event(&self, event: JsonValue) {
-        let timeline_event = TimelineEvent::new(Raw::new(&event).unwrap().cast());
+    async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
+        let timeline_event = TimelineEvent::new(event.cast());
         self.inner.handle_back_paginated_events(vec![timeline_event]).await;
     }
 
@@ -267,7 +260,7 @@ impl TestTimeline {
         &self,
         sender: &UserId,
         content: C,
-    ) -> JsonValue {
+    ) -> Raw<AnySyncTimelineEvent> {
         self.make_message_event_with_id(sender, content, EventId::new(server_name!("dummy.server")))
     }
 
@@ -276,8 +269,8 @@ impl TestTimeline {
         sender: &UserId,
         content: C,
         event_id: OwnedEventId,
-    ) -> JsonValue {
-        json!({
+    ) -> Raw<AnySyncTimelineEvent> {
+        sync_timeline_event!({
             "type": content.event_type(),
             "content": content,
             "event_id": event_id,
@@ -290,8 +283,8 @@ impl TestTimeline {
         &self,
         sender: &UserId,
         content: C,
-    ) -> JsonValue {
-        json!({
+    ) -> Raw<AnySyncTimelineEvent> {
+        sync_timeline_event!({
             "type": content.event_type(),
             "content": content,
             "event_id": EventId::new(server_name!("dummy.server")),
@@ -307,14 +300,14 @@ impl TestTimeline {
         state_key: &str,
         content: C,
         prev_content: Option<C>,
-    ) -> JsonValue {
+    ) -> Raw<AnySyncTimelineEvent> {
         let unsigned = if let Some(prev_content) = prev_content {
             json!({ "prev_content": prev_content })
         } else {
             json!({})
         };
 
-        json!({
+        sync_timeline_event!({
             "type": content.event_type(),
             "state_key": state_key,
             "content": content,
@@ -330,8 +323,8 @@ impl TestTimeline {
         sender: &UserId,
         state_key: &str,
         content: C,
-    ) -> JsonValue {
-        json!({
+    ) -> Raw<AnySyncTimelineEvent> {
+        sync_timeline_event!({
             "type": content.event_type(),
             "state_key": state_key,
             "content": content,
@@ -359,8 +352,8 @@ impl TestTimeline {
         sender: &UserId,
         annotation: &Annotation,
         timestamp: MilliSecondsSinceUnixEpoch,
-    ) -> JsonValue {
-        json!({
+    ) -> Raw<AnySyncTimelineEvent> {
+        sync_timeline_event!({
             "event_id": EventId::new(server_name!("dummy.server")),
             "content": {
                 "m.relates_to": {

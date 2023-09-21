@@ -14,7 +14,7 @@
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, sync_timeline_event};
 use ruma::{
     assign,
     events::{
@@ -23,10 +23,8 @@ use ruma::{
             self, MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent,
         },
     },
-    serde::Raw,
     server_name, EventId,
 };
-use serde_json::json;
 use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE};
@@ -112,7 +110,7 @@ async fn aggregated_sanitized() {
     let mut stream = timeline.subscribe().await;
 
     let original_event_id = EventId::new(server_name!("dummy.server"));
-    let ev = json!({
+    let ev = sync_timeline_event!({
         "content": {
             "formatted_body": "<strong>original</strong> message",
             "format": "org.matrix.custom.html",
@@ -150,7 +148,7 @@ async fn aggregated_sanitized() {
             }
         }
     });
-    timeline.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+    timeline.handle_live_event(ev).await;
 
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
