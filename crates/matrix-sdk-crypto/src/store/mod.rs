@@ -878,7 +878,7 @@ impl Store {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        self.load_tracked_users().await?;
+        self.ensure_sync_tracked_users().await?;
 
         let mut store_updates = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
@@ -904,7 +904,7 @@ impl Store {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        self.load_tracked_users().await?;
+        self.ensure_sync_tracked_users().await?;
 
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
@@ -951,7 +951,7 @@ impl Store {
     /// This method ensures that we're only going to load the users from the
     /// actual [`CryptoStore`] once, it will also make sure that any
     /// concurrent calls to this method get deduplicated.
-    async fn load_tracked_users(&self) -> Result<()> {
+    async fn ensure_sync_tracked_users(&self) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
         let loaded = self.inner.cache.tracked_user_loading_lock.read().await;
         if *loaded {
@@ -999,7 +999,7 @@ impl Store {
     pub(crate) async fn users_for_key_query(
         &self,
     ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
-        self.load_tracked_users().await?;
+        self.ensure_sync_tracked_users().await?;
 
         Ok(self.inner.users_for_key_query.lock().await.users_for_key_query())
     }
@@ -1042,7 +1042,7 @@ impl Store {
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
-        self.load_tracked_users().await?;
+        self.ensure_sync_tracked_users().await?;
 
         Ok(self.inner.cache.tracked_users.iter().map(|u| u.clone()).collect())
     }
