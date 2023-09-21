@@ -23,8 +23,7 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
-use matrix_sdk_test::{sync_timeline_event, EventBuilder};
-use once_cell::sync::Lazy;
+use matrix_sdk_test::{sync_timeline_event, EventBuilder, ALICE};
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -39,8 +38,8 @@ use ruma::{
     push::{PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    server_name, uint, user_id, EventId, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, TransactionId, UserId,
+    server_name, uint, EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    TransactionId, UserId,
 };
 
 use super::{
@@ -64,10 +63,6 @@ mod reactions;
 mod read_receipts;
 mod redaction;
 mod virt;
-
-static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
-static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
-static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
 
 struct TestTimeline {
     inner: TimelineInner<TestRoomDataProvider>,

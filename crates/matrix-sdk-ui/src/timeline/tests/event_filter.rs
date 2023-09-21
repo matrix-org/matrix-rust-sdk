@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::{async_test, sync_timeline_event};
+use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     assign,
     events::{
@@ -34,7 +34,7 @@ use ruma::{
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, ALICE, BOB};
+use super::TestTimeline;
 use crate::timeline::{inner::TimelineInnerSettings, TimelineItemContent};
 
 #[async_test]

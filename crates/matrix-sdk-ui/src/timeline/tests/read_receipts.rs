@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::events::{
     receipt::{ReceiptThread, ReceiptType},
     room::message::RoomMessageEventContent,
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, ALICE, BOB};
+use super::TestTimeline;
 use crate::timeline::inner::TimelineInnerSettings;
 
 #[async_test]
