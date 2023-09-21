@@ -51,6 +51,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, instrument, warn};
 
 mod builder;
+mod error;
 mod event_handler;
 mod event_item;
 mod futures;
@@ -72,6 +73,7 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
+    error::Error,
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
@@ -713,45 +715,4 @@ pub enum BackPaginationStatus {
     Idle,
     Paginating,
     TimelineStartReached,
-}
-
-/// Errors specific to the timeline.
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum Error {
-    /// The requested event with a remote echo is not in the timeline.
-    #[error("Event with remote echo not found in timeline")]
-    RemoteEventNotInTimeline,
-
-    /// Can't find an event with the given transaction ID, can't retry.
-    #[error("Event not found, can't retry sending")]
-    RetryEventNotInTimeline,
-
-    /// The event is currently unsupported for this use case.
-    #[error("Unsupported event")]
-    UnsupportedEvent,
-
-    /// Couldn't read the attachment data from the given URL
-    #[error("Invalid attachment data")]
-    InvalidAttachmentData,
-
-    /// The attachment file name used as a body is invalid
-    #[error("Invalid attachment file name")]
-    InvalidAttachmentFileName,
-
-    /// The attachment could not be sent
-    #[error("Failed sending attachment")]
-    FailedSendingAttachment,
-
-    /// The reaction could not be toggled
-    #[error("Failed toggling reaction")]
-    FailedToToggleReaction,
-
-    /// The room is not in a joined state.
-    #[error("Room is not joined")]
-    RoomNotJoined,
-
-    /// Could not get user
-    #[error("User ID is not available")]
-    UserIdNotAvailable,
 }
