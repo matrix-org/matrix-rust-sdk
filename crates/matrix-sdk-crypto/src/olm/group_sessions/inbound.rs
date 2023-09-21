@@ -410,7 +410,10 @@ impl InboundGroupSession {
                 DeviceKeyAlgorithm::Ed25519,
                 signing_key.public_key().to_base64().as_str().into(),
             );
-            backed_up_room_key.signatures.add_signature(
+            if backed_up_room_key.signatures.is_none() {
+                backed_up_room_key.signatures = Some(Signatures::new());
+            }
+            backed_up_room_key.signatures.as_mut().unwrap().add_signature(
                 user_id.to_owned(),
                 key_id,
                 signature,
