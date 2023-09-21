@@ -23,7 +23,7 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
-use matrix_sdk_test::{sync_timeline_event, EventBuilder, ALICE};
+use matrix_sdk_test::{EventBuilder, ALICE};
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -164,32 +164,13 @@ impl TestTimeline {
     }
 
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = sync_timeline_event!({
-            "type": "m.room.redaction",
-            "content": {},
-            "redacts": redacts,
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "origin_server_ts": self.event_builder.next_server_ts(),
-        });
+        let ev = self.event_builder.make_redaction_event(sender, redacts);
         self.handle_live_event(ev).await;
     }
 
     async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
         let event_id = EventId::new(server_name!("dummy.server"));
-        let ev = sync_timeline_event!({
-            "type": "m.reaction",
-            "content": {
-                "m.relates_to": {
-                    "rel_type": "m.annotation",
-                    "event_id": annotation.event_id,
-                    "key": annotation.key,
-                },
-            },
-            "event_id": event_id,
-            "sender": sender,
-            "origin_server_ts": self.event_builder.next_server_ts(),
-        });
+        let ev = self.event_builder.make_reaction_event(sender, &event_id, annotation);
         self.handle_live_event(ev).await;
         event_id
     }
