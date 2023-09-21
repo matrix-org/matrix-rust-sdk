@@ -4,27 +4,29 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    Error as TimelineError, RoomExt, TimelineDetails, TimelineItemContent,
+    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
 };
 use ruma::{
     assign, event_id,
     events::{
         relation::InReplyTo,
-        room::message::{Relation, RoomMessageEventContent},
+        room::message::{AddMentions, ForwardThread, Relation, RoomMessageEventContent},
     },
     room_id,
 };
 use serde_json::json;
+use stream_assert::assert_next_matches;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client, mock_sync};
+use crate::{logged_in_client, mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn in_reply_to_details() {
@@ -246,4 +248,98 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
         items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
+}
+
+#[async_test]
+async fn send_reply() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let event_builder = EventBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await;
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let event_id_1 = event_id!("$event1");
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        event_builder.make_sync_message_event_with_id(
+            &BOB,
+            event_id_1,
+            RoomMessageEventContent::text_plain("Hello, World!"),
+        ),
+    ));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let hello_world_item =
+        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    // Clear the timeline to make sure the old item does not need to be
+    // available in it for the reply to work.
+    timeline.clear().await;
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+
+    mock_encryption_state(&server, false).await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    timeline
+        .send_reply(
+            RoomMessageEventContent::text_plain("Hello, Bob!"),
+            &hello_world_item,
+            ForwardThread::Yes,
+            AddMentions::No,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let reply_message = reply_item.content().as_message().unwrap();
+    assert_eq!(reply_message.body(), "Hello, Bob!");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_1);
+    // Right now, we don't pass along the replied-to event to the event handler,
+    // so it's not available if the timeline got cleared. Not critical, but
+    // there's notable room for improvement here.
+    //
+    // let replied_to_event =
+    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    // assert_eq!(replied_to_event.sender(), *BOB);
+
+    let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
+    let reply_item_remote_echo =
+        assert_matches!(diff, VectorDiff::Set { index: 0, value } => value);
+
+    assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    assert_eq!(reply_message.body(), "Hello, Bob!");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_1);
+    // Same as above.
+    //
+    // let replied_to_event =
+    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
+    // assert_eq!(replied_to_event.sender(), *BOB);
+
+    server.verify().await;
 }
