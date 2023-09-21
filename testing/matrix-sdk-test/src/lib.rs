@@ -7,6 +7,18 @@ use ruma::{
 };
 use serde_json::Value as JsonValue;
 
+/// Create a `Raw<AnyTimelineEvent>` from arbitrary JSON.
+///
+/// Forwards all arguments to [`serde_json::json`].
+#[macro_export]
+macro_rules! timeline_event {
+    ($( $tt:tt )*) => {
+        ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
+            .unwrap()
+            .cast::<::ruma::events::AnyTimelineEvent>()
+    }
+}
+
 /// Create a `Raw<AnySyncTimelineEvent>` from arbitrary JSON.
 ///
 /// Forwards all arguments to [`serde_json::json`].

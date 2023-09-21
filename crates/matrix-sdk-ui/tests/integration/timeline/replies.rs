@@ -4,11 +4,20 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_test::{
+    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
+};
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, RoomExt, TimelineDetails, TimelineItemContent,
 };
-use ruma::{event_id, room_id};
+use ruma::{
+    assign, event_id,
+    events::{
+        relation::InReplyTo,
+        room::message::{Relation, RoomMessageEventContent},
+    },
+    room_id,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -21,12 +30,13 @@ use crate::{logged_in_client, mock_sync};
 async fn in_reply_to_details() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
+    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -40,36 +50,26 @@ async fn in_reply_to_details() {
         Err(TimelineError::RemoteEventNotInTimeline)
     );
 
-    ev_builder.add_joined_room(
+    // Add an event and a reply to that event to the timeline
+    let event_id_1 = event_id!("$event1");
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": "$event1",
-                "origin_server_ts": 152037280,
-                "sender": "@alice:example.org",
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello to you too",
-                    "msgtype": "m.text",
-                    "m.relates_to": {
-                        "m.in_reply_to": {
-                            "event_id": "$event1",
-                        },
-                    },
-                },
-                "event_id": "$event2",
-                "origin_server_ts": 152045456,
-                "sender": "@bob:example.org",
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(event_builder.make_sync_message_event_with_id(
+                &ALICE,
+                event_id_1,
+                RoomMessageEventContent::text_plain("hello"),
+            ))
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &BOB,
+                assign!(RoomMessageEventContent::text_plain("hello to you too"), {
+                    relates_to: Some(Relation::Reply {
+                        in_reply_to: InReplyTo::new(event_id_1.to_owned()),
+                    }),
+                }),
+            )),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -84,25 +84,20 @@ async fn in_reply_to_details() {
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "you were right",
-                "msgtype": "m.text",
-                "m.relates_to": {
-                    "m.in_reply_to": {
-                        "event_id": "$remoteevent",
-                    },
-                },
-            },
-            "event_id": "$event3",
-            "origin_server_ts": 152046694,
-            "sender": "@bob:example.org",
-            "type": "m.room.message",
-        }),
+    // Add an reply to an unknown event to the timeline
+    let event_id_2 = event_id!("$event2");
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        event_builder.make_sync_message_event(
+            &BOB,
+            assign!(RoomMessageEventContent::text_plain("you were right"), {
+                relates_to: Some(Relation::Reply {
+                    in_reply_to: InReplyTo::new(event_id_2.to_owned()),
+                }),
+            }),
+        ),
     ));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -117,11 +112,12 @@ async fn in_reply_to_details() {
     let message =
         assert_matches!(third_event.content(), TimelineItemContent::Message(message) => message);
     let in_reply_to = message.in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
+    assert_eq!(in_reply_to.event_id, event_id_2);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
+    // Set up fetching the replied-to event to fail
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$remoteevent"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event2"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_NOT_FOUND",
@@ -143,20 +139,18 @@ async fn in_reply_to_details() {
     let message = assert_matches!(third.as_event().unwrap().content(), TimelineItemContent::Message(message) => message);
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
 
+    // Set up fetching the replied-to event to succeed
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$remoteevent"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event2"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": {
-                "body": "Alice is gonna arrive soon",
-                "msgtype": "m.text",
-            },
-            "room_id": room_id,
-            "event_id": "$event0",
-            "origin_server_ts": 152024004,
-            "sender": "@admin:example.org",
-            "type": "m.room.message",
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            event_builder.make_message_event_with_id(
+                &CAROL,
+                room_id,
+                event_id_2,
+                RoomMessageEventContent::text_plain("Alice is gonna arrive soon"),
+            ),
+        ))
         .expect(1)
         .mount(&server)
         .await;
@@ -176,6 +170,7 @@ async fn in_reply_to_details() {
 async fn transfer_in_reply_to_details_to_re_received_item() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
+    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -189,23 +184,17 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
     let timeline = room.timeline().await;
 
     // Given a reply to an event that's not itself in the timeline...
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "Reply",
-                "msgtype": "m.text",
-                "m.relates_to": {
-                    "m.in_reply_to": {
-                        "event_id": "$remoteevent",
-                    },
-                },
-            },
-            "event_id": "$event3",
-            "origin_server_ts": 152046694,
-            "sender": "@bob:example.org",
-            "type": "m.room.message",
+    let event_id_1 = event_id!("$event1");
+    let reply_event = event_builder.make_sync_message_event(
+        &BOB,
+        assign!(RoomMessageEventContent::text_plain("Reply"), {
+            relates_to: Some(Relation::Reply {
+                in_reply_to: InReplyTo::new(event_id_1.to_owned()),
+            }),
         }),
-    ));
+    );
+    ev_builder
+        .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event.clone()));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -215,24 +204,21 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
     assert_eq!(items.len(), 2); // day divider, reply
     let event_item = items[1].as_event().unwrap();
     let in_reply_to = event_item.content().as_message().unwrap().in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
+    assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
     // ... when we fetch the reply details for that item
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$remoteevent"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event1"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": {
-                "body": "Original Message",
-                "msgtype": "m.text",
-            },
-            "room_id": room_id,
-            "event_id": "$event0",
-            "origin_server_ts": 152024004,
-            "sender": "@admin:example.org",
-            "type": "m.room.message",
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            event_builder.make_message_event_with_id(
+                &ALICE,
+                room_id,
+                event_id_1,
+                RoomMessageEventContent::text_plain("Original Message"),
+            ),
+        ))
         .expect(1)
         .mount(&server)
         .await;
@@ -244,27 +230,11 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
     assert_eq!(items.len(), 2);
     let in_reply_to =
         items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
+    assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     // ... and then we re-receive the reply event
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "Reply",
-                "msgtype": "m.text",
-                "m.relates_to": {
-                    "m.in_reply_to": {
-                        "event_id": "$remoteevent",
-                    },
-                },
-            },
-            "event_id": "$event3",
-            "origin_server_ts": 152046694,
-            "sender": "@bob:example.org",
-            "type": "m.room.message",
-        }),
-    ));
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -274,6 +244,6 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
     assert_eq!(items.len(), 2);
     let in_reply_to =
         items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id!("$remoteevent"));
+    assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 }
