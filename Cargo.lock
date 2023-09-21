@@ -1706,6 +1706,7 @@ checksum = "42482893d982111055ce4b24234d6250396d3785767c6b04cedd84612a0b80fb"
 dependencies = [
  "futures-core",
  "readlock",
+ "tracing",
 ]
 
 [[package]]
