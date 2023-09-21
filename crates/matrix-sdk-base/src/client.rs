@@ -187,9 +187,6 @@ impl BaseClient {
     ///
     /// * `session_meta` - The meta of a session that the user already has from
     ///   a previous login call.
-    /// * `regenerate_olm`: whether the `OlmMachine` should be regenerated or
-    ///   not. True for
-    /// restored sessions, false for inherited sessions.
     ///
     /// This method panics if it is called twice.
     pub async fn set_session_meta(&self, session_meta: SessionMeta) -> Result<()> {
