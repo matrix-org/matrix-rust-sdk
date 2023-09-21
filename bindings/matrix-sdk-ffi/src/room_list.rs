@@ -13,7 +13,8 @@ use matrix_sdk::{
     RoomListEntry as MatrixRoomListEntry,
 };
 use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_fuzzy_match_room_name, new_filter_normalized_match_room_name,
+    new_filter_all, new_filter_fuzzy_match_room_name, new_filter_none,
+    new_filter_normalized_match_room_name,
 };
 use tokio::sync::RwLock;
 
@@ -370,6 +371,7 @@ impl RoomListDynamicEntriesController {
 
         match kind {
             Kind::All => self.inner.set_filter(new_filter_all()),
+            Kind::None => self.inner.set_filter(new_filter_none()),
             Kind::NormalizedMatchRoomName { pattern } => {
                 self.inner.set_filter(new_filter_normalized_match_room_name(&self.client, &pattern))
             }
@@ -391,6 +393,7 @@ impl RoomListDynamicEntriesController {
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesDynamicFilterKind {
     All,
+    None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
 }
