@@ -11,7 +11,7 @@ use matrix_sdk::Client;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::{
-        filters::{new_filter_all, new_filter_fuzzy_match_room_name},
+        filters::{new_filter_all, new_filter_fuzzy_match_room_name, new_filter_none},
         Error, Input, InputResult, RoomListEntry, RoomListLoadingState, State, SyncIndicator,
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, INVITES_LIST_NAME as INVITES,
         VISIBLE_ROOMS_LIST_NAME as VISIBLE_ROOMS,
@@ -120,7 +120,7 @@ macro_rules! entries {
 
 macro_rules! assert_entries_batch {
     // `append [$entries]`
-    ( @_ [ $entries:ident ] [ append [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ append [ $( $entry:tt )* ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -130,7 +130,7 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Append { ref values }) => {
-                        assert_eq!(values, &entries!( $( $entry )+ ));
+                        assert_eq!(values, &entries!( $( $entry )* ));
                     }
                 );
             ]
@@ -206,7 +206,7 @@ macro_rules! assert_entries_batch {
     };
 
     // `reset [$entries]`
-    ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )+ ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $entries:ident ] [ reset [ $( $entry:tt )* ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_entries_batch!(
             @_
             [ $entries ]
@@ -216,7 +216,7 @@ macro_rules! assert_entries_batch {
                 assert_matches!(
                     $entries.next(),
                     Some(&VectorDiff::Reset { ref values }) => {
-                        assert_eq!(values, &entries!( $( $entry )+ ));
+                        assert_eq!(values, &entries!( $( $entry )* ));
                     }
                 );
             ]
@@ -1803,6 +1803,17 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         end;
     }
     assert_pending!(dynamic_entries_stream);
+
+    // Now, let's change again the dynamic filter!
+    dynamic_entries.set_filter(new_filter_none());
+
+    // Assert the dynamic entries.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        // Receive a `reset` again because the filter has been reset.
+        reset [];
+        end;
+    };
 
     // Now, let's change again the dynamic filter!
     dynamic_entries.set_filter(new_filter_all());
