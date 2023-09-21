@@ -885,6 +885,15 @@ impl TimelineInner {
         self.state.read().await.latest_user_read_receipt(user_id, room).await
     }
 
+    /// Get the ID of the timeline event with the latest read receipt for the
+    /// given user.
+    pub(super) async fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
+    }
+
     /// Check whether the given receipt should be sent.
     ///
     /// Returns `false` if the given receipt is older than the current one.

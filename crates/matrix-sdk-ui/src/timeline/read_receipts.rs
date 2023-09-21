@@ -27,7 +27,10 @@ use ruma::{
 use tracing::{error, warn};
 
 use super::{
-    inner::{EventMeta, FullEventMeta, TimelineInnerState, TimelineInnerStateTransaction},
+    inner::{
+        EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
+        TimelineInnerStateTransaction,
+    },
     item::timeline_item,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -509,36 +512,87 @@ impl TimelineInnerState {
         let private_read_receipt =
             self.read_receipts.user_receipt(user_id, ReceiptType::ReadPrivate, room).await;
 
-        // If we only have one, return it.
-        let Some((pub_event_id, pub_receipt)) = &public_read_receipt else {
-            return private_read_receipt;
-        };
-        let Some((priv_event_id, priv_receipt)) = &private_read_receipt else {
-            return public_read_receipt;
-        };
-
-        // Compare by position in the timeline.
-        if let Some(relative_pos) = self.meta.compare_events_positions(pub_event_id, priv_event_id)
-        {
-            if relative_pos == RelativePosition::After {
-                return private_read_receipt;
-            }
-
-            return public_read_receipt;
+        match choose_priv_or_pub_receipt(
+            &self.meta,
+            private_read_receipt.as_ref().map(|(ev_id, r)| (ev_id, r)),
+            public_read_receipt.as_ref().map(|(ev_id, r)| (ev_id, r)),
+        )? {
+            PrivOrPub::Priv => private_read_receipt,
+            PrivOrPub::Pub => public_read_receipt,
         }
-
-        // Compare by timestamp.
-        if let Some((pub_ts, priv_ts)) = pub_receipt.ts.zip(priv_receipt.ts) {
-            if priv_ts > pub_ts {
-                return private_read_receipt;
-            }
-
-            return public_read_receipt;
-        }
-
-        // As a fallback, let's assume that a private read receipt should be more recent
-        // than a public read receipt, otherwise there's no point in the private read
-        // receipt.
-        private_read_receipt
     }
+
+    pub(super) fn latest_user_read_receipt_timeline_event_id(
+        &self,
+        user_id: &UserId,
+    ) -> Option<OwnedEventId> {
+        let public_read_receipt = self
+            .read_receipts
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|m| m.get(&ReceiptType::Read))
+            .and_then(|r| r.timeline_event_id.as_ref().map(|ev_id| (ev_id, &r.receipt)));
+        let private_read_receipt = self
+            .read_receipts
+            .users_read_receipts
+            .get(user_id)
+            .and_then(|m| m.get(&ReceiptType::ReadPrivate))
+            .and_then(|r| r.timeline_event_id.as_ref().map(|ev_id| (ev_id, &r.receipt)));
+
+        match choose_priv_or_pub_receipt(&self.meta, private_read_receipt, public_read_receipt)? {
+            PrivOrPub::Priv => private_read_receipt.map(|(event_id, _)| event_id.clone()),
+            PrivOrPub::Pub => public_read_receipt.map(|(event_id, _)| event_id.clone()),
+        }
+    }
+}
+
+/// Determine whether the private or public read receipt is more recent.
+fn choose_priv_or_pub_receipt(
+    meta: &TimelineInnerMetadata,
+    private: Option<(&OwnedEventId, &Receipt)>,
+    public: Option<(&OwnedEventId, &Receipt)>,
+) -> Option<PrivOrPub> {
+    // If we only have one, return it.
+    let Some((pub_event_id, pub_receipt)) = public else {
+        if private.is_some() {
+            return Some(PrivOrPub::Priv);
+        } else {
+            return None;
+        }
+    };
+    let Some((priv_event_id, priv_receipt)) = private else {
+        return Some(PrivOrPub::Pub);
+    };
+
+    // Compare by position in the timeline.
+    if let Some(relative_pos) = meta.compare_events_positions(pub_event_id, priv_event_id) {
+        if relative_pos == RelativePosition::After {
+            return Some(PrivOrPub::Priv);
+        }
+
+        return Some(PrivOrPub::Pub);
+    }
+
+    // Compare by timestamp.
+    if let Some((pub_ts, priv_ts)) = pub_receipt.ts.zip(priv_receipt.ts) {
+        if priv_ts > pub_ts {
+            return Some(PrivOrPub::Priv);
+        }
+
+        return Some(PrivOrPub::Pub);
+    }
+
+    // As a fallback, let's assume that a private read receipt should be more recent
+    // than a public read receipt, otherwise there's no point in the private read
+    // receipt.
+    Some(PrivOrPub::Priv)
+}
+
+/// Whether to use the public or private receipt.
+#[derive(Clone, Copy, Debug)]
+enum PrivOrPub {
+    /// The private receipt should be used.
+    Priv,
+    /// The public receipt should be used.
+    Pub,
 }
