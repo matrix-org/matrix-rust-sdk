@@ -3,11 +3,11 @@ pub use matrix_sdk_test_macros::async_test;
 use ruma::api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse};
 use serde_json::Value as JsonValue;
 
-mod event_builder;
 pub mod notification_settings;
+mod sync_builder;
 pub mod test_json;
 
-pub use event_builder::{
+pub use sync_builder::{
     bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
     JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
     StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
