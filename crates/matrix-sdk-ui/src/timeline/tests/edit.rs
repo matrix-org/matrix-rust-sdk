@@ -118,7 +118,7 @@ async fn aggregated_sanitized() {
             "msgtype": "m.text"
         },
         "event_id": &original_event_id,
-        "origin_server_ts": timeline.next_server_ts(),
+        "origin_server_ts": timeline.event_builder.next_server_ts(),
         "sender": *ALICE,
         "type": "m.room.message",
         "unsigned": {
@@ -141,7 +141,7 @@ async fn aggregated_sanitized() {
                         "msgtype": "m.text"
                     },
                     "event_id": EventId::new(server_name!("dummy.server")),
-                    "origin_server_ts": timeline.next_server_ts(),
+                    "origin_server_ts": timeline.event_builder.next_server_ts(),
                     "sender": *ALICE,
                     "type": "m.room.message",
                 }

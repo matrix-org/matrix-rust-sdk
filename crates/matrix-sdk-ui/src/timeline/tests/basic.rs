@@ -47,10 +47,14 @@ async fn initial_events() {
         .inner
         .add_initial_events(vector![
             SyncTimelineEvent::new(
-                timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+                timeline
+                    .event_builder
+                    .make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
             ),
             SyncTimelineEvent::new(
-                timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+                timeline
+                    .event_builder
+                    .make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
             ),
         ])
         .await;
@@ -193,7 +197,9 @@ async fn other_state() {
 async fn dedup_pagination() {
     let timeline = TestTimeline::new();
 
-    let event = timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
+    let event = timeline
+        .event_builder
+        .make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
     timeline.handle_live_custom_event(event.clone()).await;
     // This cast is not actually correct, sync events aren't valid
     // back-paginated events, as they are missing `room_id`. However, the
@@ -215,13 +221,13 @@ async fn dedup_initial() {
     let mut timeline = TestTimeline::new();
 
     let event_a = SyncTimelineEvent::new(
-        timeline.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+        timeline.event_builder.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
     );
     let event_b = SyncTimelineEvent::new(
-        timeline.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+        timeline.event_builder.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
     let event_c = SyncTimelineEvent::new(
-        timeline.make_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
+        timeline.event_builder.make_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
     );
 
     timeline
