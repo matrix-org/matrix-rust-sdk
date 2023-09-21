@@ -1,4 +1,4 @@
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     events::{
         poll::{
@@ -15,9 +15,7 @@ use ruma::{
 };
 
 use crate::timeline::{
-    polls::PollState,
-    tests::{TestTimeline, ALICE, BOB},
-    EventTimelineItem, TimelineItemContent,
+    polls::PollState, tests::TestTimeline, EventTimelineItem, TimelineItemContent,
 };
 
 #[async_test]

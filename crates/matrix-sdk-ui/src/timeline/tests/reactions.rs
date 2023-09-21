@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
     server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
@@ -30,7 +30,7 @@ use crate::timeline::{
     event_item::EventItemIdentifier,
     inner::ReactionAction,
     reactions::ReactionToggleResult,
-    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline, ALICE, BOB},
+    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
     TimelineItem,
 };
 

@@ -14,13 +14,10 @@
 
 use assert_matches::assert_matches;
 use itertools::Itertools;
+use matrix_sdk_test::{ALICE, BOB};
 use ruma::{server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
 
-use crate::timeline::{
-    event_item::EventItemIdentifier,
-    tests::{ALICE, BOB},
-    ReactionGroup, ReactionSenderData,
-};
+use crate::timeline::{event_item::EventItemIdentifier, ReactionGroup, ReactionSenderData};
 
 #[test]
 fn by_sender() {

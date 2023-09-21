@@ -16,7 +16,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_test::{async_test, sync_timeline_event};
+use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
 use ruma::{
     assign,
     events::{
@@ -32,9 +32,9 @@ use ruma::{
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, ALICE, BOB};
+use super::TestTimeline;
 use crate::timeline::{
-    event_item::AnyOtherFullStateEventContent, tests::CAROL, MembershipChange, TimelineDetails,
+    event_item::AnyOtherFullStateEventContent, MembershipChange, TimelineDetails,
     TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 

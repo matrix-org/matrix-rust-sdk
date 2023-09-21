@@ -17,14 +17,14 @@ use std::{io, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::Error;
-use matrix_sdk_test::{async_test, sync_timeline_event};
+use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, ALICE, BOB};
+use super::TestTimeline;
 use crate::timeline::event_item::EventSendState;
 
 #[async_test]

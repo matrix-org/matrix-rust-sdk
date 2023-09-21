@@ -19,7 +19,7 @@ use std::{io::Cursor, iter};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::crypto::{decrypt_room_key_export, OlmMachine};
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, BOB};
 use ruma::{
     assign,
     events::room::encrypted::{
@@ -30,7 +30,7 @@ use ruma::{
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, BOB};
+use super::TestTimeline;
 use crate::timeline::{EncryptedMessage, TimelineItemContent};
 
 #[async_test]

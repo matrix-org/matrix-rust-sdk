@@ -15,14 +15,14 @@
 use assert_matches::assert_matches;
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
 };
 use stream_assert::assert_next_matches;
 
-use super::{TestTimeline, ALICE, BOB};
+use super::TestTimeline;
 use crate::timeline::{TimelineItemKind, VirtualTimelineItem};
 
 #[async_test]
