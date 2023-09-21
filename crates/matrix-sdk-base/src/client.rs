@@ -1297,8 +1297,8 @@ impl Default for BaseClient {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, response_from_file, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
-        StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
+        async_test, response_from_file, sync_timeline_event, InvitedRoomBuilder, JoinedRoomBuilder,
+        LeftRoomBuilder, StrippedStateTestEvent, SyncResponseBuilder,
     };
     use ruma::{
         api::{client as api, IncomingResponse},
@@ -1319,19 +1319,17 @@ mod tests {
         let mut ev_builder = SyncResponseBuilder::new();
 
         let response = ev_builder
-            .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(
-                TimelineTestEvent::Custom(json!({
-                    "content": {
-                        "displayname": "Alice",
-                        "membership": "left",
-                    },
-                    "event_id": "$994173582443PhrSn:example.org",
-                    "origin_server_ts": 1432135524678u64,
-                    "sender": user_id,
-                    "state_key": user_id,
-                    "type": "m.room.member",
-                })),
-            ))
+            .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "displayname": "Alice",
+                    "membership": "left",
+                },
+                "event_id": "$994173582443PhrSn:example.org",
+                "origin_server_ts": 1432135524678u64,
+                "sender": user_id,
+                "state_key": user_id,
+                "type": "m.room.member",
+            })))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
@@ -1493,7 +1491,7 @@ mod tests {
         let mut ev_builder = SyncResponseBuilder::new();
         let response = ev_builder
             .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-                TimelineTestEvent::Custom(json!({
+                sync_timeline_event!({
                     "content": {
                         "displayname": "Alice",
                         "membership": "join",
@@ -1503,7 +1501,7 @@ mod tests {
                     "sender": user_id,
                     "state_key": user_id,
                     "type": "m.room.member",
-                })),
+                }),
             ))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();

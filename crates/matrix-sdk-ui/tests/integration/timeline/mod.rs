@@ -19,12 +19,11 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, ruma::MilliSecondsSinceUnixEpoch};
 use matrix_sdk_test::{
-    async_test, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder,
-    TimelineTestEvent,
+    async_test, sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
+    SyncResponseBuilder,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{events::room::message::MessageType, room_id, uint, user_id};
-use serde_json::json;
 
 use crate::{logged_in_client, mock_sync};
 
@@ -55,7 +54,7 @@ async fn edit() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "hello",
                 "msgtype": "m.text",
@@ -64,7 +63,7 @@ async fn edit() {
             "origin_server_ts": 152037280,
             "sender": "@alice:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -89,7 +88,7 @@ async fn edit() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "Test",
                     "formatted_body": "<em>Test</em>",
@@ -100,8 +99,8 @@ async fn edit() {
                 "origin_server_ts": 152038280,
                 "sender": "@bob:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": " * hi",
                     "m.new_content": {
@@ -118,7 +117,7 @@ async fn edit() {
                 "origin_server_ts": 159056300,
                 "sender": "@alice:example.org",
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -170,7 +169,7 @@ async fn reaction() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -179,8 +178,8 @@ async fn reaction() {
                 "origin_server_ts": 152037280,
                 "sender": "@alice:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "m.relates_to": {
                         "event_id": "$TTvQUp1e17qkw41rBSjpZ",
@@ -192,7 +191,7 @@ async fn reaction() {
                 "origin_server_ts": 152038300,
                 "sender": "@bob:example.org",
                 "type": "m.reaction",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -225,14 +224,14 @@ async fn reaction() {
     // TODO: After adding raw timeline items, check for one here
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {},
             "redacts": "$031IXQRi27504",
             "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
             "sender": "@bob:example.org",
             "origin_server_ts": 152037280,
             "type": "m.room.redaction",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -268,7 +267,7 @@ async fn redacted_message() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {},
                 "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
                 "origin_server_ts": 152035910,
@@ -284,15 +283,15 @@ async fn redacted_message() {
                         "type": "m.room.redaction",
                     },
                 },
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {},
                 "redacts": "$eeG0HA0FAZ37wP8kXlNkxx3I",
                 "event_id": "$N6eUCBc3vu58PL8TobGaVQzM",
                 "sender": "@alice:example.org",
                 "origin_server_ts": 152037280,
                 "type": "m.room.redaction",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -330,7 +329,7 @@ async fn read_marker() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "hello",
                 "msgtype": "m.text",
@@ -339,7 +338,7 @@ async fn read_marker() {
             "origin_server_ts": 152037280,
             "sender": "@alice:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -361,7 +360,7 @@ async fn read_marker() {
     // Nothing should happen, the marker cannot be added at the end.
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "hello to you!",
                 "msgtype": "m.text",
@@ -370,7 +369,7 @@ async fn read_marker() {
             "origin_server_ts": 152067280,
             "sender": "@bob:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -411,7 +410,7 @@ async fn sync_highlighted() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "hello",
                 "msgtype": "m.text",
@@ -420,7 +419,7 @@ async fn sync_highlighted() {
             "origin_server_ts": 152037280,
             "sender": "@example:localhost",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -440,7 +439,7 @@ async fn sync_highlighted() {
     assert!(!remote_event.is_highlighted());
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "This room has been replaced",
                 "replacement_room": "!newroom:localhost",
@@ -450,7 +449,7 @@ async fn sync_highlighted() {
             "sender": "@bob:localhost",
             "state_key": "",
             "type": "m.room.tombstone",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;

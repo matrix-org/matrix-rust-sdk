@@ -19,8 +19,8 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts};
 use matrix_sdk_test::{
-    async_test, EphemeralTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    SyncResponseBuilder, TimelineTestEvent,
+    async_test, sync_timeline_event, EphemeralTestEvent, JoinedRoomBuilder,
+    RoomAccountDataTestEvent, SyncResponseBuilder, TimelineTestEvent,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -71,7 +71,7 @@ async fn read_receipts_updates() {
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(TimelineTestEvent::MessageText)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm dancing too",
                     "msgtype": "m.text"
@@ -80,8 +80,8 @@ async fn read_receipts_updates() {
                 "origin_server_ts": 152039280,
                 "sender": alice,
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "Viva la macarena!",
                     "msgtype": "m.text"
@@ -90,7 +90,7 @@ async fn read_receipts_updates() {
                 "origin_server_ts": 152045280,
                 "sender": alice,
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -426,7 +426,7 @@ async fn send_single_receipt() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm User A",
                     "msgtype": "m.text",
@@ -435,8 +435,8 @@ async fn send_single_receipt() {
                 "origin_server_ts": 152046694,
                 "sender": "@user_a:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm User B",
                     "msgtype": "m.text",
@@ -445,7 +445,7 @@ async fn send_single_receipt() {
                 "origin_server_ts": 152049794,
                 "sender": "@user_b:example.org",
                 "type": "m.room.message",
-            })))
+            }))
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
                     second_receipts_event_id: {
@@ -692,7 +692,7 @@ async fn send_multiple_receipts() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm User A",
                     "msgtype": "m.text",
@@ -701,8 +701,8 @@ async fn send_multiple_receipts() {
                 "origin_server_ts": 152046694,
                 "sender": "@user_a:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm User B",
                     "msgtype": "m.text",
@@ -711,7 +711,7 @@ async fn send_multiple_receipts() {
                 "origin_server_ts": 152049794,
                 "sender": "@user_b:example.org",
                 "type": "m.room.message",
-            })))
+            }))
             .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
                 "content": {
                     second_receipts_event_id: {

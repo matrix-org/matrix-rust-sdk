@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
+use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, RoomExt, TimelineDetails, TimelineItemContent,
 };
@@ -42,7 +42,7 @@ async fn in_reply_to_details() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -51,8 +51,8 @@ async fn in_reply_to_details() {
                 "origin_server_ts": 152037280,
                 "sender": "@alice:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello to you too",
                     "msgtype": "m.text",
@@ -66,7 +66,7 @@ async fn in_reply_to_details() {
                 "origin_server_ts": 152045456,
                 "sender": "@bob:example.org",
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -85,7 +85,7 @@ async fn in_reply_to_details() {
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "you were right",
                 "msgtype": "m.text",
@@ -99,7 +99,7 @@ async fn in_reply_to_details() {
             "origin_server_ts": 152046694,
             "sender": "@bob:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -190,7 +190,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
 
     // Given a reply to an event that's not itself in the timeline...
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "Reply",
                 "msgtype": "m.text",
@@ -204,7 +204,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
             "origin_server_ts": 152046694,
             "sender": "@bob:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -249,7 +249,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
 
     // ... and then we re-receive the reply event
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "Reply",
                 "msgtype": "m.text",
@@ -263,7 +263,7 @@ async fn transfer_in_reply_to_details_to_re_received_item() {
             "origin_server_ts": 152046694,
             "sender": "@bob:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
