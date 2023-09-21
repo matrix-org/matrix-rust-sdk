@@ -100,7 +100,7 @@ impl TestTimeline {
     where
         C: MessageLikeEventContent,
     {
-        let ev = self.event_builder.make_message_event(sender, content);
+        let ev = self.event_builder.make_sync_message_event(sender, content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
@@ -108,7 +108,7 @@ impl TestTimeline {
     where
         C: RedactedMessageLikeEventContent,
     {
-        let ev = self.event_builder.make_redacted_message_event(sender, content);
+        let ev = self.event_builder.make_sync_redacted_message_event(sender, content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
@@ -116,7 +116,7 @@ impl TestTimeline {
     where
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
-        let ev = self.event_builder.make_state_event(sender, "", content, prev_content);
+        let ev = self.event_builder.make_sync_state_event(sender, "", content, prev_content);
         self.handle_live_event(ev).await;
     }
 
@@ -129,8 +129,12 @@ impl TestTimeline {
     ) where
         C: StaticStateEventContent,
     {
-        let ev =
-            self.event_builder.make_state_event(sender, state_key.as_ref(), content, prev_content);
+        let ev = self.event_builder.make_sync_state_event(
+            sender,
+            state_key.as_ref(),
+            content,
+            prev_content,
+        );
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
@@ -138,7 +142,7 @@ impl TestTimeline {
     where
         C: RedactedStateEventContent<StateKey = EmptyStateKey>,
     {
-        let ev = self.event_builder.make_redacted_state_event(sender, "", content);
+        let ev = self.event_builder.make_sync_redacted_state_event(sender, "", content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
@@ -150,7 +154,8 @@ impl TestTimeline {
     ) where
         C: RedactedStateEventContent,
     {
-        let ev = self.event_builder.make_redacted_state_event(sender, state_key.as_ref(), content);
+        let ev =
+            self.event_builder.make_sync_redacted_state_event(sender, state_key.as_ref(), content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 

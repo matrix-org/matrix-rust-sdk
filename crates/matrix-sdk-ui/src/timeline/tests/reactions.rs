@@ -247,12 +247,12 @@ async fn initial_reaction_timestamp_is_stored() {
     timeline
         .inner
         .add_initial_events(vector![
-            SyncTimelineEvent::new(timeline.event_builder.make_reaction(
+            SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
                 *ALICE,
                 &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
                 reaction_timestamp,
             )),
-            SyncTimelineEvent::new(timeline.event_builder.make_message_event_with_id(
+            SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
                 *ALICE,
                 &message_event_id,
                 RoomMessageEventContent::text_plain("A"),
