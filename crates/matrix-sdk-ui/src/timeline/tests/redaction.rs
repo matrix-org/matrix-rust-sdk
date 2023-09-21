@@ -15,7 +15,8 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
-use matrix_sdk_test::async_test;
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_test::{async_test, sync_timeline_event};
 use ruma::{
     events::{
         reaction::{ReactionEventContent, RedactedReactionEventContent},
@@ -31,10 +32,9 @@ use ruma::{
     },
     owned_room_id,
 };
-use serde_json::json;
 use stream_assert::assert_next_matches;
 
-use super::{sync_timeline_event, TestTimeline, ALICE, BOB};
+use super::{TestTimeline, ALICE, BOB};
 use crate::timeline::{AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent};
 
 #[async_test]
@@ -146,7 +146,7 @@ async fn reaction_redaction_timeline_filter() {
     // Initialise a timeline with a redacted reaction.
     timeline
         .inner
-        .add_initial_events(vector![sync_timeline_event(
+        .add_initial_events(vector![SyncTimelineEvent::new(
             timeline.make_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
         )])
         .await;
@@ -209,7 +209,7 @@ async fn receive_unredacted() {
 
     // send new events with the same event ID as the previous ones
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "unredacted #1",
                 "msgtype": "m.text",
@@ -221,7 +221,7 @@ async fn receive_unredacted() {
         }))
         .await;
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "unredacted #2",
                 "msgtype": "m.text",

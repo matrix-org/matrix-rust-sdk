@@ -3,6 +3,18 @@ pub use matrix_sdk_test_macros::async_test;
 use ruma::api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse};
 use serde_json::Value as JsonValue;
 
+/// Create a `Raw<AnySyncTimelineEvent>` from arbitrary JSON.
+///
+/// Forwards all arguments to [`serde_json::json`].
+#[macro_export]
+macro_rules! sync_timeline_event {
+    ($( $tt:tt )*) => {
+        ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
+            .unwrap()
+            .cast::<::ruma::events::AnySyncTimelineEvent>()
+    }
+}
+
 pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;

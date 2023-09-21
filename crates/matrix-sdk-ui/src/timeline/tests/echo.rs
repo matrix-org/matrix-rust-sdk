@@ -17,12 +17,11 @@ use std::{io, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::Error;
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, sync_timeline_event};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
 };
-use serde_json::json;
 use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
@@ -94,7 +93,7 @@ async fn remote_echo_full_trip() {
     // Now, a sync has been run against the server, and an event with the same ID
     // comes in.
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "echo",
                 "msgtype": "m.text",
@@ -140,7 +139,7 @@ async fn remote_echo_new_position() {
 
     // When the remote echo comes in…
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "echo",
                 "msgtype": "m.text",
@@ -190,7 +189,7 @@ async fn day_divider_duplication() {
     // … when the second remote event is re-received (day still the same)
     let event_id = items[2].as_event().unwrap().event_id().unwrap();
     timeline
-        .handle_live_custom_event(json!({
+        .handle_live_custom_event(sync_timeline_event!({
             "content": {
                 "body": "B",
                 "msgtype": "m.text",

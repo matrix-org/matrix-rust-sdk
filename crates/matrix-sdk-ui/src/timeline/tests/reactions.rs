@@ -18,6 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::vector;
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
@@ -29,10 +30,7 @@ use crate::timeline::{
     event_item::EventItemIdentifier,
     inner::ReactionAction,
     reactions::ReactionToggleResult,
-    tests::{
-        assert_event_is_updated, assert_no_more_updates, sync_timeline_event, TestTimeline, ALICE,
-        BOB,
-    },
+    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline, ALICE, BOB},
     TimelineItem,
 };
 
@@ -249,12 +247,12 @@ async fn initial_reaction_timestamp_is_stored() {
     timeline
         .inner
         .add_initial_events(vector![
-            sync_timeline_event(timeline.make_reaction(
+            SyncTimelineEvent::new(timeline.make_reaction(
                 *ALICE,
                 &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
                 reaction_timestamp
             )),
-            sync_timeline_event(timeline.make_message_event_with_id(
+            SyncTimelineEvent::new(timeline.make_message_event_with_id(
                 *ALICE,
                 RoomMessageEventContent::text_plain("A"),
                 message_event_id

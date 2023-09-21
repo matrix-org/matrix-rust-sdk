@@ -11,7 +11,6 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    serde::Raw,
     server_name, EventId, OwnedEventId, UserId,
 };
 
@@ -217,8 +216,7 @@ impl TestTimeline {
             NewUnstablePollStartEventContent::new(content).into(),
         );
         let event = self.make_message_event_with_id(sender, event_content, event_id.to_owned());
-        let raw = Raw::new(&event).unwrap().cast();
-        self.handle_live_event(raw).await;
+        self.handle_live_event(event).await;
     }
 
     async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {
