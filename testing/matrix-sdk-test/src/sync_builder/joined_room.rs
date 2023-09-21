@@ -8,7 +8,7 @@ use ruma::{
 };
 use serde_json::{from_value as from_json_value, Value as JsonValue};
 
-use super::{EphemeralTestEvent, RoomAccountDataTestEvent, StateTestEvent, TimelineTestEvent};
+use super::{EphemeralTestEvent, RoomAccountDataTestEvent, StateTestEvent};
 use crate::test_json;
 
 pub struct JoinedRoomBuilder {
@@ -26,8 +26,13 @@ impl JoinedRoomBuilder {
     }
 
     /// Add an event to the timeline.
-    pub fn add_timeline_event(mut self, event: TimelineTestEvent) -> Self {
-        self.inner.timeline.events.push(event.into_raw_event());
+    ///
+    /// [`TimelineTestEvent`][super::TimelineTestEvent] can be passed because it
+    /// implements `Into<Raw<AynSyncTimelineEvent>`. The raw event can also be
+    /// created with the [`sync_timeline_event`](crate::sync_timeline_event)
+    /// macro.
+    pub fn add_timeline_event(mut self, event: impl Into<Raw<AnySyncTimelineEvent>>) -> Self {
+        self.inner.timeline.events.push(event.into());
         self
     }
 
