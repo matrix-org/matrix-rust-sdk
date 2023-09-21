@@ -213,7 +213,7 @@ impl TestTimeline {
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
             NewUnstablePollStartEventContent::new(content).into(),
         );
-        let event = self.event_builder.make_message_event_with_id(sender, event_content, event_id);
+        let event = self.event_builder.make_message_event_with_id(sender, event_id, event_content);
         self.handle_live_event(event).await;
     }
 
