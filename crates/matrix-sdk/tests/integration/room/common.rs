@@ -3,8 +3,8 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
-    async_test, bulk_room_members, test_json, JoinedRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, TimelineTestEvent,
+    async_test, bulk_room_members, sync_timeline_event, test_json, JoinedRoomBuilder,
+    StateTestEvent, SyncResponseBuilder,
 };
 use ruma::{
     event_id,
@@ -186,7 +186,7 @@ async fn room_route() {
     // Without elligible server
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "creator": "@creator:127.0.0.1",
                     "room_version": "6",
@@ -196,8 +196,8 @@ async fn room_route() {
                 "sender": "@creator:127.0.0.1",
                 "state_key": "",
                 "type": "m.room.create",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "membership": "join",
                 },
@@ -206,7 +206,7 @@ async fn room_route() {
                 "sender": "@creator:127.0.0.1",
                 "state_key": "@creator:127.0.0.1",
                 "type": "m.room.member",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -275,7 +275,7 @@ async fn room_route() {
 
     // With power levels
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "users": {
                     "@user_0:localhost": 50,
@@ -286,7 +286,7 @@ async fn room_route() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.power_levels",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
@@ -300,7 +300,7 @@ async fn room_route() {
 
     // With higher power levels
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "users": {
                     "@user_0:localhost": 50,
@@ -312,7 +312,7 @@ async fn room_route() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.power_levels",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
@@ -326,7 +326,7 @@ async fn room_route() {
 
     // With server ACLs
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "allow": ["*"],
                 "allow_ip_literals": true,
@@ -337,7 +337,7 @@ async fn room_route() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.server_acl",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
@@ -386,7 +386,7 @@ async fn room_permalink() {
 
     // With an alternative alias
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "alt_aliases": ["#alias:localhost"],
             },
@@ -395,7 +395,7 @@ async fn room_permalink() {
             "sender": "@user_0:localhost",
             "state_key": "",
             "type": "m.room.canonical_alias",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
@@ -409,7 +409,7 @@ async fn room_permalink() {
 
     // With a canonical alias
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "alias": "#canonical:localhost",
                 "alt_aliases": ["#alias:localhost"],
@@ -419,7 +419,7 @@ async fn room_permalink() {
             "sender": "@user_0:localhost",
             "state_key": "",
             "type": "m.room.canonical_alias",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
@@ -476,7 +476,7 @@ async fn room_event_permalink() {
 
     // Adding an alias doesn't change anything
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "alias": "#canonical:localhost",
                 "alt_aliases": ["#alias:localhost"],
@@ -486,7 +486,7 @@ async fn room_event_permalink() {
             "sender": "@user_0:localhost",
             "state_key": "",
             "type": "m.room.canonical_alias",
-        })),
+        }),
     ));
     mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();

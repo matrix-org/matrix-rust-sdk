@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch};
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
+use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
@@ -94,7 +94,7 @@ async fn echo() {
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "Hello, World!",
                 "msgtype": "m.text",
@@ -104,7 +104,7 @@ async fn echo() {
             "sender": "@example:localhost",
             "type": "m.room.message",
             "unsigned": { "transaction_id": txn_id, },
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -231,7 +231,7 @@ async fn dedup_by_event_id_late() {
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "Hello, World!",
                 "msgtype": "m.text",
@@ -241,7 +241,7 @@ async fn dedup_by_event_id_late() {
             "sender": "@example:localhost",
             "type": "m.room.message",
             // no transaction ID
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;

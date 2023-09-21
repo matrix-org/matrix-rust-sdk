@@ -34,7 +34,6 @@ pub enum TimelineTestEvent {
     RoomAvatar,
     RoomName,
     RoomTopic,
-    Custom(JsonValue),
 }
 
 impl TimelineTestEvent {
@@ -64,7 +63,6 @@ impl TimelineTestEvent {
             Self::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
             Self::RoomName => test_json::sync_events::NAME.to_owned(),
             Self::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
-            Self::Custom(json) => json,
         }
     }
 }

@@ -4,7 +4,7 @@ use std::{
 };
 
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
+use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
@@ -46,8 +46,7 @@ async fn test_notification_client_with_context() {
 
     let mut ev_builder = SyncResponseBuilder::new();
     ev_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(event_json.clone())),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(sync_timeline_event!(event_json)),
     );
 
     // First, mock a sync that contains a text message.

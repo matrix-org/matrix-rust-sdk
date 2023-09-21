@@ -19,8 +19,8 @@ use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{
-    async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
-    TimelineTestEvent,
+    async_test, sync_timeline_event, GlobalAccountDataTestEvent, JoinedRoomBuilder,
+    SyncResponseBuilder, TimelineTestEvent,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{event_id, events::room::message::MessageType, room_id};
@@ -84,7 +84,7 @@ async fn event_filter() {
 
     let first_event_id = event_id!("$YTQwYl2ply");
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        TimelineTestEvent::Custom(json!({
+        sync_timeline_event!({
             "content": {
                 "body": "hello",
                 "msgtype": "m.text",
@@ -93,7 +93,7 @@ async fn event_filter() {
             "origin_server_ts": 152037280,
             "sender": "@alice:example.org",
             "type": "m.room.message",
-        })),
+        }),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -121,7 +121,7 @@ async fn event_filter() {
     let edit_event_id = event_id!("$7i9In0gEmB");
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "Test",
                     "formatted_body": "<em>Test</em>",
@@ -132,8 +132,8 @@ async fn event_filter() {
                 "origin_server_ts": 152038280,
                 "sender": "@bob:example.org",
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": " * hi",
                     "m.new_content": {
@@ -150,7 +150,7 @@ async fn event_filter() {
                 "origin_server_ts": 159056300,
                 "sender": "@alice:example.org",
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -204,7 +204,7 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -213,8 +213,8 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
                 "origin_server_ts": 152037280,
                 "sender": alice,
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -223,8 +223,8 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
                 "origin_server_ts": 152037281,
                 "sender": bob,
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -233,7 +233,7 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
                 "origin_server_ts": 152037282,
                 "sender": alice,
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -279,7 +279,7 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -288,8 +288,8 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
                 "origin_server_ts": 152037283,
                 "sender": alice,
                 "type": "m.room.message",
-            })))
-            .add_timeline_event(TimelineTestEvent::Custom(json!({
+            }))
+            .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "hello",
                     "msgtype": "m.text",
@@ -298,7 +298,7 @@ async fn timeline_is_reset_when_a_user_is_ignored_or_unignored() {
                 "origin_server_ts": 152037284,
                 "sender": alice,
                 "type": "m.room.message",
-            }))),
+            })),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
