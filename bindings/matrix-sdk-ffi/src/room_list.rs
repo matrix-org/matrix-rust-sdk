@@ -437,11 +437,16 @@ impl RoomListItem {
     ///
     /// Be careful that building a `Room` builds its entire `Timeline` at the
     /// same time.
-    fn full_room(&self) -> Arc<Room> {
+    async fn full_room(&self) -> Arc<Room> {
         Arc::new(Room::with_timeline(
             self.inner.inner_room().clone(),
-            Arc::new(RwLock::new(Some(RUNTIME.block_on(async { self.inner.timeline().await })))),
+            Arc::new(RwLock::new(Some(self.inner.timeline().await))),
         ))
+    }
+
+    // Temporary workaround for coroutine leaks on Kotlin.
+    fn full_room_blocking(&self) -> Arc<Room> {
+        RUNTIME.block_on(async move { self.full_room().await })
     }
 
     fn subscribe(&self, settings: Option<RoomSubscription>) {
