@@ -23,11 +23,11 @@ use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::Annotation,
-        AnySyncTimelineEvent, MessageLikeEventContent, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, StateEventContent,
+        AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -55,6 +55,23 @@ impl EventBuilder {
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+
+    pub fn make_message_event_with_id<C: MessageLikeEventContent>(
+        &self,
+        sender: &UserId,
+        room_id: &RoomId,
+        event_id: &EventId,
+        content: C,
+    ) -> Raw<AnyTimelineEvent> {
+        timeline_event!({
+            "type": content.event_type(),
+            "content": content,
+            "event_id": event_id,
+            "sender": sender,
+            "room_id": room_id,
+            "origin_server_ts": self.next_server_ts(),
+        })
     }
 
     pub fn make_sync_message_event<C: MessageLikeEventContent>(
