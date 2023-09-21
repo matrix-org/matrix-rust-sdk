@@ -61,7 +61,7 @@ async fn day_divider() {
     item.as_event().unwrap();
 
     // Timestamps start at unix epoch, advance to one day later
-    timeline.set_next_ts(24 * 60 * 60 * 1000);
+    timeline.event_builder.set_next_ts(24 * 60 * 60 * 1000);
 
     timeline
         .handle_live_message_event(

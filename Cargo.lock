@@ -3057,7 +3057,6 @@ dependencies = [
  "futures-core",
  "futures-executor",
  "futures-util",
- "getrandom 0.2.10",
  "gloo-timers 0.3.0",
  "http",
  "hyper",
@@ -3374,6 +3373,7 @@ dependencies = [
 name = "matrix-sdk-test"
 version = "0.6.0"
 dependencies = [
+ "getrandom 0.2.10",
  "http",
  "matrix-sdk-test-macros",
  "once_cell",

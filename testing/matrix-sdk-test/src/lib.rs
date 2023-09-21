@@ -15,14 +15,18 @@ macro_rules! sync_timeline_event {
     }
 }
 
+mod event_builder;
 pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;
 
-pub use sync_builder::{
-    bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
-    JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
-    StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
+pub use self::{
+    event_builder::EventBuilder,
+    sync_builder::{
+        bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
+        JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
+        StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
+    },
 };
 
 /// Embedded sync response files
