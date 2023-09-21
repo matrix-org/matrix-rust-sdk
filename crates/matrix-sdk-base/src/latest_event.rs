@@ -3,10 +3,17 @@
 
 #![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 
-use ruma::events::{
-    poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use ruma::{
+    events::{
+        poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
+    OwnedEventId,
 };
+use serde::{Deserialize, Serialize};
+
+use crate::RoomMember;
 
 /// Represents a decision about whether an event could be stored as the latest
 /// event in a room. Variants starting with Yes indicate that this message could
@@ -56,6 +63,41 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
         // We don't currently support state events
         AnySyncTimelineEvent::State(_) => PossibleLatestEvent::NoUnsupportedEventType,
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LatestEvent {
+    event: SyncTimelineEvent,
+    // member: Option<RoomMember>,
+}
+
+impl LatestEvent {
+    pub fn new(event: SyncTimelineEvent) -> Self {
+        Self { event }
+    }
+
+    // pub fn new_with_member(event: SyncTimelineEvent, member: RoomMember) -> Self
+    // {     Self { event, member: Some(member) }
+    // }
+
+    pub fn into_event(self) -> SyncTimelineEvent {
+        self.event
+    }
+
+    pub fn event(&self) -> &SyncTimelineEvent {
+        &self.event
+    }
+
+    pub fn event_mut(&mut self) -> &mut SyncTimelineEvent {
+        &mut self.event
+    }
+
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        self.event.event_id()
+    }
+    // pub fn member(&self) -> Option<&RoomMember> {
+    //     self.member.as_ref()
+    // }
 }
 
 #[cfg(test)]

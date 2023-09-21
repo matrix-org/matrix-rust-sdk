@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::EncryptionInfo, Client, Error};
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::latest_event::LatestEvent;
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
@@ -96,10 +96,11 @@ impl EventTimelineItem {
     pub async fn from_latest_event(
         client: Client,
         room_id: &RoomId,
-        sync_event: SyncTimelineEvent,
+        latest_event: LatestEvent,
     ) -> Option<EventTimelineItem> {
         use super::traits::RoomDataProvider;
 
+        let sync_event = latest_event.into_event();
         let raw_sync_event = sync_event.event;
         let encryption_info = sync_event.encryption_info;
 
@@ -499,7 +500,10 @@ pub enum EventItemOrigin {
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk::{config::RequestConfig, Client, ClientBuilder};
-    use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, BaseClient, SessionMeta};
+    use matrix_sdk_base::{
+        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, BaseClient,
+        SessionMeta,
+    };
     use matrix_sdk_test::async_test;
     use ruma::{
         api::{client::sync::sync_events::v4, MatrixVersion},
@@ -528,7 +532,9 @@ mod tests {
 
         // When we construct a timeline event from it
         let timeline_item =
-            EventTimelineItem::from_latest_event(client, room_id, event).await.unwrap();
+            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
 
         // Then its properties correctly translate
         assert_eq!(timeline_item.sender, user_id);
@@ -563,7 +569,9 @@ mod tests {
 
         // When we construct a timeline event from it
         let timeline_item =
-            EventTimelineItem::from_latest_event(client, room_id, event).await.unwrap();
+            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
 
         // Then its sender is properly populated
         let profile = assert_matches!(timeline_item.sender_profile, TimelineDetails::Ready(p) => p);
