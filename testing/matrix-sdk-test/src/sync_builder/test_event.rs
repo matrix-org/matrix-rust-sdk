@@ -67,10 +67,12 @@ impl TimelineTestEvent {
             Self::Custom(json) => json,
         }
     }
+}
 
+impl From<TimelineTestEvent> for Raw<AnySyncTimelineEvent> {
     /// Get the typed JSON representation of this test event.
-    pub fn into_raw_event(self) -> Raw<AnySyncTimelineEvent> {
-        from_json_value(self.into_json_value()).unwrap()
+    fn from(value: TimelineTestEvent) -> Self {
+        from_json_value(value.into_json_value()).unwrap()
     }
 }
 

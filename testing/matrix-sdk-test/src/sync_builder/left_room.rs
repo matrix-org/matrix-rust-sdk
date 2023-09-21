@@ -5,7 +5,7 @@ use ruma::{
     OwnedRoomId,
 };
 
-use super::{RoomAccountDataTestEvent, StateTestEvent, TimelineTestEvent};
+use super::{RoomAccountDataTestEvent, StateTestEvent};
 use crate::test_json;
 
 pub struct LeftRoomBuilder {
@@ -23,8 +23,13 @@ impl LeftRoomBuilder {
     }
 
     /// Add an event to the timeline.
-    pub fn add_timeline_event(mut self, event: TimelineTestEvent) -> Self {
-        self.inner.timeline.events.push(event.into_raw_event());
+    ///
+    /// [`TimelineTestEvent`][super::TimelineTestEvent] can be passed because it
+    /// implements `Into<Raw<AynSyncTimelineEvent>`. The raw event can also be
+    /// created with the [`sync_timeline_event`](crate::sync_timeline_event)
+    /// macro.
+    pub fn add_timeline_event(mut self, event: impl Into<Raw<AnySyncTimelineEvent>>) -> Self {
+        self.inner.timeline.events.push(event.into());
         self
     }
 
