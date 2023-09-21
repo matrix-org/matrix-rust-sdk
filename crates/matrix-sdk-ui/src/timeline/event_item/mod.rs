@@ -90,8 +90,9 @@ impl EventTimelineItem {
         Self { sender, sender_profile, timestamp, content, kind }
     }
 
-    /// If the supplied low-level SyncTimelineEventy is suitable for use as the
-    /// latest_event in a message preview, wrap it as an EventTimelineItem,
+    /// If the supplied low-level `SyncTimelineEventy` is suitable for use as
+    /// the `latest_event `` in a message preview, wrap it as an
+    /// `EventTimelineItem`.
     pub async fn from_latest_event(
         client: Client,
         room_id: &RoomId,
@@ -112,8 +113,8 @@ impl EventTimelineItem {
         let event_id = event.event_id().to_owned();
         let is_own = client.user_id().map(|uid| uid == sender).unwrap_or(false);
 
-        // If we don't (yet) know how to handle this type of message, return None here.
-        // If we do, convert it into a TimelineItemContent.
+        // If we don't (yet) know how to handle this type of message, return `None`
+        // here. If we do, convert it into a `TimelineItemContent`.
         let item_content = TimelineItemContent::from_latest_event_content(event)?;
 
         // We don't currently bundle any reactions with the main event. This could
