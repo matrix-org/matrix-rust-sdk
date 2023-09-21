@@ -143,7 +143,8 @@ impl RoomList {
             loop {
                 let filter_fn = filter_fn_cell.take().await;
                 let (values, stream) = list
-                    .room_list_filtered_stream(filter_fn)
+                    .room_list_stream()
+                    .filter(filter_fn)
                     .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
