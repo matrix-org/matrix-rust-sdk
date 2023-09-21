@@ -41,7 +41,7 @@ matrix-sdk-crypto = { version = "0.6.0", path = "../matrix-sdk-crypto", optional
 matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-encryption" }
 matrix-sdk-test = { version = "0.6.0", path = "../../testing/matrix-sdk-test", optional = true }
 once_cell = { workspace = true }
-ruma = { workspace = true, features = ["canonical-json"] }
+ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381"] }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
