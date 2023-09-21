@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     future::Future,
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
@@ -29,9 +29,7 @@ use matrix_sdk_base::{deserialized_responses::TimelineEvent, sync::JoinedRoom};
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
-        receipt::{Receipt, ReceiptType},
-        relation::Annotation,
-        room::redaction::RoomRedactionEventContent,
+        relation::Annotation, room::redaction::RoomRedactionEventContent,
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
     },
     push::Action,
@@ -52,6 +50,7 @@ use crate::{
         item::timeline_item,
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
+        read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{
             find_read_marker, rfind_event_by_id, rfind_event_item, timestamp_to_date,
@@ -202,7 +201,6 @@ impl TimelineInnerState {
         own_profile: Option<Profile>,
         txn_id: OwnedTransactionId,
         content: AnyMessageLikeEventContent,
-        settings: &TimelineInnerSettings,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -218,7 +216,7 @@ impl TimelineInnerState {
         };
 
         let mut txn = self.transaction();
-        TimelineEventHandler::new(&mut txn, ctx, settings.track_read_receipts)
+        TimelineEventHandler::new(&mut txn, ctx)
             .handle_event(TimelineEventKind::Message { content, relations: Default::default() });
         txn.commit();
     }
@@ -231,7 +229,6 @@ impl TimelineInnerState {
         txn_id: OwnedTransactionId,
         to_redact: EventItemIdentifier,
         content: RoomRedactionEventContent,
-        settings: &TimelineInnerSettings,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -247,8 +244,7 @@ impl TimelineInnerState {
         };
 
         let mut txn = self.transaction();
-        let timeline_event_handler =
-            TimelineEventHandler::new(&mut txn, ctx, settings.track_read_receipts);
+        let timeline_event_handler = TimelineEventHandler::new(&mut txn, ctx);
 
         match to_redact {
             EventItemIdentifier::TransactionId(txn_id) => {
@@ -536,7 +532,15 @@ impl TimelineInnerStateTransaction<'_> {
                     let event_id = event.event_id();
                     warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
 
-                    self.add_event(event_id.to_owned(), false, position);
+                    let is_own_event = event.sender() == room_data_provider.own_user_id();
+                    let event_metadata = FullEventMeta {
+                        event_id,
+                        sender: Some(event.sender()),
+                        is_own_event,
+                        timestamp: Some(event.origin_server_ts()),
+                        visible: false,
+                    };
+                    self.add_event(event_metadata, position, room_data_provider, settings).await;
 
                     return HandleEventResult::default();
                 }
@@ -546,7 +550,21 @@ impl TimelineInnerStateTransaction<'_> {
                     warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
 
                     if let Some(Ok(event_id)) = event_id.map(EventId::parse) {
-                        self.add_event(event_id.to_owned(), false, position);
+                        let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
+                        let is_own_event =
+                            sender.as_ref().is_some_and(|s| s == room_data_provider.own_user_id());
+                        let timestamp: Option<MilliSecondsSinceUnixEpoch> =
+                            raw.get_field("origin_server_ts").ok().flatten();
+
+                        let event_metadata = FullEventMeta {
+                            event_id: &event_id,
+                            sender: sender.as_deref(),
+                            is_own_event,
+                            timestamp,
+                            visible: false,
+                        };
+                        self.add_event(event_metadata, position, room_data_provider, settings)
+                            .await;
                     }
 
                     return HandleEventResult::default();
@@ -554,9 +572,17 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        self.add_event(event_id.clone(), should_add, position);
-
         let is_own_event = sender == room_data_provider.own_user_id();
+
+        let event_metadata = FullEventMeta {
+            event_id: &event_id,
+            sender: Some(&sender),
+            is_own_event,
+            timestamp: Some(timestamp),
+            visible: should_add,
+        };
+        self.add_event(event_metadata, position, room_data_provider, settings).await;
+
         let sender_profile = room_data_provider.profile(&sender).await;
         let ctx = TimelineEventContext {
             sender,
@@ -564,8 +590,18 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp,
             is_own_event,
             encryption_info: event.encryption_info,
-            read_receipts: if settings.track_read_receipts {
-                self.load_read_receipts_for_event(&event_id, room_data_provider).await
+            read_receipts: if settings.track_read_receipts && should_add {
+                let read_receipts = self.read_receipts.read_receipts_for_event(
+                    &event_id,
+                    &self.all_events,
+                    matches!(position, TimelineItemPosition::End { .. }),
+                );
+
+                for user_id in read_receipts.keys() {
+                    self.read_receipts.set_user_receipt_timeline_item(user_id, event_id.clone());
+                }
+
+                read_receipts
             } else {
                 Default::default()
             },
@@ -573,7 +609,7 @@ impl TimelineInnerStateTransaction<'_> {
             flow: Flow::Remote { event_id, raw_event: raw, txn_id, position, should_add },
         };
 
-        TimelineEventHandler::new(self, ctx, settings.track_read_receipts).handle_event(event_kind)
+        TimelineEventHandler::new(self, ctx).handle_event(event_kind)
     }
 
     fn clear(&mut self) {
@@ -609,6 +645,7 @@ impl TimelineInnerStateTransaction<'_> {
         }
 
         self.all_events.clear();
+        self.read_receipts.clear();
         self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
@@ -637,6 +674,61 @@ impl TimelineInnerStateTransaction<'_> {
         mem::forget(self);
 
         items.commit();
+    }
+
+    async fn add_event<P: RoomDataProvider>(
+        &mut self,
+        event_metadata: FullEventMeta<'_>,
+        position: TimelineItemPosition,
+        room_data_provider: &P,
+        settings: &TimelineInnerSettings,
+    ) {
+        let meta = EventMeta {
+            event_id: event_metadata.event_id.to_owned(),
+            visible: event_metadata.visible,
+        };
+
+        match position {
+            TimelineItemPosition::Start => self.all_events.push_front(meta),
+            TimelineItemPosition::End { .. } => {
+                // Handle duplicated event.
+                if let Some(pos) =
+                    self.all_events.iter().position(|ev| ev.event_id == meta.event_id)
+                {
+                    self.all_events.remove(pos);
+                }
+
+                self.all_events.push_back(meta);
+            }
+            #[cfg(feature = "e2e-encryption")]
+            TimelineItemPosition::Update(_) => {
+                if let Some(event) =
+                    self.all_events.iter_mut().find(|e| e.event_id == meta.event_id)
+                {
+                    if event.visible != event_metadata.visible {
+                        event.visible = event_metadata.visible;
+
+                        if settings.track_read_receipts {
+                            // Since the event's visibility changed, we need to update the read
+                            // receipts of the previous visible event.
+                            self.maybe_update_read_receipts_of_prev_event(event_metadata.event_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        if settings.track_read_receipts
+            && matches!(position, TimelineItemPosition::Start | TimelineItemPosition::End { .. })
+        {
+            self.load_read_receipts_for_event(
+                event_metadata.event_id.to_owned(),
+                room_data_provider,
+            )
+            .await;
+
+            self.maybe_add_implicit_read_receipt(event_metadata);
+        }
     }
 }
 
@@ -669,7 +761,7 @@ impl DerefMut for TimelineInnerStateTransaction<'_> {
 pub(in crate::timeline) struct TimelineInnerMetadata {
     /// List of all the events as received in the timeline, even the ones that
     /// are discarded in the timeline items.
-    all_events: VecDeque<EventMeta>,
+    pub all_events: VecDeque<EventMeta>,
     next_internal_id: u64,
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
@@ -680,9 +772,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// - The fully-read marker points to an event that is not in the timeline,
     /// - The fully-read marker item would be the last item in the timeline.
     pub event_should_update_fully_read_marker: bool,
-    /// User ID => Receipt type => Read receipt of the user of the given
-    /// type.
-    pub users_read_receipts: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    pub read_receipts: ReadReceipts,
     /// the local reaction request state that is queued next
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
     /// the in flight reaction request state that is ongoing
@@ -699,36 +789,10 @@ impl TimelineInnerMetadata {
             poll_pending_events: Default::default(),
             fully_read_event: Default::default(),
             event_should_update_fully_read_marker: Default::default(),
-            users_read_receipts: Default::default(),
+            read_receipts: Default::default(),
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
             room_version,
-        }
-    }
-
-    fn add_event(&mut self, event_id: OwnedEventId, visible: bool, position: TimelineItemPosition) {
-        let meta = EventMeta { event_id, visible };
-
-        match position {
-            TimelineItemPosition::Start => self.all_events.push_front(meta),
-            TimelineItemPosition::End { .. } => {
-                // Handle duplicated event.
-                if let Some(pos) =
-                    self.all_events.iter().position(|ev| ev.event_id == meta.event_id)
-                {
-                    self.all_events.remove(pos);
-                }
-
-                self.all_events.push_back(meta);
-            }
-            #[cfg(feature = "e2e-encryption")]
-            TimelineItemPosition::Update(_) => {
-                if let Some(event) =
-                    self.all_events.iter_mut().find(|e| e.event_id == meta.event_id)
-                {
-                    event.visible = visible;
-                }
-            }
         }
     }
 
@@ -831,11 +895,26 @@ impl TimelineInnerMetadata {
     }
 }
 
-/// Metadata about an event.
-#[derive(Debug, Clone)]
-struct EventMeta {
+/// Full metadata about an event.
+#[derive(Debug, Clone, Copy)]
+pub struct FullEventMeta<'a> {
     /// The ID of the event.
-    event_id: OwnedEventId,
+    pub event_id: &'a EventId,
+    /// The sender of the event.
+    pub sender: Option<&'a UserId>,
+    /// Whether this event was sent by our own user.
+    pub is_own_event: bool,
+    /// The timestamp of the event.
+    pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
     /// Whether the event is among the timeline items.
-    visible: bool,
+    pub visible: bool,
+}
+
+/// Metadata about an event that needs to be kept in memory.
+#[derive(Debug, Clone)]
+pub struct EventMeta {
+    /// The ID of the event.
+    pub event_id: OwnedEventId,
+    /// Whether the event is among the timeline items.
+    pub visible: bool,
 }

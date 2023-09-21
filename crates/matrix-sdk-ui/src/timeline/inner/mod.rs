@@ -57,6 +57,7 @@ use super::{
     event_item::EventItemIdentifier,
     item::timeline_item,
     reactions::ReactionToggleResult,
+    read_receipts::UserTimelineReceipt,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
@@ -66,7 +67,8 @@ use super::{
 mod state;
 
 pub(super) use self::state::{
-    TimelineInnerMetadata, TimelineInnerState, TimelineInnerStateTransaction,
+    EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
+    TimelineInnerStateTransaction,
 };
 
 #[derive(Clone, Debug)]
@@ -227,7 +229,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     sender_profile,
                     txn_id.clone(),
                     event_content.clone(),
-                    &self.settings,
                 );
                 ReactionState::Sending(txn_id)
             }
@@ -248,7 +249,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     TransactionId::new(),
                     to_redact,
                     no_reason.clone(),
-                    &self.settings,
                 );
 
                 // Remember the remote echo to redact on the homeserver
@@ -297,13 +297,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         receipt: (OwnedEventId, Receipt),
     ) {
         let own_user_id = self.room_data_provider.own_user_id().to_owned();
+        let (event_id, receipt) = receipt;
         self.state
             .write()
             .await
+            .read_receipts
             .users_read_receipts
             .entry(own_user_id)
             .or_default()
-            .insert(receipt_type, receipt);
+            .insert(
+                receipt_type,
+                UserTimelineReceipt { event_id, receipt, timeline_event_id: None },
+            );
     }
 
     pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
@@ -346,7 +351,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, content, &self.settings);
+        state.handle_local_event(sender, profile, txn_id, content);
     }
 
     /// Handle the creation of a new local event.
@@ -361,7 +366,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_redaction(sender, profile, txn_id, to_redact, content, &self.settings);
+        state.handle_local_redaction(sender, profile, txn_id, to_redact, content);
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -901,7 +906,7 @@ impl TimelineInner {
         match receipt_type {
             SendReceiptType::Read => {
                 if let Some((old_pub_read, _)) =
-                    state.user_receipt(own_user_id, ReceiptType::Read, room).await
+                    state.read_receipts.user_receipt(own_user_id, ReceiptType::Read, room).await
                 {
                     if let Some(relative_pos) =
                         state.meta.compare_events_positions(&old_pub_read, event_id)

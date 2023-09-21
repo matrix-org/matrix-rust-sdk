@@ -23,8 +23,9 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
-use matrix_sdk_test::{EventBuilder, ALICE};
+use matrix_sdk_test::{EventBuilder, ALICE, BOB};
 use ruma::{
+    event_id,
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
@@ -38,8 +39,8 @@ use ruma::{
     push::{PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    server_name, uint, EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
-    TransactionId, UserId,
+    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
+    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 
 use super::{
@@ -101,6 +102,18 @@ impl TestTimeline {
         C: MessageLikeEventContent,
     {
         let ev = self.event_builder.make_sync_message_event(sender, content);
+        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+    }
+
+    async fn handle_live_message_event_with_id<C>(
+        &self,
+        sender: &UserId,
+        event_id: &EventId,
+        content: C,
+    ) where
+        C: MessageLikeEventContent,
+    {
+        let ev = self.event_builder.make_sync_message_event_with_id(sender, event_id, content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
@@ -196,6 +209,19 @@ impl TestTimeline {
         txn_id
     }
 
+    async fn handle_back_paginated_message_event_with_id<C>(
+        &self,
+        sender: &UserId,
+        room_id: &RoomId,
+        event_id: &EventId,
+        content: C,
+    ) where
+        C: MessageLikeEventContent,
+    {
+        let ev = self.event_builder.make_message_event_with_id(sender, room_id, event_id, content);
+        self.inner.handle_back_paginated_events(vec![TimelineEvent::new(ev)]).await;
+    }
+
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.inner.handle_back_paginated_events(vec![timeline_event]).await;
@@ -242,8 +268,12 @@ impl RoomDataProvider for TestRoomDataProvider {
         None
     }
 
-    async fn read_receipts_for_event(&self, _event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        IndexMap::new()
+    async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
+        if event_id == event_id!("$event_with_bob_receipt") {
+            [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
+        } else {
+            IndexMap::new()
+        }
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {

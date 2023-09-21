@@ -181,13 +181,16 @@ async fn event_filter() {
     let second_event = second.as_event().unwrap();
     assert_eq!(second_event.event_id(), Some(second_event_id));
 
+    // The implicit read receipt of Alice is updated.
+    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Set { index: 1, .. }));
+
     // The edit is applied to the first event.
     let first = assert_matches!(
         timeline_stream.next().await,
         Some(VectorDiff::Set { index: 1, value }) => value
     );
     let first_event = first.as_event().unwrap();
-    assert!(!first_event.read_receipts().is_empty());
+    assert!(first_event.read_receipts().is_empty());
     let msg = assert_matches!(
         first_event.content(),
         TimelineItemContent::Message(msg) => msg
