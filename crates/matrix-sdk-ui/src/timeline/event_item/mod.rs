@@ -317,7 +317,7 @@ impl EventTimelineItem {
         } else if let TimelineItemContent::Message(_) = self.content() {
             true
         } else {
-            self.original_json().is_some()
+            self.latest_json().is_some()
         }
     }
 
