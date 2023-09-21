@@ -59,6 +59,13 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_pattern() {
+        let matcher = FuzzyMatcher::new();
+
+        assert!(matcher.fuzzy_match("hello"));
+    }
+
+    #[test]
     fn test_literal() {
         let matcher = FuzzyMatcher::new();
 

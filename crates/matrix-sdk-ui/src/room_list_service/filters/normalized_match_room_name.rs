@@ -59,6 +59,13 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_pattern() {
+        let matcher = NormalizedMatcher::new();
+
+        assert!(matcher.normalized_match("hello"));
+    }
+
+    #[test]
     fn test_literal() {
         let matcher = NormalizedMatcher::new();
 
