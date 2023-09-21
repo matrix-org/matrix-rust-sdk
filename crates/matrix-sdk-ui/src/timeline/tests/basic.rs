@@ -112,6 +112,7 @@ async fn room_member() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.can_be_replied_to());
     let membership =
         assert_matches!(item.content(), TimelineItemContent::MembershipChange(ev) => ev);
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
@@ -326,6 +327,7 @@ async fn reply() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
+    assert!(first_event.can_be_replied_to());
     let first_event_id = first_event.event_id().unwrap();
     let first_event_sender = *ALICE;
 

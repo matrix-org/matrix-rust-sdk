@@ -351,6 +351,10 @@ impl EventTimelineItem {
     pub fn origin(&self) -> Option<EventItemOrigin> {
         self.0.origin()
     }
+
+    pub fn can_be_replied_to(&self) -> bool {
+        self.0.can_be_replied_to()
+    }
 }
 
 #[derive(uniffi::Record)]

@@ -47,6 +47,7 @@ async fn remote_echo_full_trip() {
         let event_item = item.as_event().unwrap();
         assert!(event_item.is_local_echo());
         assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet));
+        assert!(!event_item.can_be_replied_to());
         item.unique_id()
     };
 
