@@ -255,7 +255,7 @@ async fn initial_reaction_timestamp_is_stored() {
             SyncTimelineEvent::new(timeline.event_builder.make_message_event_with_id(
                 *ALICE,
                 RoomMessageEventContent::text_plain("A"),
-                message_event_id
+                &message_event_id
             ))
         ])
         .await;

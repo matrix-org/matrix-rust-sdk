@@ -62,14 +62,18 @@ impl EventBuilder {
         sender: &UserId,
         content: C,
     ) -> Raw<AnySyncTimelineEvent> {
-        self.make_message_event_with_id(sender, content, EventId::new(server_name!("dummy.server")))
+        self.make_message_event_with_id(
+            sender,
+            content,
+            &EventId::new(server_name!("dummy.server")),
+        )
     }
 
     pub fn make_message_event_with_id<C: MessageLikeEventContent>(
         &self,
         sender: &UserId,
         content: C,
-        event_id: OwnedEventId,
+        event_id: &EventId,
     ) -> Raw<AnySyncTimelineEvent> {
         sync_timeline_event!({
             "type": content.event_type(),
