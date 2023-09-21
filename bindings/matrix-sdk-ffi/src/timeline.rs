@@ -803,7 +803,7 @@ impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent 
 
 #[derive(Clone, uniffi::Record)]
 pub struct UnstableVoiceContent {
-    // DO NOT USE: Dummy prop to work around https://github.com/mozilla/uniffi-rs/issues/1760
+    // DO NOT USE: Dummy field to work around https://github.com/mozilla/uniffi-rs/issues/1760
     do_not_use: bool,
 }
 
