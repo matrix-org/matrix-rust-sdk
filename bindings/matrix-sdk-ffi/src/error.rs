@@ -102,6 +102,12 @@ impl From<OidcError> for ClientError {
     }
 }
 
+impl From<RoomError> for ClientError {
+    fn from(e: RoomError) -> Self {
+        Self::new(e)
+    }
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum RoomError {
@@ -109,6 +115,8 @@ pub enum RoomError {
     InvalidAttachmentData,
     #[error("Invalid attachment mime type")]
     InvalidAttachmentMimeType,
+    #[error("Invalid media info")]
+    InvalidMediaInfo,
     #[error("Timeline unavailable")]
     TimelineUnavailable,
     #[error("Invalid thumbnail data")]
@@ -119,11 +127,11 @@ pub enum RoomError {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
-pub enum TimelineError {
+pub enum MediaInfoError {
     #[error("Required value missing from the media info")]
-    MissingMediaInfoField,
+    MissingField,
     #[error("Media info field invalid")]
-    InvalidMediaInfoField,
+    InvalidField,
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]

@@ -36,7 +36,7 @@ use ruma::{assign, UInt};
 use tracing::{info, warn};
 
 use crate::{
-    error::{ClientError, TimelineError},
+    error::{ClientError, MediaInfoError},
     helpers::unwrap_or_clone_arc,
     room::AssetType,
 };
@@ -733,16 +733,16 @@ impl From<ImageInfo> for RumaImageInfo {
 }
 
 impl TryFrom<&ImageInfo> for BaseImageInfo {
-    type Error = TimelineError;
+    type Error = MediaInfoError;
 
-    fn try_from(value: &ImageInfo) -> Result<Self, TimelineError> {
-        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
+    fn try_from(value: &ImageInfo) -> Result<Self, MediaInfoError> {
+        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
 
         Ok(BaseImageInfo {
             height: Some(height),
@@ -771,12 +771,12 @@ impl From<AudioInfo> for RumaAudioInfo {
 }
 
 impl TryFrom<&AudioInfo> for BaseAudioInfo {
-    type Error = TimelineError;
+    type Error = MediaInfoError;
 
-    fn try_from(value: &AudioInfo) -> Result<Self, TimelineError> {
-        let duration = value.duration.ok_or(TimelineError::MissingMediaInfoField)?;
-        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+    fn try_from(value: &AudioInfo) -> Result<Self, MediaInfoError> {
+        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
+        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
 
         Ok(BaseAudioInfo { duration: Some(duration), size: Some(size) })
     }
@@ -838,17 +838,17 @@ impl From<VideoInfo> for RumaVideoInfo {
 }
 
 impl TryFrom<&VideoInfo> for BaseVideoInfo {
-    type Error = TimelineError;
+    type Error = MediaInfoError;
 
-    fn try_from(value: &VideoInfo) -> Result<Self, TimelineError> {
-        let duration = value.duration.ok_or(TimelineError::MissingMediaInfoField)?;
-        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let blurhash = value.blurhash.clone().ok_or(TimelineError::MissingMediaInfoField)?;
+    fn try_from(value: &VideoInfo) -> Result<Self, MediaInfoError> {
+        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
+        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
 
         Ok(BaseVideoInfo {
             duration: Some(duration),
@@ -880,11 +880,11 @@ impl From<FileInfo> for RumaFileInfo {
 }
 
 impl TryFrom<&FileInfo> for BaseFileInfo {
-    type Error = TimelineError;
+    type Error = MediaInfoError;
 
-    fn try_from(value: &FileInfo) -> Result<Self, TimelineError> {
-        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+    fn try_from(value: &FileInfo) -> Result<Self, MediaInfoError> {
+        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
 
         Ok(BaseFileInfo { size: Some(size) })
     }
@@ -910,15 +910,15 @@ impl From<ThumbnailInfo> for RumaThumbnailInfo {
 }
 
 impl TryFrom<&ThumbnailInfo> for BaseThumbnailInfo {
-    type Error = TimelineError;
+    type Error = MediaInfoError;
 
-    fn try_from(value: &ThumbnailInfo) -> Result<Self, TimelineError> {
-        let height = UInt::try_from(value.height.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let width = UInt::try_from(value.width.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
-        let size = UInt::try_from(value.size.ok_or(TimelineError::MissingMediaInfoField)?)
-            .map_err(|_| TimelineError::InvalidMediaInfoField)?;
+    fn try_from(value: &ThumbnailInfo) -> Result<Self, MediaInfoError> {
+        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
+        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
+            .map_err(|_| MediaInfoError::InvalidField)?;
 
         Ok(BaseThumbnailInfo { height: Some(height), width: Some(width), size: Some(size) })
     }
@@ -1052,7 +1052,7 @@ impl From<&RumaFileInfo> for FileInfo {
     }
 }
 
-fn u64_to_uint(u: u64) -> UInt {
+pub(crate) fn u64_to_uint(u: u64) -> UInt {
     UInt::new(u).unwrap_or_else(|| {
         warn!("u64 -> UInt conversion overflowed, falling back to UInt::MAX");
         UInt::MAX
