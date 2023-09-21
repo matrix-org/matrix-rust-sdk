@@ -57,16 +57,16 @@ impl EventBuilder {
         self.next_ts.store(value, SeqCst);
     }
 
-    pub fn make_message_event<C: MessageLikeEventContent>(
+    pub fn make_sync_message_event<C: MessageLikeEventContent>(
         &self,
         sender: &UserId,
         content: C,
     ) -> Raw<AnySyncTimelineEvent> {
         let event_id = EventId::new(server_name!("dummy.server"));
-        self.make_message_event_with_id(sender, &event_id, content)
+        self.make_sync_message_event_with_id(sender, &event_id, content)
     }
 
-    pub fn make_message_event_with_id<C: MessageLikeEventContent>(
+    pub fn make_sync_message_event_with_id<C: MessageLikeEventContent>(
         &self,
         sender: &UserId,
         event_id: &EventId,
@@ -81,7 +81,7 @@ impl EventBuilder {
         })
     }
 
-    pub fn make_redacted_message_event<C: RedactedMessageLikeEventContent>(
+    pub fn make_sync_redacted_message_event<C: RedactedMessageLikeEventContent>(
         &self,
         sender: &UserId,
         content: C,
@@ -96,7 +96,7 @@ impl EventBuilder {
         })
     }
 
-    pub fn make_state_event<C: StateEventContent>(
+    pub fn make_sync_state_event<C: StateEventContent>(
         &self,
         sender: &UserId,
         state_key: &str,
@@ -120,7 +120,7 @@ impl EventBuilder {
         })
     }
 
-    pub fn make_redacted_state_event<C: RedactedStateEventContent>(
+    pub fn make_sync_redacted_state_event<C: RedactedStateEventContent>(
         &self,
         sender: &UserId,
         state_key: &str,
@@ -137,7 +137,7 @@ impl EventBuilder {
         })
     }
 
-    pub fn make_reaction(
+    pub fn make_sync_reaction(
         &self,
         sender: &UserId,
         annotation: &Annotation,

@@ -149,7 +149,7 @@ async fn reaction_redaction_timeline_filter() {
         .add_initial_events(vector![SyncTimelineEvent::new(
             timeline
                 .event_builder
-                .make_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
+                .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
         )])
         .await;
     // Timeline items are actually empty.

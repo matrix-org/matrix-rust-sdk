@@ -49,12 +49,12 @@ async fn initial_events() {
             SyncTimelineEvent::new(
                 timeline
                     .event_builder
-                    .make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+                    .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
             ),
             SyncTimelineEvent::new(
                 timeline
                     .event_builder
-                    .make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+                    .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
             ),
         ])
         .await;
@@ -199,7 +199,7 @@ async fn dedup_pagination() {
 
     let event = timeline
         .event_builder
-        .make_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
+        .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
     timeline.handle_live_custom_event(event.clone()).await;
     // This cast is not actually correct, sync events aren't valid
     // back-paginated events, as they are missing `room_id`. However, the
@@ -221,13 +221,19 @@ async fn dedup_initial() {
     let mut timeline = TestTimeline::new();
 
     let event_a = SyncTimelineEvent::new(
-        timeline.event_builder.make_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
+        timeline
+            .event_builder
+            .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("A")),
     );
     let event_b = SyncTimelineEvent::new(
-        timeline.event_builder.make_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
+        timeline
+            .event_builder
+            .make_sync_message_event(*BOB, RoomMessageEventContent::text_plain("B")),
     );
     let event_c = SyncTimelineEvent::new(
-        timeline.event_builder.make_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
+        timeline
+            .event_builder
+            .make_sync_message_event(*CAROL, RoomMessageEventContent::text_plain("C")),
     );
 
     timeline
