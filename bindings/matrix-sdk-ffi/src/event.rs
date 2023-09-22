@@ -166,8 +166,10 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             }
             AnySyncMessageLikeEvent::UnstablePollStart(content) => {
                 let original_content = get_message_like_event_original_content(content)?;
-                MessageLikeEventContent::Poll { question: original_content.poll_start().question.text.clone() }
-            },
+                MessageLikeEventContent::Poll {
+                    question: original_content.poll_start().question.text.clone(),
+                }
+            }
             AnySyncMessageLikeEvent::Reaction(content) => {
                 let original_content = get_message_like_event_original_content(content)?;
                 MessageLikeEventContent::ReactionContent {
