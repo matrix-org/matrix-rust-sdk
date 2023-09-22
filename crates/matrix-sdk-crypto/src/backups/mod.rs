@@ -30,10 +30,11 @@ use std::{
 
 use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
-    OwnedRoomId, OwnedTransactionId, TransactionId,
+    OwnedRoomId, OwnedTransactionId, TransactionId, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
+use vodozemac::Ed25519SecretKey;
 
 use crate::{
     olm::{Account, InboundGroupSession, SignedJsonObject},
@@ -46,6 +47,17 @@ mod keys;
 
 pub use keys::{DecodeError, DecryptionError, MegolmV1BackupKey};
 
+// wrapper for Ed25519SecretKey that implements Debug
+struct Ed25519SecretKeyDebug(Ed25519SecretKey);
+
+impl std::fmt::Debug for Ed25519SecretKeyDebug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ed25519SecretKey")
+         .field("Key", &"*****")
+         .finish()
+    }
+}
+
 /// A state machine that handles backing up room keys.
 ///
 /// The state machine can be activated using the
@@ -57,6 +69,7 @@ pub struct BackupMachine {
     account: Account,
     store: Store,
     backup_key: Arc<RwLock<Option<MegolmV1BackupKey>>>,
+    signing_key: Arc<RwLock<Option<Ed25519SecretKeyDebug>>>,
     pending_backup: Arc<RwLock<Option<PendingBackup>>>,
 }
 
@@ -149,11 +162,13 @@ impl BackupMachine {
         account: Account,
         store: Store,
         backup_key: Option<MegolmV1BackupKey>,
+        signing_key: Option<Ed25519SecretKey>,
     ) -> Self {
         Self {
             account,
             store,
             backup_key: RwLock::new(backup_key).into(),
+            signing_key: RwLock::new(signing_key.map(|k| Ed25519SecretKeyDebug(k))).into(),
             pending_backup: RwLock::new(None).into(),
         }
     }
@@ -365,9 +380,24 @@ impl BackupMachine {
     ///
     /// [`m.megolm_backup.v1.curve25519-aes-sha2`]:
     /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
-    pub async fn enable_backup_v1(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
+    pub async fn enable_backup_v1(&self, key: MegolmV1BackupKey, signing_key: Option<Ed25519SecretKey>) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
+            if let Some(signing_secret_key) = signing_key.as_ref() {
+                match key.signing_key() {
+                    Some(signing_public_key) => {
+                        if &signing_secret_key.public_key() != signing_public_key {
+                            error!("Backup signing secret key does not match public key");
+                            return Ok(()) // FIXME:
+                        }
+                    },
+                    None => {
+                        error!("Tried to set signing secret key when backup has no signing public key");
+                        return Ok(()) // FIXME:
+                    },
+                }
+            }
             *self.backup_key.write().await = Some(key.clone());
+            *self.signing_key.write().await = signing_key.map(|k| Ed25519SecretKeyDebug(k));
             info!(backup_key = ?key, "Activated a backup");
         } else {
             warn!(backup_key = ?key, "Tried to activate a backup without having the backup key uploaded");
@@ -390,6 +420,7 @@ impl BackupMachine {
         debug!("Disabling key backup and resetting backup state for room keys");
 
         self.backup_key.write().await.take();
+        self.signing_key.write().await.take();
         self.pending_backup.write().await.take();
 
         self.store.reset_backup_state().await?;
@@ -509,7 +540,11 @@ impl BackupMachine {
         }
 
         let key_count = sessions.len();
-        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+        let (backup, session_record) = Self::backup_keys(
+            sessions,
+            backup_key,
+            self.signing_key.read().await.as_ref().map(|k| (self.account.user_id(), &k.0)),
+        ).await;
 
         info!(
             key_count = key_count,
@@ -531,6 +566,7 @@ impl BackupMachine {
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
+        signing_key: Option<(&UserId, &Ed25519SecretKey)>,
     ) -> (
         BTreeMap<OwnedRoomId, RoomKeyBackup>,
         BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
@@ -543,8 +579,7 @@ impl BackupMachine {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();
-            // FIXME: pass a key
-            let session = backup_key.encrypt(session, None).await;
+            let session = backup_key.encrypt(session, signing_key).await;
 
             session_record
                 .entry(room_id.to_owned())
@@ -605,10 +640,11 @@ mod tests {
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
         let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
-        let backup_key = decryption_key.megolm_v1_public_key();
+        // FIXME:
+        let backup_key = decryption_key.megolm_v1_public_key(None);
         backup_key.set_version("1".to_owned());
 
-        backup_machine.enable_backup_v1(backup_key).await?;
+        backup_machine.enable_backup_v1(backup_key, None).await?;
 
         let (request_id, _) =
             backup_machine.backup().await?.expect("Created a backup request successfully");

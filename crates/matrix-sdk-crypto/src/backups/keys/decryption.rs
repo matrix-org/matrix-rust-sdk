@@ -19,6 +19,7 @@ use std::{
 
 use bs58;
 use thiserror::Error;
+use vodozemac::Ed25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{
@@ -184,8 +185,7 @@ impl BackupDecryptionKey {
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
-        // FIXME: add signing key
-        MegolmV1BackupKey::new(pk.public_key(), None, None)
+        MegolmV1BackupKey::new(pk.public_key(), signing_public_key, None)
     }
 
     /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].

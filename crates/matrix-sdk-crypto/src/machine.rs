@@ -222,7 +222,7 @@ impl OlmMachine {
         );
 
         #[cfg(feature = "backups_v1")]
-        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None, None);
 
         let inner = Arc::new(OlmMachineInner {
             user_id,

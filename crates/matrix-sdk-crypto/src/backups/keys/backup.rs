@@ -95,6 +95,7 @@ impl MegolmV1BackupKey {
         self.inner.version.lock().unwrap().clone()
     }
 
+    /// Get the signing key that is used with the key
     pub fn signing_key(&self) -> &Option<Ed25519PublicKey> {
         &self.inner.signing_key
     }

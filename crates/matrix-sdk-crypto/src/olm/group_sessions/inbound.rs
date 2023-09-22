@@ -53,7 +53,7 @@ use crate::{
             olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
-        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
+        serialize_curve_key, EventEncryptionAlgorithm, Signatures, SigningKeys,
     },
 };
 

@@ -239,7 +239,7 @@ impl SignedJsonObject for BackedUpRoomKey {
     // FIXME: after verifying, the canonical JSON buffer should be zeroed
     // since it contains secrets
     fn signatures(&self) -> &Signatures {
-        static EMPTY_SIGS: Lazy<Signatures> = Lazy::new(|| Signatures::new());
+        static EMPTY_SIGS: Lazy<Signatures> = Lazy::new(Signatures::new);
         self.signatures.as_ref().unwrap_or(&EMPTY_SIGS)
     }
 }
