@@ -1402,7 +1402,7 @@ mod tests {
 
     fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
         MinimalStateEvent::Original(OriginalMinimalStateEvent {
-            content: RoomNameEventContent::new("Test Room".try_into().unwrap()),
+            content: RoomNameEventContent::new("Test Room".to_owned()),
             event_id: None,
         })
     }
