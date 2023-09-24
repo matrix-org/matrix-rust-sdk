@@ -20,11 +20,17 @@ use std::{
 use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
 use js_sys::Date as JsDate;
-use matrix_sdk_base::{RoomInfo, StateStoreDataKey};
+use matrix_sdk_base::{
+    deserialized_responses::SyncOrStrippedState, store::migration_helpers::RoomInfoV1,
+    StateStoreDataKey,
+};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::{
-        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::{
+            create::RoomCreateEventContent,
+            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        },
         StateEventType,
     },
     serde::Raw,
@@ -40,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 7;
+const CURRENT_DB_VERSION: u32 = 8;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -141,19 +147,6 @@ pub struct OngoingMigration {
     data: HashMap<&'static str, Vec<(JsValue, JsValue)>>,
 }
 
-impl OngoingMigration {
-    /// Merge this migration with the given one.
-    fn merge(&mut self, other: OngoingMigration) {
-        self.drop_stores.extend(other.drop_stores);
-        self.create_stores.extend(other.create_stores);
-
-        for (store, data) in other.data {
-            let entry = self.data.entry(store).or_default();
-            entry.extend(data);
-        }
-    }
-}
-
 pub async fn upgrade_inner_db(
     name: &str,
     store_cipher: Option<&StoreCipher>,
@@ -228,6 +221,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 7 {
                 migrate_to_v7(name, store_cipher).await?;
+            }
+            if old_version < 8 {
+                migrate_to_v8(name, store_cipher).await?;
             }
         }
     }
@@ -492,7 +488,7 @@ async fn migrate_to_v5(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in room_infos {
@@ -519,7 +515,7 @@ async fn migrate_to_v5(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in stripped_room_infos {
@@ -573,7 +569,7 @@ async fn migrate_to_v6(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut values = Vec::new();
 
@@ -597,7 +593,7 @@ async fn migrate_to_v6(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfo>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut stripped_values = Vec::new();
 
@@ -664,7 +660,7 @@ async fn migrate_to_v7(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         .await?
         .iter()
         .filter_map(|value| {
-            deserialize_event::<RoomInfo>(store_cipher, &value)
+            deserialize_event::<RoomInfoV1>(store_cipher, &value)
                 .ok()
                 .map(|info| (encode_key(store_cipher, keys::ROOM_INFOS, info.room_id()), value))
         })
@@ -687,6 +683,69 @@ async fn migrate_to_v7(name: &str, store_cipher: Option<&StoreCipher>) -> Result
     apply_migration(name, 7, migration).await
 }
 
+/// Change the format of the room infos.
+async fn migrate_to_v8(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
+    let db = IdbDatabase::open(name)?.into_future().await?;
+
+    let tx = db.transaction_on_multi_with_mode(
+        &[keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE, keys::ROOM_INFOS],
+        IdbTransactionMode::Readwrite,
+    )?;
+
+    let room_state_store = tx.object_store(keys::ROOM_STATE)?;
+    let stripped_room_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
+    let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
+
+    let room_infos_v1 = room_infos_store
+        .get_all()?
+        .await?
+        .iter()
+        .map(|value| deserialize_event::<RoomInfoV1>(store_cipher, &value))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for room_info_v1 in room_infos_v1 {
+        let create = if let Some(event) = stripped_room_state_store
+            .get(&encode_key(
+                store_cipher,
+                keys::STRIPPED_ROOM_STATE,
+                (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
+            ))?
+            .await?
+            .map(|f| deserialize_event(store_cipher, &f))
+            .transpose()?
+        {
+            Some(SyncOrStrippedState::<RoomCreateEventContent>::Stripped(event))
+        } else {
+            room_state_store
+                .get(&encode_key(
+                    store_cipher,
+                    keys::ROOM_STATE,
+                    (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
+                ))?
+                .await?
+                .map(|f| deserialize_event(store_cipher, &f))
+                .transpose()?
+                .map(SyncOrStrippedState::<RoomCreateEventContent>::Sync)
+        };
+
+        let room_info = room_info_v1.migrate(create.as_ref());
+        room_infos_store.put_key_val(
+            &encode_key(store_cipher, keys::ROOM_INFOS, room_info.room_id()),
+            &serialize_event(store_cipher, &room_info)?,
+        )?;
+    }
+
+    tx.await.into_result()?;
+
+    db.close();
+
+    // Update the version of the database.
+    let db = IdbDatabase::open_u32(name, 8)?.into_future().await?;
+    db.close();
+
+    Ok(())
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -694,18 +753,22 @@ mod tests {
     use assert_matches::assert_matches;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
-        deserialized_responses::RawMemberEvent, store::StateStoreExt, RoomInfo, RoomMemberships,
-        RoomState, StateStore, StateStoreDataKey, StoreError,
+        deserialized_responses::RawMemberEvent, store::StateStoreExt,
+        sync::UnreadNotificationsCount, RoomMemberships, RoomState, StateStore, StateStoreDataKey,
+        StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         events::{
-            room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            room::{
+                create::RoomCreateEventContent,
+                member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+            },
             AnySyncStateEvent, StateEventType,
         },
         room_id,
         serde::Raw,
-        user_id,
+        server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
     };
     use serde_json::json;
     use uuid::Uuid;
@@ -783,6 +846,50 @@ mod tests {
             },
         ));
         db_req.into_future().await.map_err(Into::into)
+    }
+
+    fn room_info_v1_json(
+        room_id: &RoomId,
+        state: RoomState,
+        name: Option<&str>,
+        creator: Option<&UserId>,
+    ) -> serde_json::Value {
+        // Test with name set or not.
+        let name_content = match name {
+            Some(name) => json!({ "name": name }),
+            None => json!({ "name": null }),
+        };
+        // Test with creator set or not.
+        let create_content = match creator {
+            Some(creator) => RoomCreateEventContent::new_v1(creator.to_owned()),
+            None => RoomCreateEventContent::new_v11(),
+        };
+
+        json!({
+            "room_id": room_id,
+            "room_type": state,
+            "notification_counts": UnreadNotificationsCount::default(),
+            "summary": {
+                "heroes": [],
+                "joined_member_count": 0,
+                "invited_member_count": 0,
+            },
+            "members_synced": false,
+            "base_info": {
+                "dm_targets": [],
+                "max_power_level": 100,
+                "name": {
+                    "Original": {
+                        "content": name_content,
+                    },
+                },
+                "create": {
+                    "Original": {
+                        "content": create_content,
+                    }
+                }
+            },
+        })
     }
 
     #[async_test]
@@ -1106,7 +1213,7 @@ mod tests {
                 &serialize_event(None, &member_event)?,
             )?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
-            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
                 &serialize_event(None, &room_info)?,
@@ -1118,7 +1225,8 @@ mod tests {
                 &serialize_event(None, &stripped_member_event)?,
             )?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
-            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            let stripped_room_info =
+                room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
                 &serialize_event(None, &stripped_room_info)?,
@@ -1198,7 +1306,7 @@ mod tests {
                 &serialize_event(None, &ban_member_event)?,
             )?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
-            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
                 &serialize_event(None, &room_info)?,
@@ -1214,7 +1322,8 @@ mod tests {
                 &serialize_event(None, &stripped_member_event)?,
             )?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
-            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            let stripped_room_info =
+                room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
                 &serialize_event(None, &stripped_room_info)?,
@@ -1303,14 +1412,15 @@ mod tests {
             )?;
 
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
-            let room_info = RoomInfo::new(room_id, RoomState::Joined);
+            let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
                 &serialize_event(None, &room_info)?,
             )?;
 
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
-            let stripped_room_info = RoomInfo::new(stripped_room_id, RoomState::Invited);
+            let stripped_room_info =
+                room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
                 &serialize_event(None, &stripped_room_info)?,
@@ -1324,6 +1434,125 @@ mod tests {
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
         assert_eq!(store.get_room_infos().await.unwrap().len(), 2);
+
+        Ok(())
+    }
+
+    // Add a room in version 7 format of the state store.
+    fn add_room_v7(
+        room_infos_store: &IdbObjectStore<'_>,
+        room_state_store: &IdbObjectStore<'_>,
+        room_id: &RoomId,
+        name: Option<&str>,
+        create_creator: Option<&UserId>,
+        create_sender: Option<&UserId>,
+    ) -> Result<()> {
+        let room_info_json = room_info_v1_json(room_id, RoomState::Joined, name, create_creator);
+
+        room_infos_store.put_key_val(
+            &encode_key(None, keys::ROOM_INFOS, room_id),
+            &serialize_event(None, &room_info_json)?,
+        )?;
+
+        // Test with or without `m.room.create` event in the room state.
+        let Some(create_sender) = create_sender else {
+            return Ok(());
+        };
+
+        let create_content = match create_creator {
+            Some(creator) => RoomCreateEventContent::new_v1(creator.to_owned()),
+            None => RoomCreateEventContent::new_v11(),
+        };
+
+        let event_id = EventId::new(server_name!("dummy.local"));
+        let create_event = json!({
+            "content": create_content,
+            "event_id": event_id,
+            "sender": create_sender.to_owned(),
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "state_key": "",
+            "type": "m.room.create",
+            "unsigned": {},
+        });
+
+        room_state_store.put_key_val(
+            &encode_key(None, keys::ROOM_STATE, (room_id, &StateEventType::RoomCreate, "")),
+            &serialize_event(None, &create_event)?,
+        )?;
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v8() -> Result<()> {
+        let name = format!("migrating-v8-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        // Room A: with name, creator and sender.
+        let room_a_id = room_id!("!room_a:dummy.local");
+        let room_a_name = "Room A";
+        let room_a_creator = user_id!("@creator:dummy.local");
+        // Use a different sender to check that sender is used over creator in
+        // migration.
+        let room_a_create_sender = user_id!("@sender:dummy.local");
+
+        // Room B: without name, creator and sender.
+        let room_b_id = room_id!("!room_b:dummy.local");
+
+        // Room C: only with sender.
+        let room_c_id = room_id!("!room_c:dummy.local");
+        let room_c_create_sender = user_id!("@creator:dummy.local");
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&name, 6).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[keys::ROOM_INFOS, keys::ROOM_STATE],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
+            let room_state_store = tx.object_store(keys::ROOM_STATE)?;
+
+            add_room_v7(
+                &room_infos_store,
+                &room_state_store,
+                room_a_id,
+                Some(room_a_name),
+                Some(room_a_creator),
+                Some(room_a_create_sender),
+            )?;
+            add_room_v7(&room_infos_store, &room_state_store, room_b_id, None, None, None)?;
+            add_room_v7(
+                &room_infos_store,
+                &room_state_store,
+                room_c_id,
+                None,
+                None,
+                Some(room_c_create_sender),
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // This transparently migrates to the latest version.
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        // Check all room infos are there.
+        let room_infos = store.get_room_infos().await?;
+        assert_eq!(room_infos.len(), 3);
+
+        let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();
+        assert_eq!(room_a.name(), Some(room_a_name));
+        assert_eq!(room_a.creator(), Some(room_a_create_sender));
+
+        let room_b = room_infos.iter().find(|r| r.room_id() == room_b_id).unwrap();
+        assert_eq!(room_b.name(), None);
+        assert_eq!(room_b.creator(), None);
+
+        let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
+        assert_eq!(room_c.name(), None);
+        assert_eq!(room_c.creator(), Some(room_c_create_sender));
 
         Ok(())
     }
