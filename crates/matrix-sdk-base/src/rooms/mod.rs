@@ -1,7 +1,7 @@
 #![allow(clippy::assign_op_pattern)] // triggered by bitflags! usage
 
 mod members;
-mod normal;
+pub(crate) mod normal;
 
 use std::{collections::HashSet, fmt};
 
@@ -71,30 +71,30 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
+    pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
+    pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
+    pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
+    pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
+    pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
+    pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    name: Option<MinimalStateEvent<RoomNameEventContent>>,
+    pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
+    pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
+    pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
 }
 
 impl BaseRoomInfo {
