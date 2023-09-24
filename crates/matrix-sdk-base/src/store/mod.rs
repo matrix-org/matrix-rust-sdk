@@ -65,6 +65,7 @@ use crate::{
 
 pub(crate) mod ambiguity_map;
 mod memory_store;
+pub mod migration_helpers;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
