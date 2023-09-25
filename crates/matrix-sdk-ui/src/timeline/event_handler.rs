@@ -520,7 +520,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             let TimelineItemContent::Poll(poll_state) = &event_item.content() else {
                 info!(
-                    original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
                     "Edit of poll event applies to {}, discarding",
                     event_item.content().debug_string(),
                 );
@@ -530,10 +529,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let new_content = match poll_state.edit(&replacement.new_content) {
                 Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
                 Err(e) => {
-                    info!(
-                        original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                        "Failed to apply poll edit: {e:?}"
-                    );
+                    info!("Failed to apply poll edit: {e:?}");
                     return None;
                 }
             };
