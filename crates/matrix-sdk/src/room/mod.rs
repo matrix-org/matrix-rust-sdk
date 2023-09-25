@@ -399,15 +399,39 @@ impl Room {
             drop(map);
 
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
-            let response = self.client.send(request, None).await?;
+            let response_result = self.client.send(request, None).await;
 
-            // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-            let response = Box::pin(
-                self.client.base_client().receive_members(self.inner.room_id(), &response),
-            )
-            .await?;
+            let response = match response_result {
+                Ok(response) => {
+                    // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                    let response = Box::pin(
+                        self.client.base_client().receive_members(self.inner.room_id(), &response),
+                    )
+                    .await?;
 
-            self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
+                    self.client
+                        .inner
+                        .members_request_locks
+                        .lock()
+                        .await
+                        .remove(self.inner.room_id());
+
+                    response
+                }
+
+                Err(err) => {
+                    // Remove the request from the in-flights set.
+                    self.client
+                        .inner
+                        .members_request_locks
+                        .lock()
+                        .await
+                        .remove(self.inner.room_id());
+
+                    // Bubble up the error.
+                    return Err(err)?;
+                }
+            };
 
             Ok(Some(response))
         }
