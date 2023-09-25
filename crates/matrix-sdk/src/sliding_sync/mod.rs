@@ -1145,7 +1145,7 @@ mod tests {
                 .mount_as_scoped(&server)
                 .await;
 
-            assert_matches!(room0.request_members().await, Ok(Some(_)));
+            assert_matches!(room0.request_members().await, Ok(()));
         }
 
         // Members are now synced! We can start subscribing and see how it goes.
