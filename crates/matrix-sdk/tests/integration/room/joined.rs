@@ -558,12 +558,10 @@ async fn fetch_members_deduplication() {
     }
 
     // Wait on all of them at once.
-    let results = join_all(tasks).await;
+    join_all(tasks).await;
 
-    // See how many of them sent a request and thus have a response.
-    let response_count =
-        results.iter().filter(|r| r.as_ref().unwrap().as_ref().unwrap().is_some()).count();
-    assert_eq!(response_count, 1);
+    // Ensure we called the endpoint exactly once.
+    server.verify().await;
 }
 
 #[async_test]

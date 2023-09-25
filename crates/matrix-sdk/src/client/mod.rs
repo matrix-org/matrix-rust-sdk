@@ -65,7 +65,9 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
+#[cfg(feature = "e2e-encryption")]
+use tokio::sync::Mutex;
+use tokio::sync::{broadcast, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -81,6 +83,7 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
+    room::DeduplicatedRequestHandler,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -156,19 +159,19 @@ pub(crate) struct ClientInner {
     base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
     server_versions: OnceCell<Box<[MatrixVersion]>>,
-    /// Locks making sure we only have one group session sharing request in
+    /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<Result<(), ()>>>>>,
+    pub(crate) group_session_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
-    /// Lock to ensure that only one members request is running at a time, per
-    /// room.
-    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<Result<(), ()>>>>>,
-    /// Locks for requests on the encryption state of rooms.
-    pub(crate) encryption_state_request_locks:
-        Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<Result<(), ()>>>>>,
+    /// Handler to ensure that only one members request is running at a time,
+    /// given a room.
+    pub(crate) members_request_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
+    /// Handler to ensure that only one encryption state request is running at a
+    /// time, given a room.
+    pub(crate) encryption_state_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -237,11 +240,11 @@ impl ClientInner {
             base_client,
             server_versions: OnceCell::new_with(server_versions),
             #[cfg(feature = "e2e-encryption")]
-            group_session_locks: Default::default(),
+            group_session_deduplicated_handler: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             key_claim_lock: Default::default(),
-            members_request_locks: Default::default(),
-            encryption_state_request_locks: Default::default(),
+            members_request_deduplicated_handler: Default::default(),
+            encryption_state_deduplicated_handler: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
