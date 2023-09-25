@@ -1,6 +1,6 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, pin::Pin, sync::Arc, time::Duration};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
 
 use eyeball::SharedObservable;
 use futures_core::Future;
@@ -108,7 +108,7 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<Key> {
     async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
         &self,
         key: Key,
-        code: Pin<Box<F>>,
+        code: F,
     ) -> Result<()> {
         let mut map = self.inflight.lock().await;
 
@@ -443,20 +443,16 @@ impl Room {
         self.client
             .inner
             .members_request_deduplicated_handler
-            .run(
-                self.room_id().to_owned(),
-                Box::pin(async move {
-                    let request =
-                        get_member_events::v3::Request::new(self.inner.room_id().to_owned());
-                    let response = self.client.send(request, None).await?;
+            .run(self.room_id().to_owned(), async move {
+                let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
+                let response = self.client.send(request, None).await?;
 
-                    // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                    Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
-                        .await?;
+                // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
+                    .await?;
 
-                    Ok(())
-                }),
-            )
+                Ok(())
+            })
             .await
     }
 
@@ -464,41 +460,36 @@ impl Room {
         self.client
             .inner
             .encryption_state_deduplicated_handler
-            .run(
-                self.room_id().to_owned(),
-                Box::pin(async move {
-                    // Request the event from the server.
-                    let request = get_state_events_for_key::v3::Request::new(
-                        self.room_id().to_owned(),
-                        StateEventType::RoomEncryption,
-                        "".to_owned(),
-                    );
-                    let response = match self.client.send(request, None).await {
-                        Ok(response) => {
-                            Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
-                        }
-                        Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => {
-                            None
-                        }
-                        Err(err) => return Err(err.into()),
-                    };
+            .run(self.room_id().to_owned(), async move {
+                // Request the event from the server.
+                let request = get_state_events_for_key::v3::Request::new(
+                    self.room_id().to_owned(),
+                    StateEventType::RoomEncryption,
+                    "".to_owned(),
+                );
+                let response = match self.client.send(request, None).await {
+                    Ok(response) => {
+                        Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
+                    }
+                    Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
+                    Err(err) => return Err(err.into()),
+                };
 
-                    let _sync_lock = self.client.base_client().sync_lock().read().await;
+                let _sync_lock = self.client.base_client().sync_lock().read().await;
 
-                    // Persist the event and the fact that we requested it from the server in
-                    // `RoomInfo`.
-                    let mut room_info = self.clone_info();
-                    room_info.mark_encryption_state_synced();
-                    room_info.set_encryption_event(response.clone());
-                    let mut changes = StateChanges::default();
-                    changes.add_room(room_info.clone());
+                // Persist the event and the fact that we requested it from the server in
+                // `RoomInfo`.
+                let mut room_info = self.clone_info();
+                room_info.mark_encryption_state_synced();
+                room_info.set_encryption_event(response.clone());
+                let mut changes = StateChanges::default();
+                changes.add_room(room_info.clone());
 
-                    self.client.store().save_changes(&changes).await?;
-                    self.update_summary(room_info);
+                self.client.store().save_changes(&changes).await?;
+                self.update_summary(room_info);
 
-                    Ok(())
-                }),
-            )
+                Ok(())
+            })
             .await
     }
 
@@ -1279,34 +1270,31 @@ impl Room {
         self.client
             .inner
             .group_session_deduplicated_handler
-            .run(
-                self.room_id().to_owned(),
-                Box::pin(async move {
-                    {
-                        let members = self
-                            .client
-                            .store()
-                            .get_user_ids(self.room_id(), RoomMemberships::ACTIVE)
-                            .await?;
-                        self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
-                    };
+            .run(self.room_id().to_owned(), async move {
+                {
+                    let members = self
+                        .client
+                        .store()
+                        .get_user_ids(self.room_id(), RoomMemberships::ACTIVE)
+                        .await?;
+                    self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
+                };
 
-                    let response = self.share_room_key().await;
+                let response = self.share_room_key().await;
 
-                    // If one of the responses failed invalidate the group
-                    // session as using it would end up in undecryptable
-                    // messages.
-                    if let Err(r) = response {
-                        let machine = self.client.olm_machine().await;
-                        if let Some(machine) = machine.as_ref() {
-                            machine.invalidate_group_session(self.room_id()).await?;
-                        }
-                        return Err(r);
+                // If one of the responses failed invalidate the group
+                // session as using it would end up in undecryptable
+                // messages.
+                if let Err(r) = response {
+                    let machine = self.client.olm_machine().await;
+                    if let Some(machine) = machine.as_ref() {
+                        machine.invalidate_group_session(self.room_id()).await?;
                     }
+                    return Err(r);
+                }
 
-                    Ok(())
-                }),
-            )
+                Ok(())
+            })
             .await
     }
 
