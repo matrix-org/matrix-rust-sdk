@@ -403,13 +403,32 @@ impl Room {
         let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
         let request_result = self.client.send(request, None).await;
 
+        macro_rules! fail {
+            ($err: expr, $self: expr, $guard: expr) => {
+                // Mark the request as failed.
+                *$guard = Err(());
+
+                // Remove the request from the in-flights set.
+                $self.client.inner.members_request_locks.lock().await.remove($self.inner.room_id());
+
+                // Bubble up the error.
+                return Err($err)?;
+            };
+        }
+
         let response = match request_result {
             Ok(response) => {
                 // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                let response = Box::pin(
+                let response = match Box::pin(
                     self.client.base_client().receive_members(self.inner.room_id(), &response),
                 )
-                .await?;
+                .await
+                {
+                    Ok(r) => r,
+                    Err(err) => {
+                        fail!(err, self, request_guard);
+                    }
+                };
 
                 self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
 
@@ -417,14 +436,7 @@ impl Room {
             }
 
             Err(err) => {
-                // Mark the request as failed.
-                *request_guard = Err(());
-
-                // Remove the request from the in-flights set.
-                self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
-
-                // Bubble up the error.
-                return Err(err)?;
+                fail!(err, self, request_guard);
             }
         };
 
