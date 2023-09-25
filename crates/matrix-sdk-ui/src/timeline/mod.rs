@@ -339,18 +339,6 @@ impl Timeline {
     ///
     /// * `content` - The content of the message event.
     ///
-    /// * `txn_id` - A locally-unique ID describing a message transaction with
-    ///   the homeserver. Unless you're doing something special, you can pass in
-    ///   `None` which will create a suitable one for you automatically.
-    ///     * On the sending side, this field is used for re-trying earlier
-    ///       failed transactions. Subsequent messages *must never* re-use an
-    ///       earlier transaction ID.
-    ///     * On the receiving side, the field is used for recognizing our own
-    ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`MessageLikeUnsigned`] field `transaction_id` of the
-    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
-    ///       device. Other devices will not see it.
-    ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
@@ -381,8 +369,6 @@ impl Timeline {
     ///
     /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
     ///   propagated according to user intent, `No` otherwise
-    ///
-    /// * `txn_id` - Optional transaction ID, usually `None`
     #[instrument(skip(self, content, reply_item))]
     pub async fn send_reply(
         &self,
