@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use as_variant::as_variant;
 use imbl::{vector, Vector};
-use indexmap::IndexMap;
-use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
@@ -56,17 +54,13 @@ use ruma::{
         MessageLikeEventType, StateEventType,
     },
     html::RemoveReplyFallback,
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, RoomVersionId,
-    UserId,
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{error, warn};
 
-use super::{EventItemIdentifier, EventTimelineItem, Profile, TimelineDetails};
+use super::{EventTimelineItem, Profile, TimelineDetails};
 use crate::{
-    timeline::{
-        polls::PollState, traits::RoomDataProvider, Error as TimelineError, ReactionSenderData,
-        TimelineItem,
-    },
+    timeline::{polls::PollState, traits::RoomDataProvider, Error as TimelineError, TimelineItem},
     DEFAULT_SANITIZER_MODE,
 };
 
@@ -581,50 +575,6 @@ impl From<RoomEncryptedEventContent> for EncryptedMessage {
             }
             _ => Self::Unknown,
         }
-    }
-}
-
-/// The reactions grouped by key.
-///
-/// Key: The reaction, usually an emoji.\
-/// Value: The group of reactions.
-pub type BundledReactions = IndexMap<String, ReactionGroup>;
-/// A group of reaction events on the same event with the same key.
-///
-/// This is a map of the event ID or transaction ID of the reactions to the ID
-/// of the sender of the reaction.
-#[derive(Clone, Debug, Default)]
-pub struct ReactionGroup(pub(in crate::timeline) IndexMap<EventItemIdentifier, ReactionSenderData>);
-
-impl ReactionGroup {
-    /// The (deduplicated) senders of the reactions in this group.
-    pub fn senders(&self) -> impl Iterator<Item = &ReactionSenderData> {
-        self.values().unique_by(|v| &v.sender_id)
-    }
-
-    /// All reactions within this reaction group that were sent by the given
-    /// user.
-    ///
-    /// Note that it is possible for multiple reactions by the same user to
-    /// have arrived over federation.
-    pub fn by_sender<'a>(
-        &'a self,
-        user_id: &'a UserId,
-    ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
-        self.iter().filter_map(move |(k, v)| {
-            (v.sender_id == user_id).then_some(match k {
-                EventItemIdentifier::TransactionId(txn_id) => (Some(txn_id), None),
-                EventItemIdentifier::EventId(event_id) => (None, Some(event_id)),
-            })
-        })
-    }
-}
-
-impl Deref for ReactionGroup {
-    type Target = IndexMap<EventItemIdentifier, ReactionSenderData>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 

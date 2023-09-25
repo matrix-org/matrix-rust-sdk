@@ -28,15 +28,17 @@ use tracing::warn;
 
 mod content;
 mod local;
+mod reactions;
 mod remote;
 
 pub use self::{
     content::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, InReplyToDetails,
-        MemberProfileChange, MembershipChange, Message, OtherState, ReactionGroup, RepliedToEvent,
-        RoomMembershipChange, Sticker, TimelineItemContent,
+        AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
+        MembershipChange, Message, OtherState, RepliedToEvent, RoomMembershipChange, Sticker,
+        TimelineItemContent,
     },
     local::EventSendState,
+    reactions::{BundledReactions, ReactionGroup},
 };
 pub(super) use self::{
     local::LocalEventTimelineItem,
