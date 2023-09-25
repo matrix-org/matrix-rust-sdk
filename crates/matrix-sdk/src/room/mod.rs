@@ -388,54 +388,47 @@ impl Room {
             // If a member request is already going on, await the release of
             // the lock.
             drop(map);
+
             return mutex.lock().await.map(|()| None).map_err(|()| Error::ConcurrentRequestFailed);
-        } else {
-            let request_mutex = Arc::new(Mutex::new(Ok(())));
-            map.insert(self.inner.room_id().to_owned(), request_mutex.clone());
-
-            let mut request_guard = request_mutex.lock().await;
-            drop(map);
-
-            let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
-            let response_result = self.client.send(request, None).await;
-
-            let response = match response_result {
-                Ok(response) => {
-                    // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                    let response = Box::pin(
-                        self.client.base_client().receive_members(self.inner.room_id(), &response),
-                    )
-                    .await?;
-
-                    self.client
-                        .inner
-                        .members_request_locks
-                        .lock()
-                        .await
-                        .remove(self.inner.room_id());
-
-                    response
-                }
-
-                Err(err) => {
-                    // Mark the request as failed.
-                    *request_guard = Err(());
-
-                    // Remove the request from the in-flights set.
-                    self.client
-                        .inner
-                        .members_request_locks
-                        .lock()
-                        .await
-                        .remove(self.inner.room_id());
-
-                    // Bubble up the error.
-                    return Err(err)?;
-                }
-            };
-
-            Ok(Some(response))
         }
+
+        // Assume a successful request; we'll modify the result in case of failures later.
+        let request_mutex = Arc::new(Mutex::new(Ok(())));
+
+        map.insert(self.inner.room_id().to_owned(), request_mutex.clone());
+
+        let mut request_guard = request_mutex.lock().await;
+        drop(map);
+
+        let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
+        let request_result = self.client.send(request, None).await;
+
+        let response = match request_result {
+            Ok(response) => {
+                // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                let response = Box::pin(
+                    self.client.base_client().receive_members(self.inner.room_id(), &response),
+                )
+                .await?;
+
+                self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
+
+                response
+            }
+
+            Err(err) => {
+                // Mark the request as failed.
+                *request_guard = Err(());
+
+                // Remove the request from the in-flights set.
+                self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
+
+                // Bubble up the error.
+                return Err(err)?;
+            }
+        };
+
+        Ok(Some(response))
     }
 
     async fn request_encryption_state(&self) -> Result<()> {
