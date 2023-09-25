@@ -23,7 +23,7 @@ use ruma::{
     api::client::sync::sync_events::{v4::RoomSubscription, UnreadNotificationsCount},
     assign, event_id,
     events::{room::message::RoomMessageEventContent, StateEventType},
-    mxc_uri, room_id, uint, TransactionId,
+    mxc_uri, room_id, uint,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -2517,9 +2517,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     );
 
     // Insert a local event in the `Timeline`.
-    let txn_id: &TransactionId = "foobar-txn-id".into();
-
-    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await;
 
     // The latest event of the `Timeline` is a local event.
     assert_matches!(
@@ -2527,7 +2525,6 @@ async fn test_room_latest_event() -> Result<(), Error> {
         Some(timeline_event) => {
             assert!(timeline_event.is_local_echo());
             assert_eq!(timeline_event.event_id(), None);
-            assert_eq!(timeline_event.transaction_id(), Some(txn_id));
         }
     );
 
@@ -2537,7 +2534,6 @@ async fn test_room_latest_event() -> Result<(), Error> {
         Some(event) => {
             assert!(event.is_local_echo());
             assert_eq!(event.event_id(), None);
-            assert_eq!(event.transaction_id(), Some(txn_id));
         }
     );
 

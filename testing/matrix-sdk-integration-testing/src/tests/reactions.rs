@@ -49,7 +49,7 @@ async fn test_toggling_reaction() -> Result<()> {
     let (_items, mut stream) = timeline.subscribe().await;
 
     // Send message
-    timeline.send(RoomMessageEventContent::text_plain("hi!").into(), None).await;
+    timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await;
 
     // Sync until the remote echo arrives
     let event_id = loop {
