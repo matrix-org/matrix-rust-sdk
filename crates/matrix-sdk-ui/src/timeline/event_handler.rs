@@ -393,35 +393,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 return None;
             }
 
-            let msg = match &event_item.content() {
-                TimelineItemContent::Message(msg) => msg,
-                TimelineItemContent::RedactedMessage => {
-                    info!("Edit event applies to a redacted message, discarding");
-                    return None;
-                }
-                TimelineItemContent::Sticker(_) => {
-                    info!("Edit event applies to a sticker, discarding");
-                    return None;
-                }
-                TimelineItemContent::Poll(_) => {
-                    info!("Edit event applies to a poll, discarding");
-                    return None;
-                }
-                TimelineItemContent::UnableToDecrypt(_) => {
-                    info!("Edit event applies to event that couldn't be decrypted, discarding");
-                    return None;
-                }
-                TimelineItemContent::MembershipChange(_)
-                | TimelineItemContent::ProfileChange(_)
-                | TimelineItemContent::OtherState { .. } => {
-                    info!("Edit event applies to a state event, discarding");
-                    return None;
-                }
-                TimelineItemContent::FailedToParseMessageLike { .. }
-                | TimelineItemContent::FailedToParseState { .. } => {
-                    info!("Edit event applies to event that couldn't be parsed, discarding");
-                    return None;
-                }
+            let TimelineItemContent::Message(msg) = event_item.content() else {
+                info!(
+                    "Edit of message event applies to {}, discarding",
+                    event_item.content().debug_string(),
+                );
+                return None;
             };
 
             let mut msgtype = replacement.new_content.msgtype;
@@ -544,7 +521,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let TimelineItemContent::Poll(poll_state) = &event_item.content() else {
                 info!(
                     original_sender = ?event_item.sender(), edit_sender = ?self.ctx.sender,
-                    "Can't edit a poll that is not of type TimelineItemContent::Poll, discarding"
+                    "Edit of poll event applies to {}, discarding",
+                    event_item.content().debug_string(),
                 );
                 return None;
             };

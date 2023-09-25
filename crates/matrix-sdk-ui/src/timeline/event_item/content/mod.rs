@@ -215,6 +215,22 @@ impl TimelineItemContent {
         Self::Message(Message::from_event(c, relations, timeline_items))
     }
 
+    #[cfg(not(tarpaulin_include))] // debug-logging functionality
+    pub(crate) fn debug_string(&self) -> &'static str {
+        match self {
+            TimelineItemContent::Message(_) => "a message",
+            TimelineItemContent::RedactedMessage => "a redacted messages",
+            TimelineItemContent::Sticker(_) => "a sticker",
+            TimelineItemContent::UnableToDecrypt(_) => "a poll",
+            TimelineItemContent::MembershipChange(_) => "a membership change",
+            TimelineItemContent::ProfileChange(_) => "a profile change",
+            TimelineItemContent::OtherState(_) => "a state event",
+            TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
+            TimelineItemContent::Poll(_) => "a poll",
+        }
+    }
+
     pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent) -> Self {
         Self::UnableToDecrypt(content.into())
     }
