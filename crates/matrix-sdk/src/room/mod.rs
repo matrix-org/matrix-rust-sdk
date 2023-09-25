@@ -1,12 +1,12 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, pin::Pin, sync::Arc, time::Duration};
 
 use eyeball::SharedObservable;
+use futures_core::Future;
 use matrix_sdk_base::{
     deserialized_responses::{
-        MembersResponse, RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
-        TimelineEvent,
+        RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
     },
     instant::Instant,
     store::StateStoreExt,
@@ -89,6 +89,53 @@ pub use self::{
     member::RoomMember,
     messages::{Messages, MessagesOptions},
 };
+
+struct DeduplicatedRequestHandler<'a, Key> {
+    global_map: &'a Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>,
+}
+
+impl<'a, Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<'a, Key> {
+    async fn run(
+        &self,
+        key: Key,
+        code: Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>,
+    ) -> Result<()> {
+        let mut map = self.global_map.lock().await;
+
+        if let Some(mutex) = map.get(&key).cloned() {
+            // If a request is already going on, await the release of the lock.
+            drop(map);
+
+            return mutex.lock().await.map_err(|()| Error::ConcurrentRequestFailed);
+        }
+
+        // Assume a successful request; we'll modify the result in case of failures later.
+        let request_mutex = Arc::new(Mutex::new(Ok(())));
+
+        map.insert(key.clone(), request_mutex.clone());
+
+        let mut request_guard = request_mutex.lock().await;
+        drop(map);
+
+        match code.await {
+            Ok(()) => {
+                self.global_map.lock().await.remove(&key);
+                Ok(())
+            }
+
+            Err(err) => {
+                // Propagate the error state to other callers.
+                *request_guard = Err(());
+
+                // Remove the request from the in-flights set.
+                self.global_map.lock().await.remove(&key);
+
+                // Bubble up the error.
+                Err(err)
+            }
+        }
+    }
+}
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -381,122 +428,70 @@ impl Room {
         Ok(Some((TimelineEvent { event, encryption_info: None, push_actions }, response.state)))
     }
 
-    pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
-        let mut map = self.client.inner.members_request_locks.lock().await;
+    pub(crate) async fn request_members(&self) -> Result<()> {
+        let handler =
+            DeduplicatedRequestHandler { global_map: &self.client.inner.members_request_locks };
 
-        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
-            // If a member request is already going on, await the release of
-            // the lock.
-            drop(map);
+        handler
+            .run(
+                self.room_id().to_owned(),
+                Box::pin(async move {
+                    let request =
+                        get_member_events::v3::Request::new(self.inner.room_id().to_owned());
+                    let response = self.client.send(request, None).await?;
 
-            return mutex.lock().await.map(|()| None).map_err(|()| Error::ConcurrentRequestFailed);
-        }
+                    // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                    Box::pin(self.client.base_client().receive_members(self.room_id(), &response))
+                        .await?;
 
-        // Assume a successful request; we'll modify the result in case of failures later.
-        let request_mutex = Arc::new(Mutex::new(Ok(())));
-
-        map.insert(self.inner.room_id().to_owned(), request_mutex.clone());
-
-        let mut request_guard = request_mutex.lock().await;
-        drop(map);
-
-        let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
-        let request_result = self.client.send(request, None).await;
-
-        macro_rules! fail {
-            ($err: expr, $self: expr, $guard: expr) => {
-                // Mark the request as failed.
-                *$guard = Err(());
-
-                // Remove the request from the in-flights set.
-                $self.client.inner.members_request_locks.lock().await.remove($self.inner.room_id());
-
-                // Bubble up the error.
-                return Err($err)?;
-            };
-        }
-
-        let response = match request_result {
-            Ok(response) => {
-                // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
-                let response = match Box::pin(
-                    self.client.base_client().receive_members(self.inner.room_id(), &response),
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(err) => {
-                        fail!(err, self, request_guard);
-                    }
-                };
-
-                self.client.inner.members_request_locks.lock().await.remove(self.inner.room_id());
-
-                response
-            }
-
-            Err(err) => {
-                fail!(err, self, request_guard);
-            }
-        };
-
-        Ok(Some(response))
+                    Ok(())
+                }),
+            )
+            .await
     }
 
     async fn request_encryption_state(&self) -> Result<()> {
-        let mut map = self.client.inner.encryption_state_request_locks.lock().await;
+        let handler = DeduplicatedRequestHandler {
+            global_map: &self.client.inner.encryption_state_request_locks,
+        };
 
-        if let Some(mutex) = map.get(self.inner.room_id()).cloned() {
-            // If a encryption state request is already going on, await the release of
-            // the lock.
-            drop(map);
-            _ = mutex.lock().await;
-        } else {
-            let mutex = Arc::new(Mutex::new(()));
-            map.insert(self.inner.room_id().to_owned(), mutex.clone());
+        handler
+            .run(
+                self.room_id().to_owned(),
+                Box::pin(async move {
+                    // Request the event from the server.
+                    let request = get_state_events_for_key::v3::Request::new(
+                        self.room_id().to_owned(),
+                        StateEventType::RoomEncryption,
+                        "".to_owned(),
+                    );
+                    let response = match self.client.send(request, None).await {
+                        Ok(response) => {
+                            Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
+                        }
+                        Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => {
+                            None
+                        }
+                        Err(err) => return Err(err.into()),
+                    };
 
-            let _guard = mutex.lock().await;
-            drop(map);
+                    let _sync_lock = self.client.base_client().sync_lock().read().await;
 
-            // Request the event from the server.
-            let request = get_state_events_for_key::v3::Request::new(
-                self.inner.room_id().to_owned(),
-                StateEventType::RoomEncryption,
-                "".to_owned(),
-            );
-            let response = match self.client.send(request, None).await {
-                Ok(response) => {
-                    Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
-                }
-                Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
-                Err(err) => return Err(err.into()),
-            };
+                    // Persist the event and the fact that we requested it from the server in
+                    // `RoomInfo`.
+                    let mut room_info = self.clone_info();
+                    room_info.mark_encryption_state_synced();
+                    room_info.set_encryption_event(response.clone());
+                    let mut changes = StateChanges::default();
+                    changes.add_room(room_info.clone());
 
-            let sync_lock = self.client.base_client().sync_lock().read().await;
+                    self.client.store().save_changes(&changes).await?;
+                    self.update_summary(room_info);
 
-            // Persist the event and the fact that we requested it from the server in
-            // `RoomInfo`.
-            let mut room_info = self.inner.clone_info();
-            room_info.mark_encryption_state_synced();
-            room_info.set_encryption_event(response.clone());
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-
-            self.client.store().save_changes(&changes).await?;
-            self.update_summary(room_info);
-
-            // Alright, we're done, release the locks and let the client send an event to
-            // the room.
-            drop(sync_lock);
-            self.client
-                .inner
-                .encryption_state_request_locks
-                .lock()
-                .await
-                .remove(self.inner.room_id());
-        }
-
-        Ok(())
+                    Ok(())
+                }),
+            )
+            .await
     }
 
     /// Check whether this room is encrypted. If the room encryption state is
@@ -527,15 +522,15 @@ impl Room {
     /// This method will de-duplicate requests if it is called multiple times in
     /// quick succession, in that case the return value will be `None`. This
     /// method does nothing if the members are already synced.
-    pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
+    pub async fn sync_members(&self) -> Result<()> {
         if !self.are_events_visible() {
-            return Ok(None);
+            return Ok(());
         }
 
         if !self.are_members_synced() {
             self.request_members().await
         } else {
-            Ok(None)
+            Ok(())
         }
     }
 
