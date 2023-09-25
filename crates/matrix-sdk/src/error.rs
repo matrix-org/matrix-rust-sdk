@@ -266,6 +266,10 @@ pub enum Error {
     #[error(transparent)]
     Oidc(#[from] crate::oidc::OidcError),
 
+    /// A concurrent request to a deduplicated request has failed.
+    #[error("a concurrent request failed; see logs for details")]
+    ConcurrentRequestFailed,
+
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
