@@ -709,3 +709,40 @@ impl OtherState {
         Self { state_key: self.state_key.clone(), content: self.content.redact(room_version) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::ALICE;
+    use ruma::{
+        assign,
+        events::{
+            room::member::{MembershipState, RoomMemberEventContent},
+            FullStateEventContent,
+        },
+        RoomVersionId,
+    };
+
+    use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
+
+    #[test]
+    fn redact_membership_change() {
+        let content = TimelineItemContent::MembershipChange(RoomMembershipChange {
+            user_id: ALICE.to_owned(),
+            content: FullStateEventContent::Original {
+                content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
+                    reason: Some("🤬".to_owned()),
+                }),
+                prev_content: Some(RoomMemberEventContent::new(MembershipState::Join)),
+            },
+            change: Some(MembershipChange::Banned),
+        });
+
+        let redacted = content.redact(&RoomVersionId::V11);
+        let inner = assert_matches!(redacted, TimelineItemContent::MembershipChange(c) => c);
+        assert_eq!(inner.change, Some(MembershipChange::Banned));
+        let inner_content_redacted =
+            assert_matches!(inner.content, FullStateEventContent::Redacted(r) => r);
+        assert_eq!(inner_content_redacted.membership, MembershipState::Ban);
+    }
+}
