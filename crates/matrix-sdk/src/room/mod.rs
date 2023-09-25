@@ -12,7 +12,7 @@ use matrix_sdk_base::{
     store::StateStoreExt,
     RoomMemberships, StateChanges,
 };
-use matrix_sdk_common::timeout::timeout;
+use matrix_sdk_common::{timeout::timeout, SendOutsideWasm};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -90,17 +90,27 @@ pub use self::{
     messages::{Messages, MessagesOptions},
 };
 
-struct DeduplicatedRequestHandler<'a, Key> {
-    global_map: &'a Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>,
+type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>;
+
+/// Handler that properly deduplicates requests to the same endpoint, and will
+/// properly report error upwards in case the concurrent request failed.
+pub(crate) struct DeduplicatedRequestHandler<Key> {
+    inflight: DeduplicatedRequestMap<Key>,
 }
 
-impl<'a, Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<'a, Key> {
-    async fn run(
+impl<Key> Default for DeduplicatedRequestHandler<Key> {
+    fn default() -> Self {
+        Self { inflight: Default::default() }
+    }
+}
+
+impl<Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<Key> {
+    async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
         &self,
         key: Key,
-        code: Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>,
+        code: Pin<Box<F>>,
     ) -> Result<()> {
-        let mut map = self.global_map.lock().await;
+        let mut map = self.inflight.lock().await;
 
         if let Some(mutex) = map.get(&key).cloned() {
             // If a request is already going on, await the release of the lock.
@@ -109,7 +119,8 @@ impl<'a, Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<'a, Key>
             return mutex.lock().await.map_err(|()| Error::ConcurrentRequestFailed);
         }
 
-        // Assume a successful request; we'll modify the result in case of failures later.
+        // Assume a successful request; we'll modify the result in case of failures
+        // later.
         let request_mutex = Arc::new(Mutex::new(Ok(())));
 
         map.insert(key.clone(), request_mutex.clone());
@@ -119,7 +130,7 @@ impl<'a, Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<'a, Key>
 
         match code.await {
             Ok(()) => {
-                self.global_map.lock().await.remove(&key);
+                self.inflight.lock().await.remove(&key);
                 Ok(())
             }
 
@@ -128,7 +139,7 @@ impl<'a, Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<'a, Key>
                 *request_guard = Err(());
 
                 // Remove the request from the in-flights set.
-                self.global_map.lock().await.remove(&key);
+                self.inflight.lock().await.remove(&key);
 
                 // Bubble up the error.
                 Err(err)
@@ -429,10 +440,9 @@ impl Room {
     }
 
     pub(crate) async fn request_members(&self) -> Result<()> {
-        let handler =
-            DeduplicatedRequestHandler { global_map: &self.client.inner.members_request_locks };
-
-        handler
+        self.client
+            .inner
+            .members_request_deduplicated_handler
             .run(
                 self.room_id().to_owned(),
                 Box::pin(async move {
@@ -451,11 +461,9 @@ impl Room {
     }
 
     async fn request_encryption_state(&self) -> Result<()> {
-        let handler = DeduplicatedRequestHandler {
-            global_map: &self.client.inner.encryption_state_request_locks,
-        };
-
-        handler
+        self.client
+            .inner
+            .encryption_state_deduplicated_handler
             .run(
                 self.room_id().to_owned(),
                 Box::pin(async move {
@@ -1268,10 +1276,9 @@ impl Room {
         // Take and release the lock on the store, if needs be.
         let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
 
-        let handler =
-            DeduplicatedRequestHandler { global_map: &self.client.inner.group_session_locks };
-
-        handler
+        self.client
+            .inner
+            .group_session_deduplicated_handler
             .run(
                 self.room_id().to_owned(),
                 Box::pin(async move {
