@@ -79,3 +79,26 @@ enum UnsupportedReplyItemInner {
     #[error("redacted events whose JSON form isn't available can't be replied")]
     MissingJson,
 }
+
+#[derive(Error)]
+#[error("{0}")]
+pub struct UnsupportedEditItem(UnsupportedEditItemInner);
+
+impl UnsupportedEditItem {
+    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
+    pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
+}
+
+impl fmt::Debug for UnsupportedEditItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Error)]
+enum UnsupportedEditItemInner {
+    #[error("local messages whose event ID is not known can't be edited currently")]
+    MissingEventId,
+    #[error("only message events can be edited")]
+    NotRoomMessage,
+}
