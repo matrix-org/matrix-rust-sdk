@@ -16,11 +16,11 @@ use matrix_sdk::{
                 UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
             },
             receipt::ReceiptThread,
-            relation::{Annotation, Replacement},
+            relation::Annotation,
             room::{
                 avatar::ImageInfo as RumaAvatarImageInfo,
                 message::{
-                    AddMentions, ForwardThread, LocationMessageEventContent, MessageType, Relation,
+                    AddMentions, ForwardThread, LocationMessageEventContent, MessageType,
                     RoomMessageEventContentWithoutRelation,
                 },
             },
@@ -550,22 +550,19 @@ impl Room {
 
     pub fn edit(
         &self,
-        new_msg: Arc<RoomMessageEventContentWithoutRelation>,
-        original_event_id: String,
+        new_content: Arc<RoomMessageEventContentWithoutRelation>,
+        edit_item: Arc<EventTimelineItem>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => return Err(anyhow!("Timeline not set up, can't send message").into()),
         };
 
-        let event_id = EventId::parse(original_event_id).context("Failed to create EventId.")?;
-        let edited_content = (*new_msg).clone().with_relation(Some(Relation::Replacement(
-            Replacement::new(event_id, (*new_msg).clone()),
-        )));
+        RUNTIME.block_on(async move {
+            timeline.edit((*new_content).clone().with_relation(None), &edit_item.0).await?;
+            anyhow::Ok(())
+        })?;
 
-        RUNTIME.spawn(async move {
-            timeline.send(edited_content.into()).await;
-        });
         Ok(())
     }
 
