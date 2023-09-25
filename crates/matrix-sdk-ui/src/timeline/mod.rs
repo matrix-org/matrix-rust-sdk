@@ -354,8 +354,8 @@ impl Timeline {
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
-        let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
+    pub async fn send(&self, content: AnyMessageLikeEventContent) {
+        let txn_id = TransactionId::new();
         self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
         if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
             error!("Internal error: timeline message receiver is closed");
@@ -383,14 +383,13 @@ impl Timeline {
     ///   propagated according to user intent, `No` otherwise
     ///
     /// * `txn_id` - Optional transaction ID, usually `None`
-    #[instrument(skip(self, content, reply_item, txn_id))]
+    #[instrument(skip(self, content, reply_item))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContent,
         reply_item: &EventTimelineItem,
         forward_thread: ForwardThread,
         add_mentions: AddMentions,
-        txn_id: Option<&TransactionId>,
     ) -> Result<(), UnsupportedReplyItem> {
         // Error returns here must be in sync with
         // `EventTimelineItem::can_be_replied_to`
@@ -425,7 +424,7 @@ impl Timeline {
             }
         };
 
-        self.send(content.into(), txn_id).await;
+        self.send(content.into()).await;
         Ok(())
     }
 

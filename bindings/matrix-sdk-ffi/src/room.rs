@@ -419,7 +419,7 @@ impl Room {
         })
     }
 
-    pub fn send(&self, msg: Arc<RoomMessageEventContentWithoutRelation>, txn_id: Option<String>) {
+    pub fn send(&self, msg: Arc<RoomMessageEventContentWithoutRelation>) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
@@ -429,12 +429,7 @@ impl Room {
         };
 
         RUNTIME.spawn(async move {
-            timeline
-                .send(
-                    (*msg).to_owned().with_relation(None).into(),
-                    txn_id.as_deref().map(Into::into),
-                )
-                .await;
+            timeline.send((*msg).to_owned().with_relation(None).into()).await;
         });
     }
 
@@ -444,7 +439,6 @@ impl Room {
         answers: Vec<String>,
         max_selections: u8,
         poll_kind: PollKind,
-        txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
@@ -477,7 +471,7 @@ impl Room {
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
         RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+            timeline.send(event_content).await;
         });
 
         Ok(())
@@ -487,7 +481,6 @@ impl Room {
         &self,
         poll_start_id: String,
         answers: Vec<String>,
-        txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
@@ -504,18 +497,13 @@ impl Room {
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
 
         RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+            timeline.send(event_content).await;
         });
 
         Ok(())
     }
 
-    pub fn end_poll(
-        &self,
-        poll_start_id: String,
-        text: String,
-        txn_id: Option<String>,
-    ) -> Result<(), ClientError> {
+    pub fn end_poll(&self, poll_start_id: String, text: String) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
             None => {
@@ -529,7 +517,7 @@ impl Room {
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
         RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
+            timeline.send(event_content).await;
         });
 
         Ok(())
@@ -539,7 +527,6 @@ impl Room {
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_item: Arc<EventTimelineItem>,
-        txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
@@ -553,7 +540,6 @@ impl Room {
                     &reply_item.0,
                     ForwardThread::Yes,
                     AddMentions::No,
-                    txn_id.as_deref().map(Into::into),
                 )
                 .await?;
             anyhow::Ok(())
@@ -566,7 +552,6 @@ impl Room {
         &self,
         new_msg: Arc<RoomMessageEventContentWithoutRelation>,
         original_event_id: String,
-        txn_id: Option<String>,
     ) -> Result<(), ClientError> {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
@@ -579,7 +564,7 @@ impl Room {
         )));
 
         RUNTIME.spawn(async move {
-            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
+            timeline.send(edited_content.into()).await;
         });
         Ok(())
     }
@@ -591,18 +576,11 @@ impl Room {
     /// * `event_id` - The ID of the event to redact
     ///
     /// * `reason` - The reason for the event being redacted (optional).
-    ///
-    /// * `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID (optional). If not given one is created.
-    pub fn redact(
-        &self,
-        event_id: String,
-        reason: Option<String>,
-        txn_id: Option<String>,
-    ) -> Result<(), ClientError> {
+    pub fn redact(&self, event_id: String, reason: Option<String>) -> Result<(), ClientError> {
         RUNTIME.block_on(async move {
             let event_id = EventId::parse(event_id)?;
-            self.inner.redact(&event_id, reason.as_deref(), txn_id.map(Into::into)).await?;
+            self.inner.redact(&event_id, reason.as_deref(), None).await?;
             Ok(())
         })
     }
@@ -911,7 +889,6 @@ impl Room {
         description: Option<String>,
         zoom_level: Option<u8>,
         asset_type: Option<AssetType>,
-        txn_id: Option<String>,
     ) {
         let mut location_event_message_content =
             LocationMessageEventContent::new(body, geo_uri.clone());
@@ -929,7 +906,7 @@ impl Room {
         let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
             MessageType::Location(location_event_message_content),
         );
-        self.send(Arc::new(room_message_event_content), txn_id)
+        self.send(Arc::new(room_message_event_content))
     }
 
     pub fn cancel_send(&self, txn_id: String) {
