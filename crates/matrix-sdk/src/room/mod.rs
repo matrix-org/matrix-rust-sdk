@@ -388,14 +388,12 @@ impl Room {
             // If a member request is already going on, await the release of
             // the lock.
             drop(map);
-            _ = mutex.lock().await;
-
-            Ok(None)
+            return mutex.lock().await.map(|()| None).map_err(|()| Error::ConcurrentRequestFailed);
         } else {
-            let mutex = Arc::new(Mutex::new(()));
-            map.insert(self.inner.room_id().to_owned(), mutex.clone());
+            let request_mutex = Arc::new(Mutex::new(Ok(())));
+            map.insert(self.inner.room_id().to_owned(), request_mutex.clone());
 
-            let _guard = mutex.lock().await;
+            let mut request_guard = request_mutex.lock().await;
             drop(map);
 
             let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
@@ -420,6 +418,9 @@ impl Room {
                 }
 
                 Err(err) => {
+                    // Mark the request as failed.
+                    *request_guard = Err(());
+
                     // Remove the request from the in-flights set.
                     self.client
                         .inner

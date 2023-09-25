@@ -165,7 +165,7 @@ pub(crate) struct ClientInner {
     pub(crate) key_claim_lock: Mutex<()>,
     /// Lock to ensure that only one members request is running at a time, per
     /// room.
-    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
+    pub(crate) members_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<Result<(), ()>>>>>,
     /// Locks for requests on the encryption state of rooms.
     pub(crate) encryption_state_request_locks: Mutex<BTreeMap<OwnedRoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
