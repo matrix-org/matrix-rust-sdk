@@ -17,10 +17,16 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, ruma::MilliSecondsSinceUnixEpoch};
-use matrix_sdk_test::{async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk::config::SyncSettings;
+use matrix_sdk_test::{
+    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
-use ruma::{events::room::message::MessageType, room_id, uint};
+use ruma::{
+    event_id,
+    events::room::message::{MessageType, ReplacementMetadata, RoomMessageEventContent},
+    room_id,
+};
 
 use crate::{logged_in_client, mock_sync};
 
@@ -28,6 +34,7 @@ use crate::{logged_in_client, mock_sync};
 async fn edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client().await;
+    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut ev_builder = SyncResponseBuilder::new();
@@ -41,17 +48,13 @@ async fn edit() {
     let timeline = room.timeline().await;
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
+    let event_id = event_id!("$msda7m:localhost");
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "hello",
-                "msgtype": "m.text",
-            },
-            "event_id": "$msda7m:localhost",
-            "origin_server_ts": 152037280,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        }),
+        event_builder.make_sync_message_event_with_id(
+            &ALICE,
+            event_id,
+            RoomMessageEventContent::text_plain("hello"),
+        ),
     ));
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -76,36 +79,19 @@ async fn edit() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "Test",
-                    "formatted_body": "<em>Test</em>",
-                    "msgtype": "m.text",
-                    "format": "org.matrix.custom.html",
-                },
-                "event_id": "$7at8sd:localhost",
-                "origin_server_ts": 152038280,
-                "sender": "@bob:example.org",
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": " * hi",
-                    "m.new_content": {
-                        "body": "hi",
-                        "msgtype": "m.text",
-                    },
-                    "m.relates_to": {
-                        "event_id": "$msda7m:localhost",
-                        "rel_type": "m.replace",
-                    },
-                    "msgtype": "m.text",
-                },
-                "event_id": "$msda7m2:localhost",
-                "origin_server_ts": 159056300,
-                "sender": "@alice:example.org",
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &BOB,
+                RoomMessageEventContent::text_html("Test", "<em>Test</em>"),
+            ))
+            .add_timeline_event(
+                event_builder.make_sync_message_event(
+                    &ALICE,
+                    RoomMessageEventContent::text_plain("hi").make_replacement(
+                        ReplacementMetadata::new(event_id.to_owned(), None),
+                        None,
+                    ),
+                ),
+            ),
     );
 
     mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
@@ -114,7 +100,6 @@ async fn edit() {
 
     let second = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
     let item = second.as_event().unwrap();
-    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
     assert!(item.original_json().is_some());
