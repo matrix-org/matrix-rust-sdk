@@ -428,14 +428,7 @@ impl Room {
             }
         };
 
-        RUNTIME.spawn(async move {
-            timeline
-                .send(
-                    (*msg).to_owned().with_relation(None).into(),
-                    txn_id.as_deref().map(Into::into),
-                )
-                .await;
-        });
+        send_with_optional_txn_id(timeline, (*msg).to_owned().with_relation(None).into(), txn_id);
     }
 
     pub fn create_poll(
@@ -476,10 +469,7 @@ impl Room {
         let event_content =
             AnyMessageLikeEventContent::UnstablePollStart(poll_start_event_content.into());
 
-        RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
-        });
-
+        send_with_optional_txn_id(timeline, event_content, txn_id);
         Ok(())
     }
 
@@ -503,10 +493,7 @@ impl Room {
         let event_content =
             AnyMessageLikeEventContent::UnstablePollResponse(poll_response_event_content);
 
-        RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
-        });
-
+        send_with_optional_txn_id(timeline, event_content, txn_id);
         Ok(())
     }
 
@@ -528,10 +515,7 @@ impl Room {
         let poll_end_event_content = UnstablePollEndEventContent::new(text, poll_start_event_id);
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
-        RUNTIME.spawn(async move {
-            timeline.send(event_content, txn_id.as_deref().map(Into::into)).await;
-        });
-
+        send_with_optional_txn_id(timeline, event_content, txn_id);
         Ok(())
     }
 
@@ -547,15 +531,17 @@ impl Room {
         };
 
         RUNTIME.block_on(async move {
-            timeline
-                .send_reply(
-                    (*msg).clone().with_relation(None),
-                    &reply_item.0,
-                    ForwardThread::Yes,
-                    AddMentions::No,
-                    txn_id.as_deref().map(Into::into),
-                )
-                .await?;
+            let mut send_reply_fut = timeline.send_reply(
+                (*msg).clone().with_relation(None),
+                &reply_item.0,
+                ForwardThread::Yes,
+                AddMentions::No,
+            );
+            if let Some(txn_id) = txn_id {
+                send_reply_fut = send_reply_fut.with_transaction_id(txn_id.as_str().into());
+            }
+            send_reply_fut.await?;
+
             anyhow::Ok(())
         })?;
 
@@ -578,9 +564,7 @@ impl Room {
             Replacement::new(event_id, (*new_msg).clone()),
         )));
 
-        RUNTIME.spawn(async move {
-            timeline.send(edited_content.into(), txn_id.as_deref().map(Into::into)).await;
-        });
+        send_with_optional_txn_id(timeline, edited_content.into(), txn_id);
         Ok(())
     }
 
@@ -1089,6 +1073,20 @@ impl Room {
     pub fn own_user_id(&self) -> String {
         self.inner.own_user_id().to_string()
     }
+}
+
+fn send_with_optional_txn_id(
+    timeline: Arc<Timeline>,
+    content: AnyMessageLikeEventContent,
+    txn_id: Option<String>,
+) {
+    RUNTIME.spawn(async move {
+        let mut send_fut = timeline.send(content);
+        if let Some(txn_id) = txn_id {
+            send_fut = send_fut.with_transaction_id(txn_id.as_str().into());
+        }
+        send_fut.await;
+    });
 }
 
 impl Room {

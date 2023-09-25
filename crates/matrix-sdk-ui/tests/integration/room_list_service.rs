@@ -2519,7 +2519,10 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // Insert a local event in the `Timeline`.
     let txn_id: &TransactionId = "foobar-txn-id".into();
 
-    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .with_transaction_id(txn_id)
+        .await;
 
     // The latest event of the `Timeline` is a local event.
     assert_matches!(

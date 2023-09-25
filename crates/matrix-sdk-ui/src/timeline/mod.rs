@@ -42,9 +42,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
         room::{
-            message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
-            },
+            message::{AddMentions, ForwardThread, RoomMessageEventContent},
             redaction::RoomRedactionEventContent,
         },
         AnyMessageLikeEventContent,
@@ -59,7 +57,7 @@ mod builder;
 mod error;
 mod event_handler;
 mod event_item;
-mod futures;
+pub mod futures;
 mod inner;
 mod item;
 mod pagination;
@@ -85,7 +83,6 @@ pub use self::{
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
         TimelineDetails, TimelineItemContent,
     },
-    futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
     pagination::{PaginationOptions, PaginationOutcome},
     polls::PollResult,
@@ -337,29 +334,13 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A locally-unique ID describing a message transaction with
-    ///   the homeserver. Unless you're doing something special, you can pass in
-    ///   `None` which will create a suitable one for you automatically.
-    ///     * On the sending side, this field is used for re-trying earlier
-    ///       failed transactions. Subsequent messages *must never* re-use an
-    ///       earlier transaction ID.
-    ///     * On the receiving side, the field is used for recognizing our own
-    ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`MessageLikeUnsigned`] field `transaction_id` of the
-    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
-    ///       device. Other devices will not see it.
+    /// * `content` - The content of the message event
     ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(&self, content: AnyMessageLikeEventContent, txn_id: Option<&TransactionId>) {
-        let txn_id = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
-        self.inner.handle_local_event(txn_id.clone(), content.clone()).await;
-        if self.msg_sender.send(LocalMessage { content, txn_id }).await.is_err() {
-            error!("Internal error: timeline message receiver is closed");
-        }
+    pub fn send(&self, content: AnyMessageLikeEventContent) -> futures::Send<'_> {
+        futures::Send::new(self, content)
     }
 
     /// Send a reply to the given event.
@@ -381,52 +362,15 @@ impl Timeline {
     ///
     /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
     ///   propagated according to user intent, `No` otherwise
-    ///
-    /// * `txn_id` - Optional transaction ID, usually `None`
-    #[instrument(skip(self, content, reply_item, txn_id))]
-    pub async fn send_reply(
-        &self,
+    #[instrument(skip(self, content, reply_item))]
+    pub fn send_reply<'a>(
+        &'a self,
         content: RoomMessageEventContent,
-        reply_item: &EventTimelineItem,
+        reply_item: &'a EventTimelineItem,
         forward_thread: ForwardThread,
         add_mentions: AddMentions,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<(), UnsupportedReplyItem> {
-        // Error returns here must be in sync with
-        // `EventTimelineItem::can_be_replied_to`
-        let Some(event_id) = reply_item.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
-        };
-
-        let content = match reply_item.content() {
-            TimelineItemContent::Message(msg) => {
-                let event = OriginalRoomMessageEvent {
-                    event_id: event_id.to_owned(),
-                    sender: reply_item.sender().to_owned(),
-                    origin_server_ts: reply_item.timestamp(),
-                    room_id: self.room().room_id().to_owned(),
-                    content: msg.to_content(),
-                    unsigned: Default::default(),
-                };
-                content.make_reply_to(&event, forward_thread, add_mentions)
-            }
-            _ => {
-                let Some(raw_event) = reply_item.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
-                };
-
-                content.make_reply_to_raw(
-                    raw_event,
-                    event_id.to_owned(),
-                    self.room().room_id(),
-                    forward_thread,
-                    add_mentions,
-                )
-            }
-        };
-
-        self.send(content.into(), txn_id).await;
-        Ok(())
+    ) -> futures::SendReply<'_> {
+        futures::SendReply::new(self, content, reply_item, forward_thread, add_mentions)
     }
 
     /// Toggle a reaction on an event
@@ -526,8 +470,8 @@ impl Timeline {
         url: String,
         mime_type: Mime,
         config: AttachmentConfig,
-    ) -> SendAttachment<'_> {
-        SendAttachment::new(self, url, mime_type, config)
+    ) -> futures::SendAttachment<'_> {
+        futures::SendAttachment::new(self, url, mime_type, config)
     }
 
     /// Retry sending a message that previously failed to send.

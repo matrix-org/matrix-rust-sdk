@@ -76,8 +76,8 @@ async fn message_order() {
         .mount(&server)
         .await;
 
-    timeline.send(RoomMessageEventContent::text_plain("First!").into(), None).await;
-    timeline.send(RoomMessageEventContent::text_plain("Second.").into(), None).await;
+    timeline.send(RoomMessageEventContent::text_plain("First!").into()).await;
+    timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await;
 
     // Local echoes are available as soon as `timeline.send` returns
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -125,8 +125,14 @@ async fn retry_order() {
 
     // Send two messages without mocking the server response.
     // It will respond with a 404, resulting in a failed-to-send state.
-    timeline.send(RoomMessageEventContent::text_plain("First!").into(), Some("1".into())).await;
-    timeline.send(RoomMessageEventContent::text_plain("Second.").into(), Some("2".into())).await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("First!").into())
+        .with_transaction_id("1".into())
+        .await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("Second.").into())
+        .with_transaction_id("2".into())
+        .await;
 
     // Local echoes are available as soon as `timeline.send` returns
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -229,7 +235,7 @@ async fn clear_with_echoes() {
     {
         let (_, mut timeline_stream) = timeline.subscribe().await;
 
-        timeline.send(RoomMessageEventContent::text_plain("Send failure").into(), None).await;
+        timeline.send(RoomMessageEventContent::text_plain("Send failure").into()).await;
 
         // Wait for the first message to fail. Don't use time, but listen for the first
         // timeline item diff to get back signalling the error.
@@ -250,7 +256,7 @@ async fn clear_with_echoes() {
         .await;
 
     // (this one)
-    timeline.send(RoomMessageEventContent::text_plain("Pending").into(), None).await;
+    timeline.send(RoomMessageEventContent::text_plain("Pending").into()).await;
 
     // Another message comes in.
     sync_builder.add_joined_room(

@@ -70,7 +70,8 @@ async fn echo() {
     #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
     let send_hdl = spawn(async move {
         timeline
-            .send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id))
+            .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+            .with_transaction_id(txn_id)
             .await
     });
 
@@ -154,7 +155,10 @@ async fn retry_failed() {
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
     let txn_id: &TransactionId = "my-txn-id".into();
 
-    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .with_transaction_id(txn_id)
+        .await;
 
     // First, local echo is added
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -223,7 +227,10 @@ async fn dedup_by_event_id_late() {
         .mount(&server)
         .await;
 
-    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .with_transaction_id(txn_id)
+        .await;
 
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { .. })); // day divider
     let local_echo = assert_matches!(timeline_stream.next().await, Some(VectorDiff::PushBack { value }) => value);
@@ -278,7 +285,10 @@ async fn cancel_failed() {
 
     let txn_id: &TransactionId = "my-txn-id".into();
 
-    timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into(), Some(txn_id)).await;
+    timeline
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .with_transaction_id(txn_id)
+        .await;
 
     // Local echo is added (immediately)
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {

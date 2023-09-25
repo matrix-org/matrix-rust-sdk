@@ -306,7 +306,6 @@ async fn send_reply() {
             &hello_world_item,
             ForwardThread::Yes,
             AddMentions::No,
-            None,
         )
         .await
         .unwrap();
