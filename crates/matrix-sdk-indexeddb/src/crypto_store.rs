@@ -92,8 +92,7 @@ mod keys {
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
-    // TODO(BNJ) rename
-    account_info: Arc<RwLock<Option<StaticAccountData>>>,
+    static_account: Arc<RwLock<Option<StaticAccountData>>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
@@ -252,7 +251,7 @@ impl IndexeddbCryptoStore {
             session_cache,
             inner: db,
             store_cipher,
-            account_info: RwLock::new(None).into(),
+            static_account: RwLock::new(None).into(),
         })
     }
 
@@ -443,8 +442,8 @@ impl IndexeddbCryptoStore {
         }
     }
 
-    fn get_account_info(&self) -> Option<StaticAccountData> {
-        self.account_info.read().unwrap().clone()
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().unwrap().clone()
     }
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
@@ -547,7 +546,7 @@ impl_crypto_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         let account_pickle = if let Some(account) = changes.account {
-            *self.account_info.write().unwrap() = Some(account.static_data().clone());
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None
@@ -756,7 +755,7 @@ impl_crypto_store! {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
@@ -807,7 +806,7 @@ impl_crypto_store! {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
-            *self.account_info.write().unwrap() = Some(account.static_data().clone());
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
@@ -856,7 +855,7 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let range = self.encode_to_range(keys::SESSION, sender_key)?;
