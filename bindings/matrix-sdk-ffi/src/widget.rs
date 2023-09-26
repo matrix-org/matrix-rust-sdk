@@ -182,7 +182,7 @@ pub struct ClientProperties {
     /// The client_id provides the widget with the option to behave differently
     /// for different clients. e.g org.example.ios.
     client_id: String,
-    /// The language tag the client is set to e.g. en-us. (defualt: `en-US`)
+    /// The language tag the client is set to e.g. en-us. (default: `en-US`)
     language_tag: Option<String>,
     /// A string describing the theme (dark, light) or org.example.dark. (default: `light`)
     theme: Option<String>,
@@ -206,7 +206,7 @@ pub struct WidgetPermissions {
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
     /// If a widget requests this capability, the client is not allowed
-    /// to open the widget in a seperated browser.
+    /// to open the widget in a separated browser.
     pub requires_client: bool,
 }
 
