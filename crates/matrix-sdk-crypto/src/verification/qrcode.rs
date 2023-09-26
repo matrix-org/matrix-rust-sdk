@@ -527,7 +527,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519,
+            store.account.identity_keys.ed25519,
             own_master_key,
             secret,
         )
@@ -580,9 +580,10 @@ impl QrVerification {
 
         let identities = store.get_identities(other_device).await?;
 
-        let own_identity = identities.own_identity.as_ref().ok_or_else(|| {
-            ScanError::MissingCrossSigningIdentity(store.account.user_id().to_owned())
-        })?;
+        let own_identity = identities
+            .own_identity
+            .as_ref()
+            .ok_or_else(|| ScanError::MissingCrossSigningIdentity(store.account.user_id.clone()))?;
 
         let other_identity = identities
             .identity_being_verified
@@ -611,9 +612,9 @@ impl QrVerification {
             }
             QrVerificationData::SelfVerification(_) => {
                 check_master_key(qr_code.first_key(), other_identity)?;
-                if qr_code.second_key() != store.account.identity_keys().ed25519 {
+                if qr_code.second_key() != store.account.identity_keys.ed25519 {
                     return Err(ScanError::KeyMismatch {
-                        expected: store.account.identity_keys().ed25519.to_base64(),
+                        expected: store.account.identity_keys.ed25519.to_base64(),
                         found: qr_code.second_key().to_base64(),
                     });
                 }
@@ -635,7 +636,7 @@ impl QrVerification {
         };
 
         let secret = qr_code.secret().to_owned();
-        let own_device_id = store.account.device_id().to_owned();
+        let own_device_id = store.account.device_id.clone();
 
         Ok(Self {
             flow_id,
@@ -920,7 +921,7 @@ mod tests {
         let master_key = master_key.get_first_key().unwrap().to_owned();
 
         let store = VerificationStore {
-            account: account.clone(),
+            account: account.static_data.clone(),
             inner: store,
             private_identity: Mutex::new(private_identity).into(),
         };
@@ -983,7 +984,7 @@ mod tests {
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
             let store = VerificationStore {
-                account: alice_account.clone(),
+                account: alice_account.static_data.clone(),
                 inner: store,
                 private_identity: Mutex::new(private_identity).into(),
             };
@@ -1021,7 +1022,7 @@ mod tests {
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
             let bob_store = VerificationStore {
-                account: bob_account.clone(),
+                account: bob_account.static_data.clone(),
                 inner: bob_store,
                 private_identity: Mutex::new(private_identity).into(),
             };

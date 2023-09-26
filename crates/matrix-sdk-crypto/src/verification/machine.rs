@@ -39,11 +39,11 @@ use super::{
     FlowId, Verification, VerificationResult, VerificationStore,
 };
 use crate::{
-    olm::PrivateCrossSigningIdentity,
+    olm::{PrivateCrossSigningIdentity, StaticAccountData},
     requests::OutgoingRequest,
     store::{CryptoStoreError, CryptoStoreWrapper},
-    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentity,
-    RoomMessageRequest, ToDeviceRequest,
+    OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentity, RoomMessageRequest,
+    ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -55,7 +55,7 @@ pub struct VerificationMachine {
 
 impl VerificationMachine {
     pub(crate) fn new(
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
     ) -> Self {
@@ -67,11 +67,11 @@ impl VerificationMachine {
     }
 
     pub(crate) fn own_user_id(&self) -> &UserId {
-        self.store.account.user_id()
+        &self.store.account.user_id
     }
 
     pub(crate) fn own_device_id(&self) -> &DeviceId {
-        self.store.account.device_id()
+        &self.store.account.device_id
     }
 
     pub(crate) async fn request_to_device_verification(
@@ -333,8 +333,8 @@ impl VerificationMachine {
         };
 
         let event_sent_from_us = |event: &AnyEvent<'_>, from_device: &DeviceId| {
-            if event.sender() == self.store.account.user_id() {
-                from_device == self.store.account.device_id() || event.is_room_event()
+            if event.sender() == self.store.account.user_id {
+                from_device == self.store.account.device_id || event.is_room_event()
             } else {
                 false
             }
@@ -546,7 +546,7 @@ mod tests {
     };
 
     async fn verification_machine() -> (VerificationMachine, VerificationStore) {
-        let (store, bob_store) = setup_stores().await;
+        let (_account, store, _bob, bob_store) = setup_stores().await;
 
         let machine = VerificationMachine {
             store,
@@ -580,7 +580,7 @@ mod tests {
         let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let _ = VerificationMachine::new(
-            alice,
+            alice.static_data,
             identity,
             Arc::new(CryptoStoreWrapper::new(alice_id(), MemoryStore::new())),
         );

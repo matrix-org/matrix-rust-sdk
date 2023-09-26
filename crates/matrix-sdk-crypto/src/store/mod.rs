@@ -139,6 +139,8 @@ struct StoreInner {
 
     verification_machine: VerificationMachine,
 
+    account: ReadOnlyAccount, // TODO(bnjbvr, #2624) move this into the store cache
+
     /// Record of the users that are waiting for a /keys/query.
     //
     // This uses an async_std::sync::Mutex rather than a
@@ -530,6 +532,7 @@ impl Store {
     /// Create a new Store
     pub(crate) fn new(
         user_id: OwnedUserId,
+        account: ReadOnlyAccount,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
@@ -538,6 +541,7 @@ impl Store {
             user_id,
             identity,
             store,
+            account,
             verification_machine,
             users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
             users_for_key_query_condvar: Condvar::new(),
@@ -559,7 +563,7 @@ impl Store {
 
     /// The Account associated with this store
     pub(crate) fn account(&self) -> &ReadOnlyAccount {
-        &self.inner.verification_machine.store.account
+        &self.inner.account
     }
 
     async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
@@ -765,7 +769,12 @@ impl Store {
             .and_then(as_variant!(ReadOnlyUserIdentities::Own));
 
         Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
-            UserIdentities::new(i, self.inner.verification_machine.to_owned(), own_identity)
+            UserIdentities::new(
+                self.clone(),
+                i,
+                self.inner.verification_machine.to_owned(),
+                own_identity,
+            )
         }))
     }
 
@@ -1174,6 +1183,7 @@ impl Store {
     pub fn user_identities_stream(&self) -> impl Stream<Item = IdentityUpdates> {
         let verification_machine = self.inner.verification_machine.to_owned();
 
+        let this = self.clone();
         self.inner.store.identities_stream().map(move |(own_identity, identities, _)| {
             let (new_identities, changed_identities, unchanged_identities) = identities.into_maps();
 
@@ -1181,6 +1191,7 @@ impl Store {
                 (
                     user_id,
                     UserIdentities::new(
+                        this.clone(),
                         identity,
                         verification_machine.to_owned(),
                         own_identity.to_owned(),

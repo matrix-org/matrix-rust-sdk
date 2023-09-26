@@ -93,9 +93,13 @@ impl DehydratedDevices {
         let account = ReadOnlyAccount::new(user_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
 
-        let verification_machine =
-            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
-        let store = Store::new(user_id.into(), user_identity, store, verification_machine);
+        let verification_machine = VerificationMachine::new(
+            account.static_data().clone(),
+            user_identity.clone(),
+            store.clone(),
+        );
+        let store =
+            Store::new(user_id.into(), account.clone(), user_identity, store, verification_machine);
 
         let account = Account { inner: account, store };
 
