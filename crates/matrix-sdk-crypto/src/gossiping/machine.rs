@@ -759,10 +759,15 @@ impl GossipMachine {
                 recipient = info.request_recipient.as_str(),
                 request_type = info.request_type(),
                 request_id = info.request_id.to_string().as_str(),
-                "Marking outgoing key request as sent"
+                "Marking outgoing secret request as sent"
             );
             info.sent_out = true;
             self.save_outgoing_key_info(info).await?;
+        } else {
+            warn!(
+                request_id = id.to_string(),
+                "Unknown outgoing secret request; cannot mark as sent"
+            )
         }
 
         self.inner.outgoing_requests.remove(id);
