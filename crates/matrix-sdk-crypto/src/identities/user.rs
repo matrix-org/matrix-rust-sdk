@@ -35,7 +35,7 @@ use tracing::error;
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    store::{Changes, IdentityChanges},
+    store::{Changes, IdentityChanges, Store},
     types::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
@@ -72,13 +72,14 @@ impl UserIdentities {
     }
 
     pub(crate) fn new(
+        store: Store,
         identity: ReadOnlyUserIdentities,
         verification_machine: VerificationMachine,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
     ) -> Self {
         match identity {
             ReadOnlyUserIdentities::Own(i) => {
-                Self::Own(OwnUserIdentity { inner: i, verification_machine })
+                Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             ReadOnlyUserIdentities::Other(i) => {
                 Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
@@ -111,6 +112,7 @@ impl From<UserIdentity> for UserIdentities {
 pub struct OwnUserIdentity {
     pub(crate) inner: ReadOnlyOwnUserIdentity,
     pub(crate) verification_machine: VerificationMachine,
+    store: Store,
 }
 
 impl Deref for OwnUserIdentity {
@@ -144,7 +146,7 @@ impl OwnUserIdentity {
             error!(error = ?e, "Couldn't store our own user identity after marking it as verified");
         }
 
-        self.verification_machine.store.account.sign_master_key(self.master_key.clone()).await
+        self.store.account().sign_master_key(self.master_key.clone()).await
     }
 
     /// Send a verification request to our other devices.
@@ -171,7 +173,7 @@ impl OwnUserIdentity {
     /// own device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
-            let mut device_keys = self.verification_machine.store.account.device_keys().await;
+            let mut device_keys = self.store.account().device_keys().await;
             device_keys.signatures = signatures;
 
             self.inner.self_signing_key().verify_device_keys(&device_keys).is_ok()
@@ -860,7 +862,7 @@ pub(crate) mod tests {
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::with_device_id(second.user_id(), second.device_id()),
+            ReadOnlyAccount::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
             Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
         );
@@ -901,7 +903,7 @@ pub(crate) mod tests {
         let id = Arc::new(Mutex::new(identity.clone()));
 
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::with_device_id(device.user_id(), device.device_id()),
+            ReadOnlyAccount::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
             Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
         );

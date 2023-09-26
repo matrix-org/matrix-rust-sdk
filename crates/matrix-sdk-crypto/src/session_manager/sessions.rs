@@ -517,13 +517,16 @@ mod tests {
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
-        let verification =
-            VerificationMachine::new(account.clone(), identity.clone(), store.clone());
+        let verification = VerificationMachine::new(
+            account.static_data().clone(),
+            identity.clone(),
+            store.clone(),
+        );
 
         let user_id = user_id.to_owned();
         let device_id = device_id.into();
 
-        let store = Store::new(user_id.clone(), identity, store, verification);
+        let store = Store::new(user_id.clone(), account.clone(), identity, store, verification);
 
         let account = Account { inner: account, store: store.clone() };
 
