@@ -61,7 +61,7 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerificationStore {
-    pub account: ReadOnlyAccount,
+    pub account: ReadOnlyAccount, // TODO(BNJ) could this be a StaticAccountData?
     pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<CryptoStoreWrapper>,
 }

@@ -32,12 +32,13 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Emoji,
     },
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
@@ -58,7 +59,7 @@ pub enum InnerSas {
 
 impl InnerSas {
     pub fn start(
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
@@ -157,7 +158,7 @@ impl InnerSas {
     }
 
     pub fn from_start_event(
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
         content: &StartContent<'_>,

@@ -313,7 +313,7 @@ impl Sas {
         short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
-            identities.store.account.clone(),
+            identities.store.account.static_data().clone(), // TODO(bnjbvr, #2624) store could dup static data
             identities.device_being_verified.clone(),
             identities.own_identity.clone(),
             identities.identity_being_verified.clone(),
@@ -399,7 +399,7 @@ impl Sas {
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
-            identities.store.account.clone(),
+            identities.store.account.static_data().clone(), // TODO(bnjbvr, #2624) store could dup StaticAccountData
             identities.device_being_verified.clone(),
             flow_id.clone(),
             content,
