@@ -190,6 +190,7 @@ impl Changes {
 pub struct IdentityChanges {
     pub new: Vec<ReadOnlyUserIdentities>,
     pub changed: Vec<ReadOnlyUserIdentities>,
+    pub unchanged: Vec<ReadOnlyUserIdentities>,
 }
 
 impl IdentityChanges {
@@ -198,10 +199,11 @@ impl IdentityChanges {
     }
 
     /// Convert the vectors contained in the [`IdentityChanges`] into
-    /// two maps from user id to user identity.
+    /// three maps from user id to user identity (new, updated, unchanged).
     fn into_maps(
         self,
     ) -> (
+        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
         BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
         BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
     ) {
@@ -217,7 +219,13 @@ impl IdentityChanges {
             .map(|identity| (identity.user_id().to_owned(), identity))
             .collect();
 
-        (new, changed)
+        let unchanged: BTreeMap<_, _> = self
+            .unchanged
+            .into_iter()
+            .map(|identity| (identity.user_id().to_owned(), identity))
+            .collect();
+
+        (new, changed, unchanged)
     }
 }
 
@@ -243,12 +251,13 @@ fn collect_device_updates(
     let mut new: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
     let mut changed: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
-    let (new_identities, changed_identities) = identities.into_maps();
+    let (new_identities, changed_identities, unchanged_identities) = identities.into_maps();
 
     let map_device = |device: ReadOnlyDevice| {
         let device_owner_identity = new_identities
             .get(device.user_id())
             .or_else(|| changed_identities.get(device.user_id()))
+            .or_else(|| unchanged_identities.get(device.user_id()))
             .cloned();
 
         Device {
@@ -305,6 +314,8 @@ pub struct IdentityUpdates {
     pub new: BTreeMap<OwnedUserId, UserIdentities>,
     /// The list of changed identities.
     pub changed: BTreeMap<OwnedUserId, UserIdentities>,
+    /// The list of unchanged identities.
+    pub unchanged: BTreeMap<OwnedUserId, UserIdentities>,
 }
 
 /// The private part of a backup key.
@@ -1110,7 +1121,7 @@ impl Store {
         let verification_machine = self.inner.verification_machine.to_owned();
 
         self.inner.store.identities_stream().map(move |(own_identity, identities, _)| {
-            let (new_identities, changed_identities) = identities.into_maps();
+            let (new_identities, changed_identities, unchanged_identities) = identities.into_maps();
 
             let map_identity = |(user_id, identity)| {
                 (
@@ -1125,8 +1136,9 @@ impl Store {
 
             let new = new_identities.into_iter().map(map_identity).collect();
             let changed = changed_identities.into_iter().map(map_identity).collect();
+            let unchanged = unchanged_identities.into_iter().map(map_identity).collect();
 
-            IdentityUpdates { new, changed }
+            IdentityUpdates { new, changed, unchanged }
         })
     }
 

@@ -847,6 +847,7 @@ pub(crate) mod tests {
             identities: IdentityChanges {
                 new: vec![alice_readonly_identity.into(), bob_public_identity.into()],
                 changed: vec![],
+                unchanged: vec![],
             },
             ..Default::default()
         };
@@ -857,6 +858,7 @@ pub(crate) mod tests {
             identities: IdentityChanges {
                 new: vec![bob_readonly_identity.into(), alice_public_identity.into()],
                 changed: vec![],
+                unchanged: vec![],
             },
             ..Default::default()
         };
