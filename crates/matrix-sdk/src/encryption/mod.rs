@@ -593,6 +593,19 @@ impl Encryption {
         Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
     }
 
+    /// A convenience method to retrieve your own device from the store.
+    ///
+    /// This is the same as calling [`Encryption::get_device()`] with your own
+    /// user and device ID.
+    ///
+    /// This will always return a device, unless you are not logged in.
+    pub async fn get_own_device(&self) -> Result<Option<Device>, CryptoStoreError> {
+        let olm = self.client.olm_machine().await;
+        let Some(machine) = olm.as_ref() else { return Ok(None) };
+        let device = machine.get_device(machine.user_id(), machine.device_id(), None).await?;
+        Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
+    }
+
     /// Get a map holding all the devices of an user.
     ///
     /// This will always return an empty map if the client hasn't been logged

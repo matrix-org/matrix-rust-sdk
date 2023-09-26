@@ -503,3 +503,26 @@ async fn marking_room_as_dm() {
 
     server.verify().await;
 }
+
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn get_own_device() {
+    let (client, _) = logged_in_client().await;
+
+    let device = client
+        .encryption()
+        .get_own_device()
+        .await
+        .unwrap()
+        .expect("We should always have access to our own device, even before any sync");
+
+    assert!(
+        device.user_id() == client.user_id().expect("The client should know about its user ID"),
+        "The user ID of the client and our own device should match"
+    );
+    assert!(
+        device.device_id()
+            == client.device_id().expect("The client should know about its device ID"),
+        "The device ID of the client and our own device should match"
+    );
+}
