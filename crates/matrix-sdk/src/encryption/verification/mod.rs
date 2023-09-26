@@ -35,6 +35,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
+use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString,
     SasState,
@@ -62,22 +63,13 @@ pub enum Verification {
 impl Verification {
     /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas(self) -> Option<SasVerification> {
-        #[allow(irrefutable_let_patterns)]
-        if let Verification::SasV1(sas) = self {
-            Some(sas)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::SasV1)
     }
 
-    #[cfg(feature = "qrcode")]
     /// Try to deconstruct this verification enum into a QR code verification.
+    #[cfg(feature = "qrcode")]
     pub fn qr(self) -> Option<QrVerification> {
-        if let Verification::QrV1(qr) = self {
-            Some(qr)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::QrV1)
     }
 
     /// Has this verification finished.

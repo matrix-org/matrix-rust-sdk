@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use dashmap::DashMap;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::{trace, warn};
@@ -113,13 +114,7 @@ impl VerificationCache {
 
     #[cfg(feature = "qrcode")]
     pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
-        self.get(sender, flow_id).and_then(|v| {
-            if let Verification::QrV1(qr) = v {
-                Some(qr)
-            } else {
-                None
-            }
-        })
+        self.get(sender, flow_id).and_then(as_variant!(Verification::QrV1))
     }
 
     pub fn replace(&self, verification: Verification) {
@@ -151,12 +146,8 @@ impl VerificationCache {
                     .value()
                     .iter()
                     .filter_map(|s| {
-                        #[allow(irrefutable_let_patterns)]
-                        if let Verification::SasV1(s) = s.value() {
-                            s.cancel_if_timed_out()
-                        } else {
-                            None
-                        }
+                        as_variant!(s.value(), Verification::SasV1)
+                            .and_then(|s| s.cancel_if_timed_out())
                     })
                     .collect();
 
@@ -166,14 +157,7 @@ impl VerificationCache {
     }
 
     pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
-        self.get(user_id, flow_id).and_then(|v| {
-            #[allow(irrefutable_let_patterns)]
-            if let Verification::SasV1(sas) = v {
-                Some(sas)
-            } else {
-                None
-            }
-        })
+        self.get(user_id, flow_id).and_then(as_variant!(Verification::SasV1))
     }
 
     pub fn add_request(&self, request: OutgoingRequest) {

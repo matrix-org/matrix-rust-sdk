@@ -46,6 +46,7 @@ use std::{
     time::Duration,
 };
 
+use as_variant::as_variant;
 use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
 use dashmap::DashSet;
@@ -702,14 +703,12 @@ impl Store {
 
     ///  Get the Identity of `user_id`
     pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
-        let own_identity =
-            self.inner.store.get_user_identity(self.user_id()).await?.and_then(|i| {
-                if let ReadOnlyUserIdentities::Own(i) = i {
-                    Some(i)
-                } else {
-                    None
-                }
-            });
+        let own_identity = self
+            .inner
+            .store
+            .get_user_identity(self.user_id())
+            .await?
+            .and_then(as_variant!(ReadOnlyUserIdentities::Own));
 
         Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
             UserIdentities::new(i, self.inner.verification_machine.to_owned(), own_identity)

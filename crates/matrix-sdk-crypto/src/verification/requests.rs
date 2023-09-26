@@ -14,6 +14,7 @@
 
 use std::{ops::Add, sync::Arc, time::Duration};
 
+use as_variant::as_variant;
 use eyeball::{ObservableWriteGuard, SharedObservable, WeakObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -301,11 +302,9 @@ impl VerificationRequest {
     /// Get info about the cancellation if the verification request has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerRequest::Cancelled(c) = &*self.inner.read() {
-            Some(c.state.clone().into())
-        } else {
-            None
-        }
+        as_variant!(&*self.inner.read(), InnerRequest::Cancelled(c) => {
+            c.state.clone().into()
+        })
     }
 
     /// Has the verification request been answered by another device.
@@ -559,11 +558,9 @@ impl VerificationRequest {
             ObservableWriteGuard::set(&mut guard, updated);
         }
 
-        let content = if let InnerRequest::Cancelled(c) = &*guard {
-            Some(c.state.as_content(self.flow_id()))
-        } else {
-            None
-        };
+        let content = as_variant!(&*guard, InnerRequest::Cancelled(c) => {
+            c.state.as_content(self.flow_id())
+        });
 
         let request = content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
