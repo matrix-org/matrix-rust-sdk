@@ -460,7 +460,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign an Olm account with this private identity.
     pub(crate) async fn sign_account(
         &self,
-        account: &ReadOnlyAccount,
+        account: &ReadOnlyAccount, // TODO(BNJ) think this could be StaticAccountData
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let mut device_keys = account.unsigned_device_keys();
         self.sign_device_keys(&mut device_keys).await

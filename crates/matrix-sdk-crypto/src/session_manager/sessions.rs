@@ -328,7 +328,7 @@ impl SessionManager {
             .failures
             .keys()
             .filter_map(|s| ServerName::parse(s).ok())
-            .filter(|s| s != self.account.user_id().server_name());
+            .filter(|s| s != self.account.static_data.user_id.server_name());
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
         self.failures.extend(failed_servers);
@@ -378,24 +378,25 @@ impl SessionManager {
                     }
                 };
 
-                let session = match self.account.create_outbound_session(&device, key_map).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            error = ?e,
-                            "Error creating outbound session"
-                        );
+                let session =
+                    match self.store.account().create_outbound_session(&device, key_map).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(
+                                user_id = user_id.as_str(),
+                                device_id = device_id.as_str(),
+                                error = ?e,
+                                "Error creating outbound session"
+                            );
 
-                        self.failed_devices
-                            .entry(user_id.to_owned())
-                            .or_default()
-                            .insert(device_id.to_owned());
+                            self.failed_devices
+                                .entry(user_id.to_owned())
+                                .or_default()
+                                .insert(device_id.to_owned());
 
-                        continue;
-                    }
-                };
+                            continue;
+                        }
+                    };
 
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
@@ -528,7 +529,7 @@ mod tests {
 
         let store = Store::new(user_id.clone(), account.clone(), identity, store, verification);
 
-        let account = Account { inner: account, store: store.clone() };
+        let account = Account { static_data: account.static_data.clone(), store: store.clone() };
 
         let session_cache = GroupSessionCache::new(store.clone());
 
@@ -579,8 +580,8 @@ mod tests {
     async fn session_creation_waits_for_keys_query() {
         let manager = session_manager().await;
         let identity_manager = IdentityManager::new(
-            manager.account.user_id().to_owned(),
-            manager.account.device_id().to_owned(),
+            manager.account.static_data.user_id.clone(),
+            manager.account.static_data.device_id.clone(),
             manager.store.clone(),
         );
 
@@ -608,7 +609,7 @@ mod tests {
         };
 
         // the initial keys query completes, and we start another
-        let response_json = json!({ "device_keys": { manager.account.user_id(): {}}});
+        let response_json = json!({ "device_keys": { manager.account.static_data.user_id: {}}});
         let response =
             KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
@@ -643,7 +644,7 @@ mod tests {
 
         let manager = session_manager().await;
         let bob = bob_account();
-        let (_, mut session) = bob.create_session_for(&manager.account).await;
+        let (_, mut session) = bob.create_session_for(manager.store.account()).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);

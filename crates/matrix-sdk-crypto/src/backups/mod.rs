@@ -169,7 +169,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> SignatureState {
-        match self.account.has_signed_raw(signatures, auth_data) {
+        match self.store.account().has_signed_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
                 crate::SignatureError::NoSignatureFound => SignatureState::Missing,
@@ -185,7 +185,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> Result<SignatureState, CryptoStoreError> {
-        let user_id = self.account.user_id();
+        let user_id = &self.account.static_data.user_id;
         let identity = self.store.get_identity(user_id).await?;
 
         let ret = if let Some(identity) = identity.and_then(|i| i.own()) {
@@ -238,12 +238,12 @@ impl BackupMachine {
     ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
-        if let Some(user_signatures) = signatures.get(self.account.user_id()) {
+        if let Some(user_signatures) = signatures.get(&self.account.static_data.user_id) {
             for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     // No need to check our own device here, we're doing that using
                     // the check_own_device_signature().
-                    if device_key_id.device_id() == self.account.device_id() {
+                    if device_key_id.device_id() == self.account.static_data.device_id {
                         continue;
                     }
 
