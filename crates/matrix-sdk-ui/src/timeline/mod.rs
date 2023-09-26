@@ -117,7 +117,6 @@ pub struct Timeline {
     /// Observable for whether a pagination is currently running
     back_pagination_status: SharedObservable<BackPaginationStatus>,
 
-    _end_token: Arc<Mutex<Option<String>>>,
     msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
 }
@@ -147,10 +146,7 @@ impl Timeline {
     /// Clear all timeline items, and reset pagination parameters.
     pub async fn clear(&self) {
         let mut start_lock = self.start_token.lock().await;
-        let mut end_lock = self._end_token.lock().await;
-
         *start_lock = None;
-        *end_lock = None;
 
         self.inner.clear().await;
     }
