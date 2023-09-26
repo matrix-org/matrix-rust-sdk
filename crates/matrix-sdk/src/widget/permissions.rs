@@ -23,4 +23,8 @@ pub struct Permissions {
     pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<EventFilter>,
+    /// If this is set to true the client should not give the option to pop the
+    /// widget into its own window. (The widget will set this to true if it
+    /// relies on the widget-api.)
+    pub requires_client: bool,
 }

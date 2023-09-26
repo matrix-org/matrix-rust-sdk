@@ -10,14 +10,12 @@ mod filter;
 mod permissions;
 mod widget_settings;
 
-
 use self::client::{Action, ClientApi, Event};
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
     widget_settings::{ClientProperties, WidgetSettings},
 };
-use crate::Room;
 
 /// Describes a widget.
 #[derive(Debug)]

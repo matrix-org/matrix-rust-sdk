@@ -83,7 +83,7 @@ pub enum ParseError {
     SetHostOnCannotBeABaseUrl,
     #[error("URLs more than 4 GB are not supported")]
     Overflow,
-    #[error("unkwon parse error")]
+    #[error("unknown parse error")]
     Other,
 }
 
@@ -113,8 +113,8 @@ impl From<url::ParseError> for ParseError {
 /// # Arguments
 /// * `widget_settings` - The widget settings to generate the url for.
 /// * `room` - A matrix room which is used to query the logged in username
-/// * `props` - Propertis from the client that can be used by a widget to
-///   adapt to the client. e.g. language, font-scale...
+/// * `props` - Properties from the client that can be used by a widget to adapt
+///   to the client. e.g. language, font-scale...
 #[uniffi::export]
 pub async fn generate_url(
     widget_settings: WidgetSettings,
@@ -141,12 +141,12 @@ pub async fn generate_url(
 /// * `base_path` the path to the app e.g. https://call.element.io.
 /// * `id` the widget id.
 /// * `embed` the embed param for the widget.
-/// * `hide_header` for Element Call this defines if the branding header
-///   should be hidden.
-/// * `preload` if set, the lobby will be skipped and the widget will join
-///   the call on the `io.element.join` action.
-/// * `base_url` the url of the matrix homserver in use e.g. https://matrix-client.matrix.org.
-/// * `analytics_id` can be used to pass a posthog id to element call.
+/// * `hide_header` for Element Call this defines if the branding header should
+///   be hidden.
+/// * `preload` if set, the lobby will be skipped and the widget will join the
+///   call on the `io.element.join` action.
+/// * `base_url` the url of the matrix homeserver in use e.g. https://matrix-client.matrix.org.
+/// * `analytics_id` can be used to pass a PostHog id to element call.
 #[uniffi::export]
 pub fn new_virtual_element_call_widget(
     element_call_url: String,
@@ -184,7 +184,8 @@ pub struct ClientProperties {
     client_id: String,
     /// The language tag the client is set to e.g. en-us. (default: `en-US`)
     language_tag: Option<String>,
-    /// A string describing the theme (dark, light) or org.example.dark. (default: `light`)
+    /// A string describing the theme (dark, light) or org.example.dark.
+    /// (default: `light`)
     theme: Option<String>,
 }
 
@@ -205,8 +206,9 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
-    /// If a widget requests this capability, the client is not allowed
-    /// to open the widget in a separated browser.
+    /// If this is set to true the client should not give the option to pop the
+    /// widget into its own window. (The widget will set this to true if it
+    /// relies on the widget-api.)
     pub requires_client: bool,
 }
 
@@ -215,6 +217,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }

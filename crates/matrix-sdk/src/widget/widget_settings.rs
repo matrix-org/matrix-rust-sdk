@@ -46,7 +46,7 @@ impl WidgetSettings {
     /// # Arguments
     ///
     /// * `room` - A matrix room which is used to query the logged in username
-    /// * `props` - Propertis from the client that can be used by a widget to
+    /// * `props` - Properties from the client that can be used by a widget to
     ///   adapt to the client. e.g. language, font-scale...
 
     pub async fn generate_url(
@@ -105,13 +105,17 @@ impl WidgetSettings {
     ///   be hidden. (default: `true`)
     /// * `preload` - if set, the lobby will be skipped and the widget will join
     ///   the call on the `io.element.join` action. (default: `false`)
-    /// * `font_scale` - The font scale which will be used inside element call. (default: `1`)
+    /// * `font_scale` - The font scale which will be used inside element call.
+    ///   (default: `1`)
     /// * `app_prompt` - whether element call should prompt the user to open in
     ///   the browser or the app (default: `false`).
-    /// * `skip_lobby` Don't show the lobby and join the call immediately. (default: `false`)
-    /// * `confine_to_room` Make it not possible to get to the calls list in the webview. (default: `true`)
-    /// * `fonts` A list of fonts to adapt to ios/android system fonts. (default: `[]`)
-    /// * `analytics_id` - Can be used to pass a posthog id to element call.
+    /// * `skip_lobby` Don't show the lobby and join the call immediately.
+    ///   (default: `false`)
+    /// * `confine_to_room` Make it not possible to get to the calls list in the
+    ///   webview. (default: `true`)
+    /// * `fonts` A list of fonts to adapt to ios/android system fonts.
+    ///   (default: `[]`)
+    /// * `analytics_id` - Can be used to pass a PostHog id to element call.
     pub fn new_virtual_element_call_widget(
         element_call_url: String,
         widget_id: String,
@@ -193,9 +197,11 @@ impl ClientProperties {
     /// Create client Properties with a String as the language_tag.
     /// If a malformatted language_tag is provided it will default to en-US.
     /// # Arguments
-    /// * `client_id` the client identifier. This allows widgets to adapt to specific clients (e.g. `io.element.web`)
+    /// * `client_id` the client identifier. This allows widgets to adapt to
+    ///   specific clients (e.g. `io.element.web`)
     /// * `language` the language that is used in the client. (default: `en-US`)
-    /// * `theme` the theme (dark, light) or org.example.dark. (default: `light`)
+    /// * `theme` the theme (dark, light) or org.example.dark. (default:
+    ///   `light`)
     pub fn new(client_id: &str, language: Option<String>, theme: Option<String>) -> Self {
         // its save to unwrap "en-us"
         let default_language = LanguageTag::parse(&"en-us").unwrap();
