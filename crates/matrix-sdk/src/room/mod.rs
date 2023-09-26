@@ -1,9 +1,8 @@
 //! High-level room API
 
-use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, sync::Arc, time::Duration};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref, time::Duration};
 
 use eyeball::SharedObservable;
-use futures_core::Future;
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -12,7 +11,7 @@ use matrix_sdk_base::{
     store::StateStoreExt,
     RoomMemberships, StateChanges,
 };
-use matrix_sdk_common::{timeout::timeout, SendOutsideWasm};
+use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -67,7 +66,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -89,64 +88,6 @@ pub use self::{
     member::RoomMember,
     messages::{Messages, MessagesOptions},
 };
-
-type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>;
-
-/// Handler that properly deduplicates requests to the same endpoint, and will
-/// properly report error upwards in case the concurrent request failed.
-pub(crate) struct DeduplicatedRequestHandler<Key> {
-    inflight: DeduplicatedRequestMap<Key>,
-}
-
-impl<Key> Default for DeduplicatedRequestHandler<Key> {
-    fn default() -> Self {
-        Self { inflight: Default::default() }
-    }
-}
-
-impl<Key: Clone + Ord + std::hash::Hash> DeduplicatedRequestHandler<Key> {
-    async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
-        &self,
-        key: Key,
-        code: F,
-    ) -> Result<()> {
-        let mut map = self.inflight.lock().await;
-
-        if let Some(mutex) = map.get(&key).cloned() {
-            // If a request is already going on, await the release of the lock.
-            drop(map);
-
-            return mutex.lock().await.map_err(|()| Error::ConcurrentRequestFailed);
-        }
-
-        // Assume a successful request; we'll modify the result in case of failures
-        // later.
-        let request_mutex = Arc::new(Mutex::new(Ok(())));
-
-        map.insert(key.clone(), request_mutex.clone());
-
-        let mut request_guard = request_mutex.lock().await;
-        drop(map);
-
-        match code.await {
-            Ok(()) => {
-                self.inflight.lock().await.remove(&key);
-                Ok(())
-            }
-
-            Err(err) => {
-                // Propagate the error state to other callers.
-                *request_guard = Err(());
-
-                // Remove the request from the in-flights set.
-                self.inflight.lock().await.remove(&key);
-
-                // Bubble up the error.
-                Err(err)
-            }
-        }
-    }
-}
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms

@@ -23,6 +23,9 @@ Breaking changes:
 - Event handler closures now need to implement `FnOnce` + `Clone` instead of `Fn`
   - As a consequence, you no longer need to explicitly need to `clone` variables they capture
     before constructing an `async move {}` block inside
+- `Room::sync_members` doesn't return the underlying Ruma response anymore. If you need to get the
+  room members, you can use `Room::members` or `Room::get_member` which will make sure that the
+  members are up to date.
 
 Bug fixes:
 

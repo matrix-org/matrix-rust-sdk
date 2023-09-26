@@ -34,6 +34,7 @@ pub mod attachment;
 mod authentication;
 mod client;
 pub mod config;
+mod deduplicating_handler;
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 mod error;
