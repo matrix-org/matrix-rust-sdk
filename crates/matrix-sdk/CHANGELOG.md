@@ -41,6 +41,10 @@ Bug fixes:
 
 Additions:
 
+- Add secret storage support, the secret store can be opened using the
+  `Client::encryption()::open_secret_store()` method, which allows you to import
+  or export secrets from the account-data backed secret-store.
+
 - Add `VerificationRequest::state` and `VerificationRequest::changes` to check
   and listen to changes in the state of the `VerificationRequest`. This removes
   the need to listen to individual matrix events once the `VerificationRequest`
