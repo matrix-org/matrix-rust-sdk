@@ -48,6 +48,7 @@ pub enum Event {
 }
 
 /// Action (a command) that client (driver) must perform.
+#[allow(dead_code)] // TODO: Remove once all actions are implemented.
 pub enum Action {
     /// Send a raw message to the widget.
     SendToWidget(String),
@@ -120,6 +121,7 @@ impl<T> Deref for Command<T> {
 /// of a command that has been sent from this module, which means that the
 /// client (driver) won't be able to send "invalid" commands, because they could
 /// only be generated from a `Command` instance.
+#[allow(dead_code)] // TODO: Remove once results are used.
 pub struct CommandResult<T> {
     /// ID of the command that was executed. See `Command::id` for more details.
     id: String,
