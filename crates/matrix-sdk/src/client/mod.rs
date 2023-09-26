@@ -142,9 +142,24 @@ pub struct Client {
 #[derive(Default)]
 pub(crate) struct ClientLocks {
     /// Lock ensuring that only a single room may be marked as a DM at once.
-    /// Look at the [`Room::mark_as_dm()`] method for a more detailed
+    /// Look at the [`Account::mark_as_dm()`] method for a more detailed
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
+    /// Lock ensuring that only a single secret store is getting opened at the
+    /// same time.
+    ///
+    /// This is important so we don't accidentally create multiple different new
+    /// default secret storage keys.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) open_secret_store_lock: Mutex<()>,
+    /// Lock ensuring that we're only storing a single secret at a time.
+    ///
+    /// Take a look at the [`SecretStore::put_secret`] method for a more
+    /// detailed explanation.
+    ///
+    /// [`SecretStore::put_secret`]: crate::encryption::secret_storage::SecretStore::put_secret
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) store_secret_lock: Mutex<()>,
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
