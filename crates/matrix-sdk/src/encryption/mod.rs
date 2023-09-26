@@ -70,6 +70,7 @@ use crate::{
 
 mod futures;
 pub mod identities;
+pub mod secret_storage;
 pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
@@ -83,7 +84,10 @@ pub use matrix_sdk_base::crypto::{
 };
 
 pub use self::futures::PrepareEncryptedFile;
-use self::identities::{DeviceUpdates, IdentityUpdates};
+use self::{
+    identities::{DeviceUpdates, IdentityUpdates},
+    secret_storage::SecretStorage,
+};
 pub use crate::error::RoomKeyImportError;
 
 /// Settings for end-to-end encryption features.
@@ -1050,6 +1054,11 @@ impl Encryption {
         let import = task.await.expect("Task join error")?;
 
         Ok(olm.import_room_keys(import, false, |_, _| {}).await?)
+    }
+
+    /// Get the secret storage manager of the client.
+    pub fn secret_storage(&self) -> SecretStorage {
+        SecretStorage { client: self.client.to_owned() }
     }
 
     /// Enables the crypto-store cross-process lock.
