@@ -114,9 +114,9 @@ impl WidgetSettings {
     /// * `fonts` A list of fonts to adapt to ios/android system fonts. (default: `[]`)
     /// * `analytics_id` - Can be used to pass a posthog id to element call.
     pub fn new_virtual_element_call_widget(
-        element_call_url: &str,
+        element_call_url: String,
         widget_id: String,
-        parent_url: Option<&str>,
+        parent_url: Option<String>,
         hide_header: Option<bool>,
         preload: Option<bool>,
         font_scale: Option<f64>,
@@ -124,7 +124,7 @@ impl WidgetSettings {
         skip_lobby: Option<bool>,
         confine_to_room: Option<bool>,
         fonts: Option<Vec<String>>,
-        analytics_id: Option<&str>,
+        analytics_id: Option<String>,
     ) -> Self {
         let mut raw_url = format!("{element_call_url}?");
 
@@ -150,7 +150,7 @@ impl WidgetSettings {
             raw_url.push_str("&preload=")
         }
         if let Some(analytics_id) = analytics_id {
-            raw_url.push_str(&format!("&analyticsID={}", encode(analytics_id)));
+            raw_url.push_str(&format!("&analyticsID={}", encode(&analytics_id)));
         }
         if let Some(scale) = font_scale {
             raw_url.push_str(&format!("&fontScale={}", &scale.to_string()));

@@ -167,7 +167,6 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
-            requires_client: value.requires_client,
         }
     }
 }
@@ -260,16 +259,14 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
 }
 
 #[uniffi::export]
-pub async fn run_client_widget_api(
+pub async fn run_widget_api(
     room: Arc<Room>,
     widget: Widget,
     permissions_provider: Box<dyn WidgetPermissionsProvider>,
 ) {
     let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-    matrix_sdk::widget::run_client_widget_api(
-        widget.into(),
-        permissions_provider,
-        room.inner.clone(),
-    )
-    .await
+    if let Err(()) =
+        matrix_sdk::widget::run_widget_api(room.inner.clone(), widget.into(), permissions_provider)
+            .await
+    {}
 }
