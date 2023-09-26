@@ -1340,21 +1340,20 @@ mod tests {
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
-#[rustfmt::skip]
 mod encrypted_tests {
-    use super::IndexeddbCryptoStore;
     use matrix_sdk_crypto::cryptostore_integration_tests;
+
+    use super::IndexeddbCryptoStore;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
         let pass = passphrase.unwrap_or(name);
-        IndexeddbCryptoStore::open_with_passphrase(name, pass)
+        // make sure to use a different store name than the equivalent unencrypted test
+        let store_name = name.to_owned() + "_enc";
+        IndexeddbCryptoStore::open_with_passphrase(&store_name, pass)
             .await
             .expect("Can't create a passphrase protected store")
     }
-
-    // FIXME: the tests pass, if run one by one, but run all together locally,
-    //        as well as CI fails... see matrix-org/matrix-rust-sdk#661
-    //     cryptostore_integration_tests!();
+    cryptostore_integration_tests!();
 }
