@@ -526,3 +526,52 @@ async fn get_own_device() {
         "The device ID of the client and our own device should match"
     );
 }
+
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn cross_signing_status() {
+    let (client, server) = logged_in_client().await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/signatures/upload"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "failures": {}
+        })))
+        .mount(&server)
+        .await;
+
+    let status = client
+        .encryption()
+        .cross_signing_status()
+        .await
+        .expect("We should be able to fetch our cross-signing status");
+
+    assert!(
+        !status.has_master && !status.has_self_signing && !status.has_user_signing,
+        "Initially we shouldn't have any cross-signing keys"
+    );
+
+    client.encryption().bootstrap_cross_signing(None).await.unwrap();
+
+    client
+        .encryption()
+        .cross_signing_status()
+        .await
+        .expect("We should be able to fetch our cross-signing status");
+
+    let status = client
+        .encryption()
+        .cross_signing_status()
+        .await
+        .expect("We should have the private cross-signing keys after the bootstrap process");
+    assert!(status.is_complete(), "We should have all the private cross-signing keys locally");
+
+    server.verify().await;
+}

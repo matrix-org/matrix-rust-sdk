@@ -109,6 +109,13 @@ pub struct CrossSigningStatus {
     pub has_user_signing: bool,
 }
 
+impl CrossSigningStatus {
+    /// Do we have all the cross signing keys locally stored.
+    pub fn is_complete(&self) -> bool {
+        self.has_master && self.has_user_signing && self.has_self_signing
+    }
+}
+
 impl PrivateCrossSigningIdentity {
     /// Get the user id that this identity belongs to.
     pub fn user_id(&self) -> &UserId {
