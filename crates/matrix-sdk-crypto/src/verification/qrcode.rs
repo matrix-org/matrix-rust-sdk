@@ -927,7 +927,7 @@ mod tests {
 
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
-        let device_key = account.identity_keys.ed25519;
+        let device_key = account.static_data.identity_keys.ed25519;
         let alice_device = ReadOnlyDevice::from_account(&account).await;
 
         let identities = store.get_identities(alice_device).await.unwrap();

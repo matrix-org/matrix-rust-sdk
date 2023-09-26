@@ -24,7 +24,7 @@ mod signing;
 mod utility;
 
 pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
-pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount};
+pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount, StaticAccountData};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
