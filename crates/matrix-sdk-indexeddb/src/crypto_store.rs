@@ -380,6 +380,23 @@ impl IndexeddbCryptoStore {
         }
     }
 
+    /// Encode the value for storage as a value in indexeddb.
+    ///
+    /// This is the same algorithm as [`serialize_value`], but stops short of
+    /// encoding the resultant byte vector in a JsValue.
+    ///
+    /// Returns a byte vector which is either the JSON serialisation of the
+    /// value, or an encrypted version thereof.
+    fn serialize_value_as_bytes(
+        &self,
+        value: &impl Serialize,
+    ) -> Result<Vec<u8>, CryptoStoreError> {
+        match &self.store_cipher {
+            Some(cipher) => cipher.encrypt_value(value).map_err(CryptoStoreError::backend),
+            None => serde_json::to_vec(value).map_err(CryptoStoreError::backend),
+        }
+    }
+
     /// Decode a value that was previously encoded with [`serialize_value`]
     fn deserialize_value<T: DeserializeOwned>(
         &self,
@@ -390,6 +407,19 @@ impl IndexeddbCryptoStore {
             cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)
         } else {
             Ok(value.into_serde()?)
+        }
+    }
+
+    /// Decode a value that was previously encoded with
+    /// [`serialize_value_as_bytes`]
+    fn deserialize_value_from_bytes<T: DeserializeOwned>(
+        &self,
+        value: &[u8],
+    ) -> Result<T, CryptoStoreError> {
+        if let Some(cipher) = &self.store_cipher {
+            cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
+        } else {
+            serde_json::from_slice(value).map_err(CryptoStoreError::backend)
         }
     }
 
