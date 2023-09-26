@@ -19,7 +19,8 @@
 
 use std::fmt;
 
-use hmac::{digest::MacError, Hmac};
+pub use hmac::digest::MacError;
+use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -48,6 +49,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::ciphers::{AesHmacSha2Key, HmacSha256Mac, IV_SIZE, KEY_SIZE, MAC_SIZE};
 
 /// Error type for the decoding of a [`SecretStorageKey`].
+///
+/// The [`SecretStorageKey`] can be restored from a Base58 encoded string or
+/// from a string containing a passphrase.
+///
+/// This error type is used to report errors when trying to restore from either
+/// of those strings.
 #[derive(Debug, Error)]
 pub enum DecodeError {
     /// The decoded secret storage key has an invalid prefix.
