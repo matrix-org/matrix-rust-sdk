@@ -206,7 +206,7 @@ impl OlmMachine {
         let device_id: OwnedDeviceId = device_id.into();
         let users_for_key_claim = Arc::new(DashMap::new());
 
-        let account = Account { inner: account, store: store.clone() };
+        let account = Account { store: store.clone(), static_data: account.static_data().clone() };
 
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
 
@@ -354,7 +354,8 @@ impl OlmMachine {
 
     /// Get the public parts of our Olm identity keys.
     pub fn identity_keys(&self) -> IdentityKeys {
-        self.inner.account.identity_keys()
+        let account = self.inner.store.account();
+        account.identity_keys()
     }
 
     /// Get the display name of our own device
@@ -523,8 +524,8 @@ impl OlmMachine {
 
         if identity.is_empty().await || reset {
             info!("Creating new cross signing identity");
-            let (id, request, signature_request) =
-                self.inner.account.bootstrap_cross_signing().await;
+            let account = self.inner.store.account();
+            let (id, request, signature_request) = account.bootstrap_cross_signing().await;
 
             *identity = id;
 
@@ -545,8 +546,9 @@ impl OlmMachine {
             info!("Trying to upload the existing cross signing identity");
             let request = identity.as_upload_request().await;
             // TODO remove this expect.
+            let account = self.inner.store.account();
             let signature_request =
-                identity.sign_account(&self.inner.account).await.expect("Can't sign device keys");
+                identity.sign_account(account).await.expect("Can't sign device keys");
             Ok((request, signature_request))
         }
     }
@@ -555,7 +557,7 @@ impl OlmMachine {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub(crate) fn account(&self) -> &ReadOnlyAccount {
-        &self.inner.account
+        self.inner.store.account()
     }
 
     /// Receive a successful keys upload response.
@@ -642,7 +644,7 @@ impl OlmMachine {
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
         let (device_keys, one_time_keys, fallback_keys) =
-            self.inner.account.keys_for_upload().await;
+            self.inner.store.account().keys_for_upload().await;
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
@@ -995,7 +997,8 @@ impl OlmMachine {
         one_time_key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
     ) {
-        self.inner.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
+        let account = self.inner.store.account();
+        account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
     async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
@@ -1092,7 +1095,7 @@ impl OlmMachine {
                 // one as well.
                 match decrypted.session {
                     SessionType::New(s) => {
-                        changes.account = Some((*self.inner.account).clone());
+                        changes.account = Some(self.inner.store.account().clone());
                         changes.sessions.push(s);
                     }
                     SessionType::Existing(s) => {
@@ -1178,7 +1181,7 @@ impl OlmMachine {
         // Always save the account, a new session might get created which also
         // touches the account.
         let mut changes =
-            Changes { account: Some((*self.inner.account).clone()), ..Default::default() };
+            Changes { account: Some(self.inner.store.account().clone()), ..Default::default() };
 
         self.update_key_counts(
             sync_changes.one_time_keys_counts,
@@ -1830,8 +1833,9 @@ impl OlmMachine {
     pub async fn sign(&self, message: &str) -> Signatures {
         let mut signatures = Signatures::new();
 
-        let key_id = self.inner.account.signing_key_id();
-        let signature = self.inner.account.sign(message).await;
+        let account = self.inner.store.account();
+        let key_id = account.signing_key_id();
+        let signature = account.sign(message).await;
         signatures.add_signature(self.user_id().to_owned(), key_id, signature);
 
         match self.sign_with_master_key(message).await {
@@ -1980,7 +1984,7 @@ impl OlmMachine {
     /// Testing purposes only.
     #[cfg(any(feature = "testing", test))]
     pub fn uploaded_key_count(&self) -> u64 {
-        self.inner.account.uploaded_key_count()
+        self.inner.store.account().uploaded_key_count()
     }
 }
 

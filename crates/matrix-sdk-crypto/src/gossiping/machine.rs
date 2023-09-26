@@ -1057,7 +1057,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     use crate::{
         gossiping::KeyForwardDecision,
-        olm::OutboundGroupSession,
+        olm::{Account, OutboundGroupSession},
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -1069,7 +1069,7 @@ mod tests {
     };
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, Store},
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
@@ -1166,7 +1166,7 @@ mod tests {
     ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
         let alice_account = Account {
-            inner: alice_machine.inner.store.account().clone(),
+            static_data: alice_machine.inner.store.account().static_data().clone(),
             store: alice_machine.inner.store.clone(),
         };
         let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
@@ -1696,7 +1696,6 @@ mod tests {
     #[async_test]
     async fn secret_share_cycle() {
         let alice_machine = get_machine().await;
-        let alice_account = Account { inner: account(), store: alice_machine.inner.store.clone() };
 
         let second_account = alice_2_account();
         let alice_device = ReadOnlyDevice::from_account(&second_account).await;
@@ -1707,7 +1706,8 @@ mod tests {
         alice_machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
-        let (alice_session, _) = alice_account.create_session_for(&second_account).await;
+        let (alice_session, _) =
+            alice_machine.inner.store.account().create_session_for(&second_account).await;
 
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
 

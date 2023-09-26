@@ -101,7 +101,7 @@ impl DehydratedDevices {
         let store =
             Store::new(user_id.into(), account.clone(), user_identity, store, verification_machine);
 
-        let account = Account { inner: account, store };
+        let account = Account { static_data: account.static_data().clone(), store };
 
         DehydratedDevice { account }
     }
@@ -293,9 +293,9 @@ impl DehydratedDevice {
     /// ```
     #[instrument(
         skip_all, fields(
-            user_id = ?self.account.user_id(),
-            device_id = ?self.account.device_id(),
-            identity_keys = ?self.account.identity_keys(),
+            user_id = ?self.account.static_data.user_id,
+            device_id = ?self.account.static_data.device_id,
+            identity_keys = ?self.account.static_data.identity_keys,
         )
     )]
     pub async fn keys_for_upload(
@@ -303,8 +303,9 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        self.account.generate_fallback_key_helper().await;
-        let (device_keys, one_time_keys, fallback_keys) = self.account.keys_for_upload().await;
+        let account = self.account.store.account();
+        account.generate_fallback_key_helper().await;
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         let mut device_keys = device_keys
             .expect("We should always try to upload device keys for a dehydrated device.");
@@ -319,9 +320,9 @@ impl DehydratedDevice {
 
         trace!("Creating an upload request for a dehydrated device");
 
-        let pickle_key = expand_pickle_key(pickle_key, self.account.device_id());
-        let device_id = self.account.device_id().to_owned();
-        let device_data = self.account.dehydrate(&pickle_key).await;
+        let pickle_key = expand_pickle_key(pickle_key, &self.account.static_data.device_id);
+        let device_id = self.account.static_data.device_id.clone();
+        let device_data = account.dehydrate(&pickle_key).await;
         let initial_device_display_name = Some(initial_device_display_name);
 
         Ok(

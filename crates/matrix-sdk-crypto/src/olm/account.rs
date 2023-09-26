@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -79,8 +78,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct Account {
-    pub inner: ReadOnlyAccount,
     pub store: Store,
+    pub static_data: StaticAccountData,
 }
 
 #[derive(Debug, Clone)]
@@ -152,17 +151,9 @@ impl OlmMessageHash {
     }
 }
 
-impl Deref for Account {
-    type Target = ReadOnlyAccount;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
 impl Account {
     pub async fn save(&self) -> Result<(), CryptoStoreError> {
-        self.store.save_account(self.inner.clone()).await
+        self.store.save_account(self.store.account().clone()).await
     }
 
     async fn decrypt_olm_helper(
@@ -204,7 +195,7 @@ impl Account {
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
-        if content.recipient_key != self.identity_keys().curve25519 {
+        if content.recipient_key != self.static_data.identity_keys.curve25519 {
             warn!("Olm event doesn't contain a ciphertext for our key");
 
             Err(EventError::MissingCiphertext.into())
@@ -243,17 +234,18 @@ impl Account {
         &self,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        if !self.inner.shared() {
+        let account = self.store.account();
+        if !account.shared() {
             debug!("Marking account as shared");
         }
-        self.inner.mark_as_shared();
+        account.mark_as_shared();
 
         debug!("Marking one-time keys as published");
         // First mark the current keys as published, as updating the key counts might
         // generate some new keys if we're still below the limit.
-        self.inner.mark_keys_as_published().await;
-        self.update_key_counts(&response.one_time_key_counts, None).await;
-        self.store.save_account(self.inner.clone()).await?;
+        account.mark_keys_as_published().await;
+        account.update_key_counts(&response.one_time_key_counts, None).await;
+        self.store.save_account(account.clone()).await?;
 
         Ok(())
     }
@@ -350,7 +342,8 @@ impl Account {
 
                 OlmMessage::PreKey(m) => {
                     // Create the new session.
-                    let result = match self.inner.create_inbound_session(sender_key, m).await {
+                    let account = self.store.account();
+                    let result = match account.create_inbound_session(sender_key, m).await {
                         Ok(r) => r,
                         Err(_) => {
                             return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
@@ -362,7 +355,7 @@ impl Account {
                     // TODO: separate the session cache from the storage so we only add
                     // it to the cache but don't store it.
                     let changes = Changes {
-                        account: Some(self.inner.clone()),
+                        account: Some(account.clone()),
                         sessions: vec![result.session.clone()],
                         ..Default::default()
                     };
@@ -391,8 +384,9 @@ impl Account {
                 // since we don't expect this to happen often or at all.
                 match session {
                     SessionType::New(s) => {
+                        let account = self.store.account();
                         let changes = Changes {
-                            account: Some(self.inner.clone()),
+                            account: Some(account.clone()),
                             sessions: vec![s],
                             ..Default::default()
                         };
@@ -441,12 +435,12 @@ impl Account {
         plaintext: String,
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
-        let identity_keys = self.inner.identity_keys();
+        let identity_keys = &self.static_data.identity_keys;
 
-        if event.recipient() != self.user_id() {
+        if event.recipient() != self.static_data.user_id {
             Err(EventError::MismatchedSender(
                 event.recipient().to_owned(),
-                self.user_id().to_owned(),
+                self.static_data.user_id.clone(),
             )
             .into())
         }
@@ -643,6 +637,7 @@ impl ReadOnlyAccount {
         *self.static_data.identity_keys
     }
 
+    // TODO(BNJ) move to StaticAccountData?
     /// Get the key ID of our Ed25519 signing key.
     pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
         DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
@@ -816,6 +811,7 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
+    // TODO(BNJ) move to StaticAccountData
     /// Check if the given JSON is signed by this Account key.
     ///
     /// This method should only be used if an object's signature needs to be
@@ -913,6 +909,7 @@ impl ReadOnlyAccount {
         })
     }
 
+    // TODO(BNJ) move to StaticAccountData?
     /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
     pub fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
@@ -1249,6 +1246,7 @@ impl ReadOnlyAccount {
         Ok(InboundCreationResult { session, plaintext })
     }
 
+    // TODO(BNJ) move to StaticAccountData
     /// Create a group session pair.
     ///
     /// This session pair can be used to encrypt and decrypt messages meant for
