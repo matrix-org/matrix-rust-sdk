@@ -154,11 +154,8 @@ async fn test_notification() -> Result<()> {
         .iter()
         .find_map(|event| {
             let event = event.event.deserialize().ok()?;
-            if event.event_type() == TimelineEventType::RoomMessage {
-                Some(event.event_id().to_owned())
-            } else {
-                None
-            }
+            (event.event_type() == TimelineEventType::RoomMessage)
+                .then(|| event.event_id().to_owned())
         })
         .expect("missing message from alice in bob's client");
 
