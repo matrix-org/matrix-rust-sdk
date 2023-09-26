@@ -188,28 +188,24 @@ impl From<&InnerSas> for SasState {
                 Self::Accepted { accepted_protocols: s.state.accepted_protocols.to_owned() }
             }
             InnerSas::KeysExchanged(s) => {
-                let emojis = if value.supports_emoji() {
+                let emojis = value.supports_emoji().then(|| {
                     let emojis = s.get_emoji();
                     let indices = s.get_emoji_index();
 
-                    Some(EmojiShortAuthString { emojis, indices })
-                } else {
-                    None
-                };
+                    EmojiShortAuthString { emojis, indices }
+                });
 
                 let decimals = s.get_decimal();
 
                 Self::KeysExchanged { emojis, decimals }
             }
             InnerSas::MacReceived(s) => {
-                let emojis = if value.supports_emoji() {
+                let emojis = value.supports_emoji().then(|| {
                     let emojis = s.get_emoji();
                     let indices = s.get_emoji_index();
 
-                    Some(EmojiShortAuthString { emojis, indices })
-                } else {
-                    None
-                };
+                    EmojiShortAuthString { emojis, indices }
+                });
 
                 let decimals = s.get_decimal();
 

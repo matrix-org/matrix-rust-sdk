@@ -978,25 +978,21 @@ impl SasState<Accepted> {
     }
 
     pub fn into_key_sent(self, request_id: &TransactionId) -> Option<SasState<KeySent>> {
-        if self.state.request_id == request_id {
-            Some(SasState {
-                inner: self.inner,
-                our_public_key: self.our_public_key,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: Arc::new(KeySent {
-                    we_started: true,
-                    start_content: self.state.start_content.clone(),
-                    commitment: self.state.commitment.clone(),
-                    accepted_protocols: self.state.accepted_protocols.clone(),
-                }),
-            })
-        } else {
-            None
-        }
+        (self.state.request_id == request_id).then(|| SasState {
+            inner: self.inner,
+            our_public_key: self.our_public_key,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: Instant::now().into(),
+            started_from_request: self.started_from_request,
+            state: Arc::new(KeySent {
+                we_started: true,
+                start_content: self.state.start_content.clone(),
+                commitment: self.state.commitment.clone(),
+                accepted_protocols: self.state.accepted_protocols.clone(),
+            }),
+        })
     }
 
     /// Get the content for the key event.
@@ -1106,25 +1102,21 @@ impl SasState<KeyReceived> {
         self,
         request_id: &TransactionId,
     ) -> Option<SasState<KeysExchanged>> {
-        if self.state.request_id == request_id {
-            Some(SasState {
-                inner: self.inner,
-                our_public_key: self.our_public_key,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: KeysExchanged {
-                    sas: self.state.sas.clone(),
-                    we_started: self.state.we_started,
-                    accepted_protocols: self.state.accepted_protocols.clone(),
-                }
-                .into(),
-            })
-        } else {
-            None
-        }
+        (self.state.request_id == request_id).then(|| SasState {
+            inner: self.inner,
+            our_public_key: self.our_public_key,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: Instant::now().into(),
+            started_from_request: self.started_from_request,
+            state: KeysExchanged {
+                sas: self.state.sas.clone(),
+                we_started: self.state.we_started,
+                accepted_protocols: self.state.accepted_protocols.clone(),
+            }
+            .into(),
+        })
     }
 }
 
