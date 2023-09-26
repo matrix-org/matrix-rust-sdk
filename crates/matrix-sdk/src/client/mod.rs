@@ -76,6 +76,7 @@ use crate::oidc::Oidc;
 use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
+    deduplicating_handler::DeduplicatingHandler,
     error::{HttpError, HttpResult},
     event_handler::{
         EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
@@ -83,7 +84,6 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    room::DeduplicatedRequestHandler,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -162,16 +162,16 @@ pub(crate) struct ClientInner {
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
+    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
     /// Handler to ensure that only one members request is running at a time,
     /// given a room.
-    pub(crate) members_request_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
+    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
-    pub(crate) encryption_state_deduplicated_handler: DeduplicatedRequestHandler<OwnedRoomId>,
+    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
