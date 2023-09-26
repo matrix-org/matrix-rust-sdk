@@ -22,6 +22,7 @@ mod sas;
 
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
+use as_variant::as_variant;
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 #[cfg(feature = "qrcode")]
@@ -200,22 +201,13 @@ pub enum Verification {
 impl Verification {
     /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas_v1(self) -> Option<Sas> {
-        #[allow(irrefutable_let_patterns)]
-        if let Verification::SasV1(sas) = self {
-            Some(sas)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::SasV1)
     }
 
     /// Try to deconstruct this verification enum into a QR code verification.
     #[cfg(feature = "qrcode")]
     pub fn qr_v1(self) -> Option<QrVerification> {
-        if let Verification::QrV1(qr) = self {
-            Some(qr)
-        } else {
-            None
-        }
+        as_variant!(self, Verification::QrV1)
     }
 
     /// Has this verification finished.
@@ -429,11 +421,7 @@ pub enum FlowId {
 impl FlowId {
     /// Get the room ID if the flow ID comes from a room event.
     pub fn room_id(&self) -> Option<&RoomId> {
-        if let Self::InRoom(room_id, _) = &self {
-            Some(room_id)
-        } else {
-            None
-        }
+        as_variant!(self, Self::InRoom(room_id, _) => room_id)
     }
 
     /// Get the ID a string.

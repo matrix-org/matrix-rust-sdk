@@ -87,11 +87,8 @@ impl AnyEvent<'_> {
         match self {
             AnyEvent::Room(e) => match e {
                 AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) => {
-                    if let MessageType::VerificationRequest(v) = &m.content.msgtype {
-                        Some(RequestContent::from(v).into())
-                    } else {
-                        None
-                    }
+                    as_variant!(&m.content.msgtype, MessageType::VerificationRequest)
+                        .map(|v| RequestContent::from(v).into())
                 }
                 AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                     Some(ReadyContent::from(&e.content).into())

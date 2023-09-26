@@ -255,11 +255,7 @@ impl Sas {
 
     /// Get the room id if the verification is happening inside a room.
     pub fn room_id(&self) -> Option<&RoomId> {
-        if let FlowId::InRoom(r, _) = self.flow_id() {
-            Some(r)
-        } else {
-            None
-        }
+        as_variant!(self.flow_id(), FlowId::InRoom(r, _) => r)
     }
 
     /// Does this verification flow support displaying emoji for the short
@@ -291,11 +287,9 @@ impl Sas {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerSas::Cancelled(c) = &*self.inner.read() {
-            Some(c.state.as_ref().clone().into())
-        } else {
-            None
-        }
+        as_variant!(&*self.inner.read(), InnerSas::Cancelled(c) => {
+            c.state.as_ref().clone().into()
+        })
     }
 
     /// Did we initiate the verification flow.

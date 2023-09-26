@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use eyeball::{ObservableWriteGuard, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -202,11 +203,9 @@ impl QrVerification {
     /// Get info about the cancellation if the verification flow has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
-        if let InnerState::Cancelled(c) = &*self.state.read() {
-            Some(c.state.clone().into())
-        } else {
-            None
-        }
+        as_variant!(&*self.state.read(), InnerState::Cancelled(c) => {
+            c.state.clone().into()
+        })
     }
 
     /// Has the verification flow completed.

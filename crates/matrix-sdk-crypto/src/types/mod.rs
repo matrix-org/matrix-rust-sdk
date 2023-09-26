@@ -31,6 +31,7 @@ use std::{
     },
 };
 
+use as_variant::as_variant;
 use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
@@ -77,11 +78,7 @@ pub struct InvalidSignature {
 impl Signature {
     /// Get the Ed25519 signature, if this is one.
     pub fn ed25519(&self) -> Option<Ed25519Signature> {
-        if let Self::Ed25519(signature) = &self {
-            Some(*signature)
-        } else {
-            None
-        }
+        as_variant!(self, Self::Ed25519).copied()
     }
 
     /// Convert the signature to a base64 encoded string.
