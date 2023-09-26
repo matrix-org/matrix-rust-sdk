@@ -551,9 +551,10 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
-        TimelineTestEvent,
+        sync_timeline_event, EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent,
+        SyncResponseBuilder,
     };
+    use once_cell::sync::Lazy;
     use ruma::{
         events::{
             room::{
@@ -562,7 +563,7 @@ mod tests {
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
             typing::SyncTypingEvent,
-            AnySyncStateEvent,
+            AnySyncStateEvent, AnySyncTimelineEvent,
         },
         room_id,
         serde::Raw,
@@ -574,6 +575,31 @@ mod tests {
         test_utils::{logged_in_client, no_retry_test_client},
         Client, Room,
     };
+
+    static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
+        sync_timeline_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": "@example:localhost",
+            "state_key": "@example:localhost",
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "invite"
+            },
+            "unsigned": {
+                "age": 297036,
+                "replaces_state": "$151800111315tsynI:localhost"
+            }
+        })
+    });
 
     #[async_test]
     async fn add_event_handler() -> crate::Result<()> {
@@ -612,7 +638,7 @@ mod tests {
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_ephemeral_event(EphemeralTestEvent::Typing)
                     .add_state_event(StateTestEvent::PowerLevels),
             )
@@ -708,13 +734,13 @@ mod tests {
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_state_event(StateTestEvent::PowerLevels)
                     .add_state_event(StateTestEvent::RoomName),
             )
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_b)
-                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_timeline_event(MEMBER_EVENT.clone())
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .build_sync_response();
@@ -758,9 +784,7 @@ mod tests {
         });
 
         let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
 
         client.remove_event_handler(handle_a);
@@ -817,9 +841,7 @@ mod tests {
         );
 
         let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -839,9 +861,7 @@ mod tests {
         );
 
         let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
-            )
+            .add_joined_room(JoinedRoomBuilder::default().add_timeline_event(MEMBER_EVENT.clone()))
             .build_sync_response();
         client.process_sync(response).await?;
 
