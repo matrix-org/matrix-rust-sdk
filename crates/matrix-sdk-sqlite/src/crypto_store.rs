@@ -59,8 +59,7 @@ pub struct SqliteCryptoStore {
     pool: SqlitePool,
 
     // DB values cached in memory
-    // TODO(BNJ) rename
-    account_info: Arc<RwLock<Option<StaticAccountData>>>,
+    static_account: Arc<RwLock<Option<StaticAccountData>>>,
     session_cache: SessionStore,
 }
 
@@ -108,7 +107,7 @@ impl SqliteCryptoStore {
             store_cipher,
             path: None,
             pool,
-            account_info: Arc::new(RwLock::new(None)),
+            static_account: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
         })
     }
@@ -181,9 +180,8 @@ impl SqliteCryptoStore {
         }
     }
 
-    // TODO(BNJ) rename
-    fn get_account_info(&self) -> Option<StaticAccountData> {
-        self.account_info.read().unwrap().clone()
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().unwrap().clone()
     }
 
     async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
@@ -659,7 +657,7 @@ impl CryptoStore for SqliteCryptoStore {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
 
-            *self.account_info.write().unwrap() = Some(account.static_data().clone());
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
@@ -668,7 +666,7 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        *self.account_info.write().unwrap() = Some(account.static_data().clone());
+        *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
         let pickled_account = account.pickle().await;
         let serialized_account = self.serialize_value(&pickled_account)?;
@@ -692,7 +690,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let pickled_account = if let Some(account) = changes.account {
-            *self.account_info.write().unwrap() = Some(account.static_data().clone());
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None
@@ -835,7 +833,7 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let sessions = self
@@ -949,7 +947,7 @@ impl CryptoStore for SqliteCryptoStore {
             return Ok(None);
         };
 
-        let account_info = self.get_account_info().ok_or(Error::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
 
         let pickle = self.deserialize_json(&value)?;
         let session = OutboundGroupSession::from_pickle(
