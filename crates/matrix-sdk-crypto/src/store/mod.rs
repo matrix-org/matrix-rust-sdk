@@ -113,11 +113,28 @@ struct StoreCache {
     tracked_user_loading_lock: RwLock<bool>,
 }
 
+struct StoreCacheGuard<'a> {
+    cache: &'a StoreCache,
+    // TODO(bnjbvr, #2624) add cross-process lock guard here.
+}
+
+impl<'a> Deref for StoreCacheGuard<'a> {
+    type Target = StoreCache;
+
+    fn deref(&self) -> &Self::Target {
+        self.cache
+    }
+}
+
 #[derive(Debug)]
 struct StoreInner {
     user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     store: Arc<CryptoStoreWrapper>,
+
+    /// In-memory cache for the current crypto store.
+    ///
+    /// ⚠ Must remain private.
     cache: StoreCache,
 
     verification_machine: VerificationMachine,
@@ -545,6 +562,14 @@ impl Store {
         &self.inner.verification_machine.store.account
     }
 
+    async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
+        // TODO(bnjbvr, #2624) If configured with a cross-process lock:
+        // - try to take the lock,
+        // - if acquired, look if another process touched the underlying storage,
+        // - if yes, reload everything; if no, return current cache
+        Ok(StoreCacheGuard { cache: &self.inner.cache })
+    }
+
     #[cfg(test)]
     /// test helper to reset the cross signing identity
     pub(crate) async fn reset_cross_signing_identity(&self) {
@@ -865,7 +890,7 @@ impl Store {
     /// next time [`Store::users_for_key_query()`] is called.
     pub(crate) async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.inner.users_for_key_query.lock().await.insert_user(user);
-        self.inner.cache.tracked_users.insert(user.to_owned());
+        self.cache().await?.tracked_users.insert(user.to_owned());
 
         self.inner.store.save_tracked_users(&[(user, true)]).await
     }
@@ -878,14 +903,15 @@ impl Store {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        self.ensure_sync_tracked_users().await?;
+        let cache = self.cache().await?;
+        self.ensure_sync_tracked_users(&cache).await?;
 
         let mut store_updates = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
 
         for user_id in users {
-            if !self.inner.cache.tracked_users.contains(user_id) {
-                self.inner.cache.tracked_users.insert(user_id.to_owned());
+            if !cache.tracked_users.contains(user_id) {
+                cache.tracked_users.insert(user_id.to_owned());
                 key_query_lock.insert_user(user_id);
                 store_updates.push((user_id, true))
             }
@@ -904,13 +930,14 @@ impl Store {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        self.ensure_sync_tracked_users().await?;
+        let cache = self.cache().await?;
+        self.ensure_sync_tracked_users(&cache).await?;
 
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
 
         for user_id in users {
-            if self.inner.cache.tracked_users.contains(user_id) {
+            if cache.tracked_users.contains(user_id) {
                 key_query_lock.insert_user(user_id);
                 store_updates.push((user_id, true));
             }
@@ -932,10 +959,13 @@ impl Store {
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
 
-        for user_id in users {
-            if self.inner.cache.tracked_users.contains(user_id) {
-                let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
-                store_updates.push((user_id, !clean));
+        {
+            let cache = self.cache().await?;
+            for user_id in users {
+                if cache.tracked_users.contains(user_id) {
+                    let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
+                    store_updates.push((user_id, !clean));
+                }
             }
         }
         self.inner.store.save_tracked_users(&store_updates).await?;
@@ -951,16 +981,16 @@ impl Store {
     /// This method ensures that we're only going to load the users from the
     /// actual [`CryptoStore`] once, it will also make sure that any
     /// concurrent calls to this method get deduplicated.
-    async fn ensure_sync_tracked_users(&self) -> Result<()> {
+    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard<'_>) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
-        let loaded = self.inner.cache.tracked_user_loading_lock.read().await;
+        let loaded = cache.tracked_user_loading_lock.read().await;
         if *loaded {
             return Ok(());
         }
 
         // Otherwise, we may load the users.
         drop(loaded);
-        let mut loaded = self.inner.cache.tracked_user_loading_lock.write().await;
+        let mut loaded = cache.tracked_user_loading_lock.write().await;
 
         // Check again if the users have been loaded, in case another call to this
         // method loaded the tracked users between the time we tried to
@@ -973,7 +1003,7 @@ impl Store {
 
         let mut query_users_lock = self.inner.users_for_key_query.lock().await;
         for user in tracked_users {
-            self.inner.cache.tracked_users.insert(user.user_id.to_owned());
+            cache.tracked_users.insert(user.user_id.to_owned());
 
             if user.dirty {
                 query_users_lock.insert_user(&user.user_id);
@@ -999,7 +1029,8 @@ impl Store {
     pub(crate) async fn users_for_key_query(
         &self,
     ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
-        self.ensure_sync_tracked_users().await?;
+        let cache = self.cache().await?;
+        self.ensure_sync_tracked_users(&cache).await?;
 
         Ok(self.inner.users_for_key_query.lock().await.users_for_key_query())
     }
@@ -1042,9 +1073,10 @@ impl Store {
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
-        self.ensure_sync_tracked_users().await?;
+        let cache = self.cache().await?;
+        self.ensure_sync_tracked_users(&cache).await?;
 
-        Ok(self.inner.cache.tracked_users.iter().map(|u| u.clone()).collect())
+        Ok(cache.tracked_users.iter().map(|u| u.clone()).collect())
     }
 
     /// Check whether there is a global flag to only encrypt messages for
