@@ -226,7 +226,7 @@ impl TimelineBuilder {
             let start_token = start_token.clone();
             async move {
                 while ignore_user_list_stream.next().await.is_some() {
-                    // Same as `Timeline::reset`, but Timeline is s not clonable
+                    // Same as `Timeline::reset`, but Timeline is not clonable
                     // and we need to avoid circular references
                     let mut start_lock = start_token.lock().await;
 
