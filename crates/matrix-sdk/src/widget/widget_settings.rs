@@ -90,16 +90,8 @@ impl WidgetSettings {
     /// and to generate the correct url for the widget.
     ///
     /// # Arguments
-    /// * `element_call_path` - the path to the app e.g. https://call.element.io,
-    ///   https://call.element.dev
+    /// * `element_call_url` - the url to the app e.g. https://call.element.io, https://call.element.dev
     /// * `id` - the widget id.
-    /// * `embed` - the embed param for the widget.
-    /// * `hide_header` - for Element Call this defines if the branding header
-    ///   should be hidden.
-    /// * `preload` - if set, the lobby will be skipped and the widget will join
-    ///   the call on the `io.element.join` action.
-    /// * `font_scale` - The font scale which will be used inside element call.
-    /// * `analytics_id` - Can be used to pass a posthog id to element call.
     /// * `parent_url` The url that is used as the target for the PostMessages
     ///   sent by the widget (to the client). For a web app client this is the
     ///   client url. In case of using other platforms the client most likely is
@@ -108,18 +100,33 @@ impl WidgetSettings {
     ///   with the widget. Be aware, that this means, the widget will receive
     ///   its own postmessage messages. The matrix-widget-api (js) ignores those
     ///   so this works but it might break custom implementations. So always
-    ///   keep this in mind.
+    ///   keep this in mind. Defaults to `element_call_url` for the non IFrame
+    ///   (dedicated webview) usecase.
+    /// * `hide_header` - defines if the branding header of Element call should
+    ///   be hidden. (default: `true`)
+    /// * `preload` - if set, the lobby will be skipped and the widget will join
+    ///   the call on the `io.element.join` action. (default: `false`)
+    /// * `font_scale` - The font scale which will be used inside element call. (default: `1`)
+    /// * `app_prompt` - whether element call should prompt the user to open in
+    ///   the browser or the app (default: `false`).
+    /// * `skip_lobby` Don't show the lobby and join the call immediately. (default: `false`)
+    /// * `confine_to_room` Make it not possible to get to the calls list in the webview. (default: `true`)
+    /// * `fonts` A list of fonts to adapt to ios/android system fonts. (default: `[]`)
+    /// * `analytics_id` - Can be used to pass a posthog id to element call.
     pub fn new_virtual_element_call_widget(
-        element_call_path: &str,
-        id: String,
-        embed: bool,
-        hide_header: bool,
-        preload: bool,
-        font_scale: f64,
+        element_call_url: &str,
+        widget_id: String,
+        parent_url: Option<&str>,
+        hide_header: Option<bool>,
+        preload: Option<bool>,
+        font_scale: Option<f64>,
+        app_prompt: Option<bool>,
+        skip_lobby: Option<bool>,
+        confine_to_room: Option<bool>,
+        fonts: Option<Vec<String>>,
         analytics_id: Option<&str>,
-        parent_url: &str,
     ) -> Self {
-        let mut raw_url = format!("{element_call_path}?");
+        let mut raw_url = format!("{element_call_url}?");
 
         // Default widget url template parameters:
         raw_url.push_str(&format!("?widgetId={}", url_props::WIDGET_ID));
@@ -131,23 +138,35 @@ impl WidgetSettings {
         raw_url.push_str(&format!("&baseUrl={}", url_props::BASE_URL));
 
         // Custom element call url parameters:
-        raw_url.push_str(&format!("&parentUrl={}", encode(&parent_url)));
-        if embed {
+        raw_url
+            .push_str(&format!("&parentUrl={}", encode(&parent_url.unwrap_or(element_call_url))));
+        if app_prompt.unwrap_or(false) {
             raw_url.push_str("&embed=")
         }
-        if hide_header {
+        if hide_header.unwrap_or(true) {
             raw_url.push_str("&hideHeader=")
         }
-        if preload {
+        if preload.unwrap_or(false) {
             raw_url.push_str("&preload=")
         }
         if let Some(analytics_id) = analytics_id {
             raw_url.push_str(&format!("&analyticsID={}", encode(analytics_id)));
         }
-        raw_url.push_str(&format!("&fontScale={}", &font_scale.to_string()));
+        if let Some(scale) = font_scale {
+            raw_url.push_str(&format!("&fontScale={}", &scale.to_string()));
+        }
+        if skip_lobby.unwrap_or(false) {
+            raw_url.push_str("&skipLobby=");
+        }
+        if confine_to_room.unwrap_or(true) {
+            raw_url.push_str("&confineToRoom=");
+        }
+        if let Some(fonts) = fonts {
+            raw_url.push_str(&format!("&fonts={}", fonts.join(",")));
+        }
 
         // for EC we always want init on load to be false
-        Self { id, init_on_load: false, raw_url }
+        Self { id: widget_id, init_on_load: false, raw_url }
     }
 
     /// Create a new WidgetSettings instance
