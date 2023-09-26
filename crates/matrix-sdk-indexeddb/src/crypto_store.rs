@@ -360,6 +360,35 @@ impl IndexeddbCryptoStore {
     fn get_account_info(&self) -> Option<AccountInfo> {
         self.account_info.read().unwrap().clone()
     }
+
+    /// Fetch the outgoing secret request corresponding to the hashed request ID
+    ///
+    /// Helper for [`IndexeddbCryptoStore::get_outgoing_secret_requests`] and
+    /// [`IndexeddbCryptoStore::get_secret_request_by_info`]
+    async fn get_outgoing_secret_requests_from_encoded_key(
+        &self,
+        request_id: JsValue,
+    ) -> Result<Option<GossipRequest>> {
+        let dbs = [keys::OUTGOING_SECRET_REQUESTS, keys::UNSENT_SECRET_REQUESTS];
+        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
+
+        let request = tx
+            .object_store(keys::OUTGOING_SECRET_REQUESTS)?
+            .get(&request_id)?
+            .await?
+            .map(|i| self.deserialize_value(i))
+            .transpose()?;
+
+        Ok(match request {
+            None => tx
+                .object_store(keys::UNSENT_SECRET_REQUESTS)?
+                .get(&request_id)?
+                .await?
+                .map(|i| self.deserialize_value(i))
+                .transpose()?,
+            Some(request) => Some(request),
+        })
+    }
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -690,27 +719,8 @@ impl_crypto_store! {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        // in this internal we expect key to already be escaped or encrypted
-        let jskey = JsValue::from_str(request_id.as_str());
-        let dbs = [keys::OUTGOING_SECRET_REQUESTS, keys::UNSENT_SECRET_REQUESTS];
-        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
-
-        let request = tx
-            .object_store(keys::OUTGOING_SECRET_REQUESTS)?
-            .get(&jskey)?
-            .await?
-            .map(|i| self.deserialize_value(i))
-            .transpose()?;
-
-        Ok(match request {
-            None => tx
-                .object_store(keys::UNSENT_SECRET_REQUESTS)?
-                .get(&jskey)?
-                .await?
-                .map(|i| self.deserialize_value(i))
-                .transpose()?,
-            Some(request) => Some(request),
-        })
+        let jskey = self.encode_key(keys::KEY_REQUEST, request_id.as_str());
+        self.get_outgoing_secret_requests_from_encoded_key(jskey).await
     }
 
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
@@ -1003,10 +1013,9 @@ impl_crypto_store! {
             )?
             .object_store(keys::SECRET_REQUESTS_BY_INFO)?
             .get(&self.encode_key(keys::KEY_REQUEST, key_info.as_key()))?
-            .await?
-            .and_then(|i| i.as_string());
+            .await?;
         if let Some(id) = id {
-            self.get_outgoing_secret_requests(id.as_str().into()).await
+            self.get_outgoing_secret_requests_from_encoded_key(id).await
         } else {
             Ok(None)
         }
