@@ -38,11 +38,6 @@ pub use test_event::{
 /// room, his power level and display name changing and similar. It also
 /// supports insertion of custom events in the form of `EventsJson` values.
 ///
-/// **Important** You *must* use the *same* builder when sending multiple sync
-/// responses to a single client. Otherwise, the subsequent responses will be
-/// *ignored* by the client because the `next_batch` sync token will not be
-/// rotated properly.
-///
 /// # Example usage
 ///
 /// ```rust
