@@ -33,7 +33,7 @@ pub struct WidgetSettings {
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
-    pub init_on_load: bool,
+    pub init_after_content_load: bool,
     /// This contains the url from the widget state event.
     /// In this url placeholders can be used to pass information from the client
     /// to the widget. Possible values are: `$widgetId`, `$parentUrl`,
@@ -48,15 +48,62 @@ pub struct WidgetSettings {
 
 impl From<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
     fn from(value: WidgetSettings) -> Self {
-        let WidgetSettings { id, init_on_load, raw_url } = value;
-        matrix_sdk::widget::WidgetSettings::new(id, init_on_load, raw_url)
+        let WidgetSettings { id, init_after_content_load, raw_url } = value;
+        matrix_sdk::widget::WidgetSettings::new(id, init_after_content_load, raw_url)
     }
 }
 
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
-        let matrix_sdk::widget::WidgetSettings { id, init_on_load, raw_url } = value;
-        WidgetSettings { id, init_on_load, raw_url }
+        let matrix_sdk::widget::WidgetSettings { id, init_after_content_load, raw_url } = value;
+        WidgetSettings { id, init_after_content_load: init_after_content_load, raw_url }
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum ParseError {
+    #[error("empty host")]
+    EmptyHost,
+    #[error("invalid international domain name")]
+    IdnaError,
+    #[error("invalid port number")]
+    InvalidPort,
+    #[error("invalid IPv4 address")]
+    InvalidIpv4Address,
+    #[error("invalid IPv6 address")]
+    InvalidIpv6Address,
+    #[error("invalid domain character")]
+    InvalidDomainCharacter,
+    #[error("relative URL without a base")]
+    RelativeUrlWithoutBase,
+    #[error("relative URL with a cannot-be-a-base base")]
+    RelativeUrlWithCannotBeABaseBase,
+    #[error("a cannot-be-a-base URL doesn’t have a host to set")]
+    SetHostOnCannotBeABaseUrl,
+    #[error("URLs more than 4 GB are not supported")]
+    Overflow,
+    #[error("unkwon parse error")]
+    Other,
+}
+
+impl From<url::ParseError> for ParseError {
+    fn from(value: url::ParseError) -> Self {
+        match value {
+            url::ParseError::EmptyHost => Self::EmptyHost,
+            url::ParseError::IdnaError => Self::IdnaError,
+            url::ParseError::InvalidPort => Self::InvalidPort,
+            url::ParseError::InvalidIpv4Address => Self::InvalidIpv4Address,
+            url::ParseError::InvalidIpv6Address => Self::InvalidIpv6Address,
+            url::ParseError::InvalidDomainCharacter => Self::InvalidDomainCharacter,
+            url::ParseError::RelativeUrlWithoutBase => Self::RelativeUrlWithoutBase,
+            url::ParseError::RelativeUrlWithCannotBeABaseBase => {
+                Self::RelativeUrlWithCannotBeABaseBase
+            }
+            url::ParseError::SetHostOnCannotBeABaseUrl => Self::SetHostOnCannotBeABaseUrl,
+            url::ParseError::Overflow => Self::Overflow,
+            _ => Self::Other,
+        }
     }
 }
 
@@ -73,15 +120,14 @@ pub async fn generate_url(
     widget_settings: WidgetSettings,
     room: Arc<Room>,
     props: ClientProperties,
-) -> Result<String, String> {
-    matrix_sdk::widget::WidgetSettings::generate_url(
+) -> Result<String, ParseError> {
+    Ok(matrix_sdk::widget::WidgetSettings::generate_url(
         &widget_settings.clone().into(),
         &room.inner,
         props.into(),
     )
     .await
-    .map(|url| url.to_string())
-    .map_err(|e| e.to_string())
+    .map(|url| url.to_string())?)
 }
 /// `WidgetSettings` are usually created from a state event.
 /// (currently unimplemented)
@@ -130,20 +176,22 @@ pub fn new_virtual_element_call_widget(
     )
     .into()
 }
+
 #[derive(uniffi::Record)]
 pub struct ClientProperties {
-    /// The language tag the client is set to e.g. en-us.
-    pub language_tag: String,
     /// The client_id provides the widget with the option to behave differently
     /// for different clients. e.g org.example.ios.
-    pub client_id: String,
-    /// A string describing the theme (dark, light) or org.example.dark.
-    pub theme: String,
+    client_id: String,
+    /// The language tag the client is set to e.g. en-us. (defualt: `en-US`)
+    language_tag: Option<String>,
+    /// A string describing the theme (dark, light) or org.example.dark. (default: `light`)
+    theme: Option<String>,
 }
+
 impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
     fn from(value: ClientProperties) -> Self {
-        let ClientProperties { language_tag, client_id, theme } = value;
-        Self::new(language_tag, client_id, theme)
+        let ClientProperties { client_id, language_tag, theme } = value;
+        Self::new(&client_id, language_tag, theme)
     }
 }
 /// Communication "pipes" with a widget.

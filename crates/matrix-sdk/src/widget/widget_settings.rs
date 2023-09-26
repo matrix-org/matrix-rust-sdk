@@ -1,4 +1,3 @@
-use backoff::default;
 use language_tags::LanguageTag;
 use ruma::api::client::profile::get_profile;
 use url::Url;
@@ -19,7 +18,7 @@ mod url_props {
     pub static BASE_URL: &str = "$org.matrix.msc4039.matrix_base_url";
 }
 /// Settings of the widget.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
@@ -27,7 +26,7 @@ pub struct WidgetSettings {
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
-    pub init_on_load: bool,
+    pub init_after_content_load: bool,
 
     /// This contains the url from the widget state event.
     /// In this url placeholders can be used to pass information from the client
@@ -37,7 +36,7 @@ pub struct WidgetSettings {
     ///
     /// e.g `http://widget.domain?username=$userId`
     /// will become: `http://widget.domain?username=@user_matrix_id:server.domain`.
-    raw_url: String,
+    pub raw_url: String,
 }
 
 impl WidgetSettings {
@@ -126,13 +125,13 @@ impl WidgetSettings {
         fonts: Option<Vec<String>>,
         analytics_id: Option<String>,
     ) -> Self {
-        let mut raw_url = format!("{element_call_url}?");
+        let mut raw_url = format!("{element_call_url}/room");
 
         // Default widget url template parameters:
         raw_url.push_str(&format!("?widgetId={}", url_props::WIDGET_ID));
         raw_url.push_str(&format!("&userId={}", url_props::USER_ID));
         raw_url.push_str(&format!("&deviceId={}", url_props::DEVICE_ID));
-        raw_url.push_str(&format!("&roomId={}", url_props::WIDGET_ID));
+        raw_url.push_str(&format!("&roomId={}", url_props::ROOM_ID));
         raw_url.push_str(&format!("&lang={}", url_props::LANGUAGE));
         raw_url.push_str(&format!("&theme={}", url_props::CLIENT_THEME));
         raw_url.push_str(&format!("&baseUrl={}", url_props::BASE_URL));
@@ -166,12 +165,12 @@ impl WidgetSettings {
         }
 
         // for EC we always want init on load to be false
-        Self { id: widget_id, init_on_load: false, raw_url }
+        Self { id: widget_id, init_after_content_load: true, raw_url }
     }
 
     /// Create a new WidgetSettings instance
-    pub fn new(id: String, init_on_load: bool, raw_url: String) -> Self {
-        Self { id, init_on_load, raw_url }
+    pub fn new(id: String, init_after_content_load: bool, raw_url: String) -> Self {
+        Self { id, init_after_content_load, raw_url }
     }
     // TODO: add From<WidgetStateEvent> so that WidgetSetting can be build
     // by using the room state directly:
@@ -182,24 +181,31 @@ impl WidgetSettings {
 /// configuration. Those values are used generate the widget url.
 #[derive(Debug)]
 pub struct ClientProperties {
-    /// The language the client is set to e.g. en-us.
-    pub language: LanguageTag,
     /// The client_id provides the widget with the option to behave differently
     /// for different clients. e.g org.example.ios.
     pub client_id: String,
+    /// The language the client is set to e.g. en-us.
+    pub language: LanguageTag,
     /// A string describing the theme (dark, light) or org.example.dark.
     pub theme: String,
 }
 impl ClientProperties {
     /// Create client Properties with a String as the language_tag.
     /// If a malformatted language_tag is provided it will default to en-US.
-    pub fn new(language: String, client_id: String, theme: String) -> Self {
+    /// # Arguments
+    /// * `client_id` the client identifier. This allows widgets to adapt to specific clients (e.g. `io.element.web`)
+    /// * `language` the language that is used in the client. (default: `en-US`)
+    /// * `theme` the theme (dark, light) or org.example.dark. (default: `light`)
+    pub fn new(client_id: &str, language: Option<String>, theme: Option<String>) -> Self {
         // its save to unwrap "en-us"
-        let default = LanguageTag::parse("en-us").unwrap();
+        let default_language = LanguageTag::parse(&"en-us").unwrap();
+        let default_theme = "light".to_owned();
         ClientProperties {
-            language: LanguageTag::parse(&language).unwrap_or(default),
-            client_id,
-            theme,
+            language: language
+                .and_then(|l| LanguageTag::parse(&l).ok())
+                .unwrap_or(default_language),
+            client_id: client_id.to_owned(),
+            theme: theme.unwrap_or(default_theme),
         }
     }
 }
