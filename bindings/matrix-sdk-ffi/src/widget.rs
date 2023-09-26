@@ -4,7 +4,6 @@ use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter},
 };
-use url::Url;
 
 use crate::room::Room;
 
@@ -57,78 +56,84 @@ impl From<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
         let matrix_sdk::widget::WidgetSettings { id, init_on_load, raw_url } = value;
-        WidgetSettings { id: id, init_on_load: init_on_load, raw_url: raw_url }
+        WidgetSettings { id, init_on_load, raw_url }
     }
 }
 
+/// Create the actual url that can be used to setup the WebView or IFrame
+/// that contains the widget.
+///
+/// # Arguments
+/// * `widget_settings` - The widget settings to generate the url for.
+/// * `room` - A matrix room which is used to query the logged in username
+/// * `props` - Propertis from the client that can be used by a widget to
+///   adapt to the client. e.g. language, font-scale...
 #[uniffi::export]
-impl WidgetSettings {
-    /// Create the actual url that can be used to setup the WebView or IFrame
-    /// that contains the widget.
-    ///
-    /// # Arguments
-    ///
-    /// * `room` - A matrix room which is used to query the logged in username
-    /// * `props` - Propertis from the client that can be used by a widget to
-    ///   adapt to the client. e.g. language, font-scale...
-    pub async fn generate_url(
-        &self,
-        room: &Room,
-        props: ClientProperties,
-    ) -> Result<Url, url::ParseError> {
-        matrix_sdk::widget::WidgetSettings::generate_url(
-            &self.clone().into(),
-            &room.inner,
-            props.into(),
-        )
-        .await
-    }
-
-    /// `WidgetSettings` are usually created from a state event.
-    /// (currently unimplemented)
-    /// But in some cases the client wants to create custom `WidgetSettings`
-    /// for specific rooms based on other conditions.
-    /// This function returns a `WidgetSettings` object which can be used
-    /// to setup a widget using `run_client_widget_api`
-    /// and to generate the correct url for the widget.
-    ///
-    /// # Arguments
-    /// * `base_path` the path to the app e.g. https://call.element.io.
-    /// * `id` the widget id.
-    /// * `embed` the embed param for the widget.
-    /// * `hide_header` for Element Call this defines if the branding header
-    ///   should be hidden.
-    /// * `preload` if set, the lobby will be skipped and the widget will join
-    ///   the call on the `io.element.join` action.
-    /// * `base_url` the url of the matrix homserver in use e.g. https://matrix-client.matrix.org.
-    /// * `analytics_id` can be used to pass a posthog id to element call.
-    pub fn new_virtual_element_call_widget(
-        element_call_path: &str,
-        id: String,
-        embed: bool,
-        hide_header: bool,
-        preload: bool,
-        font_scale: f64,
-        analytics_id: Option<&str>,
-        parent_url: &str,
-    ) -> Self {
-        matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(
-            element_call_path,
-            id,
-            embed,
-            hide_header,
-            preload,
-            font_scale,
-            analytics_id,
-            parent_url,
-        )
-        .into()
-    }
+pub async fn generate_url(
+    widget_settings: WidgetSettings,
+    room: Arc<Room>,
+    props: ClientProperties,
+) -> Result<String, String> {
+    matrix_sdk::widget::WidgetSettings::generate_url(
+        &widget_settings.clone().into(),
+        &room.inner,
+        props.into(),
+    )
+    .await
+    .map(|url| url.to_string())
+    .map_err(|e| e.to_string())
+}
+/// `WidgetSettings` are usually created from a state event.
+/// (currently unimplemented)
+/// But in some cases the client wants to create custom `WidgetSettings`
+/// for specific rooms based on other conditions.
+/// This function returns a `WidgetSettings` object which can be used
+/// to setup a widget using `run_client_widget_api`
+/// and to generate the correct url for the widget.
+///
+/// # Arguments
+/// * `base_path` the path to the app e.g. https://call.element.io.
+/// * `id` the widget id.
+/// * `embed` the embed param for the widget.
+/// * `hide_header` for Element Call this defines if the branding header
+///   should be hidden.
+/// * `preload` if set, the lobby will be skipped and the widget will join
+///   the call on the `io.element.join` action.
+/// * `base_url` the url of the matrix homserver in use e.g. https://matrix-client.matrix.org.
+/// * `analytics_id` can be used to pass a posthog id to element call.
+#[uniffi::export]
+pub fn new_virtual_element_call_widget(
+    element_call_url: String,
+    widget_id: String,
+    parent_url: Option<String>,
+    hide_header: Option<bool>,
+    preload: Option<bool>,
+    font_scale: Option<f64>,
+    app_prompt: Option<bool>,
+    skip_lobby: Option<bool>,
+    confine_to_room: Option<bool>,
+    fonts: Option<Vec<String>>,
+    analytics_id: Option<String>,
+) -> WidgetSettings {
+    matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(
+        element_call_url,
+        widget_id,
+        parent_url,
+        hide_header,
+        preload,
+        font_scale,
+        app_prompt,
+        skip_lobby,
+        confine_to_room,
+        fonts,
+        analytics_id,
+    )
+    .into()
 }
 #[derive(uniffi::Record)]
 pub struct ClientProperties {
-    /// The language the client is set to e.g. en-us.
-    pub language: String,
+    /// The language tag the client is set to e.g. en-us.
+    pub language_tag: String,
     /// The client_id provides the widget with the option to behave differently
     /// for different clients. e.g org.example.ios.
     pub client_id: String,
@@ -137,7 +142,7 @@ pub struct ClientProperties {
 }
 impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
     fn from(value: ClientProperties) -> Self {
-        let ClientProperties { language, client_id, theme } = value;
+        let ClientProperties { language_tag, client_id, theme } = value;
         Self::new(language_tag, client_id, theme)
     }
 }
@@ -152,6 +157,9 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
+    /// If a widget requests this capability, the client is not allowed
+    /// to open the widget in a seperated browser.
+    pub requires_client: bool,
 }
 
 impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
@@ -159,6 +167,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -168,6 +177,7 @@ impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -250,14 +260,16 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
 }
 
 #[uniffi::export]
-pub async fn run_widget_api(
+pub async fn run_client_widget_api(
     room: Arc<Room>,
     widget: Widget,
-    permissions_provider: Box<WidgetPermissionsProvider>,
+    permissions_provider: Box<dyn WidgetPermissionsProvider>,
 ) {
     let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-    if let Err(()) =
-        matrix_sdk::widget::run_widget_api(room.inner.clone(), widget.into(), permissions_provider)
-            .await
-    {}
+    matrix_sdk::widget::run_client_widget_api(
+        widget.into(),
+        permissions_provider,
+        room.inner.clone(),
+    )
+    .await
 }
