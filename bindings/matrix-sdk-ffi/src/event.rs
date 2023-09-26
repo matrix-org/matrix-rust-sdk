@@ -126,6 +126,7 @@ pub enum MessageLikeEventContent {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
+    Poll { question: String },
     ReactionContent { related_event_id: String },
     RoomEncrypted,
     RoomMessage { message_type: MessageType, in_reply_to_event_id: Option<String> },
@@ -162,6 +163,12 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             }
             AnySyncMessageLikeEvent::KeyVerificationDone(_) => {
                 MessageLikeEventContent::KeyVerificationDone
+            }
+            AnySyncMessageLikeEvent::UnstablePollStart(content) => {
+                let original_content = get_message_like_event_original_content(content)?;
+                MessageLikeEventContent::Poll {
+                    question: original_content.poll_start().question.text.clone(),
+                }
             }
             AnySyncMessageLikeEvent::Reaction(content) => {
                 let original_content = get_message_like_event_original_content(content)?;
