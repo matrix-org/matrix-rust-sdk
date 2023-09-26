@@ -57,7 +57,7 @@ use crate::{
 /// For the migration:
 ///
 /// 1. Deserialize the stored room info using this type,
-/// 2. Get the `m.room.create` event for the room, it it is available,
+/// 2. Get the `m.room.create` event for the room, if it is available,
 /// 3. Convert this to [`RoomInfo`] with `.migrate(create_event)`,
 /// 4. Replace the room info in the store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
