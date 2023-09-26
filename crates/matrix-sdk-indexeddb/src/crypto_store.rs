@@ -360,9 +360,19 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
+    /// Encode the value for storage as a value in indexeddb.
+    ///
+    /// First, serialise the given value as JSON.
+    ///
+    /// Then, if a store cipher is enabled, encrypt the JSON string using the
+    /// configured store cipher, giving a byte array. Then, wrap the byte
+    /// array as a `JsValue`.
+    ///
+    /// If no cipher is enabled, deserialises the JSON string again giving a JS
+    /// object.
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(key) = &self.store_cipher {
-            let value = key.encrypt_value(value).map_err(CryptoStoreError::backend)?;
+        if let Some(cipher) = &self.store_cipher {
+            let value = cipher.encrypt_value(value).map_err(CryptoStoreError::backend)?;
 
             Ok(JsValue::from_serde(&value)?)
         } else {
@@ -370,13 +380,14 @@ impl IndexeddbCryptoStore {
         }
     }
 
+    /// Decode a value that was previously encoded with [`serialize_value`]
     fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &self.store_cipher {
+        if let Some(cipher) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
-            key.decrypt_value(&value).map_err(CryptoStoreError::backend)
+            cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)
         } else {
             Ok(value.into_serde()?)
         }
