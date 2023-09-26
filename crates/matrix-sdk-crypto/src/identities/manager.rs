@@ -1393,7 +1393,7 @@ pub(crate) mod tests {
 
         let (new_request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
-        // Same keys/query shouldn't fire new change, identity should be unchanged
+        // There is a new signature on the msk, should trigger a change
         manager
             .as_ref()
             .unwrap()
