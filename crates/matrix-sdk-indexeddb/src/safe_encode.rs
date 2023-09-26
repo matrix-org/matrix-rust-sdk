@@ -43,18 +43,6 @@ pub trait SafeEncode {
     /// The result will not be escaped again.
     fn as_encoded_string(&self) -> String;
 
-    /// encode self into a JsValue, internally using `as_encoded_string`
-    /// to escape the value of self.
-    fn encode(&self) -> JsValue {
-        self.as_encoded_string().into()
-    }
-
-    /// encode self into a JsValue, internally using `as_secure_string`
-    /// to escape the value of self,
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> JsValue {
-        self.as_secure_string(table_name, store_cipher).into()
-    }
-
     /// encode self securely for the given tablename with the given
     /// `store_cipher` hash_key, returns the value as a base64 encoded
     /// string without any padding.

@@ -241,13 +241,38 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher("crypto", None).await
     }
 
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// First calls [`SafeEncode::as_encoded_string`]
+    /// on the `key` to encode it into a formatted string.
+    ///
+    /// Then, if a cipher is configured, hashes the formatted key and returns
+    /// the hash encoded as unpadded base64.
+    ///
+    /// If no cipher is configured, just returns the formatted key.
+    ///
+    /// This is faster than [`serialize_value`] and reliably gives the same
+    /// output for the same input, making it suitable for index keys.
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
     where
         T: SafeEncode,
     {
+        self.encode_key_as_string(table_name, key).into()
+    }
+
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// The same as [`encode_key`], but stops short of converting the resulting
+    /// base64 string into a JsValue
+    fn encode_key_as_string<T>(&self, table_name: &str, key: T) -> String
+    where
+        T: SafeEncode,
+    {
         match &self.store_cipher {
-            Some(cipher) => key.encode_secure(table_name, cipher),
-            None => key.encode(),
+            Some(cipher) => key.as_secure_string(table_name, cipher),
+            None => key.as_encoded_string(),
         }
     }
 
