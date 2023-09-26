@@ -41,7 +41,7 @@ pub use self::{
     sync_builder::{
         bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
         JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
-        StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, TimelineTestEvent,
+        StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     },
 };
 

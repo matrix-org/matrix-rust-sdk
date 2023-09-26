@@ -20,7 +20,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts};
 use matrix_sdk_test::{
     async_test, sync_timeline_event, EphemeralTestEvent, JoinedRoomBuilder,
-    RoomAccountDataTestEvent, SyncResponseBuilder, TimelineTestEvent,
+    RoomAccountDataTestEvent, SyncResponseBuilder,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -70,7 +70,21 @@ async fn read_receipts_updates() {
 
     ev_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::MessageText)
+            .add_timeline_event(sync_timeline_event!({
+                "content": {
+                    "body": "is dancing", "format":
+                    "org.matrix.custom.html",
+                    "formatted_body": "<strong>is dancing</strong>",
+                    "msgtype": "m.text"
+                },
+                "event_id": "$152037280074GZeOm:localhost",
+                "origin_server_ts": 152037280,
+                "sender": "@example:localhost",
+                "type": "m.room.message",
+                "unsigned": {
+                    "age": 598971
+                }
+            }))
             .add_timeline_event(sync_timeline_event!({
                 "content": {
                     "body": "I'm dancing too",

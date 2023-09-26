@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TimelineTestEvent};
+use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE};
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
@@ -218,6 +218,7 @@ async fn clear_with_echoes() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
+    let event_builder = EventBuilder::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -258,9 +259,12 @@ async fn clear_with_echoes() {
     timeline.send(RoomMessageEventContent::text_plain("Pending").into()).await;
 
     // Another message comes in.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(TimelineTestEvent::MessageText),
-    );
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        event_builder.make_sync_message_event(
+            &ALICE,
+            RoomMessageEventContent::text_plain("another message"),
+        ),
+    ));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     client.sync_once(sync_settings.clone()).await.unwrap();
 

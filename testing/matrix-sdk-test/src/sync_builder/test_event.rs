@@ -1,78 +1,13 @@
 use ruma::{
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent,
     },
     serde::Raw,
 };
 use serde_json::{from_value as from_json_value, Value as JsonValue};
 
 use crate::test_json;
-
-/// Test events that can be added to the timeline.
-pub enum TimelineTestEvent {
-    Alias,
-    Aliases,
-    Create,
-    Encryption,
-    HistoryVisibility,
-    JoinRules,
-    Member,
-    MemberBan,
-    MemberInvite,
-    MemberNameChange,
-    MessageEdit,
-    MessageEmote,
-    MessageNotice,
-    MessageText,
-    PowerLevels,
-    Reaction,
-    RedactedInvalid,
-    RedactedMessage,
-    RedactedState,
-    Redaction,
-    RoomAvatar,
-    RoomName,
-    RoomTopic,
-}
-
-impl TimelineTestEvent {
-    /// Get the JSON representation of this test event.
-    pub fn into_json_value(self) -> JsonValue {
-        match self {
-            Self::Alias => test_json::sync_events::ALIAS.to_owned(),
-            Self::Aliases => test_json::sync_events::ALIASES.to_owned(),
-            Self::Create => test_json::sync_events::CREATE.to_owned(),
-            Self::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),
-            Self::HistoryVisibility => test_json::sync_events::HISTORY_VISIBILITY.to_owned(),
-            Self::JoinRules => test_json::sync_events::JOIN_RULES.to_owned(),
-            Self::Member => test_json::sync_events::MEMBER.to_owned(),
-            Self::MemberBan => test_json::sync_events::MEMBER_BAN.to_owned(),
-            Self::MemberInvite => test_json::sync_events::MEMBER_INVITE.to_owned(),
-            Self::MemberNameChange => test_json::sync_events::MEMBER_NAME_CHANGE.to_owned(),
-            Self::MessageEdit => test_json::sync_events::MESSAGE_EDIT.to_owned(),
-            Self::MessageEmote => test_json::sync_events::MESSAGE_EMOTE.to_owned(),
-            Self::MessageNotice => test_json::sync_events::MESSAGE_NOTICE.to_owned(),
-            Self::MessageText => test_json::sync_events::MESSAGE_TEXT.to_owned(),
-            Self::PowerLevels => test_json::sync_events::POWER_LEVELS.to_owned(),
-            Self::Reaction => test_json::sync_events::REACTION.to_owned(),
-            Self::RedactedInvalid => test_json::sync_events::REDACTED_INVALID.to_owned(),
-            Self::RedactedMessage => test_json::sync_events::REDACTED.to_owned(),
-            Self::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
-            Self::Redaction => test_json::sync_events::REDACTION.to_owned(),
-            Self::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
-            Self::RoomName => test_json::sync_events::NAME.to_owned(),
-            Self::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
-        }
-    }
-}
-
-impl From<TimelineTestEvent> for Raw<AnySyncTimelineEvent> {
-    /// Get the typed JSON representation of this test event.
-    fn from(value: TimelineTestEvent) -> Self {
-        from_json_value(value.into_json_value()).unwrap()
-    }
-}
 
 /// Test events that can be added to the state.
 pub enum StateTestEvent {
