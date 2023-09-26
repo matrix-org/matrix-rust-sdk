@@ -37,36 +37,6 @@ pub use test_event::{
 /// It supports generated a number of canned events, such as a member entering a
 /// room, his power level and display name changing and similar. It also
 /// supports insertion of custom events in the form of `EventsJson` values.
-///
-/// # Example usage
-///
-/// ```rust
-/// use matrix_sdk_test::{SyncResponseBuilder, JoinedRoomBuilder, TimelineTestEvent};
-///
-/// let mut builder = SyncResponseBuilder::new();
-///
-/// // response1 now contains events that add an example member to the room and change their power
-/// // level
-/// let response1 = builder
-///     .add_joined_room(
-///         JoinedRoomBuilder::default()
-///             .add_timeline_event(TimelineTestEvent::Member)
-///             .add_timeline_event(TimelineTestEvent::PowerLevels)
-///     )
-///     .build_sync_response();
-///
-/// // response2 is now empty (nothing changed)
-/// let response2 = builder.build_sync_response();
-///
-/// // response3 contains a display name change for member example
-/// let response3 = builder
-///     .add_joined_room(
-///         JoinedRoomBuilder::default()
-///             .add_timeline_event(TimelineTestEvent::MemberNameChange)
-///             .add_timeline_event(TimelineTestEvent::PowerLevels)
-///     )
-///     .build_sync_response();
-/// ```
 #[derive(Default)]
 pub struct SyncResponseBuilder {
     /// Updates to joined `Room`s.
