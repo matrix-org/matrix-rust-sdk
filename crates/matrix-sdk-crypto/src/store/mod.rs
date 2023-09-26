@@ -671,7 +671,7 @@ pub struct BackupKeys {
 
 /// A struct containing private cross signing keys that can be backed up or
 /// uploaded to the secret store.
-#[derive(Zeroize)]
+#[derive(Default, Zeroize)]
 #[zeroize(drop)]
 pub struct CrossSigningKeyExport {
     /// The seed of the master key encoded as unpadded base64.
@@ -1116,6 +1116,8 @@ impl Store {
             info!(?status, "Successfully imported the private cross-signing keys");
 
             self.save_changes(changes).await?;
+        } else {
+            warn!("No public identity found while importing cross-signing keys, a /keys/query needs to be done");
         }
 
         Ok(self.inner.identity.lock().await.status().await)
