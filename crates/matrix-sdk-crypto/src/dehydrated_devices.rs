@@ -291,7 +291,7 @@ impl DehydratedDevice {
         skip_all, fields(
             user_id = ?self.account.user_id(),
             device_id = ?self.account.device_id(),
-            identity_keys = ?self.account.identity_keys,
+            identity_keys = ?self.account.identity_keys(),
         )
     )]
     pub async fn keys_for_upload(

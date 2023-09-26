@@ -494,27 +494,40 @@ impl Account {
     }
 }
 
+/// Account data that's static for the lifetime of a Client.
+///
+/// This data never changes once it's set, so it can be freely passed and cloned
+/// everywhere.
+#[derive(Clone)]
+#[cfg_attr(not(tarpaulin_include), derive(Debug))]
+pub struct StaticAccountData {
+    /// The user_id this account belongs to
+    pub user_id: OwnedUserId,
+    /// The device_id of this entry
+    pub device_id: OwnedDeviceId,
+    /// The associated identity keys
+    pub identity_keys: Arc<IdentityKeys>,
+    // The creation time of the account in milliseconds since epoch.
+    creation_local_time: MilliSecondsSinceUnixEpoch,
+}
+
 /// Account holding identity keys for which sessions can be created.
 ///
 /// An account is the central identity for encrypted communication between two
 /// devices.
 #[derive(Clone)]
 pub struct ReadOnlyAccount {
-    /// The user_id this account belongs to
-    pub user_id: OwnedUserId,
-    /// The device_id of this entry
-    pub device_id: OwnedDeviceId,
+    pub(crate) static_data: StaticAccountData,
+    /// `vodozemac` account.
     inner: Arc<Mutex<InnerAccount>>,
-    /// The associated identity keys
-    pub identity_keys: Arc<IdentityKeys>,
+    /// Is this account ready to encrypt messages? (i.e. has it shared keys with
+    /// a homeserver)
     shared: Arc<AtomicBool>,
     /// The number of signed one-time keys we have uploaded to the server. If
     /// this is None, no action will be taken. After a sync request the client
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicU64>,
-    // The creation time of the account in milliseconds since epoch.
-    creation_local_time: MilliSecondsSinceUnixEpoch,
 }
 
 /// A pickled version of an `Account`.
@@ -581,13 +594,15 @@ impl ReadOnlyAccount {
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
         Self {
-            user_id: user_id.into(),
-            device_id: device_id.into(),
+            static_data: StaticAccountData {
+                user_id: user_id.into(),
+                device_id: device_id.into(),
+                identity_keys: Arc::new(identity_keys),
+                creation_local_time: MilliSecondsSinceUnixEpoch::now(),
+            },
             inner: Arc::new(Mutex::new(account)),
-            identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
-            creation_local_time: MilliSecondsSinceUnixEpoch::now(),
         }
     }
 
@@ -608,19 +623,24 @@ impl ReadOnlyAccount {
         Self::new_helper(account, user_id, &device_id)
     }
 
+    /// Get the immutable data for this account.
+    pub fn static_data(&self) -> &StaticAccountData {
+        &self.static_data
+    }
+
     /// Get the user id of the owner of the account.
     pub fn user_id(&self) -> &UserId {
-        &self.user_id
+        &self.static_data.user_id
     }
 
     /// Get the device ID that owns this account.
     pub fn device_id(&self) -> &DeviceId {
-        &self.device_id
+        &self.static_data.device_id
     }
 
     /// Get the public parts of the identity keys for the account.
     pub fn identity_keys(&self) -> IdentityKeys {
-        *self.identity_keys
+        *self.static_data.identity_keys
     }
 
     /// Get the key ID of our Ed25519 signing key.
@@ -630,7 +650,7 @@ impl ReadOnlyAccount {
 
     /// Get the local timestamp creation of the account in secs since epoch
     pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
-        self.creation_local_time
+        self.static_data.creation_local_time
     }
 
     /// Update the uploaded key count.
@@ -813,10 +833,10 @@ impl ReadOnlyAccount {
     ) -> Result<(), SignatureError> {
         use crate::olm::utility::VerifyJson;
 
-        let signing_key = self.identity_keys.ed25519;
+        let signing_key = self.static_data.identity_keys.ed25519;
 
         signing_key.verify_canonicalized_json(
-            &self.user_id,
+            &self.static_data.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
             signatures,
             canonical_json,
@@ -833,7 +853,7 @@ impl ReadOnlyAccount {
             pickle,
             shared: self.shared(),
             uploaded_signed_key_count: self.uploaded_key_count(),
-            creation_local_time: self.creation_local_time,
+            creation_local_time: self.static_data.creation_local_time,
         }
     }
 
@@ -881,13 +901,15 @@ impl ReadOnlyAccount {
         let identity_keys = account.identity_keys();
 
         Ok(Self {
-            user_id: (*pickle.user_id).into(),
-            device_id: (*pickle.device_id).into(),
+            static_data: StaticAccountData {
+                user_id: (*pickle.user_id).into(),
+                device_id: (*pickle.device_id).into(),
+                identity_keys: Arc::new(identity_keys),
+                creation_local_time: pickle.creation_local_time,
+            },
             inner: Arc::new(Mutex::new(account)),
-            identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
-            creation_local_time: pickle.creation_local_time,
         })
     }
 
@@ -896,18 +918,21 @@ impl ReadOnlyAccount {
         let identity_keys = self.identity_keys();
         let keys = BTreeMap::from([
             (
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
+                DeviceKeyId::from_parts(
+                    DeviceKeyAlgorithm::Curve25519,
+                    &self.static_data.device_id,
+                ),
                 identity_keys.curve25519.into(),
             ),
             (
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.static_data.device_id),
                 identity_keys.ed25519.into(),
             ),
         ]);
 
         DeviceKeys::new(
-            (*self.user_id).to_owned(),
-            (*self.device_id).to_owned(),
+            (*self.static_data.user_id).to_owned(),
+            (*self.static_data.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             Default::default(),
@@ -930,7 +955,7 @@ impl ReadOnlyAccount {
 
         device_keys.signatures.add_signature(
             self.user_id().to_owned(),
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.static_data.device_id),
             signature,
         );
 
@@ -1091,9 +1116,9 @@ impl ReadOnlyAccount {
         let session_id = session.session_id();
 
         Session {
-            user_id: self.user_id.clone(),
-            device_id: self.device_id.clone(),
-            our_identity_keys: self.identity_keys.clone(),
+            user_id: self.static_data.user_id.clone(),
+            device_id: self.static_data.device_id.clone(),
+            our_identity_keys: self.static_data.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: identity_key,
@@ -1208,9 +1233,9 @@ impl ReadOnlyAccount {
         trace!("Olm session created successfully");
 
         let session = Session {
-            user_id: self.user_id.clone(),
-            device_id: self.device_id.clone(),
-            our_identity_keys: self.identity_keys.clone(),
+            user_id: self.static_data.user_id.clone(),
+            device_id: self.static_data.device_id.clone(),
+            our_identity_keys: self.static_data.identity_keys.clone(),
             inner: Arc::new(Mutex::new(result.session)),
             session_id: session_id.into(),
             sender_key: their_identity_key,
@@ -1249,8 +1274,8 @@ impl ReadOnlyAccount {
         let algorithm = settings.algorithm.to_owned();
 
         let outbound = OutboundGroupSession::new(
-            self.device_id.clone(),
-            self.identity_keys.clone(),
+            self.static_data.device_id.clone(),
+            self.static_data.identity_keys.clone(),
             room_id,
             settings,
         )?;

@@ -576,8 +576,8 @@ mod tests {
     async fn session_creation_waits_for_keys_query() {
         let manager = session_manager().await;
         let identity_manager = IdentityManager::new(
-            manager.account.user_id.clone(),
-            manager.account.device_id.clone(),
+            manager.account.user_id().to_owned(),
+            manager.account.device_id().to_owned(),
             manager.store.clone(),
         );
 
@@ -596,7 +596,7 @@ mod tests {
         // for now.
         let missing_sessions_task = {
             let manager = manager.clone();
-            let bob_user_id = bob.user_id.clone();
+            let bob_user_id = bob.user_id().to_owned();
 
             #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
             tokio::spawn(async move {

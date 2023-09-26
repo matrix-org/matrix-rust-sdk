@@ -24,8 +24,8 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_crypto::{
     olm::{
-        IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
-        PrivateCrossSigningIdentity, Session,
+        InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
@@ -35,7 +35,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    RoomId, TransactionId, UserId,
 };
 use rusqlite::OptionalExtension;
 use serde::{de::DeserializeOwned, Serialize};
@@ -51,13 +51,6 @@ use crate::{
     OpenStoreError,
 };
 
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
-    identity_keys: Arc<IdentityKeys>,
-}
-
 /// A sqlite based cryptostore.
 #[derive(Clone)]
 pub struct SqliteCryptoStore {
@@ -66,7 +59,8 @@ pub struct SqliteCryptoStore {
     pool: SqlitePool,
 
     // DB values cached in memory
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
+    // TODO(BNJ) rename
+    account_info: Arc<RwLock<Option<StaticAccountData>>>,
     session_cache: SessionStore,
 }
 
@@ -187,7 +181,8 @@ impl SqliteCryptoStore {
         }
     }
 
-    fn get_account_info(&self) -> Option<AccountInfo> {
+    // TODO(BNJ) rename
+    fn get_account_info(&self) -> Option<StaticAccountData> {
         self.account_info.read().unwrap().clone()
     }
 
@@ -664,13 +659,7 @@ impl CryptoStore for SqliteCryptoStore {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(|_| Error::Unpickle)?;
 
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.account_info.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
@@ -679,12 +668,7 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let account_info = AccountInfo {
-            user_id: account.user_id.clone(),
-            device_id: account.device_id.clone(),
-            identity_keys: account.identity_keys.clone(),
-        };
-        *self.account_info.write().unwrap() = Some(account_info);
+        *self.account_info.write().unwrap() = Some(account.static_data().clone());
 
         let pickled_account = account.pickle().await;
         let serialized_account = self.serialize_value(&pickled_account)?;
@@ -708,13 +692,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let pickled_account = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.account_info.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None

@@ -23,7 +23,7 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
-        PrivateCrossSigningIdentity, Session,
+        PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
@@ -92,7 +92,8 @@ mod keys {
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
+    // TODO(BNJ) rename
+    account_info: Arc<RwLock<Option<StaticAccountData>>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
@@ -145,13 +146,6 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
 }
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
-
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
-    identity_keys: Arc<IdentityKeys>,
-}
 
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
@@ -449,7 +443,7 @@ impl IndexeddbCryptoStore {
         }
     }
 
-    fn get_account_info(&self) -> Option<AccountInfo> {
+    fn get_account_info(&self) -> Option<StaticAccountData> {
         self.account_info.read().unwrap().clone()
     }
 
@@ -553,13 +547,7 @@ impl_crypto_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         let account_pickle = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.account_info.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None
@@ -819,13 +807,7 @@ impl_crypto_store! {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.account_info.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
