@@ -153,7 +153,14 @@ pub async fn upgrade_inner_db(
     migration_strategy: MigrationConflictStrategy,
     meta_db: &IdbDatabase,
 ) -> Result<IdbDatabase> {
-    {
+    let mut db = IdbDatabase::open(name)?.into_future().await?;
+
+    // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
+    // works with an unsigned integer.
+    // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
+    let mut old_version = db.version() as u32;
+
+    if old_version < CURRENT_DB_VERSION {
         // This is a hack, we need to open the database a first time to get the current
         // version.
         // The indexed_db_futures crate doesn't let us access the transaction so we
@@ -162,21 +169,13 @@ pub async fn upgrade_inner_db(
         // the upgrade.
         // See <https://github.com/Alorel/rust-indexed-db/issues/20>
         let has_store_cipher = store_cipher.is_some();
-        let pre_db = IdbDatabase::open(name)?.into_future().await?;
-
-        // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
-        // works with an unsigned integer.
-        // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
-        let mut old_version = pre_db.version() as u32;
 
         // Inside the `onupgradeneeded` callback we would know whether it's a new DB
         // because the old version would be set to 0, here it is already set to 1 so we
         // check if the stores exist.
-        if old_version == 1 && pre_db.object_store_names().next().is_none() {
+        if old_version == 1 && db.object_store_names().next().is_none() {
             old_version = 0;
         }
-
-        pre_db.close();
 
         // Upgrades to v1 and v2 (re)create empty stores, while the other upgrades
         // change data that is already in the stores, so we use exclusive branches here.
@@ -185,11 +184,11 @@ pub async fn upgrade_inner_db(
                 create_stores: ALL_STORES.iter().copied().collect(),
                 ..Default::default()
             };
-            apply_migration(name, CURRENT_DB_VERSION, migration).await?;
+            db = apply_migration(db, CURRENT_DB_VERSION, migration).await?;
         } else if old_version < 2 && has_store_cipher {
             match migration_strategy {
                 MigrationConflictStrategy::BackupAndDrop => {
-                    backup_v1(name, meta_db).await?;
+                    backup_v1(&db, meta_db).await?;
                 }
                 MigrationConflictStrategy::Drop => {}
                 MigrationConflictStrategy::Raise => {
@@ -200,53 +199,66 @@ pub async fn upgrade_inner_db(
                     });
                 }
             }
+
             let migration = OngoingMigration {
                 drop_stores: V1_STORES.iter().copied().collect(),
                 create_stores: ALL_STORES.iter().copied().collect(),
                 ..Default::default()
             };
-            apply_migration(name, CURRENT_DB_VERSION, migration).await?;
+            db = apply_migration(db, CURRENT_DB_VERSION, migration).await?;
         } else {
             if old_version < 3 {
-                migrate_to_v3(name, store_cipher).await?;
+                db = migrate_to_v3(db, store_cipher).await?;
             }
             if old_version < 4 {
-                migrate_to_v4(name, store_cipher).await?;
+                db = migrate_to_v4(db, store_cipher).await?;
             }
             if old_version < 5 {
-                migrate_to_v5(name, store_cipher).await?;
+                db = migrate_to_v5(db, store_cipher).await?;
             }
             if old_version < 6 {
-                migrate_to_v6(name, store_cipher).await?;
+                db = migrate_to_v6(db, store_cipher).await?;
             }
             if old_version < 7 {
-                migrate_to_v7(name, store_cipher).await?;
+                db = migrate_to_v7(db, store_cipher).await?;
             }
             if old_version < 8 {
-                migrate_to_v8(name, store_cipher).await?;
+                db = migrate_to_v8(db, store_cipher).await?;
             }
         }
+
+        db.close();
+
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
+        db_req.set_on_upgrade_needed(Some(
+            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                // Sanity check.
+                // There should be no upgrade needed since the database should have already been
+                // upgraded to the latest version.
+                panic!(
+                    "Opening database that was not fully upgraded: \
+                     DB version: {}; latest version: {CURRENT_DB_VERSION}",
+                    evt.old_version()
+                )
+            },
+        ));
+        db = db_req.into_future().await?;
     }
 
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
-    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        // Sanity check.
-        // There should be no upgrade needed since the database should have already been
-        // upgraded to the latest version.
-        panic!(
-            "Opening database that was not fully upgraded: \
-             DB version: {}; latest version: {CURRENT_DB_VERSION}",
-            evt.old_version()
-        )
-    }));
-
-    Ok(db_req.into_future().await?)
+    Ok(db)
 }
 
 /// Apply the given migration by upgrading the database with the given name to
 /// the given version.
-async fn apply_migration(name: &str, version: u32, migration: OngoingMigration) -> Result<()> {
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
+async fn apply_migration(
+    db: IdbDatabase,
+    version: u32,
+    migration: OngoingMigration,
+) -> Result<IdbDatabase> {
+    let name = db.name();
+    db.close();
+
+    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, version)?;
     db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
         // Changing the format can only happen in the upgrade procedure
         for store in &migration.drop_stores {
@@ -276,9 +288,7 @@ async fn apply_migration(name: &str, version: u32, migration: OngoingMigration) 
         tx.await.into_result()?;
     }
 
-    db.close();
-
-    Ok(())
+    Ok(db)
 }
 
 pub const V1_STORES: &[&str] = &[
@@ -305,8 +315,7 @@ pub const V1_STORES: &[&str] = &[
     old_keys::SYNC_TOKEN,
 ];
 
-async fn backup_v1(name: &str, meta: &IdbDatabase) -> Result<()> {
-    let source = IdbDatabase::open(name)?.into_future().await?;
+async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let now = JsDate::now();
     let backup_name = format!("backup-{}-{now}", source.name());
 
@@ -393,9 +402,7 @@ async fn v3_fix_store(
 }
 
 /// Fix serialized redacted state events.
-async fn migrate_to_v3(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v3(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     let tx = db.transaction_on_multi_with_mode(
         &[keys::ROOM_STATE, keys::ROOM_INFOS],
         IdbTransactionMode::Readwrite,
@@ -406,19 +413,15 @@ async fn migrate_to_v3(name: &str, store_cipher: Option<&StoreCipher>) -> Result
 
     tx.await.into_result()?;
 
+    let name = db.name();
     db.close();
 
     // Update the version of the database.
-    let db = IdbDatabase::open_u32(name, 3)?.into_future().await?;
-    db.close();
-
-    Ok(())
+    Ok(IdbDatabase::open_u32(&name, 3)?.into_future().await?)
 }
 
 /// Move the content of the SYNC_TOKEN and SESSION stores to the new KV store.
-async fn migrate_to_v4(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v4(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     let tx = db.transaction_on_multi_with_mode(
         &[old_keys::SYNC_TOKEN, old_keys::SESSION],
         IdbTransactionMode::Readonly,
@@ -455,20 +458,16 @@ async fn migrate_to_v4(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         data.insert(keys::KV, values);
     }
 
-    db.close();
-
     let migration = OngoingMigration {
         drop_stores: [old_keys::SYNC_TOKEN, old_keys::SESSION].into_iter().collect(),
         create_stores: [keys::KV].into_iter().collect(),
         data,
     };
-    apply_migration(name, 4, migration).await
+    apply_migration(db, 4, migration).await
 }
 
 /// Move the member events with other state events.
-async fn migrate_to_v5(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     let tx = db.transaction_on_multi_with_mode(
         &[
             old_keys::MEMBERS,
@@ -537,20 +536,16 @@ async fn migrate_to_v5(name: &str, store_cipher: Option<&StoreCipher>) -> Result
 
     tx.await.into_result()?;
 
-    db.close();
-
     let migration = OngoingMigration {
         drop_stores: [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS].into_iter().collect(),
         create_stores: Default::default(),
         data: Default::default(),
     };
-    apply_migration(name, 5, migration).await
+    apply_migration(db, 5, migration).await
 }
 
 /// Remove the old user IDs stores and populate the new ones.
-async fn migrate_to_v6(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     // We only have joined and invited user IDs in the old store, so instead we will
     // use the room member events to populate the new store.
     let tx = db.transaction_on_multi_with_mode(
@@ -621,8 +616,6 @@ async fn migrate_to_v6(name: &str, store_cipher: Option<&StoreCipher>) -> Result
 
     tx.await.into_result()?;
 
-    db.close();
-
     let mut data = HashMap::new();
     if !values.is_empty() {
         data.insert(keys::USER_IDS, values);
@@ -641,14 +634,12 @@ async fn migrate_to_v6(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         create_stores: HashSet::from_iter([keys::USER_IDS, keys::STRIPPED_USER_IDS]),
         data,
     };
-    apply_migration(name, 6, migration).await
+    apply_migration(db, 6, migration).await
 }
 
 /// Remove the stripped room infos store and migrate the data with the other
 /// room infos, as well as .
-async fn migrate_to_v7(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v7(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     let tx = db.transaction_on_multi_with_mode(
         &[old_keys::STRIPPED_ROOM_INFOS],
         IdbTransactionMode::Readonly,
@@ -668,8 +659,6 @@ async fn migrate_to_v7(name: &str, store_cipher: Option<&StoreCipher>) -> Result
 
     tx.await.into_result()?;
 
-    db.close();
-
     let mut data = HashMap::new();
     if !room_infos.is_empty() {
         data.insert(keys::ROOM_INFOS, room_infos);
@@ -680,13 +669,11 @@ async fn migrate_to_v7(name: &str, store_cipher: Option<&StoreCipher>) -> Result
         data,
         ..Default::default()
     };
-    apply_migration(name, 7, migration).await
+    apply_migration(db, 7, migration).await
 }
 
 /// Change the format of the room infos.
-async fn migrate_to_v8(name: &str, store_cipher: Option<&StoreCipher>) -> Result<()> {
-    let db = IdbDatabase::open(name)?.into_future().await?;
-
+async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
     let tx = db.transaction_on_multi_with_mode(
         &[keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE, keys::ROOM_INFOS],
         IdbTransactionMode::Readwrite,
@@ -737,13 +724,11 @@ async fn migrate_to_v8(name: &str, store_cipher: Option<&StoreCipher>) -> Result
 
     tx.await.into_result()?;
 
+    let name = db.name();
     db.close();
 
     // Update the version of the database.
-    let db = IdbDatabase::open_u32(name, 8)?.into_future().await?;
-    db.close();
-
-    Ok(())
+    Ok(IdbDatabase::open_u32(&name, 8)?.into_future().await?)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
