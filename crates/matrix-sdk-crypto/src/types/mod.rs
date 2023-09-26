@@ -23,12 +23,6 @@
 //!    way, meaning the white-space and field order won't be preserved but the
 //!    data will.
 
-mod backup;
-mod cross_signing;
-mod device_keys;
-pub mod events;
-mod one_time_keys;
-
 use std::{
     borrow::Borrow,
     collections::{
@@ -37,15 +31,19 @@ use std::{
     },
 };
 
-pub use backup::*;
-pub use cross_signing::*;
-pub use device_keys::*;
-pub use one_time_keys::*;
 use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+
+mod backup;
+mod cross_signing;
+mod device_keys;
+pub mod events;
+mod one_time_keys;
+
+pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
