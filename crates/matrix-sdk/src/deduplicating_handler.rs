@@ -81,3 +81,103 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
         }
     }
 }
+
+// Sorry wasm32, you don't have tokio::join :(
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_test::async_test;
+    use tokio::{join, sync::Mutex, task::yield_now};
+
+    use crate::deduplicating_handler::DeduplicatingHandler;
+
+    #[async_test]
+    async fn test_deduplicating_handler_same_key() -> anyhow::Result<()> {
+        let num_calls = Arc::new(Mutex::new(0));
+
+        let inner = || {
+            let num_calls_cloned = num_calls.clone();
+            async move {
+                yield_now().await;
+                *num_calls_cloned.lock().await += 1;
+                yield_now().await;
+                Ok(())
+            }
+        };
+
+        let handler = DeduplicatingHandler::default();
+
+        let (first, second) = join!(handler.run(0, inner()), handler.run(0, inner()));
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_eq!(*num_calls.lock().await, 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_deduplicating_handler_different_keys() -> anyhow::Result<()> {
+        let num_calls = Arc::new(Mutex::new(0));
+
+        let inner = || {
+            let num_calls_cloned = num_calls.clone();
+            async move {
+                yield_now().await;
+                *num_calls_cloned.lock().await += 1;
+                yield_now().await;
+                Ok(())
+            }
+        };
+
+        let handler = DeduplicatingHandler::default();
+
+        let (first, second) = join!(handler.run(0, inner()), handler.run(1, inner()));
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_eq!(*num_calls.lock().await, 2);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_deduplicating_handler_failure() -> anyhow::Result<()> {
+        let num_calls = Arc::new(Mutex::new(0));
+
+        let inner = || {
+            let num_calls_cloned = num_calls.clone();
+            async move {
+                yield_now().await;
+                *num_calls_cloned.lock().await += 1;
+                yield_now().await;
+                Err(crate::Error::AuthenticationRequired)
+            }
+        };
+
+        let handler = DeduplicatingHandler::default();
+
+        let (first, second) = join!(handler.run(0, inner()), handler.run(0, inner()));
+
+        assert!(first.is_err());
+        assert!(second.is_err());
+        assert_eq!(*num_calls.lock().await, 1);
+
+        // Then we can still do subsequent requests that may succeed (or fail), for the
+        // same key.
+        let inner = || {
+            let num_calls_cloned = num_calls.clone();
+            async move {
+                *num_calls_cloned.lock().await += 1;
+                Ok(())
+            }
+        };
+
+        *num_calls.lock().await = 0;
+        handler.run(0, inner()).await?;
+        assert_eq!(*num_calls.lock().await, 1);
+
+        Ok(())
+    }
+}
