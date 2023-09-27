@@ -1277,17 +1277,25 @@ impl Drop for IndexeddbCryptoStore {
 /// The objects we store in the gossip_requests indexeddb object store
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct GossipRequestIndexedDbObject {
-    /// encrypted hash of the SecretInfo structure
+    /// Encrypted hash of the [`SecretInfo`] structure.
     info: String,
 
-    /// encrypted serialised representation of the GossipRequest as a whole
+    /// Encrypted serialised representation of the [`GossipRequest`] as a whole.
     request: Vec<u8>,
 
-    /// whether the request has yet to be sent out
-    //
-    // Booleans don't really do what you might hope in indexeddb. Instead, we use an `Option`, and
-    // omit the value altogether if it is `None`, which means it will be excluded from the
-    // "unsent" index. If it is `Some`, the actual value is unimportant.
+    /// Whether the request has yet to be sent out.
+    ///
+    /// Really, this represents a boolean value, but booleans don't work as keys
+    /// in indexeddb (see [ECMA spec]). In any case, we don't need to be
+    /// able to retrieve entries where `unsent` is false, so we may as well
+    /// omit them from the index (see also [Stack Overflow]).
+    ///
+    /// To avoid too much `serde` magic, we use an `Option`, and omit the value
+    /// altogether if it is `None`, which means it will be excluded from the
+    /// "unsent" index. If it is `Some`, the actual value is unimportant.
+    ///
+    /// [ECMA spec]: https://w3c.github.io/IndexedDB/#key
+    /// [Stack overflow]: https://stackoverflow.com/a/24501949/637864
     #[serde(skip_serializing_if = "Option::is_none")]
     unsent: Option<u8>,
 }
