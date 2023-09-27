@@ -5,7 +5,7 @@ use matrix_sdk::{
     widget::{MessageLikeEventFilter, StateEventFilter},
 };
 
-use crate::room::Room;
+use crate::{room::Room, RUNTIME};
 
 #[derive(uniffi::Record)]
 pub struct Widget {
@@ -144,7 +144,8 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
         // This could require a prompt to the user. Ideally the callback
         // interface would just be async, but that's not supported yet so use
         // one of tokio's blocking task threads instead.
-        tokio::task::spawn_blocking(move || this.acquire_permissions(permissions.into()).into())
+        RUNTIME
+            .spawn_blocking(move || this.acquire_permissions(permissions.into()).into())
             .await
             // propagate panics from the blocking task
             .unwrap()
