@@ -47,6 +47,7 @@ use ruma::{
     ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
+use tokio::sync::Mutex;
 use tracing::error;
 
 use crate::{config::RequestConfig, Client, Error, HttpError, Result};
@@ -811,6 +812,18 @@ impl Account {
     /// * `user_ids` - The user ids of the invitees for the DM room.
     pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
+
+        // This function does a read/update/store of an account data event stored on the
+        // homeserver. We first fetch the existing account data event, the event
+        // contains a map which gets updated by this method, finally we upload the
+        // modified event.
+        //
+        // To prevent multiple calls to this method trying to update the map of DMs same
+        // time, and thus trampling on each other we introduce a lock which acts
+        // as a semaphore.
+        static LOCK: Mutex<()> = Mutex::const_new(());
+
+        let _guard = LOCK.lock().await;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
