@@ -17,7 +17,7 @@ pub trait PermissionsProvider: Send + Sync + 'static {
 }
 
 /// Permissions that a widget can request from a client.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Permissions {
     /// Types of the messages that a widget wants to be able to fetch.
     pub read: Vec<EventFilter>,
