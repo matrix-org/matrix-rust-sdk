@@ -13,7 +13,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::RoomMember;
+use crate::MinimalRoomMemberEvent;
 
 /// Represents a decision about whether an event could be stored as the latest
 /// event in a room. Variants starting with Yes indicate that this message could
@@ -65,39 +65,56 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
     }
 }
 
+/// Represent all information required to represent a latest event in an
+/// efficient way.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LatestEvent {
+    /// The actual event.
     event: SyncTimelineEvent,
-    // member: Option<RoomMember>,
+
+    /// The member profile of the event' sender.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_profile: Option<MinimalRoomMemberEvent>,
 }
 
 impl LatestEvent {
+    /// Create a new [`LatestEvent`] without the sender's profile.
     pub fn new(event: SyncTimelineEvent) -> Self {
-        Self { event }
+        Self { event, sender_profile: None }
     }
 
-    // pub fn new_with_member(event: SyncTimelineEvent, member: RoomMember) -> Self
-    // {     Self { event, member: Some(member) }
-    // }
+    /// Create a new [`LatestEvent`] with maybe the sender's profile.
+    pub fn new_with_sender_profile(
+        event: SyncTimelineEvent,
+        sender_profile: Option<MinimalRoomMemberEvent>,
+    ) -> Self {
+        Self { event, sender_profile }
+    }
 
+    /// Transform [`Self`] into an event.
     pub fn into_event(self) -> SyncTimelineEvent {
         self.event
     }
 
+    /// Get a reference to the event.
     pub fn event(&self) -> &SyncTimelineEvent {
         &self.event
     }
 
+    /// Get a mutable reference to the event.
     pub fn event_mut(&mut self) -> &mut SyncTimelineEvent {
         &mut self.event
     }
 
+    /// Get the event ID.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.event.event_id()
     }
-    // pub fn member(&self) -> Option<&RoomMember> {
-    //     self.member.as_ref()
-    // }
+
+    /// Get a reference to the sender profile if any.
+    pub fn sender_profile(&self) -> Option<&MinimalRoomMemberEvent> {
+        self.sender_profile.as_ref()
+    }
 }
 
 #[cfg(test)]

@@ -23,8 +23,6 @@ use std::{
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::stream::{self, StreamExt};
-#[cfg(feature = "experimental-sliding-sync")]
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
