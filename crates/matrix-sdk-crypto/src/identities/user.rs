@@ -357,12 +357,6 @@ impl ReadOnlyUserIdentities {
     }
 }
 
-impl PartialEq for ReadOnlyUserIdentities {
-    fn eq(&self, other: &ReadOnlyUserIdentities) -> bool {
-        self.user_id() == other.user_id()
-    }
-}
-
 /// Struct representing a cross signing identity of a user.
 ///
 /// This is the user identity of a user that isn't our own. Other users will
@@ -375,11 +369,19 @@ pub struct ReadOnlyUserIdentity {
     self_signing_key: SelfSigningPubkey,
 }
 
-/// Specific equality check for identities that also check if there are changes
-/// in signatures on the master cross signing keys. The default implementation
-/// of PartialEq for MasterPubKey ignores signatures (needed when importing from
-/// 4S)
 impl PartialEq for ReadOnlyUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
     fn eq(&self, other: &Self) -> bool {
         self.user_id == other.user_id
             && self.master_key == other.master_key
@@ -440,8 +442,9 @@ impl ReadOnlyUserIdentity {
     ///
     /// * `self_signing_key` - The new self signing key of user identity.
     ///
-    /// Returns a `SignatureError` if we failed to update the identity. Returns
-    /// false if the identity is unchanged.
+    /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
@@ -449,12 +452,11 @@ impl ReadOnlyUserIdentity {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        let old = self.clone();
+        let new = Self::new(master_key, self_signing_key)?;
+        let changed = new != *self;
 
-        self.master_key = master_key;
-        self.self_signing_key = self_signing_key;
-
-        Ok(old != *self)
+        *self = new;
+        Ok(changed)
     }
 
     /// Check if the given device has been signed by this identity.
@@ -498,10 +500,19 @@ pub struct ReadOnlyOwnUserIdentity {
     verified: Arc<AtomicBool>,
 }
 
-/// Specific equality check for identities that also check if there are changes
-/// in signatures on the master cross signing key. The default implementation
-/// for MasterPubkey ignores signatures.
 impl PartialEq for ReadOnlyOwnUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], [`SelfSigningPubkey`] and [`UserSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
     fn eq(&self, other: &Self) -> bool {
         self.user_id == other.user_id
             && self.master_key == other.master_key
@@ -643,8 +654,9 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// * `user_signing_key` - The new user signing key of user identity.
     ///
-    /// Returns a `SignatureError` if we failed to update the identity. Returns
-    /// false if the identity is unchanged.
+    /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,

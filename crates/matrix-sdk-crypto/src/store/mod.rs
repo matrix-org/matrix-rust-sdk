@@ -185,6 +185,16 @@ impl Changes {
     }
 }
 
+/// This struct is used to remember whether an identity has undergone a change
+/// or remains the same as the one we already know about.
+///
+/// When the homeserver informs us of a potential change in a user's identity or
+/// device during a `/sync` response, it triggers a `/keys/query` request from
+/// our side. In response to this query, the server provides a comprehensive
+/// snapshot of all the user's devices and identities.
+///
+/// Our responsibility is to discern whether a device or identity is new,
+/// changed, or unchanged.
 #[derive(Debug, Clone, Default)]
 #[allow(missing_docs)]
 pub struct IdentityChanges {

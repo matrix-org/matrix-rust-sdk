@@ -638,7 +638,9 @@ impl IdentitiesBeingVerified {
                 .as_ref()
                 .is_some_and(|i| i.master_key() == identity.master_key())
             {
-                if verified_identities.is_some_and(|i| i.contains(&identity)) {
+                if verified_identities.is_some_and(|i| {
+                    i.iter().any(|verified| verified.user_id() == identity.user_id())
+                }) {
                     trace!(
                         user_id = self.other_user_id().as_str(),
                         "Marking the user identity of as verified."

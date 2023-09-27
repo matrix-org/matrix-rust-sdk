@@ -50,7 +50,11 @@ enum DeviceChange {
     None,
 }
 
-enum IdentityUpdate {
+/// This enum helps us to distinguish between the changed and unchanged
+/// identity case.
+/// An unchanged identity means same cross signing keys as well as same
+/// set of signatures on the master key.
+enum IdentityUpdateResult {
     Updated(IdentityChange),
     Unchanged(IdentityChange),
 }
@@ -436,7 +440,7 @@ impl IdentityManager {
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         i: ReadOnlyUserIdentities,
-    ) -> Result<IdentityUpdate, SignatureError> {
+    ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
             ReadOnlyUserIdentities::Own(mut identity) => {
                 if let Some(user_signing) = response
@@ -459,9 +463,9 @@ impl IdentityManager {
                         let private = self.check_private_identity(&identity).await;
                         let id_change = IdentityChange { public: identity.into(), private };
                         if has_changed {
-                            Ok(IdentityUpdate::Updated(id_change))
+                            Ok(IdentityUpdateResult::Updated(id_change))
                         } else {
-                            Ok(IdentityUpdate::Unchanged(id_change))
+                            Ok(IdentityUpdateResult::Unchanged(id_change))
                         }
                     }
                 } else {
@@ -475,10 +479,11 @@ impl IdentityManager {
             ReadOnlyUserIdentities::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
                 let id_change = IdentityChange { public: identity.into(), private: None };
+
                 if has_changed {
-                    Ok(IdentityUpdate::Updated(id_change))
+                    Ok(IdentityUpdateResult::Updated(id_change))
                 } else {
-                    Ok(IdentityUpdate::Unchanged(id_change))
+                    Ok(IdentityUpdateResult::Unchanged(id_change))
                 }
             }
         }
@@ -572,13 +577,13 @@ impl IdentityManager {
             warn!(?user_id, "User ID mismatch in one of the cross signing keys",);
         } else if let Some(i) = self.store.get_user_identity(user_id).await? {
             match self.handle_changed_identity(response, master_key, self_signing, i).await {
-                Ok(IdentityUpdate::Updated(c)) => {
+                Ok(IdentityUpdateResult::Updated(c)) => {
                     trace!(identity = ?c.public, "Updated a user identity");
                     changes.changed.push(c.public);
                     *changed_identity = c.private;
                 }
-                Ok(IdentityUpdate::Unchanged(c)) => {
-                    trace!(identity = ?c.public, "Unchanged user identity after key query");
+                Ok(IdentityUpdateResult::Unchanged(c)) => {
+                    trace!(identity = ?c.public, "Received an unchanged user identity");
                     changes.unchanged.push(c.public);
                 }
                 Err(e) => {
@@ -870,9 +875,9 @@ pub(crate) mod testing {
             .expect("Can't parse the keys upload response")
     }
 
-    // An updated version of `other_key_query` with an added signature on the msk
-    // from user_id() The new signature is not valid, not required for the
-    // current tests
+    // An updated version of `other_key_query` featuring an additional signature on
+    // the master key *Note*: The added signature is actually not valid, but a
+    // valid signature  is not required for our test.
     pub fn other_key_query_cross_signed() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
@@ -909,8 +914,9 @@ pub(crate) mod testing {
                         "@example2:localhost": {
                             "ed25519:SKISMLNIMH": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
                         },
+                        // This is the added signature from alice USK compared to `other_key_query`. Note that actual signature is not valid.
                         "@alice:localhost": {
-                            "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                            "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "NotAValidSignature+GNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
                         }
                     }
                 }
@@ -1349,7 +1355,9 @@ pub(crate) mod tests {
 
         let (new_request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
-        // Same keys/query shouldn't fire new change, identity should be unchanged
+
+        // A second `keys/query` response with the same result shouldn't fire a change
+        // notification: the identity should be unchanged.
         manager
             .as_ref()
             .unwrap()
