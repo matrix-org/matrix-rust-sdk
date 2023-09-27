@@ -286,6 +286,22 @@ impl NotificationSettings {
         })
     }
 
+    /// TODO
+    ///
+    /// # Arguments
+    ///
+    /// * `push_rule_id` - todo
+    /// * `enabled` - todo
+    pub async fn set_underride_push_rule(
+        &self,
+        rule_id: DefaultUnderrideRuleId,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        notification_settings.set_underride_push_rule(rule_id.into(), enabled).await?;
+        Ok(())
+    }
+
     /// Restore the default notification mode for a room
     pub async fn restore_default_room_notification_mode(
         &self,
@@ -474,5 +490,52 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         RUNTIME
             .block_on(async move { self.unmute_room(room_id, is_encrypted, is_one_to_one).await })
+    }
+}
+
+/// Default underride push rule id
+#[derive(uniffi::Enum)]
+pub enum DefaultUnderrideRuleId {
+    /// `.m.rule.call`
+    Call,
+
+    /// `.m.rule.encrypted_room_one_to_one`
+    EncryptedRoomOneToOne,
+
+    /// `.m.rule.room_one_to_one`
+    RoomOneToOne,
+
+    /// `.m.rule.message`
+    Message,
+
+    /// `.m.rule.encrypted`
+    Encrypted,
+
+    /// `.m.rule.poll_start_one_to_one`
+    PollStartOneToOne,
+
+    /// `.m.rule.poll_start`
+    PollStart,
+
+    /// `.m.rule.poll_end_one_to_one`
+    PollEndOneToOne,
+
+    /// `.m.rule.poll_end`
+    PollEnd,
+}
+
+impl From<DefaultUnderrideRuleId> for PredefinedUnderrideRuleId {
+    fn from(value: DefaultUnderrideRuleId) -> Self {
+        match value {
+            DefaultUnderrideRuleId::Call => Self::Call,
+            DefaultUnderrideRuleId::EncryptedRoomOneToOne => Self::EncryptedRoomOneToOne,
+            DefaultUnderrideRuleId::RoomOneToOne => Self::RoomOneToOne,
+            DefaultUnderrideRuleId::Message => Self::Message,
+            DefaultUnderrideRuleId::Encrypted => Self::Encrypted,
+            DefaultUnderrideRuleId::PollStartOneToOne => Self::PollStartOneToOne,
+            DefaultUnderrideRuleId::PollStart => Self::PollStart,
+            DefaultUnderrideRuleId::PollEndOneToOne => Self::PollEndOneToOne,
+            DefaultUnderrideRuleId::PollEnd => Self::PollEnd,
+        }
     }
 }

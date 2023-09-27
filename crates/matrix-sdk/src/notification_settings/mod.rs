@@ -7,7 +7,7 @@ use ruma::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
-    push::{Action, RuleKind, Ruleset, Tweak},
+    push::{Action, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
     RoomId,
 };
 use tokio::sync::RwLock;
@@ -186,17 +186,32 @@ impl NotificationSettings {
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let rules = self.rules.read().await.clone();
         let rule_id = rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
+
+        match mode {
+            RoomNotificationMode::AllMessages => self.set_underride_push_rule(rule_id, true).await,
+            _ => self.set_underride_push_rule(rule_id, false).await,
+        }
+    }
+
+    /// TODO
+    ///
+    /// # Arguments
+    ///
+    /// * `push_rule_id` - todo
+    /// * `enabled` - todo
+    pub async fn set_underride_push_rule(
+        &self,
+        rule_id: PredefinedUnderrideRuleId,
+        enabled: bool,
+    ) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
         let mut rule_commands = RuleCommands::new(rules.ruleset);
 
-        let actions = match mode {
-            RoomNotificationMode::AllMessages => {
-                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
-            }
-            _ => {
-                vec![]
-            }
+        let actions = if enabled {
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+        } else {
+            vec![]
         };
 
         rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
