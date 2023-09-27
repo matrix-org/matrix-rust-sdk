@@ -371,7 +371,8 @@ impl TimelineInnerStateTransaction<'_> {
                 }
 
                 for (user_id, receipt) in receipts {
-                    if receipt.thread != ReceiptThread::Unthreaded {
+                    // For now we only care about receipts in the main thread.
+                    if !matches!(receipt.thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
                         continue;
                     }
 

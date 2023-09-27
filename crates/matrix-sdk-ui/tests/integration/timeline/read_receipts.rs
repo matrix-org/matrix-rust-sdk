@@ -212,14 +212,22 @@ async fn read_receipts_updates_for_visible_events() {
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
 
-    // New user with explicit read receipt.
+    // New user with 2 explicit read receipts.
     ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
         EphemeralTestEvent::Custom(json!({
             "content": {
+                second_event_id: {
+                    "m.read": {
+                        *BOB: {
+                            "ts": 1436451350,
+                        },
+                    },
+                },
                 third_event_id: {
                     "m.read": {
                         *BOB: {
                             "ts": 1436451550,
+                            "thread_id": "main",
                         },
                     },
                 },
