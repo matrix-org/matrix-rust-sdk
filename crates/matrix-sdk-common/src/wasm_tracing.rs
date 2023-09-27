@@ -16,8 +16,7 @@ use std::{fmt, fmt::Write};
 
 use tracing::{
     field::{Field, Visit},
-    metadata::LevelFilter,
-    Event, Level, Metadata, Subscriber,
+    Event, Level, Subscriber,
 };
 use tracing_subscriber::layer::Context;
 
@@ -26,29 +25,11 @@ use tracing_subscriber::layer::Context;
 /// An implementation of `tracing_subscriber::layer::Layer` which directs all
 /// events to the JS console
 #[derive(Debug)]
-pub struct Layer {
-    min_level: Level,
-    enabled: bool,
-}
+pub struct Layer {}
 
 impl Layer {
-    pub fn new<L>(min_level: L) -> Self
-    where
-        L: Into<Level>,
-    {
-        Self { min_level: min_level.into(), enabled: true }
-    }
-
-    pub fn turn_on(&mut self) {
-        self.enabled = true;
-    }
-
-    pub fn turn_off(&mut self) {
-        self.enabled = false;
-    }
-
-    pub fn set_min_level(&mut self, min_level: Level) {
-        self.min_level = min_level;
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -56,18 +37,6 @@ impl<S> tracing_subscriber::layer::Layer<S> for Layer
 where
     S: Subscriber,
 {
-    fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
-        self.enabled && metadata.level() <= &self.min_level
-    }
-
-    fn max_level_hint(&self) -> Option<LevelFilter> {
-        if !self.enabled {
-            Some(LevelFilter::OFF)
-        } else {
-            Some(LevelFilter::from_level(self.min_level))
-        }
-    }
-
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
         let mut recorder = StringVisitor::new();
         event.record(&mut recorder);
