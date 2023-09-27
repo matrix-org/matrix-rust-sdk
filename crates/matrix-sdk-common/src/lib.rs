@@ -29,7 +29,7 @@ pub mod timeout;
 pub mod tracing_timer;
 
 #[cfg(target_arch = "wasm32")]
-pub mod wasm_tracing;
+pub mod js_tracing;
 
 pub use store_locks::LEASE_DURATION_MS;
 

@@ -20,7 +20,7 @@ use tracing::{
 };
 use tracing_subscriber::layer::Context;
 
-///! Utilities for `tracing` in wasm environments
+///! Utilities for `tracing` in JS environments
 
 /// An implementation of `tracing_subscriber::layer::Layer` which directs all
 /// events to the JS console
