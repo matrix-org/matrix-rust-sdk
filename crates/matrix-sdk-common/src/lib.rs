@@ -28,6 +28,9 @@ pub mod store_locks;
 pub mod timeout;
 pub mod tracing_timer;
 
+#[cfg(target_arch = "wasm32")]
+pub mod js_tracing;
+
 pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
