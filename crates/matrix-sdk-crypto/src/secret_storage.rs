@@ -36,6 +36,7 @@ use ruma::{
             },
             secret::SecretEncryptedData,
         },
+        EventContent, GlobalAccountDataEventType,
     },
     serde::Base64,
     UInt,
@@ -561,8 +562,8 @@ impl SecretStorageKey {
     /// The type is equal to the concatenation of the string
     /// `"m.secret_storage.key."` and the key ID from the
     /// [`SecretStorageKey::key_id()`] method.
-    pub fn event_type(&self) -> String {
-        format!("m.secret_storage.key.{}", self.key_id())
+    pub fn event_type(&self) -> GlobalAccountDataEventType {
+        self.event_content().event_type()
     }
 }
 
@@ -610,9 +611,11 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content = SecretStorageKeyEventContent::from_parts(&key.event_type(), &content).expect(
-            "We should be able to parse our, just serialized, secret storage key event content",
-        );
+        let content =
+            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
+                .expect(
+                "We should be able to parse our, just serialized, secret storage key event content",
+            );
 
         let key = SecretStorageKey::from_account_data(passphrase, content)
             .expect("We should be able to restore our secret storage key");
@@ -639,9 +642,11 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content = SecretStorageKeyEventContent::from_parts(&key.event_type(), &content).expect(
-            "We should be able to parse our, just serialized, secret storage key event content",
-        );
+        let content =
+            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
+                .expect(
+                "We should be able to parse our, just serialized, secret storage key event content",
+            );
 
         let base58_key = key.to_base58();
 
@@ -711,9 +716,11 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content = SecretStorageKeyEventContent::from_parts(&key.event_type(), &content).expect(
-            "We should be able to parse our, just serialized, secret storage key event content",
-        );
+        let content =
+            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
+                .expect(
+                "We should be able to parse our, just serialized, secret storage key event content",
+            );
 
         assert_matches!(
             SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned()),
