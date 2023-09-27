@@ -940,7 +940,7 @@ mod tests {
             let tx =
                 db.transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readwrite)?;
             let state = tx.object_store(keys::ROOM_STATE)?;
-            let key = (room_id, StateEventType::RoomTopic, "").encode();
+            let key: JsValue = (room_id, StateEventType::RoomTopic, "").as_encoded_string().into();
             state.put_key_val(&key, &serialize_event(None, &wrong_redacted_state_event)?)?;
             tx.await.into_result()?;
             db.close();

@@ -31,6 +31,7 @@ matrix-sdk-store-encryption = { version = "0.2.0", path = "../matrix-sdk-store-e
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde-wasm-bindgen = "0.5"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
