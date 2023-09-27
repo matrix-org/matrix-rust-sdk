@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Utilities for `tracing` in JS environments
+
 use std::{fmt, fmt::Write};
 
 use tracing::{
@@ -19,8 +21,6 @@ use tracing::{
     Event, Level, Subscriber,
 };
 use tracing_subscriber::layer::Context;
-
-//! Utilities for `tracing` in JS environments
 
 /// An implementation of `tracing_subscriber::layer::Layer` which directs all
 /// events to the JS console
