@@ -24,7 +24,7 @@ use tracing_subscriber::layer::Context;
 
 /// An implementation of `tracing_subscriber::layer::Layer` which directs all
 /// events to the JS console
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Layer {}
 
 impl Layer {
@@ -32,12 +32,6 @@ impl Layer {
         Self {}
     }
 }
-
-impl Default for Layer {
-     fn default() -> Self {
-         Self::new()
-     }
- }
 
 impl<S> tracing_subscriber::layer::Layer<S> for Layer
 where
