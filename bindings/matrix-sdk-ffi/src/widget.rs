@@ -1,26 +1,48 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter},
 };
+use tracing::error;
 
 use crate::{room::Room, RUNTIME};
 
 #[derive(uniffi::Record)]
-pub struct Widget {
-    /// Settings for the widget.
-    pub settings: WidgetSettings,
-    /// Communication channels with a widget.
-    pub comm: Arc<WidgetComm>,
+pub struct WidgetDriverAndHandle {
+    pub driver: Arc<WidgetDriver>,
+    pub handle: Arc<WidgetDriverHandle>,
 }
 
-impl From<Widget> for matrix_sdk::widget::Widget {
-    fn from(value: Widget) -> Self {
-        let comm = &value.comm.0;
-        Self {
-            settings: value.settings.into(),
-            comm: matrix_sdk::widget::Comm { from: comm.from.clone(), to: comm.to.clone() },
+#[uniffi::export]
+pub fn make_widget_driver(settings: WidgetSettings) -> WidgetDriverAndHandle {
+    let (driver, handle) = matrix_sdk::widget::WidgetDriver::new(settings.into());
+    WidgetDriverAndHandle {
+        driver: Arc::new(WidgetDriver(Mutex::new(Some(driver)))),
+        handle: Arc::new(WidgetDriverHandle(handle)),
+    }
+}
+
+/// An object that handles all interactions of a widget living inside a webview
+/// or iframe with the Matrix world.
+#[derive(uniffi::Object)]
+pub struct WidgetDriver(Mutex<Option<matrix_sdk::widget::WidgetDriver>>);
+
+#[uniffi::export(async_runtime = "tokio")]
+impl WidgetDriver {
+    pub async fn run(
+        &self,
+        room: Arc<Room>,
+        permissions_provider: Box<dyn WidgetPermissionsProvider>,
+    ) {
+        let Some(driver) = self.0.lock().unwrap().take() else {
+            error!("Can't call run multiple times on a WidgetDriver");
+            return;
+        };
+
+        let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
+        if let Err(()) = driver.run(room.inner.clone(), permissions_provider).await {
+            // TODO
         }
     }
 }
@@ -43,9 +65,29 @@ impl From<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
     }
 }
 
-/// Communication "pipes" with a widget.
+/// A handle that encapsulates the communication between a widget driver and the
+/// corresponding widget (inside a webview or iframe).
 #[derive(uniffi::Object)]
-pub struct WidgetComm(matrix_sdk::widget::Comm);
+pub struct WidgetDriverHandle(matrix_sdk::widget::WidgetDriverHandle);
+
+#[uniffi::export(async_runtime = "tokio")]
+impl WidgetDriverHandle {
+    /// Receive a message from the widget driver.
+    ///
+    /// The message must be passed on to the widget.
+    ///
+    /// Returns `None` if the widget driver is no longer running.
+    pub async fn recv(&self) -> Option<String> {
+        self.0.recv().await
+    }
+
+    //// Send a message from the widget to the widget driver.
+    ///
+    /// Returns `false` if the widget driver is no longer running.
+    pub async fn send(&self, msg: String) -> bool {
+        self.0.send(msg).await
+    }
+}
 
 /// Permissions that a widget can request from a client.
 #[derive(uniffi::Record)]
@@ -150,17 +192,4 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
             // propagate panics from the blocking task
             .unwrap()
     }
-}
-
-#[uniffi::export]
-pub async fn run_widget_api(
-    room: Arc<Room>,
-    widget: Widget,
-    permissions_provider: Box<dyn WidgetPermissionsProvider>,
-) {
-    let permissions_provider = PermissionsProviderWrap(permissions_provider.into());
-    if let Err(()) =
-        matrix_sdk::widget::run_widget_api(room.inner.clone(), widget.into(), permissions_provider)
-            .await
-    {}
 }
