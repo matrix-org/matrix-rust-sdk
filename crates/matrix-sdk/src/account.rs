@@ -47,7 +47,6 @@ use ruma::{
     ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
-use tokio::sync::Mutex;
 use tracing::error;
 
 use crate::{config::RequestConfig, Client, Error, HttpError, Result};
@@ -821,9 +820,7 @@ impl Account {
         // To prevent multiple calls to this method trying to update the map of DMs same
         // time, and thus trampling on each other we introduce a lock which acts
         // as a semaphore.
-        static LOCK: Mutex<()> = Mutex::const_new(());
-
-        let _guard = LOCK.lock().await;
+        let _guard = self.client.locks().mark_as_dm_lock.lock().await;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
