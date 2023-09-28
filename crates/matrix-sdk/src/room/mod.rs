@@ -382,7 +382,7 @@ impl Room {
 
     pub(crate) async fn request_members(&self) -> Result<()> {
         self.client
-            .inner
+            .locks()
             .members_request_deduplicated_handler
             .run(self.room_id().to_owned(), async move {
                 let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
@@ -399,7 +399,7 @@ impl Room {
 
     async fn request_encryption_state(&self) -> Result<()> {
         self.client
-            .inner
+            .locks()
             .encryption_state_deduplicated_handler
             .run(self.room_id().to_owned(), async move {
                 // Request the event from the server.
@@ -1209,7 +1209,7 @@ impl Room {
         let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
 
         self.client
-            .inner
+            .locks()
             .group_session_deduplicated_handler
             .run(self.room_id().to_owned(), async move {
                 {
