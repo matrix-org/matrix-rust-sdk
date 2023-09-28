@@ -517,7 +517,7 @@ impl OlmMachine {
     ) -> StoreResult<(UploadSigningKeysRequest, UploadSignaturesRequest)> {
         let mut identity = self.inner.user_identity.lock().await;
 
-        if identity.is_empty().await || reset {
+        if reset || identity.is_empty().await {
             info!("Creating new cross signing identity");
             let account = self.inner.store.account();
             let (id, request, signature_request) = account.bootstrap_cross_signing().await;
