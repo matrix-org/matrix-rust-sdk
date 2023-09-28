@@ -9,7 +9,7 @@ use ruma::{
         poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
-    OwnedEventId,
+    MxcUri, OwnedEventId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -75,20 +75,26 @@ pub struct LatestEvent {
     /// The member profile of the event' sender.
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_profile: Option<MinimalRoomMemberEvent>,
+
+    // sender_room_member_event: Option<RoomMemberEvent
+    /// The name of the event' sender is ambiguous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_name_is_ambiguous: Option<bool>,
 }
 
 impl LatestEvent {
     /// Create a new [`LatestEvent`] without the sender's profile.
     pub fn new(event: SyncTimelineEvent) -> Self {
-        Self { event, sender_profile: None }
+        Self { event, sender_profile: None, sender_name_is_ambiguous: None }
     }
 
     /// Create a new [`LatestEvent`] with maybe the sender's profile.
-    pub fn new_with_sender_profile(
+    pub fn new_with_sender_details(
         event: SyncTimelineEvent,
         sender_profile: Option<MinimalRoomMemberEvent>,
+        sender_name_is_ambiguous: Option<bool>,
     ) -> Self {
-        Self { event, sender_profile }
+        Self { event, sender_profile, sender_name_is_ambiguous }
     }
 
     /// Transform [`Self`] into an event.
@@ -114,6 +120,29 @@ impl LatestEvent {
     /// Get a reference to the sender profile if any.
     pub fn sender_profile(&self) -> Option<&MinimalRoomMemberEvent> {
         self.sender_profile.as_ref()
+    }
+
+    /// Return the sender's display name if it was known at the time [`Self`]
+    /// was built.
+    pub fn sender_display_name(&self) -> Option<&str> {
+        self.sender_profile.as_ref().and_then(|profile| {
+            profile.as_original().and_then(|event| event.content.displayname.as_deref())
+        })
+    }
+
+    /// Return `Some(true)` if the sender's name is ambiguous, `Some(false)` if
+    /// it isn't, `None` if ambiguity detection wasn't possible at the time
+    /// [`Self`] was built.
+    pub fn sender_name_ambiguous(&self) -> Option<bool> {
+        self.sender_name_is_ambiguous
+    }
+
+    /// Return the sender's avatar URL if it was known at the time [`Self`] was
+    /// built.
+    pub fn sender_avatar_url(&self) -> Option<&MxcUri> {
+        self.sender_profile.as_ref().and_then(|profile| {
+            profile.as_original().and_then(|event| event.content.avatar_url.as_deref())
+        })
     }
 }
 

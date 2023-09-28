@@ -475,22 +475,42 @@ async fn cache_latest_events(
                 PossibleLatestEvent::YesRoomMessage(_) | PossibleLatestEvent::YesPoll(_) => {
                     // m.room.message or m.poll.start - we found one! Store it.
 
-                    // Ideally, we should just use `Option::or_else`, `::map` etc., but since the
-                    // `Store` has an async API, we have no choice than doing this manually.
-                    //
-                    // First off, look up the sender's profile from the `changes`.
-                    let mut sender_profile = None;
+                    // In order to make the latest event fast to read, we want to keep the
+                    // associated sender in cache. This is a best-effort to gather enough
+                    // information for creating a user profile as fast as possible. If information
+                    // are missing, let's go back on the “slow” path.
 
+                    let mut sender_profile = None;
+                    let mut sender_name_is_ambiguous = None;
+
+                    // First off, look up the sender's profile from the `StateChanges`, they are
+                    // likely to be the most recent information.
                     if let Some(changes) = changes {
                         sender_profile = changes
                             .profiles
                             .get(room.room_id())
-                            .map(|profiles_by_user| profiles_by_user.get(timeline_event.sender()))
-                            .flatten()
+                            .and_then(|profiles_by_user| {
+                                profiles_by_user.get(timeline_event.sender())
+                            })
                             .cloned();
+
+                        if let Some(sender_profile) = sender_profile.as_ref() {
+                            sender_name_is_ambiguous = sender_profile
+                                .as_original()
+                                .and_then(|profile| profile.content.displayname.as_ref())
+                                .and_then(|display_name| {
+                                    changes.ambiguity_maps.get(room.room_id()).and_then(
+                                        |map_for_room| {
+                                            map_for_room
+                                                .get(display_name)
+                                                .map(|user_ids| user_ids.len() > 1)
+                                        },
+                                    )
+                                });
+                        }
                     }
 
-                    // Second, look up the sender's profile from the storage if none was found.
+                    // Otherwise, look up the sender's profile from the `Store`.
                     if sender_profile.is_none() {
                         if let Some(store) = store {
                             sender_profile = store
@@ -498,11 +518,17 @@ async fn cache_latest_events(
                                 .await
                                 .ok()
                                 .flatten();
+
+                            // TODO: need to update `sender_name_is_ambiguous`,
+                            // but how?
                         }
                     }
 
-                    let latest_event =
-                        LatestEvent::new_with_sender_profile(event.clone(), sender_profile);
+                    let latest_event = LatestEvent::new_with_sender_details(
+                        event.clone(),
+                        sender_profile,
+                        sender_name_is_ambiguous,
+                    );
 
                     // Store it in the return RoomInfo, and in the Room, to make sure they are
                     // consistent
