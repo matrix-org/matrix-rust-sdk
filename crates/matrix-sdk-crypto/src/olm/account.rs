@@ -507,6 +507,15 @@ pub struct StaticAccountData {
 }
 
 impl StaticAccountData {
+    const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
+        &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
+        &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
+        &EventEncryptionAlgorithm::MegolmV1AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
+        &EventEncryptionAlgorithm::MegolmV2AesSha2,
+    ];
+
     /// Create a group session pair.
     ///
     /// This session pair can be used to encrypt and decrypt messages meant for
@@ -600,6 +609,29 @@ impl StaticAccountData {
         )
     }
 
+    /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
+    pub fn unsigned_device_keys(&self) -> DeviceKeys {
+        let identity_keys = self.identity_keys();
+        let keys = BTreeMap::from([
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
+                identity_keys.curve25519.into(),
+            ),
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                identity_keys.ed25519.into(),
+            ),
+        ]);
+
+        DeviceKeys::new(
+            (*self.user_id).to_owned(),
+            (*self.device_id).to_owned(),
+            Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
+            keys,
+            Default::default(),
+        )
+    }
+
     /// Get the user id of the owner of the account.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -686,15 +718,6 @@ impl fmt::Debug for ReadOnlyAccount {
 }
 
 impl ReadOnlyAccount {
-    const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
-        &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
-        #[cfg(feature = "experimental-algorithms")]
-        &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
-        &EventEncryptionAlgorithm::MegolmV1AesSha2,
-        #[cfg(feature = "experimental-algorithms")]
-        &EventEncryptionAlgorithm::MegolmV2AesSha2,
-    ];
-
     fn new_helper(mut account: InnerAccount, user_id: &UserId, device_id: &DeviceId) -> Self {
         let identity_keys = account.identity_keys();
 
@@ -977,33 +1000,6 @@ impl ReadOnlyAccount {
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
         })
-    }
-
-    // TODO(BNJ) move to StaticAccountData?
-    /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
-    pub fn unsigned_device_keys(&self) -> DeviceKeys {
-        let identity_keys = self.identity_keys();
-        let keys = BTreeMap::from([
-            (
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Curve25519,
-                    &self.static_data.device_id,
-                ),
-                identity_keys.curve25519.into(),
-            ),
-            (
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.static_data.device_id),
-                identity_keys.ed25519.into(),
-            ),
-        ]);
-
-        DeviceKeys::new(
-            (*self.static_data.user_id).to_owned(),
-            (*self.static_data.device_id).to_owned(),
-            Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
-            keys,
-            Default::default(),
-        )
     }
 
     /// Sign the device keys of the account and return them so they can be

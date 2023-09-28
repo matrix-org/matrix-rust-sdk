@@ -242,7 +242,7 @@ impl IdentityManager {
                     // lying about our keys, also mark the device as locally
                     // trusted.
                     if d.user_id() == store.user_id() && d.device_id() == store.device_id() {
-                        let local_device_keys = store.account().unsigned_device_keys();
+                        let local_device_keys = store.static_account().unsigned_device_keys();
 
                         if d.keys() == &local_device_keys.keys {
                             d.set_trust_state(LocalTrust::Verified);
@@ -813,7 +813,7 @@ pub(crate) mod testing {
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
-        let store = Store::new(user_id.clone(), account, identity, store, verification);
+        let store = Store::new(account, identity, store, verification);
         IdentityManager::new(user_id, device_id().into(), store)
     }
 

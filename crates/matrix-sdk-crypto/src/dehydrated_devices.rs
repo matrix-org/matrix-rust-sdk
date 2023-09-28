@@ -98,8 +98,7 @@ impl DehydratedDevices {
             user_identity.clone(),
             store.clone(),
         );
-        let store =
-            Store::new(user_id.into(), account.clone(), user_identity, store, verification_machine);
+        let store = Store::new(account.clone(), user_identity, store, verification_machine);
 
         let account = Account { static_data: account.static_data().clone(), store };
 

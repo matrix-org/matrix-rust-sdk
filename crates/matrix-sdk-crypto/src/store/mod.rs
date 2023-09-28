@@ -69,7 +69,7 @@ use crate::{
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session,
+        ReadOnlyAccount, Session, StaticAccountData,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     verification::VerificationMachine,
@@ -128,7 +128,6 @@ impl<'a> Deref for StoreCacheGuard<'a> {
 
 #[derive(Debug)]
 struct StoreInner {
-    user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     store: Arc<CryptoStoreWrapper>,
 
@@ -150,6 +149,10 @@ struct StoreInner {
 
     // condition variable that is notified each time an update is received for a user.
     users_for_key_query_condvar: Condvar,
+
+    /// Static account data that never changes (and thus can be loaded once and
+    /// for all when creating the store).
+    static_account: StaticAccountData,
 }
 
 /// Aggregated changes to be saved in the database.
@@ -531,14 +534,13 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
-        user_id: OwnedUserId,
         account: ReadOnlyAccount,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
         let inner = Arc::new(StoreInner {
-            user_id,
+            static_account: account.static_data().clone(),
             identity,
             store,
             account,
@@ -553,7 +555,7 @@ impl Store {
 
     /// UserId associated with this store
     pub(crate) fn user_id(&self) -> &UserId {
-        &self.inner.user_id
+        &self.inner.static_account.user_id
     }
 
     /// DeviceId associated with this store
@@ -564,6 +566,11 @@ impl Store {
     /// The Account associated with this store
     pub(crate) fn account(&self) -> &ReadOnlyAccount {
         &self.inner.account
+    }
+
+    /// The static data for the account associated with this store.
+    pub(crate) fn static_account(&self) -> &StaticAccountData {
+        &self.inner.static_account
     }
 
     async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
