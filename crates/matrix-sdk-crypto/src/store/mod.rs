@@ -115,7 +115,7 @@ struct StoreCache {
 
 struct StoreCacheGuard<'a> {
     cache: &'a StoreCache,
-    // TODO(bnjbvr, #2624) add cross-process lock guard here.
+    // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
 impl<'a> Deref for StoreCacheGuard<'a> {
@@ -563,7 +563,7 @@ impl Store {
     }
 
     async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
-        // TODO(bnjbvr, #2624) If configured with a cross-process lock:
+        // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
         // - try to take the lock,
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
