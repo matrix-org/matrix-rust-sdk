@@ -109,8 +109,10 @@ impl PkDecryption {
         let cipher = Aes256CbcDec::new(keys.aes_key(), keys.iv());
         let decrypted = cipher.decrypt_padded_vec_mut::<Pkcs7>(&message.ciphertext)?;
 
-        let hmac = keys.hmac();
-        hmac.verify_truncated_left(&message.mac)?;
+        if let Some(mac) = message.mac.as_ref() {
+            let hmac = keys.hmac();
+            hmac.verify_truncated_left(mac)?;
+        }
 
         Ok(decrypted)
     }
@@ -162,7 +164,7 @@ impl PkEncryption {
         let mut mac = hmac.finalize().into_bytes().to_vec();
         mac.truncate(MAC_LENGTH);
 
-        Message { ciphertext, mac, ephemeral_key: Curve25519PublicKey::from(&ephemeral_key) }
+        Message { ciphertext, mac: Some(mac), ephemeral_key: Curve25519PublicKey::from(&ephemeral_key) }
     }
 }
 
@@ -177,19 +179,19 @@ pub enum MessageDecodeError {
 #[derive(Debug)]
 pub struct Message {
     pub ciphertext: Vec<u8>,
-    pub mac: Vec<u8>,
+    pub mac: Option<Vec<u8>>,
     pub ephemeral_key: Curve25519PublicKey,
 }
 
 impl Message {
     pub fn from_base64(
         ciphertext: &str,
-        mac: &str,
+        mac: Option<&str>,
         ephemeral_key: &str,
     ) -> Result<Self, MessageDecodeError> {
         Ok(Self {
             ciphertext: base64_decode(ciphertext)?,
-            mac: base64_decode(mac)?,
+            mac: mac.map(|m| base64_decode(m)).transpose()?,
             ephemeral_key: Curve25519PublicKey::from_base64(ephemeral_key)?,
         })
     }
@@ -220,7 +222,7 @@ mod tests {
         type Error = MessageDecodeError;
 
         fn try_from(value: PkMessage) -> Result<Self, Self::Error> {
-            Self::from_base64(&value.ciphertext, &value.mac, &value.ephemeral_key)
+            Self::from_base64(&value.ciphertext, Some(&value.mac), &value.ephemeral_key)
         }
     }
 
@@ -228,7 +230,7 @@ mod tests {
         fn from(val: Message) -> Self {
             PkMessage {
                 ciphertext: base64_encode(val.ciphertext),
-                mac: base64_encode(val.mac),
+                mac: base64_encode(val.mac.unwrap()),
                 ephemeral_key: val.ephemeral_key.to_base64(),
             }
         }

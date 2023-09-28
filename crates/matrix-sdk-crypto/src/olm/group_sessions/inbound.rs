@@ -400,26 +400,8 @@ impl InboundGroupSession {
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
     #[cfg(feature = "backups_v1")]
-    pub async fn to_backup(&self, signing_key: Option<(&UserId, &Ed25519SecretKey)>) -> BackedUpRoomKey {
-        let mut backed_up_room_key: BackedUpRoomKey = self.export().await.into();
-        if let Some((user_id, signing_key)) = signing_key {
-            // FIXME: after signing, the canonical JSON buffer should be zeroed
-            // since it contains secrets
-            let signature = signing_key.sign_json(serde_json::to_value(&backed_up_room_key).unwrap()).unwrap();
-            let key_id = DeviceKeyId::from_parts(
-                DeviceKeyAlgorithm::Ed25519,
-                signing_key.public_key().to_base64().as_str().into(),
-            );
-            if backed_up_room_key.signatures.is_none() {
-                backed_up_room_key.signatures = Some(Signatures::new());
-            }
-            backed_up_room_key.signatures.as_mut().unwrap().add_signature(
-                user_id.to_owned(),
-                key_id,
-                signature,
-            );
-        }
-        backed_up_room_key
+    pub async fn to_backup(&self) -> BackedUpRoomKey {
+        self.export().await.into()
     }
 
     /// Decrypt an event from a room timeline.

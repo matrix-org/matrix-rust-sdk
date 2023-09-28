@@ -22,6 +22,9 @@ pub struct BackupRecoveryKey {
 #[derive(Debug, Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum PkDecryptionError {
+    /// Invalid format
+    #[error("Invalid format")]
+    Format(),
     /// An internal libolm error happened during decryption.
     #[error("Error decryption a PkMessage {0}")]
     Olm(#[from] DecryptionError),
@@ -161,10 +164,16 @@ impl BackupRecoveryKey {
     pub fn decrypt_v1(
         &self,
         ephemeral_key: String,
-        mac: String,
+        macv1: Option<String>,
+        macv2: Option<String>,
         ciphertext: String,
     ) -> Result<String, PkDecryptionError> {
-        self.inner.decrypt_v1(&ephemeral_key, &mac, &ciphertext).map_err(|e| e.into())
+        let mac = match (macv1, macv2) {
+            (_, Some(macv2)) => Ok(Mac::V2(&macv2)),
+            (Some(macv1), _) => Ok(Mac::V1(&macv1)),
+            (None, None) => Err(PkDecryptionError::Format),
+        }?;
+        self.inner.decrypt_v1(&ephemeral_key, mac, &ciphertext).map_err(|e| e.into())
     }
 }
 
@@ -208,7 +217,7 @@ mod tests {
         let mac = key_backup_data.session_data.mac.encode();
 
         let _ = recovery_key
-            .decrypt_v1(ephemeral, mac, ciphertext)
+            .decrypt_v1(ephemeral, Some(mac), None, ciphertext)
             .expect("The backed up key should be decrypted successfully");
     }
 }

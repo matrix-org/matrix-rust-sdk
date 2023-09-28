@@ -122,9 +122,6 @@ pub struct BackedUpRoomKey {
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
-
-    /// Signatures of the backed up room key
-    pub signatures: Option<Signatures>,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -192,7 +189,6 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key: k.session_key,
             sender_claimed_keys: k.sender_claimed_keys,
             forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
-            signatures: None,
         }
     }
 }
@@ -232,14 +228,5 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
             }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }
-    }
-}
-
-impl SignedJsonObject for BackedUpRoomKey {
-    // FIXME: after verifying, the canonical JSON buffer should be zeroed
-    // since it contains secrets
-    fn signatures(&self) -> &Signatures {
-        static EMPTY_SIGS: Lazy<Signatures> = Lazy::new(Signatures::new);
-        self.signatures.as_ref().unwrap_or(&EMPTY_SIGS)
     }
 }

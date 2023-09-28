@@ -18,15 +18,19 @@ use std::{
 };
 
 use bs58;
+use hmac::Mac as MacT;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use thiserror::Error;
-use vodozemac::Ed25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{
-    compat::{Error as DecryptionError, Message, PkDecryption},
+    backup::{HmacSha256, HmacSha256Key},
+    compat::{Error as DecryptionError, Message, MessageDecodeError, PkDecryption},
     MegolmV1BackupKey,
 };
 use crate::store::BackupDecryptionKey;
+use crate::utilities::decode;
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -88,6 +92,11 @@ impl std::fmt::Display for BackupDecryptionKey {
 
         write!(f, "{}", string.as_str())
     }
+}
+
+pub enum Mac<'a> {
+    V1(&'a str),
+    V2(&'a str),
 }
 
 impl BackupDecryptionKey {
@@ -182,10 +191,20 @@ impl BackupDecryptionKey {
         PkDecryption::from_bytes(self.inner.as_ref())
     }
 
+    fn calculate_mac_key(&self) -> HmacSha256Key {
+        let hkdf: Hkdf<Sha256> = Hkdf::new(None, self.as_bytes());
+        let mut output = HmacSha256Key::new([0u8; 32]);
+        hkdf.expand(b"", output.as_mut())
+            .expect("We should be able to HKDF the key into 32 bytes");
+        output
+    }
+
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
-        MegolmV1BackupKey::new(pk.public_key(), signing_public_key, None)
+        let pk = self.get_pk_decrytpion();
+        let mac_key = self.calculate_mac_key();
+        MegolmV1BackupKey::new(pk.public_key(), Some(mac_key), None)
     }
 
     /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].
@@ -198,10 +217,27 @@ impl BackupDecryptionKey {
     pub fn decrypt_v1(
         &self,
         ephemeral_key: &str,
-        mac: &str,
+        mac: Mac,
         ciphertext: &str,
     ) -> Result<String, DecryptionError> {
-        let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
+        let message = match mac {
+            Mac::V1(mac) => {
+                Message::from_base64(ciphertext, Some(mac), ephemeral_key)?
+            },
+            Mac::V2(mac) => {
+                let mac_key = self.calculate_mac_key();
+                let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
+                    .expect("We should be able to create a Hmac object from a 32 byte key");
+                let raw_ciphertext = decode(ciphertext)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?;
+                let raw_mac = decode(mac)
+                    .map_err(|e| DecryptionError::Decoding(MessageDecodeError::Base64(e)))?;
+                hmac.update(&raw_ciphertext);
+                hmac.verify_slice(&raw_mac)
+                    .map_err(|e| DecryptionError::Mac(e))?;
+                Message::from_base64(ciphertext, None, ephemeral_key)?
+            },
+        };
         let pk = self.get_pk_decryption();
 
         let decrypted = pk.decrypt(&message)?;
@@ -215,7 +251,7 @@ mod tests {
     use ruma::api::client::backup::KeyBackupData;
     use serde_json::json;
 
-    use super::{BackupDecryptionKey, DecodeError};
+    use super::{BackupDecryptionKey, DecodeError, Mac};
     use crate::olm::BackedUpRoomKey;
 
     const TEST_KEY: [u8; 32] = [
@@ -302,7 +338,7 @@ mod tests {
         let mac = key_backup_data.session_data.mac.encode();
 
         let decrypted = decryption_key
-            .decrypt_v1(&ephemeral, &mac, &ciphertext)
+            .decrypt_v1(&ephemeral, Mac::V1(&mac), &ciphertext)
             .expect("The backed up key should be decrypted successfully");
 
         let _: BackedUpRoomKey = serde_json::from_str(&decrypted)

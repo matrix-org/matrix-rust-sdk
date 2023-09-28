@@ -17,21 +17,28 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use hmac::{Hmac, Mac as MacT};
+use sha2::Sha256;
+
 use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
-    OwnedDeviceKeyId, OwnedUserId, UserId,
+    OwnedDeviceKeyId, OwnedUserId,
 };
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519SecretKey};
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{compat::PkEncryption, decryption::DecodeError};
 use crate::olm::InboundGroupSession;
 
+pub type HmacSha256 = Hmac<Sha256>;
+
+pub type HmacSha256Key = Zeroizing<[u8; 32]>;
+
 #[derive(Debug)]
 struct InnerBackupKey {
     key: Curve25519PublicKey,
-    signing_key: Option<Ed25519PublicKey>,
+    mac_key: Option<HmacSha256Key>,
     signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     version: Mutex<Option<String>>,
 }
@@ -53,11 +60,11 @@ impl std::fmt::Debug for MegolmV1BackupKey {
 }
 
 impl MegolmV1BackupKey {
-    pub(super) fn new(key: Curve25519PublicKey, signing_key: Option<Ed25519PublicKey>, version: Option<String>) -> Self {
+    pub(super) fn new(key: Curve25519PublicKey, mac_key: Option<HmacSha256Key>, version: Option<String>) -> Self {
         Self {
             inner: InnerBackupKey {
                 key,
-                signing_key,
+                mac_key,
                 signatures: Default::default(),
                 version: Mutex::new(version),
             }
@@ -80,7 +87,7 @@ impl MegolmV1BackupKey {
         let key = Curve25519PublicKey::from_base64(public_key)?;
 
         let inner =
-            InnerBackupKey { key, signing_key: None, signatures: Default::default(), version: Mutex::new(None) };
+            InnerBackupKey { key, mac_key: None, signatures: Default::default(), version: Mutex::new(None) };
 
         Ok(MegolmV1BackupKey { inner: inner.into() })
     }
@@ -95,9 +102,9 @@ impl MegolmV1BackupKey {
         self.inner.version.lock().unwrap().clone()
     }
 
-    /// Get the signing key that is used with the key
-    pub fn signing_key(&self) -> &Option<Ed25519PublicKey> {
-        &self.inner.signing_key
+    /// Get the MAC key that is used with the backup key
+    pub fn mac_key(&self) -> &Option<HmacSha256Key> {
+        &self.inner.mac_key
     }
 
     /// Set the backup version that this `MegolmV1BackupKey` will be used with.
@@ -108,7 +115,7 @@ impl MegolmV1BackupKey {
         *self.inner.version.lock().unwrap() = Some(version);
     }
 
-    pub(crate) async fn encrypt(&self, session: InboundGroupSession, signing_key: Option<(&UserId, &Ed25519SecretKey)>) -> KeyBackupData {
+    pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
         let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we received the
@@ -117,7 +124,7 @@ impl MegolmV1BackupKey {
         let first_message_index = session.first_known_index().into();
 
         // Convert our key to the backup representation.
-        let key = session.to_backup(signing_key).await;
+        let key = session.to_backup().await;
 
         // The key gets zeroized in `BackedUpRoomKey` but we're creating a copy
         // here that won't, so let's wrap it up in a `Zeroizing` struct.
@@ -125,11 +132,20 @@ impl MegolmV1BackupKey {
             Zeroizing::new(serde_json::to_vec(&key).expect("Can't serialize exported room key"));
 
         let message = pk.encrypt(&key);
+        let mac2 = if let Some(mac_key) = self.mac_key() {
+            let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
+                .expect("We should be able to create a Hmac object from a 32 byte key");
+            hmac.update(&message.ciphertext);
+            Some(Base64::new(hmac.finalize().into_bytes()))
+        } else {
+            None
+        };
 
         let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
             ciphertext: Base64::new(message.ciphertext),
-            mac: Base64::new(message.mac),
+            mac: Base64::new(message.mac.unwrap()),
+            // mac2,
         }
         .into();
 
