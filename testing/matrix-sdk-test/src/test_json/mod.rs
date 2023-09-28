@@ -9,7 +9,6 @@ use serde_json::{json, Value as JsonValue};
 
 pub mod api_responses;
 pub mod members;
-pub mod messages;
 pub mod search_users;
 pub mod sync;
 pub mod sync_events;
@@ -21,7 +20,6 @@ pub use api_responses::{
     UNKNOWN_TOKEN_SOFT_LOGOUT, VERSIONS, WELL_KNOWN, WHOAMI,
 };
 pub use members::MEMBERS;
-pub use messages::ROOM_MESSAGES_BATCH_1;
 pub use sync::{
     DEFAULT_SYNC_ROOM_ID, DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT,
     MORE_SYNC, MORE_SYNC_2, SYNC, VOIP_SYNC,
