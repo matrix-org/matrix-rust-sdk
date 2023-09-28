@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::future::{join, join3};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE,
+    async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherFullStateEventContent, BackPaginationStatus, PaginationOptions, RoomExt,
@@ -344,6 +344,112 @@ async fn dedup() {
     timeout(Duration::from_secs(2), join(paginate_1, paginate_2)).await.unwrap();
 
     // Make sure pagination was called (with the right parameters)
+    server.verify().await;
+}
+
+#[async_test]
+async fn timeline_reset_while_paginating() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::text_plain("live event!"),
+            ))
+            .set_timeline_prev_batch("pagination_1".to_owned()),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Next sync response will response with pagination_2 token and limited
+    // response, resetting the timeline
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &BOB,
+                RoomMessageEventContent::text_plain("new live event."),
+            ))
+            .set_timeline_limited()
+            .set_timeline_prev_batch("pagination_2".to_owned()),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    // pagination with first token
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "pagination_1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "chunk": [],
+                    "start": "pagination_1",
+                    "end": "some_other_token",
+                }))
+                // Make sure the concurrent sync request returns first
+                .set_delay(Duration::from_millis(200)),
+        )
+        .expect(1)
+        .named("pagination_1")
+        .mount(&server)
+        .await;
+
+    // pagination with second token
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "pagination_2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": [],
+            "start": "pagination_2",
+        })))
+        .expect(1)
+        .named("pagination_2")
+        .mount(&server)
+        .await;
+
+    let mut back_pagination_status = timeline.back_pagination_status();
+
+    let paginate = async {
+        timeline
+            .paginate_backwards(PaginationOptions::single_request(10).wait_for_token())
+            .await
+            .unwrap();
+    };
+    let observe_paginating = async {
+        assert_eq!(back_pagination_status.next().await, Some(BackPaginationStatus::Paginating));
+        // timeline start reached because second pagination response contains
+        // no end field
+        assert_eq!(
+            back_pagination_status.next().await,
+            Some(BackPaginationStatus::TimelineStartReached)
+        );
+    };
+    let sync = async {
+        client.sync_once(sync_settings.clone()).await.unwrap();
+    };
+    timeout(Duration::from_secs(2), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    // No events in back-pagination responses, day divider + event from latest
+    // sync is present
+    assert_eq!(timeline.items().await.len(), 2);
+
+    // Make sure both pagination mocks were called
     server.verify().await;
 }
 
