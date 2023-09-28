@@ -1306,10 +1306,14 @@ impl OlmMachine {
     /// # Examples
     //
     /// ```
+    /// # async {
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # let machine: OlmMachine = unimplemented!();
     /// if machine.query_missing_secrets_from_other_sessions().await.unwrap() {
     ///     let to_send = machine.outgoing_requests().await.unwrap();
     ///     // send the to device requests
-    /// }
+    /// };
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
         let identity = self.inner.user_identity.lock().await;
@@ -2122,7 +2126,7 @@ pub(crate) mod tests {
             CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
         },
         utilities::json_convert,
-        verification::tests::{outgoing_request_to_event, request_to_event},
+        verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
         EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests, ReadOnlyDevice,
         ToDeviceRequest, UserIdentities,
     };
@@ -2686,7 +2690,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_request_missing_secrets() {
-        let (alice, _) = get_machine_pair_with_session(false).await;
+        let (alice, _) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
 
         let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
 
@@ -2720,7 +2724,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_request_missing_secrets_cross_signed() {
-        let (alice, bob) = get_machine_pair_with_session(false).await;
+        let (alice, bob) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
 
         setup_cross_signing_for_machine(&alice, &bob).await;
 
