@@ -89,7 +89,7 @@ pub use self::{
     },
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
-    pagination::{PaginationOptions, PaginationOutcome},
+    pagination::{BackPaginationStatus, PaginationOptions, PaginationOutcome},
     polls::PollResult,
     reactions::ReactionSenderData,
     sliding_sync_ext::SlidingSyncRoomExt,
@@ -820,11 +820,4 @@ impl<S: Stream> Stream for TimelineStream<S> {
     ) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackPaginationStatus {
-    Idle,
-    Paginating,
-    TimelineStartReached,
 }

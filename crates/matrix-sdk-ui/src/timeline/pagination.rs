@@ -171,3 +171,10 @@ impl PaginationOutcome {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackPaginationStatus {
+    Idle,
+    Paginating,
+    TimelineStartReached,
+}
