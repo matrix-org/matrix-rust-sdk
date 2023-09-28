@@ -754,7 +754,7 @@ mod tests {
     use crate::{MegolmError, ReadOnlyAccount};
 
     #[test]
-    fn encryption_settings_conversion() {
+    fn test_encryption_settings_conversion() {
         let mut content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
         let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined, false);
@@ -773,13 +773,14 @@ mod tests {
 
     #[async_test]
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
-    async fn expiration() -> Result<(), MegolmError> {
+    async fn test_expiration() -> Result<(), MegolmError> {
         use ruma::SecondsSinceUnixEpoch;
 
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
         let account =
-            ReadOnlyAccount::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+            ReadOnlyAccount::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
+                .static_data;
         let (session, _) = account
             .create_group_session_pair(room_id!("!test_room:example.org"), settings)
             .await

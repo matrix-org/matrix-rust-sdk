@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -505,6 +506,121 @@ pub struct StaticAccountData {
     creation_local_time: MilliSecondsSinceUnixEpoch,
 }
 
+impl StaticAccountData {
+    /// Create a group session pair.
+    ///
+    /// This session pair can be used to encrypt and decrypt messages meant for
+    /// a large group of participants.
+    ///
+    /// The outbound session is used to encrypt messages while the inbound one
+    /// is used to decrypt messages encrypted by the outbound one.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room where the group session will be used.
+    ///
+    /// * `settings` - Settings determining the algorithm and rotation period of
+    /// the outbound group session.
+    pub async fn create_group_session_pair(
+        &self,
+        room_id: &RoomId,
+        settings: EncryptionSettings,
+    ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
+        trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
+
+        let visibility = settings.history_visibility.clone();
+        let algorithm = settings.algorithm.to_owned();
+
+        let outbound = OutboundGroupSession::new(
+            self.device_id.clone(),
+            self.identity_keys.clone(),
+            room_id,
+            settings,
+        )?;
+
+        let identity_keys = &self.identity_keys;
+
+        let sender_key = identity_keys.curve25519;
+        let signing_key = identity_keys.ed25519;
+
+        let inbound = InboundGroupSession::new(
+            sender_key,
+            signing_key,
+            room_id,
+            &outbound.session_key().await,
+            algorithm,
+            Some(visibility),
+        )?;
+
+        Ok((outbound, inbound))
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
+    /// Testing only facility to create a group session pair with default
+    /// settings
+    pub async fn create_group_session_pair_with_defaults(
+        &self,
+        room_id: &RoomId,
+    ) -> (OutboundGroupSession, InboundGroupSession) {
+        self.create_group_session_pair(room_id, EncryptionSettings::default())
+            .await
+            .expect("Can't create default group session pair")
+    }
+
+    /// Get the key ID of our Ed25519 signing key.
+    pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
+        DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
+    }
+
+    /// Check if the given JSON is signed by this Account key.
+    ///
+    /// This method should only be used if an object's signature needs to be
+    /// checked multiple times, and you'd like to avoid performing the
+    /// canonicalization step each time.
+    ///
+    /// **Note**: Use this method with caution, the `canonical_json` needs to be
+    /// correctly canonicalized and make sure that the object you are checking
+    /// the signature for is allowed to be signed by our own device.
+    #[cfg(any(test, feature = "backups_v1"))]
+    pub fn has_signed_raw(
+        &self,
+        signatures: &crate::types::Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
+        use crate::olm::utility::VerifyJson;
+
+        let signing_key = self.identity_keys.ed25519;
+
+        signing_key.verify_canonicalized_json(
+            &self.user_id,
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signatures,
+            canonical_json,
+        )
+    }
+
+    /// Get the user id of the owner of the account.
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// Get the device ID that owns this account.
+    pub fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
+    /// Get the public parts of the identity keys for the account.
+    pub fn identity_keys(&self) -> IdentityKeys {
+        *self.identity_keys
+    }
+
+    /// Get the local timestamp creation of the account in secs since epoch
+    pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
+        self.creation_local_time
+    }
+}
+
 /// Account holding identity keys for which sessions can be created.
 ///
 /// An account is the central identity for encrypted communication between two
@@ -522,6 +638,14 @@ pub struct ReadOnlyAccount {
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicU64>,
+}
+
+impl Deref for ReadOnlyAccount {
+    type Target = StaticAccountData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.static_data
+    }
 }
 
 /// A pickled version of an `Account`.
@@ -620,32 +744,6 @@ impl ReadOnlyAccount {
     /// Get the immutable data for this account.
     pub fn static_data(&self) -> &StaticAccountData {
         &self.static_data
-    }
-
-    /// Get the user id of the owner of the account.
-    pub fn user_id(&self) -> &UserId {
-        &self.static_data.user_id
-    }
-
-    /// Get the device ID that owns this account.
-    pub fn device_id(&self) -> &DeviceId {
-        &self.static_data.device_id
-    }
-
-    /// Get the public parts of the identity keys for the account.
-    pub fn identity_keys(&self) -> IdentityKeys {
-        *self.static_data.identity_keys
-    }
-
-    // TODO(BNJ) move to StaticAccountData?
-    /// Get the key ID of our Ed25519 signing key.
-    pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
-        DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
-    }
-
-    /// Get the local timestamp creation of the account in secs since epoch
-    pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
-        self.static_data.creation_local_time
     }
 
     /// Update the uploaded key count.
@@ -809,34 +907,6 @@ impl ReadOnlyAccount {
     /// Returns the signature as a base64 encoded string.
     pub async fn sign(&self, string: &str) -> Ed25519Signature {
         self.inner.lock().await.sign(string)
-    }
-
-    // TODO(BNJ) move to StaticAccountData
-    /// Check if the given JSON is signed by this Account key.
-    ///
-    /// This method should only be used if an object's signature needs to be
-    /// checked multiple times, and you'd like to avoid performing the
-    /// canonicalization step each time.
-    ///
-    /// **Note**: Use this method with caution, the `canonical_json` needs to be
-    /// correctly canonicalized and make sure that the object you are checking
-    /// the signature for is allowed to be signed by our own device.
-    #[cfg(any(test, feature = "backups_v1"))]
-    pub fn has_signed_raw(
-        &self,
-        signatures: &crate::types::Signatures,
-        canonical_json: &str,
-    ) -> Result<(), SignatureError> {
-        use crate::olm::utility::VerifyJson;
-
-        let signing_key = self.static_data.identity_keys.ed25519;
-
-        signing_key.verify_canonicalized_json(
-            &self.static_data.user_id,
-            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signatures,
-            canonical_json,
-        )
     }
 
     /// Get a serializeable version of the `Account` so it can be persisted.
@@ -1244,68 +1314,6 @@ impl ReadOnlyAccount {
         let plaintext = String::from_utf8_lossy(&result.plaintext).to_string();
 
         Ok(InboundCreationResult { session, plaintext })
-    }
-
-    // TODO(BNJ) move to StaticAccountData
-    /// Create a group session pair.
-    ///
-    /// This session pair can be used to encrypt and decrypt messages meant for
-    /// a large group of participants.
-    ///
-    /// The outbound session is used to encrypt messages while the inbound one
-    /// is used to decrypt messages encrypted by the outbound one.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The ID of the room where the group session will be used.
-    ///
-    /// * `settings` - Settings determining the algorithm and rotation period of
-    /// the outbound group session.
-    pub async fn create_group_session_pair(
-        &self,
-        room_id: &RoomId,
-        settings: EncryptionSettings,
-    ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
-        trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
-
-        let visibility = settings.history_visibility.clone();
-        let algorithm = settings.algorithm.to_owned();
-
-        let outbound = OutboundGroupSession::new(
-            self.static_data.device_id.clone(),
-            self.static_data.identity_keys.clone(),
-            room_id,
-            settings,
-        )?;
-
-        let identity_keys = self.identity_keys();
-
-        let sender_key = identity_keys.curve25519;
-        let signing_key = identity_keys.ed25519;
-
-        let inbound = InboundGroupSession::new(
-            sender_key,
-            signing_key,
-            room_id,
-            &outbound.session_key().await,
-            algorithm,
-            Some(visibility),
-        )?;
-
-        Ok((outbound, inbound))
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
-    /// Testing only facility to create a group session pair with default
-    /// settings
-    pub async fn create_group_session_pair_with_defaults(
-        &self,
-        room_id: &RoomId,
-    ) -> (OutboundGroupSession, InboundGroupSession) {
-        self.create_group_session_pair(room_id, EncryptionSettings::default())
-            .await
-            .expect("Can't create default group session pair")
     }
 
     #[cfg(any(test, feature = "testing"))]

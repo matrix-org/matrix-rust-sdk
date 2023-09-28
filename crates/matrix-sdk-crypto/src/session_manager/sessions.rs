@@ -524,18 +524,14 @@ mod tests {
             store.clone(),
         );
 
-        let user_id = user_id.to_owned();
-        let device_id = device_id.into();
-
-        let store = Store::new(user_id.clone(), account.clone(), identity, store, verification);
+        let store = Store::new(user_id.to_owned(), account.clone(), identity, store, verification);
 
         let account = Account { static_data: account.static_data.clone(), store: store.clone() };
 
         let session_cache = GroupSessionCache::new(store.clone());
 
         let key_request = GossipMachine::new(
-            user_id,
-            device_id,
+            account.static_data.clone(),
             store.clone(),
             session_cache,
             users_for_key_claim.clone(),
