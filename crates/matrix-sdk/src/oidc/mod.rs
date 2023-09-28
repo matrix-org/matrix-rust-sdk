@@ -420,7 +420,14 @@ impl Oidc {
         &self,
         issuer: &str,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
-        self.backend.insecure_discover(issuer).await
+        // If the issuer has a . this implies the presence of a top-level domain
+        // and hence public DNS. If the issuer lacks this, it is likely a private
+        // network domain like 'localhost'. Do not check for localhost directly
+        // to allow custom DNS names like 'matrix-auth-service' to work as well.
+        if issuer.contains(".") {
+            return self.backend.discover(issuer).await
+        }
+        return self.backend.insecure_discover(issuer).await
     }
 
     /// Fetch the OpenID Connect metadata of the issuer.
@@ -639,7 +646,15 @@ impl Oidc {
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.backend.insecure_discover(issuer).await?;
+        // If the issuer has a . this implies the presence of a top-level domain
+        // and hence public DNS. If the issuer lacks this, it is likely a private
+        // network domain like 'localhost'. Do not check for localhost directly
+        // to allow custom DNS names like 'matrix-auth-service' to work as well.
+        let provider_metadata = if issuer.contains(".") {
+            self.backend.discover(issuer).await?
+        } else {
+            self.backend.insecure_discover(issuer).await?
+        };
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
