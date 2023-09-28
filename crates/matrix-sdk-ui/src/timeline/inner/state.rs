@@ -544,7 +544,7 @@ impl TimelineInnerStateTransaction<'_> {
         };
 
         let is_own_event = sender == room_data_provider.own_user_id();
-        let sender_profile = room_data_provider.profile(&sender).await;
+        let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
             sender,
             sender_profile,

@@ -268,8 +268,9 @@ impl RepliedToEvent {
         let content =
             TimelineItemContent::Message(Message::from_event(c, event.relations(), &vector![]));
         let sender = event.sender().to_owned();
-        let sender_profile =
-            TimelineDetails::from_initial_value(room_data_provider.profile(&sender).await);
+        let sender_profile = TimelineDetails::from_initial_value(
+            room_data_provider.profile_from_user_id(&sender).await,
+        );
 
         Ok(Self { content, sender, sender_profile })
     }

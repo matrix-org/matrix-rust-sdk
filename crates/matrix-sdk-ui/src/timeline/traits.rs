@@ -17,6 +17,7 @@ use indexmap::IndexMap;
 use matrix_sdk::Room;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
+use matrix_sdk_base::latest_event::LatestEvent;
 use ruma::{
     events::receipt::{Receipt, ReceiptThread, ReceiptType},
     push::{PushConditionRoomCtx, Ruleset},
@@ -66,7 +67,8 @@ impl RoomExt for Room {
 pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
-    async fn profile(&self, user_id: &UserId) -> Option<Profile>;
+    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
+    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
 }
@@ -84,7 +86,7 @@ impl RoomDataProvider for Room {
         })
     }
 
-    async fn profile(&self, user_id: &UserId) -> Option<Profile> {
+    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile> {
         match self.get_member_no_sync(user_id).await {
             Ok(Some(member)) => Some(Profile {
                 display_name: member.display_name().map(ToOwned::to_owned),
@@ -102,6 +104,18 @@ impl RoomDataProvider for Room {
                 None
             }
         }
+    }
+
+    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
+        if !latest_event.has_sender_profile() {
+            return None;
+        }
+
+        Some(Profile {
+            display_name: latest_event.sender_display_name().map(ToOwned::to_owned),
+            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
+            avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
+        })
     }
 
     async fn read_receipts_for_event(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {

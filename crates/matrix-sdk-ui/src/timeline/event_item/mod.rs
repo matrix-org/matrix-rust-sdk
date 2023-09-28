@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::EncryptionInfo, Client, Error};
-use matrix_sdk_base::latest_event::LatestEvent;
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
@@ -100,9 +100,8 @@ impl EventTimelineItem {
     ) -> Option<EventTimelineItem> {
         use super::traits::RoomDataProvider;
 
-        let sync_event = latest_event.into_event();
-        let raw_sync_event = sync_event.event;
-        let encryption_info = sync_event.encryption_info;
+        let SyncTimelineEvent { event: raw_sync_event, encryption_info, .. } =
+            latest_event.event().clone();
 
         let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
             warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
@@ -150,7 +149,7 @@ impl EventTimelineItem {
 
         let room = client.get_room(room_id);
         let sender_profile = if let Some(room) = room {
-            room.profile(&sender)
+            room.profile_from_latest_event(&latest_event)
                 .await
                 .map(TimelineDetails::Ready)
                 .unwrap_or(TimelineDetails::Unavailable)
