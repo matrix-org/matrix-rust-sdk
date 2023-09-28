@@ -177,13 +177,13 @@ impl BackupDecryptionKey {
         bs58::encode(bytes.as_slice()).with_alphabet(bs58::Alphabet::BITCOIN).into_string()
     }
 
-    fn get_pk_decrytpion(&self) -> PkDecryption {
+    fn get_pk_decryption(&self) -> PkDecryption {
         PkDecryption::from_bytes(self.inner.as_ref())
     }
 
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
-        let pk = self.get_pk_decrytpion();
+        let pk = self.get_pk_decryption();
         MegolmV1BackupKey::new(pk.public_key(), None)
     }
 
@@ -201,7 +201,7 @@ impl BackupDecryptionKey {
         ciphertext: &str,
     ) -> Result<String, DecryptionError> {
         let message = Message::from_base64(ciphertext, mac, ephemeral_key)?;
-        let pk = self.get_pk_decrytpion();
+        let pk = self.get_pk_decryption();
 
         let decrypted = pk.decrypt(&message)?;
 
