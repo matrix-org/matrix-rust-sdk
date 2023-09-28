@@ -22,8 +22,8 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
-        IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
-        PrivateCrossSigningIdentity, Session, StaticAccountData,
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        Session, StaticAccountData,
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
@@ -36,7 +36,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
@@ -92,7 +92,7 @@ mod keys {
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
-    static_account: Arc<RwLock<Option<StaticAccountData>>>,
+    static_account: RwLock<Option<StaticAccountData>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
@@ -246,13 +246,7 @@ impl IndexeddbCryptoStore {
         let db: IdbDatabase = db_req.into_future().await?;
         let session_cache = SessionStore::new();
 
-        Ok(Self {
-            name,
-            session_cache,
-            inner: db,
-            store_cipher,
-            static_account: RwLock::new(None).into(),
-        })
+        Ok(Self { name, session_cache, inner: db, store_cipher, static_account: RwLock::new(None) })
     }
 
     /// Open a new `IndexeddbCryptoStore` with default name and no passphrase
