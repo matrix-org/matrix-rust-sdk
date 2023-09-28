@@ -148,6 +148,42 @@ pub(crate) struct ClientLocks {
     /// Look at the [`Room::mark_as_dm()`] method for a more detailed
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
+    /// Handler making sure we only have one group session sharing request in
+    /// flight per room.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    /// Lock making sure we're only doing one key claim request at a time.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) key_claim_lock: Mutex<()>,
+    /// Handler to ensure that only one members request is running at a time,
+    /// given a room.
+    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    /// Handler to ensure that only one encryption state request is running at a
+    /// time, given a room.
+    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) cross_process_crypto_store_lock:
+        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+    /// Latest "generation" of data known by the crypto store.
+    ///
+    /// This is a counter that only increments, set in the database (and can
+    /// wrap). It's incremented whenever some process acquires a lock for the
+    /// first time. *This assumes the crypto store lock is being held, to
+    /// avoid data races on writing to this value in the store*.
+    ///
+    /// The current process will maintain this value in local memory and in the
+    /// DB over time. Observing a different value than the one read in
+    /// memory, when reading from the store indicates that somebody else has
+    /// written into the database under our feet.
+    ///
+    /// TODO: this should live in the `OlmMachine`, since it's information
+    /// related to the lock. As of today (2023-07-28), we blow up the entire
+    /// olm machine when there's a generation mismatch. So storing the
+    /// generation in the olm machine would make the client think there's
+    /// *always* a mismatch, and that's why we need to store the generation
+    /// outside the `OlmMachine`.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 pub(crate) struct ClientInner {
@@ -169,19 +205,6 @@ pub(crate) struct ClientInner {
     /// to ensure that only a single call to a method happens at once or to
     /// deduplicate multiple calls to a method.
     locks: ClientLocks,
-    /// Handler making sure we only have one group session sharing request in
-    /// flight per room.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
-    /// Lock making sure we're only doing one key claim request at a time.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) key_claim_lock: Mutex<()>,
-    /// Handler to ensure that only one members request is running at a time,
-    /// given a room.
-    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
-    /// Handler to ensure that only one encryption state request is running at a
-    /// time, given a room.
-    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -198,31 +221,6 @@ pub(crate) struct ClientInner {
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
     pub(crate) sync_beat: event_listener::Event,
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock:
-        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
-
-    /// Latest "generation" of data known by the crypto store.
-    ///
-    /// This is a counter that only increments, set in the database (and can
-    /// wrap). It's incremented whenever some process acquires a lock for the
-    /// first time. *This assumes the crypto store lock is being held, to
-    /// avoid data races on writing to this value in the store*.
-    ///
-    /// The current process will maintain this value in local memory and in the
-    /// DB over time. Observing a different value than the one read in
-    /// memory, when reading from the store indicates that somebody else has
-    /// written into the database under our feet.
-    ///
-    /// TODO: this should live in the `OlmMachine`, since it's information
-    /// related to the lock. As of today (2023-07-28), we blow up the entire
-    /// olm machine when there's a generation mismatch. So storing the
-    /// generation in the olm machine would make the client think there's
-    /// *always* a mismatch, and that's why we need to store the generation
-    /// outside the `OlmMachine`.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 impl ClientInner {
@@ -250,12 +248,6 @@ impl ClientInner {
             base_client,
             locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
-            #[cfg(feature = "e2e-encryption")]
-            group_session_deduplicated_handler: Default::default(),
-            #[cfg(feature = "e2e-encryption")]
-            key_claim_lock: Default::default(),
-            members_request_deduplicated_handler: Default::default(),
-            encryption_state_deduplicated_handler: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -263,10 +255,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            #[cfg(feature = "e2e-encryption")]
-            cross_process_crypto_store_lock: OnceCell::new(),
-            #[cfg(feature = "e2e-encryption")]
-            crypto_store_generation: Arc::new(Mutex::new(None)),
         }
     }
 }

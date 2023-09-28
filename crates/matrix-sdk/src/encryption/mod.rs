@@ -270,7 +270,7 @@ impl Client {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        let _lock = self.inner.key_claim_lock.lock().await;
+        let _lock = self.locks().key_claim_lock.lock().await;
 
         if let Some((request_id, request)) = self
             .olm_machine()
@@ -946,7 +946,7 @@ impl Encryption {
     /// The provided `lock_value` must be a unique identifier for this process.
     pub async fn enable_cross_process_store_lock(&self, lock_value: String) -> Result<(), Error> {
         // If the lock has already been created, don't recreate it from scratch.
-        if let Some(prev_lock) = self.client.inner.cross_process_crypto_store_lock.get() {
+        if let Some(prev_lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let prev_holder = prev_lock.lock_holder();
             if prev_holder == lock_value {
                 return Ok(());
@@ -968,13 +968,15 @@ impl Encryption {
             let guard = lock.try_lock_once().await?;
             if guard.is_some() {
                 olm_machine
-                    .initialize_crypto_store_generation(&self.client.inner.crypto_store_generation)
+                    .initialize_crypto_store_generation(
+                        &self.client.locks().crypto_store_generation,
+                    )
                     .await?;
             }
         }
 
         self.client
-            .inner
+            .locks()
             .cross_process_crypto_store_lock
             .set(lock)
             .map_err(|_| Error::BadCryptoStoreState)?;
@@ -989,7 +991,7 @@ impl Encryption {
         if let Some(olm_machine) = olm_machine_guard.as_ref() {
             // If the crypto store generation has changed,
             if olm_machine
-                .maintain_crypto_store_generation(&self.client.inner.crypto_store_generation)
+                .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
                 .await?
             {
                 // (get rid of the reference to the current crypto store first)
@@ -1010,7 +1012,7 @@ impl Encryption {
         &self,
         max_backoff: Option<u32>,
     ) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
-        if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
+        if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let guard = lock.spin_lock(max_backoff).await?;
 
             self.on_lock_newly_acquired().await?;
@@ -1026,7 +1028,7 @@ impl Encryption {
     ///
     /// Returns a guard to the lock, if it was obtained.
     pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessStoreLockGuard>, Error> {
-        if let Some(lock) = self.client.inner.cross_process_crypto_store_lock.get() {
+        if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let maybe_guard = lock.try_lock_once().await?;
 
             if maybe_guard.is_some() {
