@@ -524,7 +524,7 @@ mod tests {
             store.clone(),
         );
 
-        let store = Store::new(user_id.to_owned(), account.clone(), identity, store, verification);
+        let store = Store::new(account.clone(), identity, store, verification);
 
         let account = Account { static_data: account.static_data.clone(), store: store.clone() };
 

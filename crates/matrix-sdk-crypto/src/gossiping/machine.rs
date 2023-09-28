@@ -1122,7 +1122,7 @@ mod tests {
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
         let static_account = account.static_data().clone();
-        let store = Store::new(user_id.to_owned(), account, identity, store, verification);
+        let store = Store::new(account, identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(static_account, store, session_cache, Arc::new(DashMap::new()))
@@ -1144,7 +1144,7 @@ mod tests {
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
         let static_account = account.static_data().clone();
-        let store = Store::new(user_id.clone(), account, identity, store, verification);
+        let store = Store::new(account, identity, store, verification);
         store.save_devices(&[device, another_device]).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
