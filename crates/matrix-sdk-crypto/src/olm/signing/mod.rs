@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use vodozemac::Ed25519Signature;
 
+use super::StaticAccountData;
 use crate::{
     error::SignatureError,
     requests::UploadSigningKeysRequest,
@@ -460,7 +461,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign an Olm account with this private identity.
     pub(crate) async fn sign_account(
         &self,
-        account: &ReadOnlyAccount, // TODO(BNJ) think this could be StaticAccountData
+        account: &StaticAccountData,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let mut device_keys = account.unsigned_device_keys();
         self.sign_device_keys(&mut device_keys).await
@@ -522,7 +523,7 @@ impl PrivateCrossSigningIdentity {
 
         let identity = Self::new_helper(account.user_id(), master).await;
         let signature_request = identity
-            .sign_account(account)
+            .sign_account(account.static_data())
             .await
             .expect("Can't sign own device with new cross signing keys");
 
