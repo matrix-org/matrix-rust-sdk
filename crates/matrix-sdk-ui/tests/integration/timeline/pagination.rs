@@ -16,22 +16,28 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::future::join;
+use futures_util::future::{join, join3};
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder};
+use matrix_sdk_test::{
+    async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE,
+};
 use matrix_sdk_ui::timeline::{
     AnyOtherFullStateEventContent, BackPaginationStatus, PaginationOptions, RoomExt,
     TimelineItemContent, VirtualTimelineItem,
 };
 use once_cell::sync::Lazy;
 use ruma::{
-    events::{room::message::MessageType, FullStateEventContent},
+    events::{
+        room::message::{MessageType, RoomMessageEventContent},
+        FullStateEventContent,
+    },
     room_id,
 };
 use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_eq, assert_next_matches};
+use tokio::time::{sleep, timeout};
 use wiremock::{
-    matchers::{header, method, path_regex},
+    matchers::{header, method, path_regex, query_param},
     Mock, ResponseTemplate,
 };
 
@@ -222,6 +228,67 @@ async fn back_pagination_highlighted() {
     let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
+}
+
+#[async_test]
+async fn wait_for_token() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+
+    let from = "t392-516_47314_0_7_1_1_1_11444_1";
+    let mut back_pagination_status = timeline.back_pagination_status();
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", from)) // make sure the right token is sent
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::text_plain("live event!"),
+            ))
+            .set_timeline_prev_batch(from.to_owned()),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    let paginate = async {
+        timeline
+            .paginate_backwards(PaginationOptions::single_request(10).wait_for_token())
+            .await
+            .unwrap();
+    };
+    let observe_paginating = async {
+        assert_eq!(back_pagination_status.next().await, Some(BackPaginationStatus::Paginating));
+        assert_eq!(back_pagination_status.next().await, Some(BackPaginationStatus::Idle));
+    };
+    let sync = async {
+        // Make sure syncing starts a little bit later than pagination
+        sleep(Duration::from_millis(100)).await;
+        client.sync_once(sync_settings.clone()).await.unwrap();
+    };
+    timeout(Duration::from_secs(4), join3(paginate, observe_paginating, sync)).await.unwrap();
+
+    // Make sure pagination was called (with the right parameters)
+    server.verify().await;
 }
 
 pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
