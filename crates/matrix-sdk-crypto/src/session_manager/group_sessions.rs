@@ -227,8 +227,7 @@ impl GroupSessionManager {
     ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
             .account
-            .store
-            .account()
+            .static_data
             .create_group_session_pair(room_id, settings)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;

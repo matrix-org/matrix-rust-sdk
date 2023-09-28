@@ -212,8 +212,7 @@ impl OlmMachine {
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
 
         let key_request_machine = GossipMachine::new(
-            user_id.clone(),
-            device_id.clone(),
+            account.static_data.clone(),
             store.clone(),
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
@@ -3740,14 +3739,18 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn room_key_with_fake_identity_keys() {
+    async fn test_room_key_with_fake_identity_keys() {
         let room_id = room_id!("!test:localhost");
         let (alice, _) = get_machine_pair_with_setup_sessions(alice_id(), user_id(), false).await;
         let device = ReadOnlyDevice::from_machine(&alice).await;
         alice.store().save_devices(&[device]).await.unwrap();
 
-        let (outbound, mut inbound) =
-            alice.account().create_group_session_pair(room_id, Default::default()).await.unwrap();
+        let (outbound, mut inbound) = alice
+            .account()
+            .static_data()
+            .create_group_session_pair(room_id, Default::default())
+            .await
+            .unwrap();
 
         let fake_key = Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE")
             .unwrap()
