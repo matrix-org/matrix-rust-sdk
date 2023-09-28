@@ -117,9 +117,9 @@ impl LatestEvent {
         self.event.event_id()
     }
 
-    /// Get a reference to the sender profile if any.
-    pub fn sender_profile(&self) -> Option<&MinimalRoomMemberEvent> {
-        self.sender_profile.as_ref()
+    /// Check whether [`Self`] has a sender a profile.
+    pub fn has_sender_profile(&self) -> bool {
+        self.sender_profile.is_some()
     }
 
     /// Return the sender's display name if it was known at the time [`Self`]
