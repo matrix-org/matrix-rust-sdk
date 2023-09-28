@@ -93,7 +93,7 @@ pub struct NotificationClient {
     /// need to make sure that repeated calls to `get_notification` won't
     /// cause multiple requests with the same `conn_id` we're using for
     /// notifications. This mutex solves this by sequentializing the requests.
-    sliding_sync_mutex: AsyncMutex<()>,
+    notification_sync_mutex: AsyncMutex<()>,
 }
 
 impl NotificationClient {
@@ -268,7 +268,7 @@ impl NotificationClient {
     ) -> Result<Option<RawNotificationEvent>, Error> {
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
-        let _guard = self.sliding_sync_mutex.lock().await;
+        let _guard = self.notification_sync_mutex.lock().await;
 
         // Set up a sliding sync that only subscribes to the room that had the
         // notification, so we can figure out the full event and associated
@@ -542,7 +542,7 @@ impl NotificationClientBuilder {
             client: self.client,
             parent_client: self.parent_client,
             filter_by_push_rules: self.filter_by_push_rules,
-            sliding_sync_mutex: AsyncMutex::new(()),
+            notification_sync_mutex: AsyncMutex::new(()),
             process_setup: self.process_setup,
         }
     }
