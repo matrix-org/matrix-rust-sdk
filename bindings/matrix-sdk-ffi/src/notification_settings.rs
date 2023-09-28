@@ -10,7 +10,7 @@ use matrix_sdk::{
     Client as MatrixClient,
 };
 use ruma::{
-    push::{PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind},
+    push::{PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Action, Tweak},
     RoomId,
 };
 use tokio::sync::RwLock;
@@ -292,13 +292,13 @@ impl NotificationSettings {
     ///
     /// * `push_rule_id` - todo
     /// * `enabled` - todo
-    pub async fn set_underride_push_rule(
+    pub async fn set_underride_push_rule_actions(
         &self,
         rule_id: DefaultUnderrideRuleId,
-        enabled: bool,
+        actions: PushRuleActions,
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings.set_underride_push_rule(rule_id.into(), enabled).await?;
+        notification_settings.set_underride_push_rule_actions(rule_id.into(), actions.into()).await?;
         Ok(())
     }
 
@@ -490,6 +490,24 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         RUNTIME
             .block_on(async move { self.unmute_room(room_id, is_encrypted, is_one_to_one).await })
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum PushRuleActions {
+    /// Sets the `notify` action with the default sound
+    Notify,
+
+    /// Sets an empty array of actions
+    None
+}
+
+impl From<PushRuleActions> for Vec<Action> {
+    fn from(value: PushRuleActions) -> Self {
+        match value {
+            PushRuleActions::Notify => vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+            PushRuleActions::None => vec![]
+        }
     }
 }
 

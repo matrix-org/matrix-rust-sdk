@@ -188,10 +188,16 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let rule_id = rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
 
-        match mode {
-            RoomNotificationMode::AllMessages => self.set_underride_push_rule(rule_id, true).await,
-            _ => self.set_underride_push_rule(rule_id, false).await,
-        }
+        let actions = match mode {
+            RoomNotificationMode::AllMessages => {
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            }
+            _ => {
+                vec![]
+            }
+        };
+
+        self.set_underride_push_rule_actions(rule_id, actions).await
     }
 
     /// TODO
@@ -200,20 +206,14 @@ impl NotificationSettings {
     ///
     /// * `push_rule_id` - todo
     /// * `enabled` - todo
-    pub async fn set_underride_push_rule(
+    pub async fn set_underride_push_rule_actions(
         &self,
         rule_id: PredefinedUnderrideRuleId,
-        enabled: bool,
+        actions: Vec<Action>,
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
         let mut rule_commands = RuleCommands::new(rules.ruleset);
-
-        let actions = if enabled {
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
-        } else {
-            vec![]
-        };
-
+        
         rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
 
         self.run_server_commands(&rule_commands).await?;
