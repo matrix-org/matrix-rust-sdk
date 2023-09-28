@@ -291,6 +291,62 @@ async fn wait_for_token() {
     server.verify().await;
 }
 
+#[async_test]
+async fn dedup() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await);
+
+    let from = "t392-516_47314_0_7_1_1_1_11444_1";
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&*ROOM_MESSAGES_BATCH_1)
+                // Set a small delay to make sure the response doesn't arrive
+                // before both paginate_backwards function calls have happened.
+                .set_delay(Duration::from_millis(100)),
+        )
+        .expect(1) // endpoint should only be called once
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::text_plain("live event!"),
+            ))
+            .set_timeline_prev_batch(from.to_owned()),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    let paginate_1 = async {
+        timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+    };
+    let paginate_2 = async {
+        timeline.paginate_backwards(PaginationOptions::single_request(10)).await.unwrap();
+    };
+    timeout(Duration::from_secs(2), join(paginate_1, paginate_2)).await.unwrap();
+
+    // Make sure pagination was called (with the right parameters)
+    server.verify().await;
+}
+
 pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "chunk": [
