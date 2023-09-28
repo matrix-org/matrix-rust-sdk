@@ -1341,8 +1341,7 @@ impl OlmMachine {
         } else {
             debug!("Requesting missing secrets");
 
-            let mut changes = Changes::default();
-            changes.key_requests = not_yet_requested;
+            let changes = Changes { key_requests: not_yet_requested, ..Default::default() };
 
             self.store().save_changes(changes).await?;
             Ok(true)
