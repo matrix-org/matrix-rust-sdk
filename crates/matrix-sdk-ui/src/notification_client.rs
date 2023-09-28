@@ -86,7 +86,7 @@ pub struct NotificationClient {
     /// rules?
     filter_by_push_rules: bool,
 
-    /// A mutex to serialize requests to sliding sync.
+    /// A mutex to serialize requests to the notifications sliding sync.
     ///
     /// If several notifications come in at the same time (e.g. network was
     /// unreachable because of airplane mode or something similar), then we
@@ -94,6 +94,12 @@ pub struct NotificationClient {
     /// cause multiple requests with the same `conn_id` we're using for
     /// notifications. This mutex solves this by sequentializing the requests.
     notification_sync_mutex: AsyncMutex<()>,
+
+    /// A mutex to serialize requests to the encryption sliding sync that's used
+    /// in case we didn't have the keys to decipher an event.
+    ///
+    /// Same reasoning as [`Self::notification_sync_mutex`].
+    encryption_sync_mutex: AsyncMutex<()>,
 }
 
 impl NotificationClient {
@@ -113,8 +119,6 @@ impl NotificationClient {
     /// This will first try to get the notification using a short-lived sliding
     /// sync, and if the sliding-sync can't find the event, then it'll use a
     /// `/context` query to find the event with associated member information.
-    ///
-    /// This is *not* reentrant.
     ///
     /// An error result means that we couldn't resolve the notification; in that
     /// case, a dummy notification may be displayed instead. A `None` result
@@ -136,8 +140,6 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
-    /// This is *not* reentrant.
-    ///
     /// Will return true if and only:
     /// - the event was encrypted,
     /// - we successfully ran an encryption sync or waited long enough for an
@@ -154,6 +156,9 @@ impl NotificationClient {
         if !is_event_encrypted(event.event_type()) {
             return Ok(None);
         }
+
+        // Serialize calls to this function.
+        let _guard = self.encryption_sync_mutex.lock().await;
 
         // The message is still encrypted, and the client is configured to retry
         // decryption.
@@ -173,8 +178,8 @@ impl NotificationClient {
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
-                // create a dummy sync permit. That works under the assumption that there aren't
-                // multiple calls to this function at the same time (i.e. it's not reentrant).
+                // create a dummy sync permit; we're guaranteed there's at most one since we've
+                // acquired the `encryption_sync_mutex' lock here.
                 let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
                 sync_permit.lock_owned().await
             }
@@ -543,6 +548,7 @@ impl NotificationClientBuilder {
             parent_client: self.parent_client,
             filter_by_push_rules: self.filter_by_push_rules,
             notification_sync_mutex: AsyncMutex::new(()),
+            encryption_sync_mutex: AsyncMutex::new(()),
             process_setup: self.process_setup,
         }
     }
