@@ -213,7 +213,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let rules = self.rules.read().await.clone();
         let mut rule_commands = RuleCommands::new(rules.ruleset);
-        
+
         rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
 
         self.run_server_commands(&rule_commands).await?;
