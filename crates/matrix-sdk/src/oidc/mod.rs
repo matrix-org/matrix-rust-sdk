@@ -420,7 +420,7 @@ impl Oidc {
         &self,
         issuer: &str,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
-        self.backend.discover(issuer).await
+        self.backend.insecure_discover(issuer).await
     }
 
     /// Fetch the OpenID Connect metadata of the issuer.
@@ -639,7 +639,7 @@ impl Oidc {
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.backend.discover(issuer).await?;
+        let provider_metadata = self.backend.insecure_discover(issuer).await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
