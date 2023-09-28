@@ -200,12 +200,12 @@ impl NotificationSettings {
         self.set_underride_push_rule_actions(rule_id, actions).await
     }
 
-    /// TODO
+    /// Sets the push rule actions for a given underride push rule
     ///
     /// # Arguments
     ///
-    /// * `push_rule_id` - todo
-    /// * `enabled` - todo
+    /// * `rule_id` - the identifier of the push rule
+    /// * `actions` - the actions to set for the push rule
     pub async fn set_underride_push_rule_actions(
         &self,
         rule_id: PredefinedUnderrideRuleId,

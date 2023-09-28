@@ -290,7 +290,7 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `push_rule_id` - the identifier of the push rule
+    /// * `rule_id` - the identifier of the push rule
     /// * `actions` - the actions to set for the push rule
     pub async fn set_underride_push_rule_actions(
         &self,
