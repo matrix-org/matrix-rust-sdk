@@ -2,14 +2,19 @@
 
 use async_channel::{Receiver, Sender};
 use tokio::sync::mpsc::unbounded_channel;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::room::Room;
+use crate::{room::Room, Result};
 
 mod client;
 mod filter;
+mod matrix;
 mod permissions;
 
-use self::client::{Action, ClientApi, Event};
+use self::{
+    client::{Action, ClientApi, Event, SendEventCommand},
+    matrix::MatrixDriver,
+};
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
@@ -106,14 +111,12 @@ impl WidgetDriver {
     /// once a non-implemented part is triggered.
     pub async fn run(
         self,
-        _room: Room,
-        _permissions_provider: impl PermissionsProvider,
+        room: Room,
+        permissions_provider: impl PermissionsProvider,
     ) -> Result<(), ()> {
         // Create a channel so that we can conveniently send all events to it.
         let (events_tx, mut events_rx) = unbounded_channel();
 
-        // Forward all incoming raw messages into events and send them to the sink.
-        // Equivalent of the:
         // `from.map(|m| Ok(Event::MessageFromWidget(msg)).forward(events_tx)`,
         // but apparently `UnboundedSender<T>` does not implement `Sink<T>`.
         let tx = events_tx.clone();
@@ -123,8 +126,11 @@ impl WidgetDriver {
             }
         });
 
+        // Our "state" (everything we need to process events).
+        let (mut client_api, matrix) = (ClientApi::new(), MatrixDriver::new(room));
+        let mut event_forwarding_guard: Option<DropGuard> = None;
+
         // Process events by passing them to the `ClientApi` implementation.
-        let mut client_api = ClientApi::new();
         while let Some(event) = events_rx.recv().await {
             for action in client_api.process(event) {
                 match action {
@@ -132,23 +138,50 @@ impl WidgetDriver {
                         self.to_widget_tx.send(msg).await.map_err(|_| ())?
                     }
                     Action::AcquirePermissions(cmd) => {
-                        let result = cmd.result(Err("not implemented".into()));
-                        events_tx.send(Event::PermissionsAcquired(result)).map_err(|_| ())?;
+                        let obtained = permissions_provider.acquire_permissions(cmd.clone()).await;
+                        let event = Event::PermissionsAcquired(cmd.ok(obtained));
+                        events_tx.send(event).map_err(|_| ())?;
                     }
                     Action::GetOpenId(cmd) => {
-                        let result = cmd.result(Err("not implemented".into()));
+                        let result = cmd.result(matrix.get_open_id().await);
                         events_tx.send(Event::OpenIdReceived(result)).map_err(|_| ())?;
                     }
                     Action::ReadMatrixEvent(cmd) => {
-                        let result = cmd.result(Err("not implemented".into()));
-                        events_tx.send(Event::MatrixEventRead(result)).map_err(|_| ())?;
+                        let matrix_events = matrix.read(cmd.event_type.clone(), cmd.limit).await;
+                        let event = Event::MatrixEventRead(cmd.result(matrix_events));
+                        events_tx.send(event).map_err(|_| ())?;
                     }
                     Action::SendMatrixEvent(cmd) => {
-                        let result = cmd.result(Err("not implemented".into()));
-                        events_tx.send(Event::MatrixEventSent(result)).map_err(|_| ())?;
+                        let SendEventCommand { event_type, state_key, content } = cmd.clone();
+                        let matrix_event_id = matrix.send(event_type, state_key, content).await;
+                        let event = Event::MatrixEventSent(cmd.result(matrix_event_id));
+                        events_tx.send(event).map_err(|_| ())?;
                     }
-                    Action::Subscribe => {}
-                    Action::Unsubscribe => {}
+                    Action::Subscribe => {
+                        // Only subscribe if we are not already subscribed.
+                        if event_forwarding_guard.is_none() {
+                            let (stop_forwarding, guard) = {
+                                let token = CancellationToken::new();
+                                (token.child_token(), token.drop_guard())
+                            };
+
+                            event_forwarding_guard = Some(guard);
+                            let (mut matrix, events_tx) = (matrix.events(), events_tx.clone());
+                            tokio::spawn(async move {
+                                loop {
+                                    tokio::select! {
+                                        _ = stop_forwarding.cancelled() => { return }
+                                        Some(event) = matrix.recv() => {
+                                            let _ = events_tx.send(Event::MatrixEventReceived(event));
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    Action::Unsubscribe => {
+                        event_forwarding_guard = None;
+                    }
                 }
             }
         }
