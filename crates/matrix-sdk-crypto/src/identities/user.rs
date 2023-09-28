@@ -132,7 +132,11 @@ impl OwnUserIdentity {
         self.mark_as_verified();
 
         let changes = Changes {
-            identities: IdentityChanges { changed: vec![self.inner.clone().into()], new: vec![] },
+            identities: IdentityChanges {
+                changed: vec![self.inner.clone().into()],
+                new: vec![],
+                unchanged: vec![],
+            },
             ..Default::default()
         };
 
@@ -353,12 +357,6 @@ impl ReadOnlyUserIdentities {
     }
 }
 
-impl PartialEq for ReadOnlyUserIdentities {
-    fn eq(&self, other: &ReadOnlyUserIdentities) -> bool {
-        self.user_id() == other.user_id()
-    }
-}
-
 /// Struct representing a cross signing identity of a user.
 ///
 /// This is the user identity of a user that isn't our own. Other users will
@@ -369,6 +367,27 @@ pub struct ReadOnlyUserIdentity {
     user_id: OwnedUserId,
     pub(crate) master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
+}
+
+impl PartialEq for ReadOnlyUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id == other.user_id
+            && self.master_key == other.master_key
+            && self.self_signing_key == other.self_signing_key
+            && self.master_key.signatures() == other.master_key.signatures()
+    }
 }
 
 impl ReadOnlyUserIdentity {
@@ -424,17 +443,20 @@ impl ReadOnlyUserIdentity {
     /// * `self_signing_key` - The new self signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
-    ) -> Result<(), SignatureError> {
+    ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        self.master_key = master_key;
-        self.self_signing_key = self_signing_key;
+        let new = Self::new(master_key, self_signing_key)?;
+        let changed = new != *self;
 
-        Ok(())
+        *self = new;
+        Ok(changed)
     }
 
     /// Check if the given device has been signed by this identity.
@@ -476,6 +498,29 @@ pub struct ReadOnlyOwnUserIdentity {
         deserialize_with = "atomic_bool_deserializer"
     )]
     verified: Arc<AtomicBool>,
+}
+
+impl PartialEq for ReadOnlyOwnUserIdentity {
+    /// The `PartialEq` implementation compares several attributes, including
+    /// the user ID, key material, usage, and, notably, the signatures of
+    /// the master key.
+    ///
+    /// This approach contrasts with the `PartialEq` implementation of the
+    /// [`MasterPubkey`], [`SelfSigningPubkey`] and [`UserSigningPubkey`] types,
+    /// where the signatures are disregarded. This distinction arises from our
+    /// treatment of identity as the combined representation of cross-signing
+    /// keys and the associated verification state.
+    ///
+    /// The verification state of an identity depends on the signatures of the
+    /// master key, requiring their inclusion in our `PartialEq` implementation.
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id == other.user_id
+            && self.master_key == other.master_key
+            && self.self_signing_key == other.self_signing_key
+            && self.user_signing_key == other.user_signing_key
+            && self.is_verified() == other.is_verified()
+            && self.master_key.signatures() == other.master_key.signatures()
+    }
 }
 
 impl ReadOnlyOwnUserIdentity {
@@ -610,14 +655,18 @@ impl ReadOnlyOwnUserIdentity {
     /// * `user_signing_key` - The new user signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
+    /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
-    ) -> Result<(), SignatureError> {
+    ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
         master_key.verify_subkey(&user_signing_key)?;
+
+        let old = self.clone();
 
         self.self_signing_key = self_signing_key;
         self.user_signing_key = user_signing_key;
@@ -628,7 +677,7 @@ impl ReadOnlyOwnUserIdentity {
 
         self.master_key = master_key;
 
-        Ok(())
+        Ok(old != *self)
     }
 
     fn filter_devices_to_request(
@@ -737,7 +786,7 @@ pub(crate) mod tests {
         identities::{manager::testing::own_key_query, Device},
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStoreWrapper, MemoryStore},
-        types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+        types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
     };
 
@@ -759,6 +808,39 @@ pub(crate) mod tests {
             user_signing.try_into().unwrap(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn own_identity_partial_equality() {
+        let user_id = user_id!("@example:localhost");
+        let response = own_key_query();
+
+        let master_key: CrossSigningKey =
+            response.master_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let user_signing: CrossSigningKey =
+            response.user_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let self_signing: CrossSigningKey =
+            response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+
+        let identity = ReadOnlyOwnUserIdentity::new(
+            master_key.clone().try_into().unwrap(),
+            self_signing.clone().try_into().unwrap(),
+            user_signing.clone().try_into().unwrap(),
+        )
+        .unwrap();
+
+        let mut master_key_updated_signature = master_key.clone();
+        master_key_updated_signature.signatures = Signatures::new();
+
+        let updated_identity = ReadOnlyOwnUserIdentity::new(
+            master_key_updated_signature.try_into().unwrap(),
+            self_signing.try_into().unwrap(),
+            user_signing.try_into().unwrap(),
+        )
+        .unwrap();
+
+        assert_ne!(identity, updated_identity);
+        assert_eq!(identity.master_key(), updated_identity.master_key());
     }
 
     #[test]

@@ -515,7 +515,7 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_user.master_key(), own_identity.master_key());
                 assert_eq!(loaded_user.self_signing_key(), own_identity.self_signing_key());
-                assert_eq!(loaded_user, own_identity.clone().into());
+                assert_eq!(loaded_user.own().unwrap().clone(), own_identity.clone());
 
                 let other_identity = get_other_identity();
 
@@ -534,7 +534,8 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_user.master_key(), other_identity.master_key());
                 assert_eq!(loaded_user.self_signing_key(), other_identity.self_signing_key());
-                assert_eq!(loaded_user, other_identity.into());
+                assert_eq!(loaded_user.user_id(), other_identity.user_id());
+                assert_eq!(loaded_user.other().unwrap().clone(), other_identity);
 
                 own_identity.mark_as_verified();
 

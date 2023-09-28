@@ -50,6 +50,15 @@ enum DeviceChange {
     None,
 }
 
+/// This enum helps us to distinguish between the changed and unchanged
+/// identity case.
+/// An unchanged identity means same cross signing keys as well as same
+/// set of signatures on the master key.
+enum IdentityUpdateResult {
+    Updated(IdentityChange),
+    Unchanged(IdentityChange),
+}
+
 struct IdentityChange {
     public: ReadOnlyUserIdentities,
     private: Option<PrivateCrossSigningIdentity>,
@@ -431,7 +440,7 @@ impl IdentityManager {
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         i: ReadOnlyUserIdentities,
-    ) -> Result<IdentityChange, SignatureError> {
+    ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
             ReadOnlyUserIdentities::Own(mut identity) => {
                 if let Some(user_signing) = response
@@ -448,11 +457,16 @@ impl IdentityManager {
 
                         Err(SignatureError::UserIdMismatch)
                     } else {
-                        identity.update(master_key, self_signing, user_signing)?;
+                        let has_changed =
+                            identity.update(master_key, self_signing, user_signing)?;
 
                         let private = self.check_private_identity(&identity).await;
-
-                        Ok(IdentityChange { public: identity.into(), private })
+                        let id_change = IdentityChange { public: identity.into(), private };
+                        if has_changed {
+                            Ok(IdentityUpdateResult::Updated(id_change))
+                        } else {
+                            Ok(IdentityUpdateResult::Unchanged(id_change))
+                        }
                     }
                 } else {
                     warn!(
@@ -463,8 +477,14 @@ impl IdentityManager {
                 }
             }
             ReadOnlyUserIdentities::Other(mut identity) => {
-                identity.update(master_key, self_signing)?;
-                Ok(IdentityChange { public: identity.into(), private: None })
+                let has_changed = identity.update(master_key, self_signing)?;
+                let id_change = IdentityChange { public: identity.into(), private: None };
+
+                if has_changed {
+                    Ok(IdentityUpdateResult::Updated(id_change))
+                } else {
+                    Ok(IdentityUpdateResult::Unchanged(id_change))
+                }
             }
         }
     }
@@ -557,10 +577,14 @@ impl IdentityManager {
             warn!(?user_id, "User ID mismatch in one of the cross signing keys",);
         } else if let Some(i) = self.store.get_user_identity(user_id).await? {
             match self.handle_changed_identity(response, master_key, self_signing, i).await {
-                Ok(c) => {
+                Ok(IdentityUpdateResult::Updated(c)) => {
                     trace!(identity = ?c.public, "Updated a user identity");
                     changes.changed.push(c.public);
                     *changed_identity = c.private;
+                }
+                Ok(IdentityUpdateResult::Unchanged(c)) => {
+                    trace!(identity = ?c.public, "Received an unchanged user identity");
+                    changes.unchanged.push(c.public);
                 }
                 Err(e) => {
                     warn!(error = ?e, "Couldn't update an existing user identity");
@@ -851,6 +875,72 @@ pub(crate) mod testing {
             .expect("Can't parse the keys upload response")
     }
 
+    // An updated version of `other_key_query` featuring an additional signature on
+    // the master key *Note*: The added signature is actually not valid, but a
+    // valid signature  is not required for our test.
+    pub fn other_key_query_cross_signed() -> KeyQueryResponse {
+        let data = response_from_file(&json!({
+            "device_keys": {
+                "@example2:localhost": {
+                    "SKISMLNIMH": {
+                        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                        "device_id": "SKISMLNIMH",
+                        "keys": {
+                            "curve25519:SKISMLNIMH": "qO9xFazIcW8dE0oqHGMojGgJwbBpMOhGnIfJy2pzvmI",
+                            "ed25519:SKISMLNIMH": "y3wV3AoyIGREqrJJVH8DkQtlwHBUxoZ9ApP76kFgXQ8"
+                        },
+                        "signatures": {
+                            "@example2:localhost": {
+                                "ed25519:SKISMLNIMH": "YwbT35rbjKoYFZVU1tQP8MsL06+znVNhNzUMPt6jTEYRBFoC4GDq9hQEJBiFSq37r1jvLMteggVAWw37fs1yBA",
+                                "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "PWuuTE/aTkp1EJQkPHhRx2BxbF+wjMIDFxDRp7JAerlMkDsNFUTfRRusl6vqROPU36cl+yY8oeJTZGFkU6+pBQ"
+                            }
+                        },
+                        "user_id": "@example2:localhost",
+                        "unsigned": {
+                            "device_display_name": "Riot Desktop (Linux)"
+                        }
+                    }
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["master"],
+                    "keys": {
+                        "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:SKISMLNIMH": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                        },
+                        // This is the added signature from alice USK compared to `other_key_query`. Note that actual signature is not valid.
+                        "@alice:localhost": {
+                            "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "NotAValidSignature+GNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                        }
+                    }
+                }
+            },
+            "self_signing_keys": {
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["self_signing"],
+                    "keys": {
+                        "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "W/O8BnmiUETPpH02mwYaBgvvgF/atXnusmpSTJZeUSH/vHg66xiZOhveQDG4cwaW8iMa+t9N4h1DWnRoHB4mCQ"
+                        }
+                    }
+                }
+            },
+            "user_signing_keys": {}
+        }));
+        KeyQueryResponse::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
+    }
+
     pub fn own_key_query_with_user_id(user_id: &UserId) -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
@@ -998,7 +1088,7 @@ pub(crate) mod tests {
     use stream_assert::{assert_closed, assert_pending, assert_ready};
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
-    use crate::identities::manager::testing::own_key_query;
+    use crate::identities::manager::testing::{other_key_query_cross_signed, own_key_query};
 
     fn key_query_with_failures() -> KeysQueryResponse {
         let response = json!({
@@ -1257,12 +1347,80 @@ pub(crate) mod tests {
 
         let (identity_update, _) = assert_ready!(stream);
         assert_eq!(identity_update.new.len(), 1);
+        assert_eq!(identity_update.changed.len(), 0);
+        assert_eq!(identity_update.unchanged.len(), 0);
         assert_eq!(identity_update.new[0].user_id(), user_id());
 
         assert_pending!(stream);
 
+        let (new_request_id, _) =
+            manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
+
+        // A second `keys/query` response with the same result shouldn't fire a change
+        // notification: the identity should be unchanged.
+        manager
+            .as_ref()
+            .unwrap()
+            .receive_keys_query_response(&new_request_id, &own_key_query())
+            .await
+            .unwrap();
+
+        let (identity_update_2, _) = assert_ready!(stream);
+        assert_eq!(identity_update_2.new.len(), 0);
+        assert_eq!(identity_update_2.changed.len(), 0);
+        assert_eq!(identity_update_2.unchanged.len(), 1);
+
         // dropping the manager (and hence dropping the store) should close the stream
         manager.take();
         assert_closed!(stream);
+    }
+
+    #[async_test]
+    async fn identities_stream_raw_signature_update() {
+        let mut manager = Some(manager().await);
+        let (request_id, _) =
+            manager.as_ref().unwrap().build_key_query_for_users(vec![other_user_id()]);
+
+        let stream = manager.as_ref().unwrap().store.identities_stream_raw();
+        pin_mut!(stream);
+
+        manager
+            .as_ref()
+            .unwrap()
+            .receive_keys_query_response(&request_id, &other_key_query())
+            .await
+            .unwrap();
+
+        let (identity_update, _) = assert_ready!(stream);
+        assert_eq!(identity_update.new.len(), 1);
+        assert_eq!(identity_update.changed.len(), 0);
+        assert_eq!(identity_update.unchanged.len(), 0);
+        assert_eq!(identity_update.new[0].user_id(), other_user_id());
+
+        let initial_msk = identity_update.new[0].master_key().clone();
+
+        let (new_request_id, _) =
+            manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
+        // There is a new signature on the msk, should trigger a change
+        manager
+            .as_ref()
+            .unwrap()
+            .receive_keys_query_response(&new_request_id, &other_key_query_cross_signed())
+            .await
+            .unwrap();
+
+        let (identity_update_2, _) = assert_ready!(stream);
+        assert_eq!(identity_update_2.new.len(), 0);
+        assert_eq!(identity_update_2.changed.len(), 1);
+        assert_eq!(identity_update_2.unchanged.len(), 0);
+
+        let updated_msk = identity_update_2.changed[0].master_key().clone();
+
+        // Identity has a change (new signature) but it's the same msk
+        assert_eq!(initial_msk, updated_msk);
+
+        assert_pending!(stream);
+
+        manager.take();
     }
 }
