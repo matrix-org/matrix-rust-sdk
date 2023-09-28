@@ -37,6 +37,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
@@ -124,6 +125,7 @@ impl NotificationClient {
     /// case, a dummy notification may be displayed instead. A `None` result
     /// means the notification has been filtered out by the user's push
     /// rules.
+    #[instrument(skip(self))]
     pub async fn get_notification(
         &self,
         room_id: &RoomId,
@@ -145,6 +147,7 @@ impl NotificationClient {
     /// - we successfully ran an encryption sync or waited long enough for an
     ///   existing encryption sync to
     /// decrypt the event.
+    #[instrument(skip_all)]
     async fn retry_decryption(
         &self,
         room: &Room,
@@ -198,11 +201,12 @@ impl NotificationClient {
                     // amount.
                     let mut wait = 200;
 
+                    debug!("Encryption sync running in background");
                     for _ in 0..3 {
-                        tracing::debug!("Sync running in background while getting a notification; waiting for decryption…");
+                        trace!("waiting for decryption…");
 
-                        tokio::time::sleep(Duration::from_millis(wait)).await; // heuristics~~~
-                                                                               //
+                        tokio::time::sleep(Duration::from_millis(wait)).await;
+
                         let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
 
                         if !is_event_encrypted(
@@ -212,7 +216,7 @@ impl NotificationClient {
                                 .map_err(|_| Error::InvalidRumaEvent)?
                                 .event_type(),
                         ) {
-                            tracing::debug!("Waiting succeeded!");
+                            trace!("Waiting succeeded!");
                             return Ok(Some(new_event));
                         }
 
@@ -220,9 +224,7 @@ impl NotificationClient {
                     }
 
                     // We couldn't decrypt the event after waiting a few times, abort.
-                    tracing::debug!(
-                        "Timeout waiting for the sync service to decrypt the notification event."
-                    );
+                    debug!("Timeout waiting for the encryption sync to decrypt notification.");
                     return Ok(None);
                 }
             }
@@ -247,14 +249,12 @@ impl NotificationClient {
                     Ok(Some(new_event))
                 }
                 Err(err) => {
-                    tracing::warn!(
-                        "error when running encryption_sync in get_notification: {err:#}"
-                    );
+                    warn!("error when running encryption sync in get_notification: {err:#}");
                     Ok(None)
                 }
             },
             Err(err) => {
-                tracing::warn!("error when building encryption_sync in get_notification: {err:#}",);
+                warn!("error when building encryption_sync in get_notification: {err:#}",);
                 Ok(None)
             }
         }
@@ -266,6 +266,7 @@ impl NotificationClient {
     /// This works by requesting explicit state that'll be useful for building
     /// the `NotificationItem`, and subscribing to the room which the
     /// notification relates to.
+    #[instrument(skip_all)]
     async fn try_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -283,6 +284,7 @@ impl NotificationClient {
 
         let cloned_notif = notification.clone();
         let target_event_id = event_id.to_owned();
+
         let timeline_event_handler =
             self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| async move {
                 match raw.get_field::<OwnedEventId>("event_id") {
@@ -294,8 +296,11 @@ impl NotificationClient {
                                 Some(RawNotificationEvent::Timeline(raw));
                         }
                     }
-                    Ok(None) | Err(_) => {
-                        tracing::warn!("could not get event id");
+                    Ok(None) => {
+                        warn!("a sync event had no event id");
+                    }
+                    Err(err) => {
+                        warn!("a sync event id couldn't be decoded: {err}");
                     }
                 }
             });
@@ -312,8 +317,11 @@ impl NotificationClient {
                             *cloned_notif.lock().unwrap() = Some(RawNotificationEvent::Invite(raw));
                         }
                     }
-                    Ok(None) | Err(_) => {
-                        tracing::warn!("could not get event id");
+                    Ok(None) => {
+                        warn!("a room member event had no id");
+                    }
+                    Err(err) => {
+                        warn!("a room member event id couldn't be decoded: {err}");
                     }
                 }
             });
@@ -394,15 +402,11 @@ impl NotificationClient {
     ///
     /// This will run a small sliding sync to retrieve the content of the event,
     /// along with extra data to form a rich notification context.
-    ///
-    /// This is *not* reentrant.
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<NotificationStatus, Error> {
-        tracing::info!("fetching notification event with a sliding sync");
-
         let Some(mut raw_event) = self.try_sliding_sync(room_id, event_id).await? else {
             return Ok(NotificationStatus::EventNotFound);
         };
@@ -454,7 +458,7 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
-        tracing::info!("fetching notification event with a /context query");
+        info!("fetching notification event with a /context query");
 
         // See above comment.
         let Some(room) = self.parent_client.get_room(room_id) else {
