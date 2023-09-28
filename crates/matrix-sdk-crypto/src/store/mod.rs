@@ -567,7 +567,13 @@ impl Store {
         // - try to take the lock,
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
-        Ok(StoreCacheGuard { cache: &self.inner.cache })
+
+        let cache = StoreCacheGuard { cache: &self.inner.cache };
+
+        // Make sure tracked users are always up to date.
+        self.ensure_sync_tracked_users(&cache).await?;
+
+        Ok(cache)
     }
 
     #[cfg(test)]
@@ -904,7 +910,6 @@ impl Store {
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
         let cache = self.cache().await?;
-        self.ensure_sync_tracked_users(&cache).await?;
 
         let mut store_updates = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
@@ -931,7 +936,6 @@ impl Store {
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
         let cache = self.cache().await?;
-        self.ensure_sync_tracked_users(&cache).await?;
 
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
@@ -1029,8 +1033,8 @@ impl Store {
     pub(crate) async fn users_for_key_query(
         &self,
     ) -> Result<(HashSet<OwnedUserId>, SequenceNumber)> {
-        let cache = self.cache().await?;
-        self.ensure_sync_tracked_users(&cache).await?;
+        // Make sure the tracked users set is up to date.
+        let _cache = self.cache().await?;
 
         Ok(self.inner.users_for_key_query.lock().await.users_for_key_query())
     }
@@ -1074,7 +1078,6 @@ impl Store {
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
         let cache = self.cache().await?;
-        self.ensure_sync_tracked_users(&cache).await?;
 
         Ok(cache.tracked_users.iter().map(|u| u.clone()).collect())
     }
