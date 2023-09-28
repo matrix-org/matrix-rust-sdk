@@ -207,20 +207,13 @@ impl NotificationClient {
 
                         tokio::time::sleep(Duration::from_millis(wait)).await;
 
-                        let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+                        let Ok(new_event) = room.decrypt_event(raw_event.cast_ref()).await else {
+                            wait *= 2;
+                            continue;
+                        };
 
-                        if !is_event_encrypted(
-                            new_event
-                                .event
-                                .deserialize()
-                                .map_err(|_| Error::InvalidRumaEvent)?
-                                .event_type(),
-                        ) {
-                            trace!("Waiting succeeded!");
-                            return Ok(Some(new_event));
-                        }
-
-                        wait *= 2;
+                        trace!("Waiting succeeded and event could be decrypted!");
+                        return Ok(Some(new_event));
                     }
 
                     // We couldn't decrypt the event after waiting a few times, abort.
@@ -244,17 +237,23 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => {
-                    let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
-                    Ok(Some(new_event))
-                }
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref()).await {
+                    Ok(new_event) => {
+                        trace!("Encryption sync managed to decrypt the event.");
+                        Ok(Some(new_event))
+                    }
+                    Err(_) => {
+                        trace!("Encryption sync failed to decrypt the event.");
+                        Ok(None)
+                    }
+                },
                 Err(err) => {
-                    warn!("error when running encryption sync in get_notification: {err:#}");
+                    warn!("Encryption sync error: {err:#}");
                     Ok(None)
                 }
             },
             Err(err) => {
-                warn!("error when building encryption_sync in get_notification: {err:#}",);
+                warn!("Encryption sync build error: {err:#}",);
                 Ok(None)
             }
         }
