@@ -65,9 +65,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-#[cfg(feature = "e2e-encryption")]
-use tokio::sync::Mutex;
-use tokio::sync::{broadcast, OnceCell, RwLock, RwLockReadGuard};
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -144,6 +142,14 @@ pub struct Client {
     pub(crate) inner: Arc<ClientInner>,
 }
 
+#[derive(Default)]
+pub(crate) struct ClientLocks {
+    /// Lock ensuring that only a single room may be marked as a DM at once.
+    /// Look at the [`Room::mark_as_dm()`] method for a more detailed
+    /// explanation.
+    pub(crate) mark_as_dm_lock: Mutex<()>,
+}
+
 pub(crate) struct ClientInner {
     /// All the data related to authentication and authorization.
     pub(crate) auth_ctx: Arc<AuthCtx>,
@@ -159,6 +165,10 @@ pub(crate) struct ClientInner {
     base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
     server_versions: OnceCell<Box<[MatrixVersion]>>,
+    /// Collection of locks individual client methods might want to use, either
+    /// to ensure that only a single call to a method happens at once or to
+    /// deduplicate multiple calls to a method.
+    locks: ClientLocks,
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -238,6 +248,7 @@ impl ClientInner {
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
+            locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
             #[cfg(feature = "e2e-encryption")]
             group_session_deduplicated_handler: Default::default(),
@@ -294,6 +305,10 @@ impl Client {
 
     pub(crate) fn base_client(&self) -> &BaseClient {
         &self.inner.base_client
+    }
+
+    pub(crate) fn locks(&self) -> &ClientLocks {
+        &self.inner.locks
     }
 
     /// Change the homeserver URL used by this client.
