@@ -276,10 +276,12 @@ pub(crate) fn get_predefined_underride_room_rule_id(
     }
 }
 
-pub(crate) fn get_predefined_underride_polls_rule_id(is_one_to_one: IsOneToOne) -> PredefinedUnderrideRuleId {
+pub(crate) fn get_predefined_underride_polls_rule_id(
+    is_one_to_one: IsOneToOne,
+) -> PredefinedUnderrideRuleId {
     match is_one_to_one {
         IsOneToOne::Yes => PredefinedUnderrideRuleId::PollStartOneToOne,
-        IsOneToOne::No => PredefinedUnderrideRuleId::PollStart
+        IsOneToOne::No => PredefinedUnderrideRuleId::PollStart,
     }
 }
 
