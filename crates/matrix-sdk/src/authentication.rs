@@ -53,10 +53,6 @@ pub(crate) struct AuthCtx {
     /// `M_UNKNOWN_TOKEN` error is encountered.
     pub(crate) handle_refresh_tokens: bool,
 
-    /// Whether to allow HTTP issuer URLs.
-    #[cfg(feature = "experimental-oidc")]
-    pub(crate) insecure_discover_oidc: bool,
-
     /// Lock making sure we're only doing one token refresh at a time.
     pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
 

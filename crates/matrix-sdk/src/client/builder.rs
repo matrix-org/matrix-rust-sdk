@@ -85,7 +85,6 @@ pub struct ClientBuilder {
     respect_login_well_known: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
-    insecure_discover_oidc: bool,
     base_client: Option<BaseClient>,
 }
 
@@ -101,7 +100,6 @@ impl ClientBuilder {
             respect_login_well_known: true,
             server_versions: None,
             handle_refresh_tokens: false,
-            insecure_discover_oidc: false,
             base_client: None,
         }
     }
@@ -157,7 +155,6 @@ impl ClientBuilder {
             server: server_name.to_owned(),
             protocol: UrlScheme::Http,
         });
-        self.insecure_discover_oidc = true;
         self
     }
 
@@ -375,7 +372,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[cfg(feature = "experimental-oidc")]
-        let mut authentication_server_info = None;
+        let (mut authentication_server_info, mut allow_insecure_oidc) = (None, false);
 
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
@@ -415,6 +412,7 @@ impl ClientBuilder {
                 #[cfg(feature = "experimental-oidc")]
                 {
                     authentication_server_info = well_known.authentication;
+                    allow_insecure_oidc = matches!(protocol, UrlScheme::Http);
                 }
 
                 #[cfg(feature = "experimental-sliding-sync")]
@@ -435,15 +433,13 @@ impl ClientBuilder {
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
-            #[cfg(feature = "experimental-oidc")]
-            insecure_discover_oidc: self.insecure_discover_oidc,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc: OidcCtx::new(authentication_server_info),
+            oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
         });
 
         let inner = Arc::new(ClientInner::new(
@@ -463,7 +459,7 @@ impl ClientBuilder {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum UrlScheme {
     Http,
     Https,
