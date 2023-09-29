@@ -54,9 +54,8 @@ use vodozemac::{
     Curve25519PublicKey, Ed25519Signature,
 };
 
-#[cfg(feature = "backups_v1")]
-use crate::backups::BackupMachine;
 use crate::{
+    backups::BackupMachine,
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
@@ -128,7 +127,6 @@ pub struct OlmMachineInner {
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
     /// A state machine that handles creating room key backups.
-    #[cfg(feature = "backups_v1")]
     backup_machine: BackupMachine,
 }
 
@@ -202,7 +200,6 @@ impl OlmMachine {
         let session_manager =
             SessionManager::new(users_for_key_claim, key_request_machine.clone(), store.clone());
 
-        #[cfg(feature = "backups_v1")]
         let backup_machine = BackupMachine::new(store.clone(), None);
 
         let inner = Arc::new(OlmMachineInner {
@@ -215,7 +212,6 @@ impl OlmMachine {
             verification_machine,
             key_request_machine,
             identity_manager,
-            #[cfg(feature = "backups_v1")]
             backup_machine,
         });
 
@@ -463,7 +459,6 @@ impl OlmMachine {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
             }
             IncomingResponse::KeysBackup(_) => {
-                #[cfg(feature = "backups_v1")]
                 self.inner.backup_machine.mark_request_as_sent(request_id).await?;
             }
         };
@@ -1350,7 +1345,6 @@ impl OlmMachine {
         #[allow(unused_mut)]
         let mut secrets = identity.get_missing_secrets().await;
 
-        #[cfg(feature = "backups_v1")]
         if self.store().load_backup_keys().await?.decryption_key.is_none() {
             secrets.push(SecretName::RecoveryKey);
         }
@@ -1756,17 +1750,10 @@ impl OlmMachine {
     pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
-        #[allow(unused_variables)] from_backup: bool,
+        from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
-        self.store()
-            .import_room_keys(
-                exported_keys,
-                #[cfg(feature = "backups_v1")]
-                from_backup,
-                progress_listener,
-            )
-            .await
+        self.store().import_room_keys(exported_keys, from_backup, progress_listener).await
     }
 
     /// Export the keys that match the given predicate.
@@ -1897,7 +1884,6 @@ impl OlmMachine {
     ///
     /// This state machine can be used to incrementally backup all room keys to
     /// the server.
-    #[cfg(feature = "backups_v1")]
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.inner.backup_machine
     }
@@ -2819,11 +2805,7 @@ pub(crate) mod tests {
             })
             .collect_vec();
 
-        if cfg!(feature = "backups_v1") {
-            assert_eq!(outgoing_to_device.len(), 4);
-        } else {
-            assert_eq!(outgoing_to_device.len(), 3);
-        }
+        assert_eq!(outgoing_to_device.len(), 4);
 
         // The second time, as there are already in-flight requests, it should have no
         // effect.
@@ -2840,25 +2822,21 @@ pub(crate) mod tests {
 
         let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
 
-        if cfg!(feature = "backups_v1") {
-            assert!(should_query_secrets);
+        assert!(should_query_secrets);
 
-            let outgoing_to_device = alice
-                .outgoing_requests()
-                .await
-                .unwrap()
-                .into_iter()
-                .filter(|outgoing| match outgoing.request.as_ref() {
-                    OutgoingRequests::ToDeviceRequest(request) => {
-                        request.event_type.to_string() == "m.secret.request"
-                    }
-                    _ => false,
-                })
-                .collect_vec();
-            assert_eq!(outgoing_to_device.len(), 1);
-        } else {
-            assert!(!should_query_secrets);
-        }
+        let outgoing_to_device = alice
+            .outgoing_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|outgoing| match outgoing.request.as_ref() {
+                OutgoingRequests::ToDeviceRequest(request) => {
+                    request.event_type.to_string() == "m.secret.request"
+                }
+                _ => false,
+            })
+            .collect_vec();
+        assert_eq!(outgoing_to_device.len(), 1);
 
         // The second time, as there are already in-flight requests, it should have no
         // effect.
