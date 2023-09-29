@@ -192,7 +192,6 @@ impl SignedJsonObject for CrossSigningKey {
     }
 }
 
-#[cfg(feature = "backups_v1")]
 impl SignedJsonObject for crate::types::MegolmV1AuthData {
     fn signatures(&self) -> &Signatures {
         &self.signatures

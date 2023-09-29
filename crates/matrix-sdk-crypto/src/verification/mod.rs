@@ -612,7 +612,6 @@ impl IdentitiesBeingVerified {
         #[allow(unused_mut)]
         let mut secrets = self.private_identity.get_missing_secrets().await;
 
-        #[cfg(feature = "backups_v1")]
         if self.store.inner.load_backup_keys().await?.decryption_key.is_none() {
             secrets.push(ruma::events::secret::request::SecretName::RecoveryKey);
         }

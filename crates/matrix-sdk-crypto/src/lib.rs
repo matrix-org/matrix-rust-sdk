@@ -16,7 +16,6 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 
-#[cfg(feature = "backups_v1")]
 pub mod backups;
 mod ciphers;
 pub mod dehydrated_devices;
