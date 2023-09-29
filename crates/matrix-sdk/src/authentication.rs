@@ -54,6 +54,7 @@ pub(crate) struct AuthCtx {
     pub(crate) handle_refresh_tokens: bool,
 
     /// Whether to allow HTTP issuer URLs.
+    #[cfg(feature = "experimental-oidc")]
     pub(crate) insecure_discover_oidc: bool,
 
     /// Lock making sure we're only doing one token refresh at a time.

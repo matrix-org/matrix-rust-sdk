@@ -420,10 +420,7 @@ impl Oidc {
         &self,
         issuer: &str,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
-        return self
-            .backend
-            .discover(issuer, self.client.inner.auth_ctx.insecure_discover_oidc)
-            .await;
+        self.backend.discover(issuer, self.client.inner.auth_ctx.insecure_discover_oidc).await
     }
 
     /// Fetch the OpenID Connect metadata of the issuer.
