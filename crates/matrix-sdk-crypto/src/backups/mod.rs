@@ -790,8 +790,7 @@ mod tests {
             BTreeMap::from([(session_id.to_owned(), room_key)]),
         )]);
 
-        let session =
-            machine.store().get_inbound_group_session(room_id, &session_id).await.unwrap();
+        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
 
         assert!(session.is_none(), "Initially we should not have the session in the store");
 
@@ -800,8 +799,7 @@ mod tests {
             .await
             .expect("We should be able to import a room key");
 
-        let session =
-            machine.store().get_inbound_group_session(room_id, &session_id).await.unwrap();
+        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
 
         assert_let!(Some(session) = session);
         assert!(

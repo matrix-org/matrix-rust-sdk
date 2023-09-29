@@ -398,7 +398,6 @@ impl InboundGroupSession {
 
     /// Export the inbound group session into a format that can be uploaded to
     /// the server as a backup.
-    #[cfg(feature = "backups_v1")]
     pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()
     }
