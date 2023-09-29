@@ -435,6 +435,7 @@ impl ClientBuilder {
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
+            #[cfg(feature = "experimental-oidc")]
             insecure_discover_oidc: self.insecure_discover_oidc,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
