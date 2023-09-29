@@ -19,7 +19,11 @@ use std::{
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
+use matrix_sdk_base::{
+    crypto::{vodozemac, MegolmError},
+    deserialized_responses::TimelineEvent,
+    RoomState, StoreError,
+};
 use ruma::{
     api::client::sync::sync_events::v4::{
         AccountDataConfig, RoomSubscription, SyncRequestListFilters,
@@ -207,13 +211,25 @@ impl NotificationClient {
 
                         tokio::time::sleep(Duration::from_millis(wait)).await;
 
-                        let Ok(new_event) = room.decrypt_event(raw_event.cast_ref()).await else {
-                            wait *= 2;
-                            continue;
-                        };
-
-                        trace!("Waiting succeeded and event could be decrypted!");
-                        return Ok(Some(new_event));
+                        match room.decrypt_event(raw_event.cast_ref()).await {
+                            Ok(new_event) => {
+                                trace!("Waiting succeeded and event could be decrypted!");
+                                return Ok(Some(new_event));
+                            }
+                            Err(matrix_sdk::Error::MegolmError(
+                                MegolmError::MissingRoomKey(_)
+                                | MegolmError::Decryption(
+                                    vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _),
+                                ),
+                            )) => {
+                                // Decryption error that could be caused by a missing room key;
+                                // retry in a few.
+                                wait *= 2;
+                            }
+                            Err(err) => {
+                                return Err(err.into());
+                            }
+                        }
                     }
 
                     // We couldn't decrypt the event after waiting a few times, abort.
@@ -242,8 +258,8 @@ impl NotificationClient {
                         trace!("Encryption sync managed to decrypt the event.");
                         Ok(Some(new_event))
                     }
-                    Err(_) => {
-                        trace!("Encryption sync failed to decrypt the event.");
+                    Err(err) => {
+                        trace!("Encryption sync failed to decrypt the event: {err}");
                         Ok(None)
                     }
                 },
