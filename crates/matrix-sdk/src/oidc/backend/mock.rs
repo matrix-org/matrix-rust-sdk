@@ -101,7 +101,11 @@ impl MockImpl {
 
 #[async_trait::async_trait]
 impl OidcBackend for MockImpl {
-    async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError> {
+    async fn discover(
+        &self,
+        issuer: &str,
+        _insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OidcError> {
         Ok(ProviderMetadata {
             issuer: Some(self.issuer.clone()),
             authorization_endpoint: Some(Url::parse(&self.authorization_endpoint).unwrap()),

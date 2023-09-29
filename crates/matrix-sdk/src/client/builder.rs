@@ -144,7 +144,8 @@ impl ClientBuilder {
     }
 
     /// Set the server name to discover the homeserver from, assuming an HTTP
-    /// (not secured) scheme.
+    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
+    /// HTTP schemes.
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
@@ -371,7 +372,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[cfg(feature = "experimental-oidc")]
-        let mut authentication_server_info = None;
+        let (mut authentication_server_info, mut allow_insecure_oidc) = (None, false);
 
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
@@ -411,6 +412,7 @@ impl ClientBuilder {
                 #[cfg(feature = "experimental-oidc")]
                 {
                     authentication_server_info = well_known.authentication;
+                    allow_insecure_oidc = matches!(protocol, UrlScheme::Http);
                 }
 
                 #[cfg(feature = "experimental-sliding-sync")]
@@ -437,7 +439,7 @@ impl ClientBuilder {
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc: OidcCtx::new(authentication_server_info),
+            oidc: OidcCtx::new(authentication_server_info, allow_insecure_oidc),
         });
 
         let inner = Arc::new(ClientInner::new(
@@ -457,7 +459,7 @@ impl ClientBuilder {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum UrlScheme {
     Http,
     Https,

@@ -229,12 +229,19 @@ pub(crate) struct OidcCtx {
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
     deferred_cross_process_lock_init: Mutex<Option<String>>,
+
+    /// Whether to allow HTTP issuer URLs.
+    insecure_discover: bool,
 }
 
 impl OidcCtx {
-    pub(crate) fn new(authentication_server_info: Option<AuthenticationServerInfo>) -> Self {
+    pub(crate) fn new(
+        authentication_server_info: Option<AuthenticationServerInfo>,
+        insecure_discover: bool,
+    ) -> Self {
         Self {
             authentication_server_info,
+            insecure_discover,
             cross_process_token_refresh_manager: Default::default(),
             deferred_cross_process_lock_init: Default::default(),
         }
@@ -420,7 +427,7 @@ impl Oidc {
         &self,
         issuer: &str,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
-        self.backend.discover(issuer).await
+        self.backend.discover(issuer, self.ctx().insecure_discover).await
     }
 
     /// Fetch the OpenID Connect metadata of the issuer.
@@ -639,7 +646,7 @@ impl Oidc {
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.backend.discover(issuer).await?;
+        let provider_metadata = self.backend.discover(issuer, self.ctx().insecure_discover).await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
