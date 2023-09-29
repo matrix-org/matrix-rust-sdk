@@ -687,25 +687,4 @@ mod tests {
 
         assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
     }
-
-    #[async_test]
-    #[cfg(feature = "backups_v1")]
-    async fn signed_backups() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-        let room_id = room_id!("!test:localhost");
-
-        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
-
-        let signing_key = Ed25519SecretKey::new();
-        let public_key = signing_key.public_key();
-
-        let backed_up = inbound.to_backup(Some((alice_id(), &signing_key))).await;
-
-        let key_id = DeviceKeyId::from_parts(
-            DeviceKeyAlgorithm::Ed25519,
-            public_key.to_base64().as_str().into(),
-        );
-
-        assert!(public_key.verify_json(alice_id(), &key_id, &backed_up).is_ok());
-    }
 }

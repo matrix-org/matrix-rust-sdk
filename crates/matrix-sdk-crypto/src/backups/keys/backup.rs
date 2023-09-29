@@ -136,7 +136,8 @@ impl MegolmV1BackupKey {
             let mut hmac = HmacSha256::new_from_slice(mac_key.as_ref())
                 .expect("We should be able to create a Hmac object from a 32 byte key");
             hmac.update(&message.ciphertext);
-            Some(Base64::new(hmac.finalize().into_bytes()))
+            let mac: Base64 = Base64::new(hmac.finalize().into_bytes().to_vec());
+            Some(mac)
         } else {
             None
         };
@@ -144,8 +145,8 @@ impl MegolmV1BackupKey {
         let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
             ciphertext: Base64::new(message.ciphertext),
-            mac: Base64::new(message.mac.unwrap()),
-            // mac2,
+            mac: Some(Base64::new(message.mac.unwrap())),
+            mac2,
         }
         .into();
 

@@ -335,7 +335,7 @@ mod tests {
         let key_backup_data: KeyBackupData = serde_json::from_value(data).unwrap();
         let ephemeral = key_backup_data.session_data.ephemeral.encode();
         let ciphertext = key_backup_data.session_data.ciphertext.encode();
-        let mac = key_backup_data.session_data.mac.encode();
+        let mac = key_backup_data.session_data.mac.unwrap().encode();
 
         let decrypted = decryption_key
             .decrypt_v1(&ephemeral, Mac::V1(&mac), &ciphertext)

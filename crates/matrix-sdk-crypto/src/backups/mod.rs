@@ -610,7 +610,7 @@ mod tests {
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
 
-        backup_machine.enable_backup_v1(backup_key, None).await?;
+        backup_machine.enable_backup_v1(backup_key).await?;
 
         let (request_id, _) =
             backup_machine.backup().await?.expect("Created a backup request successfully");
