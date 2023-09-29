@@ -239,15 +239,10 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 }
 
 fn run_crypto_tests() -> Result<()> {
-    cmd!(
-        "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
-    )
-    .run()?;
+    cmd!("rustup run stable cargo clippy -p matrix-sdk-crypto -- -D warnings").run()?;
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features --features testing").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1,testing")
-        .run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1,testing")
-        .run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=testing").run()?;
+    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=testing").run()?;
     cmd!(
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=experimental-algorithms -- -D warnings"
     )

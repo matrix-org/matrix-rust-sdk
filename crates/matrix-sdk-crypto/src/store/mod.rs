@@ -1161,16 +1161,12 @@ impl Store {
                 self.inner.identity.lock().await.export_secret(secret_name).await
             }
             SecretName::RecoveryKey => {
-                #[cfg(feature = "backups_v1")]
                 if let Some(key) = self.load_backup_keys().await?.decryption_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
                     None
                 }
-
-                #[cfg(not(feature = "backups_v1"))]
-                None
             }
             name => {
                 warn!(secret = ?name, "Unknown secret was requested");
@@ -1493,7 +1489,7 @@ impl Store {
     pub(crate) async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
-        #[cfg(feature = "backups_v1")] from_backup: bool,
+        from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
         let mut sessions = Vec::new();
@@ -1524,7 +1520,6 @@ impl Store {
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
                     if new_session_better(&session, old_session).await {
-                        #[cfg(feature = "backups_v1")]
                         if from_backup {
                             session.mark_as_backed_up();
                         }
@@ -1594,13 +1589,7 @@ impl Store {
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        self.import_room_keys(
-            exported_keys,
-            #[cfg(feature = "backups_v1")]
-            false,
-            progress_listener,
-        )
-        .await
+        self.import_room_keys(exported_keys, false, progress_listener).await
     }
 }
 

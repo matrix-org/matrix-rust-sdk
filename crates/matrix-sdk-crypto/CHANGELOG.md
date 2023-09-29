@@ -1,5 +1,7 @@
 # unreleased
 
+- Remove the `backups_v1` feature, backups support is now enabled by default.
+
 - Use the `Signatures` type as the return value for the
   `MegolmV1BackupKey::signatures()` method.
 
