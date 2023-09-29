@@ -19,6 +19,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
     VerificationState,
@@ -1301,6 +1302,67 @@ impl OlmMachine {
         })
     }
 
+    /// Request missing local secrets from our devices (cross signing private
+    /// keys, megolm backup). This will ask the sdk to create outgoing
+    /// request to get the missing secrets.
+    ///
+    /// The requests will be processed as soon as `outgoing_requests()` is
+    /// called to process them.
+    ///
+    /// # Returns
+    ///
+    /// A bool result saying if actual secrets were missing and have been
+    /// requested
+    ///
+    /// # Examples
+    //
+    /// ```
+    /// # async {
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # let machine: OlmMachine = unimplemented!();
+    /// if machine.query_missing_secrets_from_other_sessions().await.unwrap() {
+    ///     let to_send = machine.outgoing_requests().await.unwrap();
+    ///     // send the to device requests
+    /// };
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
+        let identity = self.inner.user_identity.lock().await;
+        #[allow(unused_mut)]
+        let mut secrets = identity.get_missing_secrets().await;
+
+        #[cfg(feature = "backups_v1")]
+        if self.store().load_backup_keys().await?.decryption_key.is_none() {
+            secrets.push(SecretName::RecoveryKey);
+        }
+
+        if secrets.is_empty() {
+            debug!("No missing requests to query");
+            return Ok(false);
+        }
+
+        let secret_requests = GossipMachine::request_missing_secrets(self.user_id(), secrets);
+
+        // Check if there are already inflight requests for these secrets?
+        let unsent_request = self.store().get_unsent_secret_requests().await?;
+        let not_yet_requested = secret_requests
+            .into_iter()
+            .filter(|request| !unsent_request.iter().any(|unsent| unsent.info == request.info))
+            .collect_vec();
+
+        if not_yet_requested.is_empty() {
+            debug!("The missing secrets have already been requested");
+            Ok(false)
+        } else {
+            debug!("Requesting missing secrets");
+
+            let changes = Changes { key_requests: not_yet_requested, ..Default::default() };
+
+            self.store().save_changes(changes).await?;
+            Ok(true)
+        }
+    }
+
     /// Get some metadata pertaining to a given group session.
     ///
     /// This includes the session owner's Matrix user ID, their device ID, info
@@ -2025,6 +2087,7 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use futures_util::{FutureExt, StreamExt};
+    use itertools::Itertools;
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
     };
@@ -2075,9 +2138,9 @@ pub(crate) mod tests {
             CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
         },
         utilities::json_convert,
-        verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, LocalTrust, MegolmError, OlmError, ReadOnlyDevice, ToDeviceRequest,
-        UserIdentities,
+        verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
+        EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests, ReadOnlyDevice,
+        ToDeviceRequest, UserIdentities,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2635,6 +2698,75 @@ pub(crate) mod tests {
         assert_eq!(room_key_updates.len(), 1);
         assert_eq!(room_key_updates[0].room_id, room_id);
         assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
+    }
+
+    #[async_test]
+    async fn test_request_missing_secrets() {
+        let (alice, _) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
+
+        let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
+
+        assert!(should_query_secrets);
+
+        let outgoing_to_device = alice
+            .outgoing_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|outgoing| match outgoing.request.as_ref() {
+                OutgoingRequests::ToDeviceRequest(request) => {
+                    request.event_type.to_string() == "m.secret.request"
+                }
+                _ => false,
+            })
+            .collect_vec();
+
+        if cfg!(feature = "backups_v1") {
+            assert_eq!(outgoing_to_device.len(), 4);
+        } else {
+            assert_eq!(outgoing_to_device.len(), 3);
+        }
+
+        // The second time, as there are already in-flight requests, it should have no
+        // effect.
+        let should_query_secrets_now =
+            alice.query_missing_secrets_from_other_sessions().await.unwrap();
+        assert!(!should_query_secrets_now);
+    }
+
+    #[async_test]
+    async fn test_request_missing_secrets_cross_signed() {
+        let (alice, bob) = get_machine_pair_with_session(alice_id(), bob_id(), false).await;
+
+        setup_cross_signing_for_machine(&alice, &bob).await;
+
+        let should_query_secrets = alice.query_missing_secrets_from_other_sessions().await.unwrap();
+
+        if cfg!(feature = "backups_v1") {
+            assert!(should_query_secrets);
+
+            let outgoing_to_device = alice
+                .outgoing_requests()
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|outgoing| match outgoing.request.as_ref() {
+                    OutgoingRequests::ToDeviceRequest(request) => {
+                        request.event_type.to_string() == "m.secret.request"
+                    }
+                    _ => false,
+                })
+                .collect_vec();
+            assert_eq!(outgoing_to_device.len(), 1);
+        } else {
+            assert!(!should_query_secrets);
+        }
+
+        // The second time, as there are already in-flight requests, it should have no
+        // effect.
+        let should_query_secrets_now =
+            alice.query_missing_secrets_from_other_sessions().await.unwrap();
+        assert!(!should_query_secrets_now);
     }
 
     #[async_test]
