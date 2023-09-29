@@ -42,8 +42,7 @@ pub(super) struct RefreshedSessionTokens {
 
 #[async_trait::async_trait]
 pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
-    async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError>;
-    async fn insecure_discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError>;
+    async fn discover(&self, issuer: &str, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError>;
 
     async fn register_client(
         &self,

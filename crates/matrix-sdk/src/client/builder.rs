@@ -85,6 +85,7 @@ pub struct ClientBuilder {
     respect_login_well_known: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
     handle_refresh_tokens: bool,
+    insecure_discover_oidc: bool,
     base_client: Option<BaseClient>,
 }
 
@@ -100,6 +101,7 @@ impl ClientBuilder {
             respect_login_well_known: true,
             server_versions: None,
             handle_refresh_tokens: false,
+            insecure_discover_oidc: false,
             base_client: None,
         }
     }
@@ -144,7 +146,8 @@ impl ClientBuilder {
     }
 
     /// Set the server name to discover the homeserver from, assuming an HTTP
-    /// (not secured) scheme.
+    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
+    /// HTTP schemes.
     ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
@@ -154,6 +157,7 @@ impl ClientBuilder {
             server: server_name.to_owned(),
             protocol: UrlScheme::Http,
         });
+        self.insecure_discover_oidc = true;
         self
     }
 
@@ -431,6 +435,7 @@ impl ClientBuilder {
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
+            insecure_discover_oidc: self.insecure_discover_oidc,
             refresh_token_lock: Mutex::new(Ok(())),
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),

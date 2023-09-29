@@ -71,11 +71,12 @@ impl OidcServer {
 
 #[async_trait::async_trait]
 impl OidcBackend for OidcServer {
-    async fn discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError> {
-        discover(&self.http_service(), issuer).await.map_err(Into::into)
-    }
-    async fn insecure_discover(&self, issuer: &str) -> Result<VerifiedProviderMetadata, OidcError> {
-        insecure_discover(&self.http_service(), issuer).await.map_err(Into::into)
+    async fn discover(&self, issuer: &str, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError> {
+        if insecure {
+            insecure_discover(&self.http_service(), issuer).await.map_err(Into::into)
+        } else {
+            discover(&self.http_service(), issuer).await.map_err(Into::into)
+        }
     }
 
     async fn trade_authorization_code_for_tokens(
