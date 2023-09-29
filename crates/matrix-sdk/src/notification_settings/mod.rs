@@ -54,7 +54,7 @@ impl From<bool> for IsEncrypted {
 }
 
 /// Whether or not a room is a `one-to-one`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IsOneToOne {
     /// A room is a `one-to-one` room if it has exactly two members.
     Yes,
@@ -186,7 +186,10 @@ impl NotificationSettings {
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let rule_id = rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
+        let rule_ids = vec![
+            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.clone()),
+            rules::get_predefined_underride_polls_rule_id(is_one_to_one),
+        ];
 
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
@@ -197,7 +200,15 @@ impl NotificationSettings {
             }
         };
 
-        self.set_underride_push_rule_actions(rule_id, actions).await
+        let ruleset = self.rules.read().await.clone().ruleset;
+        for rule_id in rule_ids {
+            // Unstable polls push rule may be missing. Skip the update in case.
+            if ruleset.underride.iter().any(|r| r.rule_id == rule_id.to_string()) {
+                self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
+            }
+        }
+
+        Ok(())
     }
 
     /// Sets the push rule actions for a given underride push rule

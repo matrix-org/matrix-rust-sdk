@@ -10,7 +10,7 @@ use matrix_sdk::{
     Client as MatrixClient,
 };
 use ruma::{
-    push::{Action, PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Tweak},
+    push::{PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind},
     RoomId,
 };
 use tokio::sync::RwLock;
@@ -286,33 +286,6 @@ impl NotificationSettings {
         })
     }
 
-    /// Sets the push rule actions for a given underride push rule
-    ///
-    /// # Arguments
-    ///
-    /// * `rule_id` - the identifier of the push rule
-    /// * `actions` - the actions to set for the push rule
-    pub async fn set_underride_push_rule_actions(
-        &self,
-        rule_id: DefaultUnderrideRuleId,
-        actions: PushRuleActions,
-    ) -> Result<(), NotificationSettingsError> {
-        let notification_settings = self.sdk_notification_settings.read().await;
-        notification_settings
-            .set_underride_push_rule_actions(rule_id.into(), actions.into())
-            .await?;
-        Ok(())
-    }
-
-    pub fn set_underride_push_rule_actions_blocking(
-        &self,
-        rule_id: DefaultUnderrideRuleId,
-        actions: PushRuleActions,
-    ) -> Result<(), NotificationSettingsError> {
-        RUNTIME
-            .block_on(async move { self.set_underride_push_rule_actions(rule_id, actions).await })
-    }
-
     /// Restore the default notification mode for a room
     pub async fn restore_default_room_notification_mode(
         &self,
@@ -501,72 +474,5 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         RUNTIME
             .block_on(async move { self.unmute_room(room_id, is_encrypted, is_one_to_one).await })
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum PushRuleActions {
-    /// Sets the `notify` action with the default sound
-    Notify,
-
-    /// Sets an empty array of actions
-    None,
-}
-
-impl From<PushRuleActions> for Vec<Action> {
-    fn from(value: PushRuleActions) -> Self {
-        match value {
-            PushRuleActions::Notify => {
-                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
-            }
-            PushRuleActions::None => vec![],
-        }
-    }
-}
-
-/// Default underride push rule id
-#[derive(uniffi::Enum)]
-pub enum DefaultUnderrideRuleId {
-    /// `.m.rule.call`
-    Call,
-
-    /// `.m.rule.encrypted_room_one_to_one`
-    EncryptedRoomOneToOne,
-
-    /// `.m.rule.room_one_to_one`
-    RoomOneToOne,
-
-    /// `.m.rule.message`
-    Message,
-
-    /// `.m.rule.encrypted`
-    Encrypted,
-
-    /// `.m.rule.poll_start_one_to_one`
-    PollStartOneToOne,
-
-    /// `.m.rule.poll_start`
-    PollStart,
-
-    /// `.m.rule.poll_end_one_to_one`
-    PollEndOneToOne,
-
-    /// `.m.rule.poll_end`
-    PollEnd,
-}
-
-impl From<DefaultUnderrideRuleId> for PredefinedUnderrideRuleId {
-    fn from(value: DefaultUnderrideRuleId) -> Self {
-        match value {
-            DefaultUnderrideRuleId::Call => Self::Call,
-            DefaultUnderrideRuleId::EncryptedRoomOneToOne => Self::EncryptedRoomOneToOne,
-            DefaultUnderrideRuleId::RoomOneToOne => Self::RoomOneToOne,
-            DefaultUnderrideRuleId::Message => Self::Message,
-            DefaultUnderrideRuleId::Encrypted => Self::Encrypted,
-            DefaultUnderrideRuleId::PollStartOneToOne => Self::PollStartOneToOne,
-            DefaultUnderrideRuleId::PollStart => Self::PollStart,
-            DefaultUnderrideRuleId::PollEndOneToOne => Self::PollEndOneToOne,
-            DefaultUnderrideRuleId::PollEnd => Self::PollEnd,
-        }
     }
 }
