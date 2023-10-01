@@ -57,7 +57,6 @@ use super::{
     event_item::EventItemIdentifier,
     item::timeline_item,
     reactions::ReactionToggleResult,
-    read_receipts::UserTimelineReceipt,
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
@@ -289,26 +288,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         Ok(result)
-    }
-
-    pub(super) async fn set_initial_user_receipt(
-        &mut self,
-        receipt_type: ReceiptType,
-        receipt: (OwnedEventId, Receipt),
-    ) {
-        let own_user_id = self.room_data_provider.own_user_id().to_owned();
-        let (event_id, receipt) = receipt;
-        self.state
-            .write()
-            .await
-            .read_receipts
-            .users_read_receipts
-            .entry(own_user_id)
-            .or_default()
-            .insert(
-                receipt_type,
-                UserTimelineReceipt { event_id, receipt, timeline_event_id: None },
-            );
     }
 
     pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
@@ -952,55 +931,6 @@ impl TimelineInner {
 
         // Let the server handle unknown receipts.
         true
-    }
-
-    /// Get the latest read receipt of the given type for our own user in the
-    /// room of this timeline.
-    ///
-    /// Any error encountered is logged.
-    async fn own_user_stored_read_receipt_for_type_and_thread(
-        &self,
-        receipt_type: ReceiptType,
-        receipt_thread: ReceiptThread,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        match self
-            .room()
-            .user_receipt(receipt_type.clone(), receipt_thread.clone(), self.room().own_user_id())
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                error!(
-                    ?receipt_type,
-                    ?receipt_thread,
-                    "Failed to get read receipt of own user from the store: {e}"
-                );
-                None
-            }
-        }
-    }
-
-    /// Get the latest read receipt of the given type for our own user in the
-    /// room of this timeline.
-    pub(super) async fn own_user_stored_read_receipt(
-        &self,
-        receipt_type: ReceiptType,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        // If we cant find the unthreaded receipt, load the one from the main thread.
-        // Ideally we would get both and use the most recent one, but it is not possible
-        // to no which is the most recent at this stage since we don't have any events.
-        if let Some(receipt) = self
-            .own_user_stored_read_receipt_for_type_and_thread(
-                receipt_type.clone(),
-                ReceiptThread::Unthreaded,
-            )
-            .await
-        {
-            Some(receipt)
-        } else {
-            self.own_user_stored_read_receipt_for_type_and_thread(receipt_type, ReceiptThread::Main)
-                .await
-        }
     }
 }
 

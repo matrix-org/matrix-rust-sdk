@@ -20,7 +20,7 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, executor::spawn, sync::RoomUpdate, Room,
 };
-use ruma::events::{receipt::ReceiptType, AnySyncTimelineEvent};
+use ruma::events::AnySyncTimelineEvent;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, info_span, trace, warn, Instrument};
 
@@ -119,18 +119,6 @@ impl TimelineBuilder {
         let track_read_marker_and_receipts = settings.track_read_receipts;
 
         let mut inner = TimelineInner::new(room).with_settings(settings);
-
-        if track_read_marker_and_receipts {
-            if let Some(read_receipt) = inner.own_user_stored_read_receipt(ReceiptType::Read).await
-            {
-                inner.set_initial_user_receipt(ReceiptType::Read, read_receipt).await;
-            }
-            if let Some(read_receipt) =
-                inner.own_user_stored_read_receipt(ReceiptType::ReadPrivate).await
-            {
-                inner.set_initial_user_receipt(ReceiptType::ReadPrivate, read_receipt).await;
-            }
-        }
 
         if has_events {
             inner.add_initial_events(events).await;
