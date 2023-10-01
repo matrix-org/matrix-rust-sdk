@@ -56,18 +56,32 @@ pub fn message_event_content_new(
 #[uniffi::export]
 pub fn message_event_content_from_markdown(
     md: String,
+    emote: bool,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
+    if emote {
+        Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_markdown(md)))
+    }
+    else {
+        Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
+    }
 }
 
 #[uniffi::export]
 pub fn message_event_content_from_html(
     body: String,
     html_body: String,
+    emote: bool,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
-        body, html_body,
-    )))
+    if emote {
+        Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_html(
+            body, html_body,
+        )))
+    }
+    else {
+        Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
+            body, html_body,
+        )))
+    }
 }
 
 #[uniffi::export(callback_interface)]
