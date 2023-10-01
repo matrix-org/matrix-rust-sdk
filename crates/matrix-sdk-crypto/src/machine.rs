@@ -1236,10 +1236,14 @@ impl OlmMachine {
     /// # Examples
     //
     /// ```
+    /// # async {
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # let machine: OlmMachine = unimplemented!();
     /// if machine.query_missing_secrets_from_other_sessions().await.unwrap() {
     ///     let to_send = machine.outgoing_requests().await.unwrap();
     ///     // send the to device requests
-    /// }
+    /// };
+    /// # anyhow::Ok(()) };
     /// ```
     pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
         let identity = self.inner.user_identity.lock().await;
