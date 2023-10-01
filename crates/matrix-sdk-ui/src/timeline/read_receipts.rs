@@ -137,28 +137,26 @@ impl ReadReceipts {
         // - If old_receipt_pos is None and new_receipt_pos is Some, the new receipt is
         //   more recent because it has a place in the timeline.
 
-        if !is_own_user {
-            // Remove the old receipt from the old event.
-            if let Some(old_event_id) = old_event_id {
-                let is_empty =
-                    if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
-                        event_receipts.remove(new_receipt.user_id);
-                        event_receipts.is_empty()
-                    } else {
-                        false
-                    };
-                // Remove the entry if the map is empty.
-                if is_empty {
-                    self.events_read_receipts.remove(old_event_id);
-                }
+        // Remove the old receipt from the old event.
+        if let Some(old_event_id) = old_event_id {
+            let is_empty =
+                if let Some(event_receipts) = self.events_read_receipts.get_mut(old_event_id) {
+                    event_receipts.remove(new_receipt.user_id);
+                    event_receipts.is_empty()
+                } else {
+                    false
+                };
+            // Remove the entry if the map is empty.
+            if is_empty {
+                self.events_read_receipts.remove(old_event_id);
             }
-
-            // Add the new receipt to the new event.
-            self.events_read_receipts
-                .entry(new_receipt.event_id.to_owned())
-                .or_default()
-                .insert(new_receipt.user_id.to_owned(), new_receipt.receipt.clone());
         }
+
+        // Add the new receipt to the new event.
+        self.events_read_receipts
+            .entry(new_receipt.event_id.to_owned())
+            .or_default()
+            .insert(new_receipt.user_id.to_owned(), new_receipt.receipt.clone());
 
         // Update the receipt of the user.
         self.users_read_receipts.entry(new_receipt.user_id.to_owned()).or_default().insert(
@@ -203,7 +201,6 @@ impl ReadReceipts {
         let events_iter = all_events.iter().skip_while(|meta| meta.event_id != event_id).skip(1);
 
         for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
-            tracing::debug!("hidden event: {hidden_event_meta:?}");
             let Some(event_receipts) = self.events_read_receipts.get(&hidden_event_meta.event_id)
             else {
                 continue;

@@ -572,7 +572,8 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        let is_own_event = sender == room_data_provider.own_user_id();
+        let own_user_id = room_data_provider.own_user_id();
+        let is_own_event = sender == own_user_id;
 
         let event_metadata = FullEventMeta {
             event_id: &event_id,
@@ -601,7 +602,7 @@ impl TimelineInnerStateTransaction<'_> {
                     self.read_receipts.set_user_receipt_timeline_item(user_id, event_id.clone());
                 }
 
-                read_receipts
+                read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id).collect()
             } else {
                 Default::default()
             },
