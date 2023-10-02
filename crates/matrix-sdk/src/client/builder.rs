@@ -372,7 +372,9 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[cfg(feature = "experimental-oidc")]
-        let (mut authentication_server_info, mut allow_insecure_oidc) = (None, false);
+        let mut authentication_server_info = None;
+        #[cfg(feature = "experimental-oidc")]
+        let allow_insecure_oidc;
 
         #[cfg(feature = "experimental-sliding-sync")]
         let mut sliding_sync_proxy: Option<Url> = None;
@@ -384,6 +386,12 @@ impl ClientBuilder {
                     sliding_sync_proxy =
                         self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
                 }
+
+                #[cfg(feature = "experimental-oidc")]
+                {
+                    allow_insecure_oidc = url.starts_with("http://");
+                }
+
                 url
             }
             HomeserverConfig::ServerName { server: server_name, protocol } => {
