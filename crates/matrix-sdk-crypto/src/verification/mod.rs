@@ -855,7 +855,7 @@ pub(crate) mod tests {
             ..Default::default()
         };
         alice_store.save_changes(alice_changes).await.unwrap();
-        alice_store.save_devices(vec![bob_device]).await;
+        alice_store.save_devices(vec![bob_device]);
 
         let bob_changes = Changes {
             identities: IdentityChanges {
@@ -866,7 +866,7 @@ pub(crate) mod tests {
             ..Default::default()
         };
         bob_store.save_changes(bob_changes).await.unwrap();
-        bob_store.save_devices(vec![alice_device]).await;
+        bob_store.save_devices(vec![alice_device]);
 
         let alice_store = VerificationStore {
             inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), alice_store)),

@@ -903,7 +903,7 @@ mod tests {
         };
 
         let bob_store = MemoryStore::new();
-        bob_store.save_devices(vec![alice_device.clone()]).await;
+        bob_store.save_devices(vec![alice_device.clone()]);
 
         let bob_store = VerificationStore {
             account: bob.static_data.clone(),
