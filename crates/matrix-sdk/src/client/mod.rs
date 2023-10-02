@@ -14,15 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-sliding-sync")]
-use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
 };
 
 use dashmap::DashMap;
@@ -191,7 +189,7 @@ pub(crate) struct ClientInner {
     pub(crate) auth_ctx: Arc<AuthCtx>,
 
     /// The URL of the homeserver to connect to.
-    homeserver: RwLock<Url>,
+    homeserver: StdRwLock<Url>,
     /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: StdRwLock<Option<Url>>,
@@ -240,7 +238,7 @@ impl ClientInner {
         respect_login_well_known: bool,
     ) -> Self {
         Self {
-            homeserver: RwLock::new(homeserver),
+            homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
@@ -304,9 +302,8 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    async fn set_homeserver(&self, homeserver_url: Url) {
-        let mut homeserver = self.inner.homeserver.write().await;
-        *homeserver = homeserver_url;
+    fn set_homeserver(&self, homeserver_url: Url) {
+        *self.inner.homeserver.write().unwrap() = homeserver_url;
     }
 
     /// Get the capabilities of the homeserver.
@@ -354,8 +351,8 @@ impl Client {
     }
 
     /// The Homeserver of the client.
-    pub async fn homeserver(&self) -> Url {
-        self.inner.homeserver.read().await.clone()
+    pub fn homeserver(&self) -> Url {
+        self.inner.homeserver.read().unwrap().clone()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
@@ -863,14 +860,11 @@ impl Client {
     ///
     /// * `login_well_known` - The `well_known` field from a successful login
     ///   response.
-    pub(crate) async fn maybe_update_login_well_known(
-        &self,
-        login_well_known: Option<&DiscoveryInfo>,
-    ) {
+    pub(crate) fn maybe_update_login_well_known(&self, login_well_known: Option<&DiscoveryInfo>) {
         if self.inner.respect_login_well_known {
             if let Some(well_known) = login_well_known {
                 if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
-                    self.set_homeserver(homeserver).await;
+                    self.set_homeserver(homeserver);
                 }
             }
         }
@@ -1263,7 +1257,7 @@ impl Client {
     {
         let homeserver = match homeserver {
             Some(hs) => hs,
-            None => self.homeserver().await.to_string(),
+            None => self.homeserver().to_string(),
         };
 
         let access_token = self.access_token();
@@ -1305,7 +1299,7 @@ impl Client {
             .send(
                 get_supported_versions::Request::new(),
                 None,
-                self.homeserver().await.to_string(),
+                self.homeserver().to_string(),
                 None,
                 &[MatrixVersion::V1_0],
                 Default::default(),
@@ -1934,7 +1928,7 @@ impl Client {
         let client = Client {
             inner: Arc::new(ClientInner::new(
                 self.inner.auth_ctx.clone(),
-                self.inner.homeserver.read().await.clone(),
+                self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.inner.sliding_sync_proxy.read().unwrap().clone(),
                 self.inner.http_client.clone(),
@@ -1985,7 +1979,7 @@ pub(crate) mod tests {
     };
 
     #[async_test]
-    async fn account_data() {
+    async fn test_account_data() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2012,7 +2006,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn successful_discovery() {
+    async fn test_successful_discovery() {
         let server = MockServer::start().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2038,11 +2032,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(server_url.as_ref()).unwrap());
     }
 
     #[async_test]
-    async fn discovery_broken_server() {
+    async fn test_discovery_broken_server() {
         let server = MockServer::start().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2065,7 +2059,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn room_creation() {
+    async fn test_room_creation() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2080,14 +2074,14 @@ pub(crate) mod tests {
         client.inner.base_client.receive_sync_response(response).await.unwrap();
         let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
-        assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(&server.uri()).unwrap());
 
         let room = client.get_room(room_id).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 
     #[async_test]
-    async fn retry_limit_http_requests() {
+    async fn test_retry_limit_http_requests() {
         let server = MockServer::start().await;
         let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_limit(3))
@@ -2108,7 +2102,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn retry_timeout_http_requests() {
+    async fn test_retry_timeout_http_requests() {
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
         let server = MockServer::start().await;
@@ -2131,7 +2125,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn short_retry_initial_http_requests() {
+    async fn test_short_retry_initial_http_requests() {
         let server = MockServer::start().await;
         let client = test_client_builder(Some(server.uri())).build().await.unwrap();
 
@@ -2146,7 +2140,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn no_retry_http_requests() {
+    async fn test_no_retry_http_requests() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2161,17 +2155,17 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn set_homeserver() {
+    async fn test_set_homeserver() {
         let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
-        assert_eq!(client.homeserver().await.as_ref(), "http://localhost/");
+        assert_eq!(client.homeserver().as_ref(), "http://localhost/");
 
         let homeserver = Url::parse("http://example.com/").unwrap();
-        client.set_homeserver(homeserver.clone()).await;
-        assert_eq!(client.homeserver().await, homeserver);
+        client.set_homeserver(homeserver.clone());
+        assert_eq!(client.homeserver(), homeserver);
     }
 
     #[async_test]
-    async fn search_user_request() {
+    async fn test_search_user_request() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 

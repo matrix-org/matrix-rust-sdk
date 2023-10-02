@@ -310,10 +310,6 @@ impl Client {
         })
     }
 
-    pub(crate) async fn async_homeserver(&self) -> String {
-        self.inner.homeserver().await.to_string()
-    }
-
     /// The homeserver's trusted OIDC Provider that was discovered in the
     /// well-known.
     ///
@@ -612,7 +608,7 @@ impl Client {
 
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(self.async_homeserver())
+        self.inner.homeserver().to_string()
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
@@ -770,7 +766,7 @@ impl Client {
     async fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
         let auth_api = client.auth_api().context("Missing authentication API")?;
 
-        let homeserver_url = client.homeserver().await.into();
+        let homeserver_url = client.homeserver().into();
         let sliding_sync_proxy = client.sliding_sync_proxy().map(|url| url.to_string());
 
         Session::new(auth_api, homeserver_url, sliding_sync_proxy)

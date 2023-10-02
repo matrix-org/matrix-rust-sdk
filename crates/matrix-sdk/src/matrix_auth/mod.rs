@@ -111,7 +111,7 @@ impl MatrixAuth {
         redirect_url: &str,
         idp_id: Option<&str>,
     ) -> Result<String> {
-        let homeserver = self.client.homeserver().await;
+        let homeserver = self.client.homeserver();
         let server_versions = self.client.server_versions().await?;
 
         let request = if let Some(id) = idp_id {
@@ -540,7 +540,7 @@ impl MatrixAuth {
         &self,
         request: register::v3::Request,
     ) -> HttpResult<register::v3::Response> {
-        let homeserver = self.client.homeserver().await;
+        let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
         self.client.send(request, None).await
     }
@@ -816,7 +816,7 @@ impl MatrixAuth {
         &self,
         response: &login::v3::Response,
     ) -> Result<()> {
-        self.client.maybe_update_login_well_known(response.well_known.as_ref()).await;
+        self.client.maybe_update_login_well_known(response.well_known.as_ref());
 
         self.set_session(response.into()).await?;
 
