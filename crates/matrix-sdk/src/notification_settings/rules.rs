@@ -227,7 +227,7 @@ impl Rules {
         } else if let Some(rule) = self.ruleset.get(kind, rule_id) {
             Ok(rule.enabled())
         } else {
-            Err(NotificationSettingsError::RuleNotFound(rule_id.to_string()))
+            Err(NotificationSettingsError::RuleNotFound(rule_id.to_owned()))
         }
     }
 

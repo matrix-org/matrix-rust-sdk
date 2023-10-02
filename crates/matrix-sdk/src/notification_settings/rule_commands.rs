@@ -75,7 +75,7 @@ impl RuleCommands {
     ) -> Result<(), NotificationSettingsError> {
         self.rules
             .set_enabled(kind.clone(), rule_id, enabled)
-            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_string()))?;
+            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_owned()))?;
         self.commands.push(Command::SetPushRuleEnabled {
             scope: RuleScope::Global,
             kind,
@@ -167,7 +167,7 @@ impl RuleCommands {
     ) -> Result<(), NotificationSettingsError> {
         self.rules
             .set_actions(kind.clone(), rule_id, actions.clone())
-            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_string()))?;
+            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_owned()))?;
         self.commands.push(Command::SetPushRuleActions {
             scope: RuleScope::Global,
             kind,
