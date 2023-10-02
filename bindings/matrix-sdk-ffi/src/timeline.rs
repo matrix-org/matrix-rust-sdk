@@ -60,8 +60,7 @@ pub fn message_event_content_from_markdown(
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
     if emote {
         Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_markdown(md)))
-    }
-    else {
+    } else {
         Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
     }
 }
@@ -76,8 +75,7 @@ pub fn message_event_content_from_html(
         Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_html(
             body, html_body,
         )))
-    }
-    else {
+    } else {
         Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
             body, html_body,
         )))
