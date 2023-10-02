@@ -434,7 +434,7 @@ impl From<RemoteEventTimelineItem> for EventTimelineItemKind {
 }
 
 /// The display name and avatar URL of a room member.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Profile {
     /// The display name, if set.
     pub display_name: Option<String>,

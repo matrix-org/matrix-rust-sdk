@@ -93,11 +93,7 @@ impl RoomDataProvider for Room {
                 display_name_ambiguous: member.name_ambiguous(),
                 avatar_url: member.avatar_url().map(ToOwned::to_owned),
             }),
-            Ok(None) if self.are_members_synced() => Some(Profile {
-                display_name: None,
-                display_name_ambiguous: false,
-                avatar_url: None,
-            }),
+            Ok(None) if self.are_members_synced() => Some(Profile::default()),
             Ok(None) => None,
             Err(e) => {
                 error!(%user_id, "Failed to fetch room member information: {e}");
@@ -113,7 +109,7 @@ impl RoomDataProvider for Room {
 
         Some(Profile {
             display_name: latest_event.sender_display_name().map(ToOwned::to_owned),
-            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
+            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or_default(),
             avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
         })
     }
