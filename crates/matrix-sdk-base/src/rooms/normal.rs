@@ -58,9 +58,10 @@ use super::{
     members::{MemberInfo, MemberRoomInfo},
     BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
+#[cfg(feature = "experimental-sliding-sync")]
+use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
-    latest_event::LatestEvent,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,

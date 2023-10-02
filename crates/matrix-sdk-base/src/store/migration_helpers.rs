@@ -38,9 +38,10 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "experimental-sliding-sync")]
+use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::SyncOrStrippedState,
-    latest_event::LatestEvent,
     rooms::{
         normal::{RoomSummary, SyncInfo},
         BaseRoomInfo,

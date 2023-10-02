@@ -1,16 +1,15 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::Room::latest_event].
 
-#![cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#![cfg(feature = "experimental-sliding-sync")]
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-use ruma::{
-    events::{
-        poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
-    MxcUri, OwnedEventId,
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
+    AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
+use ruma::{MxcUri, OwnedEventId};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
@@ -19,6 +18,7 @@ use crate::MinimalRoomMemberEvent;
 /// event in a room. Variants starting with Yes indicate that this message could
 /// be stored, and provide the inner event information, and those starting with
 /// a No indicate that it could not, and give a reason.
+#[cfg(feature = "e2e-encryption")]
 #[derive(Debug)]
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
@@ -37,6 +37,7 @@ pub enum PossibleLatestEvent<'a> {
 
 /// Decide whether an event could be stored as the latest event in a room.
 /// Returns a LatestEvent representing our decision.
+#[cfg(feature = "e2e-encryption")]
 pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLatestEvent<'_> {
     match event {
         // Suitable - we have an m.room.message that was not redacted
