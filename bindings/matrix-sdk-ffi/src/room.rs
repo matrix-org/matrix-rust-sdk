@@ -399,26 +399,6 @@ impl Room {
         })
     }
 
-    pub fn send_read_marker(
-        &self,
-        fully_read_event_id: String,
-        read_receipt_event_id: Option<String>,
-    ) -> Result<(), ClientError> {
-        let fully_read =
-            EventId::parse(fully_read_event_id).context("parsing fully read event ID")?;
-        let read_receipt = read_receipt_event_id
-            .map(EventId::parse)
-            .transpose()
-            .context("parsing read receipt event ID")?;
-        let receipts =
-            Receipts::new().fully_read_marker(fully_read).public_read_receipt(read_receipt);
-
-        RUNTIME.block_on(async move {
-            self.inner.send_multiple_receipts(receipts).await?;
-            Ok(())
-        })
-    }
-
     pub fn send(&self, msg: Arc<RoomMessageEventContentWithoutRelation>) {
         let timeline = match &*RUNTIME.block_on(self.timeline.read()) {
             Some(t) => Arc::clone(t),
