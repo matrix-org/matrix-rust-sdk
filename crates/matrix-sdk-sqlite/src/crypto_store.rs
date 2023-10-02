@@ -665,15 +665,6 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        *self.static_account.write().unwrap() = Some(account.static_data().clone());
-
-        let pickled_account = account.pickle().await;
-        let serialized_account = self.serialize_value(&pickled_account)?;
-        self.acquire().await?.set_kv("account", serialized_account).await?;
-        Ok(())
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         let conn = self.acquire().await?;
         if let Some(i) = conn.get_kv("identity").await? {
