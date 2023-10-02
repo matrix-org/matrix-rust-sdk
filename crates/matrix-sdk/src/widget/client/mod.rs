@@ -23,6 +23,7 @@ use ruma::{
     OwnedEventId,
 };
 use serde_json::Value as JsonValue;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 use super::Permissions;
 
@@ -31,16 +32,18 @@ pub struct ClientApi;
 
 impl ClientApi {
     /// Creates a new instance of a client widget API state machine.
-    pub fn new() -> Self {
-        Self
+    /// Returns the client api handler as well as the channel to receive
+    /// actions (commands) from the client.
+    pub fn new() -> (Self, UnboundedReceiver<Action>) {
+        let (_tx, rx) = unbounded_channel();
+        (Self, rx)
     }
 
     /// Processes an incoming event (an incoming raw message from a widget,
     /// or a data produced as a result of a previously sent `Action`).
     /// Produceses a list of actions that the client must perform.
-    pub fn process(&mut self, _event: Event) -> Vec<Action> {
+    pub fn process(&mut self, _event: Event) {
         // TODO: Process the event.
-        Vec::new()
     }
 }
 
