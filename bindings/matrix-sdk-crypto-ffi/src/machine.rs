@@ -765,7 +765,6 @@ impl OlmMachine {
     ///
     /// * `users` - The list of users which are considered to be members of the
     /// room and should receive previous room keys.
-    #[cfg(feature = "automatic-room-key-forwarding")]
     pub fn share_room_history_keys(
         &self,
         room_id: String,
