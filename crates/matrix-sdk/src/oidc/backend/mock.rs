@@ -19,15 +19,17 @@ use std::sync::{Arc, Mutex};
 use http::StatusCode;
 use mas_oidc_client::{
     error::{
-        DiscoveryError, Error as OidcClientError, ErrorBody as OidcErrorBody,
-        HttpError as OidcHttpError, TokenRefreshError, TokenRequestError,
+        DiscoveryError,
+        Error::{self as OidcClientError, Discovery},
+        ErrorBody as OidcErrorBody, HttpError as OidcHttpError, TokenRefreshError,
+        TokenRequestError,
     },
     requests::authorization_code::{AuthorizationRequestData, AuthorizationValidationData},
     types::{
         client_credentials::ClientCredentials,
         errors::ClientErrorCode,
         iana::oauth::OAuthTokenTypeHint,
-        oidc::{ProviderMetadata, VerifiedProviderMetadata},
+        oidc::{ProviderMetadata, ProviderMetadataVerificationError, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         IdToken,
     },
@@ -71,6 +73,9 @@ pub(crate) struct MockImpl {
 
     /// Tokens that have been revoked with `revoke_token`.
     pub revoked_tokens: Arc<Mutex<Vec<String>>>,
+
+    /// Should we only accept insecure flags during discovery?
+    is_insecure: bool,
 }
 
 impl MockImpl {
@@ -85,6 +90,7 @@ impl MockImpl {
             expected_refresh_token: None,
             num_refreshes: Default::default(),
             revoked_tokens: Default::default(),
+            is_insecure: false,
         }
     }
 
@@ -97,6 +103,11 @@ impl MockImpl {
         self.expected_refresh_token = Some(refresh_token);
         self
     }
+
+    pub fn mark_insecure(mut self) -> Self {
+        self.is_insecure = true;
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -104,8 +115,17 @@ impl OidcBackend for MockImpl {
     async fn discover(
         &self,
         issuer: &str,
-        _insecure: bool,
+        insecure: bool,
     ) -> Result<VerifiedProviderMetadata, OidcError> {
+        if insecure != self.is_insecure {
+            return Err(OidcError::Oidc(Discovery(DiscoveryError::Validation(
+                ProviderMetadataVerificationError::UrlNonHttpsScheme(
+                    "mocking backend",
+                    Url::parse(&self.issuer).unwrap(),
+                ),
+            ))));
+        }
+
         Ok(ProviderMetadata {
             issuer: Some(self.issuer.clone()),
             authorization_endpoint: Some(Url::parse(&self.authorization_endpoint).unwrap()),
