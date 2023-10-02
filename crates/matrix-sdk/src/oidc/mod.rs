@@ -646,7 +646,7 @@ impl Oidc {
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.backend.discover(issuer, self.ctx().insecure_discover).await?;
+        let provider_metadata = self.given_provider_metadata(issuer).await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
