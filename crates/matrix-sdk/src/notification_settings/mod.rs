@@ -208,7 +208,7 @@ impl NotificationSettings {
     }
 
     /// Sets the push rule actions for a given underride push rule.
-    /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules 
+    /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
     ///
     /// # Arguments
     ///

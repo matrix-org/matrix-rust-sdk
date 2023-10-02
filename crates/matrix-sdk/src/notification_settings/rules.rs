@@ -280,7 +280,7 @@ impl From<IsOneToOne> for PredefinedUnderrideRuleId {
     fn from(is_one_to_one: IsOneToOne) -> Self {
         match is_one_to_one {
             IsOneToOne::Yes => Self::PollStartOneToOne,
-            IsOneToOne::No => Self::PollStart
+            IsOneToOne::No => Self::PollStart,
         }
     }
 }
