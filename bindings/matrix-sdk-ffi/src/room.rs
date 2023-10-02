@@ -7,7 +7,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    room::{Receipts, Room as SdkRoom},
+    room::Room as SdkRoom,
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
@@ -392,7 +392,11 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async move {
-            self.inner
+            self.timeline
+                .read()
+                .await
+                .clone()
+                .context("Timeline not set up, can't send read receipt")?
                 .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
                 .await?;
             Ok(())
