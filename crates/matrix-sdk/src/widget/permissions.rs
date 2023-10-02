@@ -37,10 +37,16 @@ pub struct Permissions {
     pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<EventFilter>,
-    /// If this permission is requested by the widget, it can not operate
-    /// separately from the matrix client.
-    ///
-    /// This means clients should not offer to open the widget in a separate
-    /// browser/tab/webview that is not connected to the postmessage widget-api.
-    pub requires_client: bool,
+    /// Whether the client can open the widget in a separate window.
+    pub can_open_in_separate_window: bool,
+}
+
+impl Default for Permissions {
+    fn default() -> Self {
+        Self {
+            can_open_in_separate_window: true,
+            read: Default::default(),
+            send: Default::default(),
+        }
+    }
 }

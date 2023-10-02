@@ -251,7 +251,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
-            requires_client: value.requires_client,
+            can_open_in_separate_window: !value.requires_client,
         }
     }
 }
@@ -261,7 +261,7 @@ impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
-            requires_client: value.requires_client,
+            requires_client: !value.can_open_in_separate_window,
         }
     }
 }

@@ -14,143 +14,140 @@
 
 //! Internal client widget API implementation.
 
-use std::{borrow::Cow, error::Error, ops::Deref};
-
-use ruma::{
-    api::client::account::request_openid_token::v3::Response as OpenIdResponse,
-    events::{AnyTimelineEvent, TimelineEventType},
-    serde::Raw,
-    OwnedEventId,
+use std::{
+    borrow::Cow,
+    sync::{Arc, Mutex},
 };
-use serde_json::Value as JsonValue;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
+use ruma::OwnedRoomId;
+use serde_json::{from_str as from_json, to_string as to_json};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tracing::error;
+
+use self::internal::{
+    incoming::{
+        ContentLoadedRequest, GetOpenIdRequest, GetSupportedApiVersionsRequest, HandlerContext,
+        ReadEventRequest, RequestHandler, SendEventRequest,
+    },
+    messages::{
+        from_widget::{RequestType, ResponseType},
+        IncomingMessage, IncomingMessageKind, OutgoingMessage,
+    },
+    outgoing::{AcquirePermissions, CommandProxy, RequestPermissions, UpdatePermissions},
+};
+pub use self::{
+    actions::{Action, SendEventCommand},
+    events::Event,
+};
 use super::Permissions;
 
+mod actions;
+mod events;
+mod internal;
+
 /// State machine that handles the client widget API interractions.
-pub struct ClientApi;
+pub struct ClientApi {
+    settings: ClientApiSettings,
+    permissions: Arc<Mutex<Option<Permissions>>>,
+    command_proxy: Arc<CommandProxy>,
+    actions_tx: UnboundedSender<Action>,
+}
+
+/// Settings for the client widget API state machine.
+#[derive(Clone, Debug)]
+pub struct ClientApiSettings {
+    pub init_on_content_load: bool,
+    pub room_id: OwnedRoomId,
+}
 
 impl ClientApi {
     /// Creates a new instance of a client widget API state machine.
     /// Returns the client api handler as well as the channel to receive
     /// actions (commands) from the client.
-    pub fn new() -> (Self, UnboundedReceiver<Action>) {
-        let (_tx, rx) = unbounded_channel();
-        (Self, rx)
+    pub fn new(settings: ClientApiSettings) -> (Self, UnboundedReceiver<Action>) {
+        let permissions = Arc::new(Mutex::new(None));
+        let command_proxy = Arc::new(CommandProxy);
+
+        // Unless we're asked to wait for the content load message,
+        // we must start the negotiation of permissions right away.
+        if !settings.init_on_content_load {
+            let (perm, proxy) = (permissions.clone(), command_proxy.clone());
+            tokio::spawn(async move {
+                // TODO: Handle an error.
+                if let Ok(negotiated) = negotiate_permissions(proxy).await {
+                    perm.lock().unwrap().replace(negotiated);
+                }
+            });
+        }
+
+        let (actions_tx, actions_rx) = unbounded_channel();
+        (Self { settings, permissions, command_proxy, actions_tx }, actions_rx)
     }
 
     /// Processes an incoming event (an incoming raw message from a widget,
     /// or a data produced as a result of a previously sent `Action`).
-    /// Produceses a list of actions that the client must perform.
-    pub fn process(&mut self, _event: Event) {
-        // TODO: Process the event.
+    pub fn process(&mut self, event: Event) {
+        match event {
+            Event::MessageFromWidget(raw) => match from_json::<IncomingMessage>(&raw) {
+                Ok(msg) => match msg.kind {
+                    IncomingMessageKind::FromWidget(request_type) => {
+                        let ctx = HandlerContext::new(
+                            self.permissions.clone(),
+                            self.settings.clone(),
+                            self.command_proxy.clone(),
+                        );
+                        let id = msg.header.request_id.clone();
+                        let actions_tx = self.actions_tx.clone();
+                        tokio::spawn(async move {
+                            let response = process_incoming_request(ctx, id, request_type).await;
+                            let msg = OutgoingMessage::response(msg.header, response);
+                            let raw = to_json(&msg).expect("Failed to serialize a message");
+                            let _ = actions_tx.send(Action::SendToWidget(raw));
+                        });
+                    }
+                    IncomingMessageKind::ToWidget(_) => {}
+                },
+                Err(err) => {
+                    // TODO: Properly handle this error by sending an error response.
+                    error!("Failed to parse a message from a widget: {}", err);
+                }
+            },
+            Event::MatrixEventReceived(_) => {}
+            Event::PermissionsAcquired(_) => {}
+            Event::OpenIdReceived(_) => {}
+            Event::MatrixEventRead(_) => {}
+            Event::MatrixEventSent(_) => {}
+        }
     }
 }
 
-/// Incoming event that the client API must process.
-pub enum Event {
-    /// An incoming raw message from the widget.
-    MessageFromWidget(String),
-    /// Matrix event received. This one is delivered as a result of client
-    /// subscribing to the events (`Action::Subscribe` command).
-    MatrixEventReceived(Raw<AnyTimelineEvent>),
-    /// Client acquired permissions from the user.
-    /// A response to an `Action::AcquirePermissions` command.
-    PermissionsAcquired(CommandResult<Permissions>),
-    /// Client got OpenId token for a given request ID.
-    /// A response to an `Action::GetOpenId` command.
-    OpenIdReceived(CommandResult<OpenIdResponse>),
-    /// Client read some matrix event(s).
-    /// A response to an `Action::ReadMatrixEvent` commands.
-    MatrixEventRead(CommandResult<Vec<Raw<AnyTimelineEvent>>>),
-    /// Client sent some matrix event. The response contains the event ID.
-    /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(CommandResult<OwnedEventId>),
-}
-
-/// Action (a command) that client (driver) must perform.
-#[allow(dead_code)] // TODO: Remove once all actions are implemented.
-pub enum Action {
-    /// Send a raw message to the widget.
-    SendToWidget(String),
-    /// Acquire permissions from the user given the set of desired permissions.
-    /// Must eventually be answered with `Event::PermissionsAcquired`.
-    AcquirePermissions(Command<Permissions>),
-    /// Get OpenId token for a given request ID.
-    GetOpenId(Command<()>),
-    /// Read matrix event(s) that corresponds to the given description.
-    ReadMatrixEvent(Command<ReadEventCommand>),
-    // Send matrix event that corresponds to the given description.
-    SendMatrixEvent(Command<SendEventCommand>),
-    /// Subscribe to the events in the *current* room, i.e. a room which this
-    /// widget is instantiated with. The client is aware of the room.
-    Subscribe,
-    /// Unsuscribe from the events in the *current* room. Symmetrical to
-    /// `Subscribe`.
-    Unsubscribe,
-}
-
-/// Command to read matrix event(s).
-pub struct ReadEventCommand {
-    /// Read event(s) of a given type.
-    pub event_type: TimelineEventType,
-    /// Limits for the Matrix request.
-    pub limit: u32,
-}
-
-/// Command to send matrix event.
-#[derive(Clone)]
-pub struct SendEventCommand {
-    /// type of an event.
-    pub event_type: TimelineEventType,
-    /// State key of an event (if it's a state event).
-    pub state_key: Option<String>,
-    /// Raw content of an event.
-    pub content: JsonValue,
-}
-
-/// Command that is sent from the client widget API state machine to the
-/// client (driver) that must be performed. Once the command is executed,
-/// the client will typically generate an `Event` with the result of it.
-pub struct Command<T> {
-    /// Certain commands are typically answered with certain event once the
-    /// command is performed. The api state machine will "tag" each command
-    /// with some "cookie" (in this case just an ID), so that once the
-    /// result of the execution of this command is received, it could be
-    /// matched.
+async fn process_incoming_request(
+    ctx: HandlerContext,
     id: String,
-    // Data associated with this command.
-    data: T,
-}
-
-impl<T> Command<T> {
-    /// Consumes the command and produces a command result with given data.
-    pub fn result<U, E: Error>(self, result: Result<U, E>) -> CommandResult<U> {
-        CommandResult { id: self.id, result: result.map_err(|e| e.to_string().into()) }
-    }
-
-    pub fn ok<U>(self, value: U) -> CommandResult<U> {
-        CommandResult { id: self.id, result: Ok(value) }
-    }
-}
-
-impl<T> Deref for Command<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
+    request_type: RequestType,
+) -> ResponseType {
+    match request_type {
+        RequestType::GetSupportedApiVersion(r) => ResponseType::GetSupportedApiVersion(
+            r.clone().map(GetSupportedApiVersionsRequest::handle(ctx, id, r.content).await),
+        ),
+        RequestType::ContentLoaded(r) => ResponseType::ContentLoaded(
+            r.clone().map(ContentLoadedRequest::handle(ctx, id, r.content).await),
+        ),
+        RequestType::GetOpenId(r) => ResponseType::GetOpenId(
+            r.clone().map(GetOpenIdRequest::handle(ctx, id, r.content).await),
+        ),
+        RequestType::ReadEvent(r) => ResponseType::ReadEvent(
+            r.clone().map(ReadEventRequest::handle(ctx, id, r.content).await),
+        ),
+        RequestType::SendEvent(r) => ResponseType::SendEvent(
+            r.clone().map(SendEventRequest::handle(ctx, id, r.content).await),
+        ),
     }
 }
 
-/// The result of the execution of a command. Note that this type can only be
-/// constructed within this module, i.e. it can only be constructed as a result
-/// of a command that has been sent from this module, which means that the
-/// client (driver) won't be able to send "invalid" commands, because they could
-/// only be generated from a `Command` instance.
-#[allow(dead_code)] // TODO: Remove once results are used.
-pub struct CommandResult<T> {
-    /// ID of the command that was executed. See `Command::id` for more details.
-    id: String,
-    /// Result of the execution of the command.
-    result: Result<T, Cow<'static, str>>,
+async fn negotiate_permissions(proxy: Arc<CommandProxy>) -> Result<Permissions, Cow<'static, str>> {
+    let desired_permissions = proxy.send(RequestPermissions).await?;
+    let granted_permissions = proxy.send(AcquirePermissions(desired_permissions)).await?;
+    proxy.send(UpdatePermissions(granted_permissions.clone())).await?;
+    Ok(granted_permissions)
 }
