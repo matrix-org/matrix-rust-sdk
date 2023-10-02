@@ -99,6 +99,7 @@ pub struct IndexeddbCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Debug for IndexeddbCryptoStore {
@@ -246,7 +247,14 @@ impl IndexeddbCryptoStore {
         let db: IdbDatabase = db_req.into_future().await?;
         let session_cache = SessionStore::new();
 
-        Ok(Self { name, session_cache, inner: db, store_cipher, static_account: RwLock::new(None) })
+        Ok(Self {
+            name,
+            session_cache,
+            inner: db,
+            store_cipher,
+            static_account: RwLock::new(None),
+            save_changes_lock: Default::default(),
+        })
     }
 
     /// Open a new `IndexeddbCryptoStore` with default name and no passphrase
@@ -501,6 +509,12 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // Serialize calls to `save_changes`; there are multiple await points below, and we're
+        // pickling data as we go, so we don't want to invalidate data we've previously read and
+        // overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
