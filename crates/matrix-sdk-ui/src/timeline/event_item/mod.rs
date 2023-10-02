@@ -161,7 +161,7 @@ impl EventTimelineItem {
             TimelineDetails::Unavailable
         };
 
-        Some(EventTimelineItem::new(sender, sender_profile, timestamp, item_content, event_kind))
+        Some(Self::new(sender, sender_profile, timestamp, item_content, event_kind))
     }
 
     /// Check whether this item is a local echo.
