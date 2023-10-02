@@ -127,6 +127,10 @@ pub struct ForwardedMegolmV1AesSha2Content {
     )]
     pub claimed_ed25519_key: Ed25519PublicKey,
 
+    /// Used to mark as having been used for shared history
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
+
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
 }
@@ -162,6 +166,10 @@ pub struct ForwardedMegolmV2AesSha2Content {
     #[serde(default)]
     pub claimed_signing_keys: SigningKeys<DeviceKeyAlgorithm>,
 
+    /// Used to mark as having been used for shared history
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
+
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
 }
@@ -184,6 +192,7 @@ impl std::fmt::Debug for ForwardedMegolmV1AesSha2Content {
             .field("forwarding_curve25519_key_chain", &self.forwarding_curve25519_key_chain)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("claimed_ed25519_key", &self.claimed_ed25519_key)
+            .field("shared_history", &self.shared_history)
             .finish_non_exhaustive()
     }
 }
@@ -195,6 +204,7 @@ impl std::fmt::Debug for ForwardedMegolmV2AesSha2Content {
             .field("session_id", &self.session_id)
             .field("claimed_sender_key", &self.claimed_sender_key)
             .field("sender_claimed_keys", &self.claimed_signing_keys)
+            .field("shared_history", &self.shared_history)
             .finish_non_exhaustive()
     }
 }

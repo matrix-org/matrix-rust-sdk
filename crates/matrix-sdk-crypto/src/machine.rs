@@ -36,7 +36,8 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        room::history_visibility::HistoryVisibility, secret::request::SecretName,
+        AnyMessageLikeEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId,
@@ -680,13 +681,18 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
+        // Content does not indicate level of history visibility, so
+        // set it to least permissive for shared history if true
+        let visibility =
+            if content.shared_history { Some(HistoryVisibility::Shared) } else { None };
+
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
             event.content.algorithm(),
-            None,
+            visibility,
         );
 
         match session {
@@ -863,6 +869,101 @@ impl OlmMachine {
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
+    }
+
+    /// Get to-device requests to share room keys that are flagged with
+    /// shared_history with users in a room.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` - The room id of the room where the room key will be
+    /// used.
+    ///
+    /// `users` - The list of users that should receive the room keys.
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    pub async fn share_room_history_keys(
+        &self,
+        room_id: &RoomId,
+        users: impl Iterator<Item = &UserId>,
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        use crate::types::events::room_key_request::{
+            MegolmV1AesSha2Content, RequestedKeyInfo, RoomKeyRequestContent, RoomKeyRequestEvent,
+        };
+        let mut requests = Vec::new();
+
+        if let Some(outbound) = self.store().get_outbound_group_session(room_id).await? {
+            if matches!(
+                outbound.settings().history_visibility,
+                HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+            ) {
+                let all_sessions = self.store().get_inbound_group_sessions().await?;
+                let room_sessions: Vec<InboundGroupSession> =
+                    all_sessions.into_iter().filter(|s| s.room_id == room_id).collect();
+
+                let mut devices = Vec::new();
+                for user_id in users {
+                    let user_devices = self.store().get_user_devices_filtered(user_id).await?;
+
+                    let valid_devices: Vec<Device> = user_devices
+                        .devices()
+                        .filter(|d| {
+                            d.supports_olm()
+                                && !(d.is_blacklisted()
+                                    || (outbound.settings().only_allow_trusted_devices
+                                        && !d.is_verified()))
+                        })
+                        .collect();
+
+                    devices.extend(valid_devices);
+                }
+
+                for session in &room_sessions {
+                    if let Some(history) = session.history_visibility.as_ref().clone() {
+                        if matches!(
+                            history,
+                            HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+                        ) {
+                            for device in &devices {
+                                let info = MegolmV1AesSha2Content {
+                                    room_id: room_id.to_owned(),
+                                    sender_key: device.curve25519_key().unwrap(),
+                                    session_id: session.session_id().to_string(),
+                                };
+                                let content = RoomKeyRequestContent::new_request(
+                                    RequestedKeyInfo::MegolmV1AesSha2(info),
+                                    device.device_id().to_owned(),
+                                    ruma::TransactionId::new(),
+                                );
+                                let event =
+                                    RoomKeyRequestEvent::new(device.user_id().to_owned(), content);
+
+                                match self
+                                    .inner
+                                    .key_request_machine
+                                    .try_to_forward_room_key(
+                                        &event,
+                                        device.to_owned(),
+                                        session,
+                                        None,
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => {}
+                                    Err(e) => warn!(
+                                        "Error forwarding room keys to device {:?}: {e}",
+                                        device.device_id()
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                requests.extend(outbound.pending_requests());
+            }
+        }
+
+        Ok(requests)
     }
 
     /// Receive an unencrypted verification event.
