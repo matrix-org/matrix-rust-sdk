@@ -200,12 +200,8 @@ impl NotificationSettings {
             }
         };
 
-        let ruleset = self.rules.read().await.clone().ruleset;
         for rule_id in rule_ids {
-            // Unstable polls push rule may be missing. Skip the update in case.
-            if ruleset.underride.iter().any(|r| r.rule_id == rule_id.to_string()) {
-                self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
-            }
+            self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
         }
 
         Ok(())
