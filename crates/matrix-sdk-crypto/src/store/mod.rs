@@ -609,6 +609,13 @@ impl Store {
         self.inner.store.save_changes(changes).await
     }
 
+    pub(crate) async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
+        self.inner
+            .store
+            .save_changes(Changes { account: Some(account), ..Default::default() })
+            .await
+    }
+
     /// Compare the given `InboundGroupSession` with an existing session we have
     /// in the store.
     ///

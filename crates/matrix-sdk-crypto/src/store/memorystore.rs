@@ -130,10 +130,6 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&self, _: ReadOnlyAccount) -> Result<()> {
-        Ok(())
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         Ok(None)
     }
@@ -419,7 +415,7 @@ mod tests {
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
-        store.save_account(account).await.unwrap();
+        store.save_changes(Changes { account: Some(account), ..Default::default() }).await.unwrap();
 
         store.save_sessions(vec![session.clone()]).await;
 

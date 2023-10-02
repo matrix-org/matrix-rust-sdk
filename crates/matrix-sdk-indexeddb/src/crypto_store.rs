@@ -823,11 +823,6 @@ impl_crypto_store! {
         }
     }
 
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        self.save_changes(Changes { account: Some(account), ..Default::default() })
-            .await
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         if let Some(pickle) = self
             .inner
