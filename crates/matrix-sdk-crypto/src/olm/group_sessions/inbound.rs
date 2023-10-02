@@ -24,7 +24,7 @@ use std::{
 use ruma::{
     events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
     serde::Raw,
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedRoomId, RoomId, UserId,
+    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,7 +34,7 @@ use vodozemac::{
         DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,
         InboundGroupSessionPickle, MegolmMessage, SessionConfig, SessionOrdering,
     },
-    Curve25519PublicKey, Ed25519PublicKey, Ed25519SecretKey, PickleError,
+    Curve25519PublicKey, Ed25519PublicKey, PickleError,
 };
 
 use super::{
@@ -42,7 +42,6 @@ use super::{
 };
 use crate::{
     error::{EventError, MegolmResult},
-    olm::utility::SignJson,
     types::{
         deserialize_curve_key,
         events::{
@@ -53,7 +52,7 @@ use crate::{
             olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
-        serialize_curve_key, EventEncryptionAlgorithm, Signatures, SigningKeys,
+        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
 

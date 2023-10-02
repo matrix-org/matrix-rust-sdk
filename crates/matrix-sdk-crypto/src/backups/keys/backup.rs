@@ -163,3 +163,38 @@ impl MegolmV1BackupKey {
         .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id, user_id};
+    use crate::{
+        backups::keys::decryption::Mac,
+        store::BackupDecryptionKey,
+        EncryptionSettings,
+        OlmMachine,
+    };
+
+    #[async_test]
+    async fn create_mac2() -> Result<(), ()> {
+        let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
+
+        let backup_key = decryption_key.megolm_v1_public_key();
+
+        let olm_machine = OlmMachine::new(user_id!("@alice:localhost"), device_id!("ABCDEFG")).await;
+        let settings = EncryptionSettings::default();
+        let (_, inbound) = olm_machine.account().create_group_session_pair(room_id!("!room_id:localhost"), settings)
+            .await
+            .expect("Could not create group session");
+        let key_backup_data = backup_key.encrypt(inbound).await;
+        let ephemeral = key_backup_data.session_data.ephemeral.encode();
+        let ciphertext = key_backup_data.session_data.ciphertext.encode();
+        let mac2 = key_backup_data.session_data.mac2.unwrap().encode();
+
+        let _ = decryption_key
+            .decrypt_v1(&ephemeral, Mac::V2(&mac2), &ciphertext)
+            .expect("The backed up key should be decrypted successfully");
+
+        Ok(())
+    }
+}

@@ -32,12 +32,9 @@ use crate::types::events::forwarded_room_key::ForwardedMegolmV2AesSha2Content;
 use crate::types::{
     deserialize_curve_key, deserialize_curve_key_vec,
     events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-    serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, Signatures,
+    serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm,
     SigningKey, SigningKeys,
 };
-use crate::olm::utility::SignedJsonObject;
-
-use once_cell::sync::Lazy;
 
 /// An error type for the creation of group sessions.
 #[derive(Debug, Error)]
