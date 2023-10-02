@@ -987,7 +987,7 @@ impl Room {
         self.client.send(request, None).await?;
 
         // MSC3061: Forward past room keys to invitee
-        #[cfg(feature = "e2e-encryption")]
+        #[cfg(all(feature = "e2e-encryption", feature = "automatic-room-key-forwarding"))]
         if self.is_encrypted().await?
             && matches!(
                 self.history_visibility(),
