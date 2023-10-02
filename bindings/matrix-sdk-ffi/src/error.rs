@@ -165,9 +165,7 @@ pub enum NotificationSettingsError {
 impl From<SdkNotificationSettingsError> for NotificationSettingsError {
     fn from(value: SdkNotificationSettingsError) -> Self {
         match value {
-            SdkNotificationSettingsError::RuleNotFound(rule_id) => {
-                Self::RuleNotFound(rule_id)
-            }
+            SdkNotificationSettingsError::RuleNotFound(rule_id) => Self::RuleNotFound(rule_id),
             SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
             SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,
             SdkNotificationSettingsError::UnableToSavePushRules => Self::UnableToSavePushRules,
