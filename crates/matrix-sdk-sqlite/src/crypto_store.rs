@@ -61,6 +61,7 @@ pub struct SqliteCryptoStore {
     // DB values cached in memory
     static_account: Arc<RwLock<Option<StaticAccountData>>>,
     session_cache: SessionStore,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -109,6 +110,7 @@ impl SqliteCryptoStore {
             pool,
             static_account: Arc::new(RwLock::new(None)),
             session_cache: SessionStore::new(),
+            save_changes_lock: Default::default(),
         })
     }
 
@@ -680,6 +682,12 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // Serialize calls to `save_changes`; there are multiple await points below, and
+        // we're pickling data as we go, so we don't want to invalidate data
+        // we've previously read and overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
         let pickled_account = if let Some(account) = changes.account {
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
