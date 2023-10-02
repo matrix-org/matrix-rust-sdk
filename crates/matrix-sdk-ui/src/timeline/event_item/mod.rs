@@ -149,10 +149,14 @@ impl EventTimelineItem {
 
         let room = client.get_room(room_id);
         let sender_profile = if let Some(room) = room {
-            room.profile_from_latest_event(&latest_event)
-                .await
-                .map(TimelineDetails::Ready)
-                .unwrap_or(TimelineDetails::Unavailable)
+            let mut profile = room.profile_from_latest_event(&latest_event).await;
+
+            // Fallback to the slow path.
+            if profile.is_none() {
+                profile = room.profile_from_user_id(&sender).await;
+            }
+
+            profile.map(TimelineDetails::Ready).unwrap_or(TimelineDetails::Unavailable)
         } else {
             TimelineDetails::Unavailable
         };
