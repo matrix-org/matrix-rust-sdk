@@ -348,7 +348,7 @@ impl OidcCli {
 
             match cmd {
                 Some("whoami") => {
-                    self.whoami().await;
+                    self.whoami();
                 }
                 Some("account") => {
                     self.account(None);
@@ -405,13 +405,13 @@ impl OidcCli {
     }
 
     /// Get information about this session.
-    async fn whoami(&self) {
+    fn whoami(&self) {
         let client = &self.client;
         let oidc = client.oidc();
 
         let user_id = client.user_id().expect("A logged in client has a user ID");
         let device_id = client.device_id().expect("A logged in client has a device ID");
-        let homeserver = client.homeserver().await;
+        let homeserver = client.homeserver();
         let issuer = oidc.issuer().expect("A logged in OIDC client has an issuer");
 
         println!("\nUser ID: {user_id}");
@@ -724,7 +724,7 @@ async fn build_client(
                 if let Some(issuer_info) = client.oidc().authentication_server_info().cloned() {
                     println!("Found issuer: {}", issuer_info.issuer);
 
-                    let homeserver = client.homeserver().await.to_string();
+                    let homeserver = client.homeserver().to_string();
                     return Ok((
                         client,
                         ClientSession { homeserver, db_path, passphrase },
