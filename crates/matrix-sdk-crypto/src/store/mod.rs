@@ -66,12 +66,12 @@ use crate::{
         user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
     olm::{
-        Account, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
+        Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     types::{events::room_key_withheld::RoomKeyWithheldEvent, EventEncryptionAlgorithm},
     verification::VerificationMachine,
-    CrossSigningStatus, ReadOnlyOwnUserIdentity,
+    CrossSigningStatus, ReadOnlyOwnUserIdentity, RoomKeyImportResult,
 };
 
 pub mod caches;
@@ -1488,6 +1488,119 @@ impl Store {
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         self.inner.store.secrets_stream()
+    }
+
+    pub(crate) async fn import_room_keys(
+        &self,
+        exported_keys: Vec<ExportedRoomKey>,
+        #[cfg(feature = "backups_v1")] from_backup: bool,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<RoomKeyImportResult> {
+        let mut sessions = Vec::new();
+
+        async fn new_session_better(
+            session: &InboundGroupSession,
+            old_session: Option<InboundGroupSession>,
+        ) -> bool {
+            if let Some(old_session) = &old_session {
+                session.compare(old_session).await == SessionOrdering::Better
+            } else {
+                true
+            }
+        }
+
+        let total_count = exported_keys.len();
+        let mut keys = BTreeMap::new();
+
+        for (i, key) in exported_keys.into_iter().enumerate() {
+            match InboundGroupSession::from_export(&key) {
+                Ok(session) => {
+                    let old_session = self
+                        .inner
+                        .store
+                        .get_inbound_group_session(session.room_id(), session.session_id())
+                        .await?;
+
+                    // Only import the session if we didn't have this session or
+                    // if it's a better version of the same session.
+                    if new_session_better(&session, old_session).await {
+                        #[cfg(feature = "backups_v1")]
+                        if from_backup {
+                            session.mark_as_backed_up();
+                        }
+
+                        keys.entry(session.room_id().to_owned())
+                            .or_insert_with(BTreeMap::new)
+                            .entry(session.sender_key().to_base64())
+                            .or_insert_with(BTreeSet::new)
+                            .insert(session.session_id().to_owned());
+
+                        sessions.push(session);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        sender_key= key.sender_key.to_base64(),
+                        room_id = ?key.room_id,
+                        session_id = key.session_id,
+                        error = ?e,
+                        "Couldn't import a room key from a file export."
+                    );
+                }
+            }
+
+            progress_listener(i, total_count);
+        }
+
+        let imported_count = sessions.len();
+
+        let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
+
+        self.save_changes(changes).await?;
+
+        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
+
+        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
+    }
+
+    /// Import the given room keys into our store.
+    ///
+    /// # Arguments
+    ///
+    /// * `exported_keys` - A list of previously exported keys that should be
+    /// imported into our store. If we already have a better version of a key
+    /// the key will *not* be imported.
+    ///
+    /// Returns a tuple of numbers that represent the number of sessions that
+    /// were imported and the total number of sessions that were found in the
+    /// key export.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::io::Cursor;
+    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_room_key_export};
+    /// # use ruma::{device_id, user_id};
+    /// # let alice = user_id!("@alice:example.org");
+    /// # async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let export = Cursor::new("".to_owned());
+    /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
+    /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    /// # };
+    /// ```
+    pub async fn import_exported_room_keys(
+        &self,
+        exported_keys: Vec<ExportedRoomKey>,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<RoomKeyImportResult> {
+        self.import_room_keys(
+            exported_keys,
+            #[cfg(feature = "backups_v1")]
+            false,
+            progress_listener,
+        )
+        .await
     }
 }
 

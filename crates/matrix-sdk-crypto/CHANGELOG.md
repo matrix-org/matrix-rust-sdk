@@ -1,5 +1,10 @@
 # unreleased
 
+- Add two new methods to import room keys,
+  `OlmMachine::store()::import_exported_room_keys()` for file exports and
+  `OlmMachine::backup_machine()::import_backed_up_room_keys()` for backups. The
+  `OlmMachine::import_room_keys()` method is now deprecated.
+
 - Add support for secret storage.
 
 - Add initial support for MSC3814 - dehydrated devices.
