@@ -168,9 +168,7 @@ impl From<SdkNotificationSettingsError> for NotificationSettingsError {
             SdkNotificationSettingsError::UnableToAddPushRule => Self::UnableToAddPushRule,
             SdkNotificationSettingsError::UnableToRemovePushRule => Self::UnableToRemovePushRule,
             SdkNotificationSettingsError::UnableToSavePushRules => Self::UnableToSavePushRules,
-            SdkNotificationSettingsError::InvalidParameter(msg) => {
-                Self::InvalidParameter { msg }
-            }
+            SdkNotificationSettingsError::InvalidParameter(msg) => Self::InvalidParameter { msg },
             SdkNotificationSettingsError::UnableToUpdatePushRule => Self::UnableToUpdatePushRule,
         }
     }
