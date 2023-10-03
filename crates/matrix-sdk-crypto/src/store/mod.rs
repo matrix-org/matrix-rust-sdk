@@ -126,6 +126,32 @@ impl<'a> Deref for StoreCacheGuard<'a> {
     }
 }
 
+pub struct StoreTransaction {
+    store: Store,
+    account: ReadOnlyAccount,
+}
+
+impl StoreTransaction {
+    pub async fn new(store: Store) -> Result<Self> {
+        // TODO read-or-load from the cache itself
+        let _cache = store.cache().await?;
+
+        let account = store.account().clone();
+
+        Ok(Self { store, account })
+    }
+
+    pub async fn account(&self) -> Result<&ReadOnlyAccount> {
+        // TODO(bnjbvr) introduce account_mut
+        Ok(&self.account)
+    }
+
+    pub async fn commit(self) -> Result<()> {
+        // TODO make the cache coherent with the DB
+        self.store.save_changes(Changes { account: Some(self.account), ..Default::default() }).await
+    }
+}
+
 #[derive(Debug)]
 struct StoreInner {
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
@@ -585,6 +611,10 @@ impl Store {
         self.ensure_sync_tracked_users(&cache).await?;
 
         Ok(cache)
+    }
+
+    pub(crate) async fn transaction(&self) -> Result<StoreTransaction> {
+        StoreTransaction::new(self.clone()).await
     }
 
     #[cfg(test)]
