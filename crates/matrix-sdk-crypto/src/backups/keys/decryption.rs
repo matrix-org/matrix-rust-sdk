@@ -25,7 +25,10 @@ use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::store::BackupDecryptionKey;
+use crate::{
+    store::BackupDecryptionKey,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo},
+};
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -185,6 +188,17 @@ impl BackupDecryptionKey {
     pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decryption();
         MegolmV1BackupKey::new(pk.public_key(), None)
+    }
+
+    /// Get the [`RoomKeyBackupInfo`] for this [`BackupDecryptionKey`].
+    ///
+    /// The [`RoomKeyBackupInfo`] can be uploaded to the homeserver to activate
+    /// a new backup version.
+    pub fn to_backup_info(&self) -> RoomKeyBackupInfo {
+        let pk = self.get_pk_decryption();
+        let auth_data = MegolmV1AuthData::new(pk.public_key(), Default::default());
+
+        RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(auth_data)
     }
 
     /// Try to decrypt the given ciphertext using this [`BackupDecryptionKey`].
