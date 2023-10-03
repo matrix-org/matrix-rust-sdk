@@ -137,4 +137,10 @@ impl MegolmV1BackupKey {
         }
         .into()
     }
+
+    pub fn as_backup_algorithm(&self) -> RoomKeyBackupInfo {
+        let auth_data = MegolmV1AuthData::new(self.inner.key, Default::default());
+
+        RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(auth_data)
+    }
 }
