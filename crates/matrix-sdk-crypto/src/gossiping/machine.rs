@@ -1152,14 +1152,14 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn machines_for_key_share(
+    async fn machines_for_key_share_test_helper(
         other_machine_owner: &UserId,
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
         let alice_account = Account {
-            static_data: alice_machine.inner.store.account().static_data().clone(),
+            static_data: alice_machine.inner.store.static_account().clone(),
             store: alice_machine.inner.store.clone(),
         };
         let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
@@ -1564,7 +1564,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn key_share_cycle(algorithm: EventEncryptionAlgorithm) {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), true, algorithm).await;
+            machines_for_key_share_test_helper(alice_id(), true, algorithm).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1626,7 +1626,12 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn reject_forward_from_another_user() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(bob_id(), true, EventEncryptionAlgorithm::MegolmV1AesSha2).await;
+            machines_for_key_share_test_helper(
+                bob_id(),
+                true,
+                EventEncryptionAlgorithm::MegolmV1AesSha2,
+            )
+            .await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1686,7 +1691,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn secret_share_cycle() {
+    async fn test_secret_share_cycle() {
         let alice_machine = get_machine().await;
 
         let second_account = alice_2_account();
@@ -1849,10 +1854,14 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle_without_session() {
+    async fn test_key_share_cycle_without_session() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(alice_id(), false, EventEncryptionAlgorithm::MegolmV1AesSha2)
-                .await;
+            machines_for_key_share_test_helper(
+                alice_id(),
+                false,
+                EventEncryptionAlgorithm::MegolmV1AesSha2,
+            )
+            .await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();

@@ -344,7 +344,7 @@ impl IdentityManager {
 
         for device_id in deleted_devices_set {
             if user_id == *own_user_id && *device_id == &own_device_id {
-                let identity_keys = store.account().identity_keys();
+                let identity_keys = store.static_account().identity_keys();
 
                 warn!(
                     user_id = own_user_id.as_str(),

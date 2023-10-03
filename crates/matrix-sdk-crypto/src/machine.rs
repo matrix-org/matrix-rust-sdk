@@ -349,7 +349,7 @@ impl OlmMachine {
 
     /// Get the public parts of our Olm identity keys.
     pub fn identity_keys(&self) -> IdentityKeys {
-        let account = self.inner.store.account();
+        let account = self.inner.store.static_account();
         account.identity_keys()
     }
 
