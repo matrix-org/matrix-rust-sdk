@@ -18,14 +18,16 @@ use std::{
 };
 
 use bs58;
+use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{
     compat::{Error as DecryptionError, Message, PkDecryption},
     MegolmV1BackupKey,
 };
-use crate::store::BackupDecryptionKey;
+use crate::{store::BackupDecryptionKey, types::RoomKeyBackupInfo};
 
 /// Error type for the decoding of a [`BackupDecryptionKey`].
 #[derive(Debug, Error)]
@@ -206,6 +208,39 @@ impl BackupDecryptionKey {
         let decrypted = pk.decrypt(&message)?;
 
         Ok(String::from_utf8_lossy(&decrypted).to_string())
+    }
+
+    /// Try to decrypt the given session data using this
+    /// [`BackupDecryptionKey`].
+    pub fn decrypt_session_data(
+        &self,
+        session_data: EncryptedSessionData,
+    ) -> Result<Vec<u8>, DecryptionError> {
+        let message = Message {
+            ciphertext: session_data.ciphertext.into_inner(),
+            mac: session_data.mac.into_inner(),
+            // TODO: Remove the unwrap.
+            ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())
+                .unwrap(),
+        };
+
+        let pk = self.get_pk_decryption();
+
+        pk.decrypt(&message)
+    }
+
+    /// Check if the given public key from the [`RoomKeyBackupInfo`] matches to
+    /// this [`BackupDecryptionKey`].
+    pub fn backup_key_matches(&self, info: &RoomKeyBackupInfo) -> bool {
+        match info {
+            RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(info) => {
+                let pk = self.get_pk_decryption();
+                let public_key = pk.public_key();
+
+                info.public_key == public_key
+            }
+            RoomKeyBackupInfo::Other { .. } => false,
+        }
     }
 }
 
