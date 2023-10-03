@@ -575,15 +575,11 @@ impl BackupMachine {
 
         for (room_id, room_keys) in room_keys {
             for (session_id, room_key) in room_keys {
-                let room_key = ExportedRoomKey {
-                    algorithm: room_key.algorithm,
-                    room_id: room_id.to_owned(),
-                    sender_key: room_key.sender_key,
+                let room_key = ExportedRoomKey::from_backed_up_room_key(
+                    room_id.to_owned(),
                     session_id,
-                    session_key: room_key.session_key,
-                    sender_claimed_keys: room_key.sender_claimed_keys,
-                    forwarding_curve25519_key_chain: room_key.forwarding_curve25519_key_chain,
-                };
+                    room_key,
+                );
 
                 decrypted_room_keys.push(room_key);
             }

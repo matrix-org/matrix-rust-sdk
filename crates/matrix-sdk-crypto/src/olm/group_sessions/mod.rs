@@ -97,6 +97,24 @@ pub struct ExportedRoomKey {
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 }
 
+impl ExportedRoomKey {
+    pub(crate) fn from_backed_up_room_key(
+        room_id: OwnedRoomId,
+        session_id: String,
+        room_key: BackedUpRoomKey,
+    ) -> Self {
+        Self {
+            algorithm: room_key.algorithm,
+            room_id,
+            sender_key: room_key.sender_key,
+            session_id,
+            session_key: room_key.session_key,
+            sender_claimed_keys: room_key.sender_claimed_keys,
+            forwarding_curve25519_key_chain: room_key.forwarding_curve25519_key_chain,
+        }
+    }
+}
+
 /// A backed up version of an `InboundGroupSession`
 ///
 /// This can be used to backup the `InboundGroupSession` to the server.
