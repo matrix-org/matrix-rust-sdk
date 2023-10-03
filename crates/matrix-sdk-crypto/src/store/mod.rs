@@ -182,6 +182,23 @@ struct StoreInner {
 }
 
 /// Aggregated changes to be saved in the database.
+///
+/// This is an update version of `Changes` that will replace it as #2624 progresses.
+// If you ever add a field here, make sure to update `Changes::is_empty` too.
+#[derive(Default, Debug)]
+#[allow(missing_docs)]
+pub struct PendingChanges {
+    pub account: Option<ReadOnlyAccount>,
+}
+
+impl PendingChanges {
+    /// Are there any changes stored or is this an empty `Changes` struct?
+    pub fn is_empty(&self) -> bool {
+        self.account.is_none()
+    }
+}
+
+/// Aggregated changes to be saved in the database.
 // If you ever add a field here, make sure to update `Changes::is_empty` too.
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
@@ -217,7 +234,7 @@ pub struct TrackedUser {
 }
 
 impl Changes {
-    /// Are there any changes stored or is this an empty `Changes` struct
+    /// Are there any changes stored or is this an empty `Changes` struct?
     pub fn is_empty(&self) -> bool {
         self.account.is_none()
             && self.private_identity.is_none()

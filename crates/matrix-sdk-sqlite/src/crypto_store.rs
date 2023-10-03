@@ -27,7 +27,10 @@ use matrix_sdk_crypto::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
-    store::{caches::SessionStore, BackupKeys, Changes, CryptoStore, RoomKeyCounts, RoomSettings},
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts,
+        RoomSettings,
+    },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
     SecretInfo, TrackedUser,
@@ -679,6 +682,36 @@ impl CryptoStore for SqliteCryptoStore {
         } else {
             Ok(None)
         }
+    }
+
+    async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        // Serialize calls to `save_pending_changes`; there are multiple await points below, and
+        // we're pickling data as we go, so we don't want to invalidate data
+        // we've previously read and overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
+        let pickled_account = if let Some(account) = changes.account {
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
+            Some(account.pickle().await)
+        } else {
+            None
+        };
+
+        let this = self.clone();
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| {
+                if let Some(pickled_account) = pickled_account {
+                    let serialized_account = this.serialize_value(&pickled_account)?;
+                    txn.set_kv("account", &serialized_account)?;
+                }
+
+                Ok::<_, Error>(())
+            })
+            .await?;
+
+        Ok(())
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {

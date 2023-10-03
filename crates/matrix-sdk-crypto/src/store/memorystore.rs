@@ -30,8 +30,8 @@ use tracing::warn;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
-    BackupKeys, Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, RoomKeyCounts,
-    RoomSettings, Session,
+    BackupKeys, Changes, CryptoStore, InboundGroupSession, PendingChanges, ReadOnlyAccount,
+    RoomKeyCounts, RoomSettings, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -136,6 +136,11 @@ impl CryptoStore for MemoryStore {
 
     async fn next_batch_token(&self) -> Result<Option<String>> {
         Ok(self.next_batch_token.read().await.clone())
+    }
+
+    async fn save_pending_changes(&self, _changes: PendingChanges) -> Result<()> {
+        // TODO(bnjbvr) why didn't save_changes save the account?
+        Ok(())
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
