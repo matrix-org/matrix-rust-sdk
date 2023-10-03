@@ -1,5 +1,8 @@
 # unreleased
 
+- Use the `Signatures` type as the return value for the
+  `MegolmV1BackupKey::signatures()` method.
+
 - Add two new methods to import room keys,
   `OlmMachine::store()::import_exported_room_keys()` for file exports and
   `OlmMachine::backup_machine()::import_backed_up_room_keys()` for backups. The
