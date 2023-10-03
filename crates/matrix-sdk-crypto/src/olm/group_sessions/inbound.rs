@@ -607,10 +607,10 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId};
-    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519SecretKey};
+    use ruma::{device_id, room_id, user_id, DeviceId, UserId};
+    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
-    use crate::{olm::{utility::VerifyJson, InboundGroupSession}, ReadOnlyAccount};
+    use crate::{olm::InboundGroupSession, ReadOnlyAccount};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")

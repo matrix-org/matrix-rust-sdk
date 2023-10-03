@@ -509,10 +509,7 @@ impl BackupMachine {
         }
 
         let key_count = sessions.len();
-        let (backup, session_record) = Self::backup_keys(
-            sessions,
-            backup_key,
-        ).await;
+        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
 
         info!(
             key_count = key_count,
