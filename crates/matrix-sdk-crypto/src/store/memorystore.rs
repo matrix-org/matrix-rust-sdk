@@ -412,7 +412,7 @@ mod tests {
     use crate::{
         identities::device::testing::get_device,
         olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
-        store::{memorystore::MemoryStore, Changes, CryptoStore},
+        store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
 
     #[async_test]
@@ -421,7 +421,7 @@ mod tests {
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
-        store.save_changes(Changes { account: Some(account), ..Default::default() }).await.unwrap();
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
         store.save_sessions(vec![session.clone()]).await;
 

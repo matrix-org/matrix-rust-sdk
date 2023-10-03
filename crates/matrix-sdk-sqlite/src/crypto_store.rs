@@ -721,13 +721,6 @@ impl CryptoStore for SqliteCryptoStore {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let pickled_account = if let Some(account) = changes.account {
-            *self.static_account.write().unwrap() = Some(account.static_data().clone());
-            Some(account.pickle().await)
-        } else {
-            None
-        };
-
         let pickled_private_identity =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
@@ -760,11 +753,6 @@ impl CryptoStore for SqliteCryptoStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                if let Some(pickled_account) = pickled_account {
-                    let serialized_account = this.serialize_value(&pickled_account)?;
-                    txn.set_kv("account", &serialized_account)?;
-                }
-
                 if let Some(pickled_private_identity) = &pickled_private_identity {
                     let serialized_private_identity =
                         this.serialize_value(pickled_private_identity)?;

@@ -71,7 +71,8 @@ use crate::{
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        Result as StoreResult, RoomKeyInfo, SecretImportError, Store, StoreTransaction,
+        PendingChanges, Result as StoreResult, RoomKeyInfo, SecretImportError, Store,
+        StoreTransaction,
     },
     types::{
         events::{
@@ -300,11 +301,13 @@ impl OlmMachine {
                 device.set_trust_state(LocalTrust::Verified);
 
                 let changes = Changes {
-                    account: Some(account.clone()),
                     devices: DeviceChanges { new: vec![device], ..Default::default() },
                     ..Default::default()
                 };
                 store.save_changes(changes).await?;
+                store
+                    .save_pending_changes(PendingChanges { account: Some(account.clone()) })
+                    .await?;
 
                 debug!("Created a new Olm account");
 

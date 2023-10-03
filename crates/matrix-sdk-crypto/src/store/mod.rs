@@ -213,7 +213,6 @@ impl PendingChanges {
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
 pub struct Changes {
-    pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
     pub backup_decryption_key: Option<BackupDecryptionKey>,
@@ -246,8 +245,7 @@ pub struct TrackedUser {
 impl Changes {
     /// Are there any changes stored or is this an empty `Changes` struct?
     pub fn is_empty(&self) -> bool {
-        self.account.is_none()
-            && self.private_identity.is_none()
+        self.private_identity.is_none()
             && self.backup_version.is_none()
             && self.backup_decryption_key.is_none()
             && self.sessions.is_empty()

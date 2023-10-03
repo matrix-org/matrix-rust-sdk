@@ -555,7 +555,7 @@ impl_crypto_store! {
         let _guard = self.save_changes_lock.lock().await;
 
         let mut stores: Vec<&str> = [
-            (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
+            (changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
             (!changes.sessions.is_empty(), keys::SESSION),
             (
@@ -592,23 +592,11 @@ impl_crypto_store! {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        let account_pickle = if let Some(account) = changes.account {
-            *self.static_account.write().unwrap() = Some(account.static_data().clone());
-            Some(account.pickle().await)
-        } else {
-            None
-        };
-
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await) } else { None };
 
         let decryption_key_pickle = changes.backup_decryption_key;
         let backup_version = changes.backup_version;
-
-        if let Some(a) = &account_pickle {
-            tx.object_store(keys::CORE)?
-                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serialize_value(&a)?)?;
-        }
 
         if let Some(next_batch) = changes.next_batch_token {
             tx.object_store(keys::CORE)?.put_key_val(
