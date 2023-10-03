@@ -12,26 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
-    OwnedDeviceKeyId, OwnedUserId,
 };
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
 use super::{compat::PkEncryption, decryption::DecodeError};
-use crate::olm::InboundGroupSession;
+use crate::{
+    olm::InboundGroupSession,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
+};
 
 #[derive(Debug)]
 struct InnerBackupKey {
     key: Curve25519PublicKey,
-    signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
+    signatures: Signatures,
     version: Mutex<Option<String>>,
 }
 
@@ -70,7 +69,7 @@ impl MegolmV1BackupKey {
     }
 
     /// Get all the signatures of this `MegolmV1BackupKey`.
-    pub fn signatures(&self) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> Signatures {
         self.inner.signatures.to_owned()
     }
 
