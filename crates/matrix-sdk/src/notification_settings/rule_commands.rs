@@ -73,7 +73,9 @@ impl RuleCommands {
         rule_id: &str,
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
-        self.rules.set_enabled(kind.clone(), rule_id, enabled)?;
+        self.rules
+            .set_enabled(kind.clone(), rule_id, enabled)
+            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_owned()))?;
         self.commands.push(Command::SetPushRuleEnabled {
             scope: RuleScope::Global,
             kind,
@@ -163,7 +165,9 @@ impl RuleCommands {
         rule_id: &str,
         actions: Vec<Action>,
     ) -> Result<(), NotificationSettingsError> {
-        self.rules.set_actions(kind.clone(), rule_id, actions.clone())?;
+        self.rules
+            .set_actions(kind.clone(), rule_id, actions.clone())
+            .map_err(|_| NotificationSettingsError::RuleNotFound(rule_id.to_owned()))?;
         self.commands.push(Command::SetPushRuleActions {
             scope: RuleScope::Global,
             kind,
@@ -349,7 +353,7 @@ mod tests {
         let mut rule_commands = RuleCommands::new(ruleset);
         assert_eq!(
             rule_commands.set_rule_enabled(RuleKind::Room, "unknown_rule_id", true),
-            Err(NotificationSettingsError::RuleNotFound)
+            Err(NotificationSettingsError::RuleNotFound("unknown_rule_id".to_string()))
         );
     }
 

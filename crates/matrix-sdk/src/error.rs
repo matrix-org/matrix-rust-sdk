@@ -34,7 +34,7 @@ use ruma::{
         error::{FromHttpResponseError, IntoHttpError},
     },
     events::tag::InvalidUserTagName,
-    push::{InsertPushRuleError, RemovePushRuleError, RuleNotFoundError},
+    push::{InsertPushRuleError, RemovePushRuleError},
     IdParseError,
 };
 use serde_json::Error as JsonError;
@@ -453,7 +453,7 @@ pub enum NotificationSettingsError {
     UnableToUpdatePushRule,
     /// Rule not found
     #[error("Rule not found")]
-    RuleNotFound,
+    RuleNotFound(String),
     /// Unable to save the push rules
     #[error("Unable to save push rules")]
     UnableToSavePushRules,
@@ -468,12 +468,6 @@ impl From<InsertPushRuleError> for NotificationSettingsError {
 impl From<RemovePushRuleError> for NotificationSettingsError {
     fn from(_: RemovePushRuleError) -> Self {
         Self::UnableToRemovePushRule
-    }
-}
-
-impl From<RuleNotFoundError> for NotificationSettingsError {
-    fn from(_: RuleNotFoundError) -> Self {
-        Self::RuleNotFound
     }
 }
 
