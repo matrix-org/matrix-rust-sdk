@@ -1,21 +1,31 @@
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::store_locks::CrossProcessStoreLock;
 use ruma::{OwnedUserId, UserId};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::warn;
 
 use super::{DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
     store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
-    GossippedSecret, ReadOnlyOwnUserIdentity,
+    store::{BackupKeys, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
+    CryptoStoreError, GossippedSecret, ReadOnlyOwnUserIdentity,
 };
 
-/// A wrapper for crypto store implementations that adds update notifiers.
+/// A wrapper for crypto store implementations that adds various features.
+///
+/// Extra features include:
+///  * Broadcast channels that are notified when updates occur.
+///  * In-memory caching of certain values such as backup keys.
 ///
 /// This is shared between [`StoreInner`] and
 /// [`crate::verification::VerificationStore`].
@@ -36,6 +46,10 @@ pub(crate) struct CryptoStoreWrapper {
     /// identities which got updated or newly created.
     identities_broadcaster:
         broadcast::Sender<(Option<ReadOnlyOwnUserIdentity>, IdentityChanges, DeviceChanges)>,
+
+    /// Cache of the stored backup keys
+    backup_keys: Mutex<BackupKeys>,
+    backup_keys_loaded: AtomicBool,
 }
 
 impl CryptoStoreWrapper {
@@ -52,6 +66,9 @@ impl CryptoStoreWrapper {
             room_keys_received_sender,
             secrets_broadcaster,
             identities_broadcaster,
+
+            backup_keys: Mutex::new(BackupKeys::default()),
+            backup_keys_loaded: AtomicBool::new(false),
         }
     }
 
@@ -64,6 +81,18 @@ impl CryptoStoreWrapper {
     ///
     /// * `changes` - The set of changes that should be stored.
     pub async fn save_changes(&self, changes: Changes) -> store::Result<()> {
+        // if the backup keys are being changed, update our cache
+        if changes.backup_decryption_key.is_some() || changes.backup_version.is_some() {
+            self.load_backup_keys().await?;
+            let mut _lock = self.backup_keys.lock().await;
+            if changes.backup_decryption_key.is_some() {
+                _lock.decryption_key = changes.backup_decryption_key.clone();
+            }
+            if changes.backup_version.is_some() {
+                _lock.backup_version = changes.backup_version.clone();
+            }
+        }
+
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
@@ -169,6 +198,37 @@ impl CryptoStoreWrapper {
         lock_value: String,
     ) -> CrossProcessStoreLock<LockableCryptoStore> {
         CrossProcessStoreLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
+    }
+
+    /// Load the backup keys from the store if they have not already been loaded
+    async fn load_backup_keys(&self) -> Result<(), CryptoStoreError> {
+        // If the keys are loaded do nothing
+        if self.backup_keys_loaded.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        // acquire a lock
+        let mut _lock = self.backup_keys.lock().await;
+
+        // Check again if the keys have been loaded, in case another call to this
+        // method loaded the tracked users between the time we tried to
+        // acquire the lock and the time we actually acquired the lock.
+        if self.backup_keys_loaded.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        // finally, load the keys from the store
+        let keys = self.store.load_backup_keys().await?;
+        keys.clone_into(_lock.deref_mut());
+
+        Ok(())
+    }
+
+    /// Get the backup keys we have stored.
+    pub async fn get_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
+        self.load_backup_keys().await?;
+        let _lock = self.backup_keys.lock().await;
+        Ok(_lock.deref().clone())
     }
 }
 

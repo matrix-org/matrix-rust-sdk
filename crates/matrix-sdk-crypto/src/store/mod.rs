@@ -756,7 +756,7 @@ impl Store {
             }
             SecretName::RecoveryKey => {
                 #[cfg(feature = "backups_v1")]
-                if let Some(key) = self.load_backup_keys().await?.decryption_key {
+                if let Some(key) = self.get_backup_keys().await?.decryption_key {
                     let exported = key.to_base64();
                     Some(exported)
                 } else {
@@ -1260,6 +1260,11 @@ impl Store {
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         self.inner.store.secrets_stream()
+    }
+
+    /// Get the backup keys we have stored.
+    pub async fn get_backup_keys(&self) -> Result<BackupKeys> {
+        self.inner.store.get_backup_keys().await
     }
 }
 

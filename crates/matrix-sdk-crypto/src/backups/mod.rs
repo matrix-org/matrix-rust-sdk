@@ -415,7 +415,7 @@ impl BackupMachine {
 
     /// Get the backup keys we have saved in our crypto store.
     pub async fn get_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
-        self.store.load_backup_keys().await
+        self.store.get_backup_keys().await
     }
 
     /// Encrypt a batch of room keys and return a request that needs to be sent

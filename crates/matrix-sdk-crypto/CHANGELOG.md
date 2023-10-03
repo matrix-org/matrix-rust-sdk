@@ -63,3 +63,5 @@
   `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.
 
 - Expose new `OlmMachine::get_room_event_encryption_info` method.
+
+- Maintain an in-memory cache of the `BackupKeys`.
