@@ -391,11 +391,12 @@ impl OlmMachine {
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
+        let store_transaction = self.inner.store.transaction().await?;
         if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
             request_id: TransactionId::new(),
             request: Arc::new(r.into()),
         }) {
-            self.inner.account.save().await?;
+            store_transaction.commit().await?; // Note: this saves the account.
             requests.push(r);
         }
 

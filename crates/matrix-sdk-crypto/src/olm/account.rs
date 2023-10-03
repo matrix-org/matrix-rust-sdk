@@ -153,10 +153,6 @@ impl OlmMessageHash {
 }
 
 impl Account {
-    pub async fn save(&self) -> Result<(), CryptoStoreError> {
-        self.store.save_account(self.store.account().clone()).await
-    }
-
     async fn decrypt_olm_helper(
         &self,
         sender: &UserId,
@@ -235,7 +231,10 @@ impl Account {
         &self,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        let account = self.store.account();
+        let store_transaction = self.store.transaction().await?;
+
+        let account = store_transaction.account().await?;
+
         if !account.shared() {
             debug!("Marking account as shared");
         }
@@ -246,7 +245,8 @@ impl Account {
         // generate some new keys if we're still below the limit.
         account.mark_keys_as_published().await;
         account.update_key_counts(&response.one_time_key_counts, None).await;
-        self.store.save_account(account.clone()).await?;
+
+        store_transaction.commit().await?;
 
         Ok(())
     }

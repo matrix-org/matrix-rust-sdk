@@ -509,7 +509,7 @@ mod tests {
         KeyClaimResponse::try_from_http_response(response).unwrap()
     }
 
-    async fn session_manager() -> SessionManager {
+    async fn session_manager_test_helper() -> SessionManager {
         let user_id = user_id();
         let device_id = device_id();
 
@@ -524,7 +524,11 @@ mod tests {
         );
 
         let store = Store::new(account.clone(), identity, store, verification);
-        store.save_account(account.clone()).await.unwrap();
+        {
+            // Perform a dummy transaction to sync in-memory cache with the db.
+            let tr = store.transaction().await.unwrap();
+            tr.commit().await.unwrap();
+        }
 
         let account = Account { static_data: account.static_data.clone(), store: store.clone() };
 
@@ -542,7 +546,7 @@ mod tests {
 
     #[async_test]
     async fn session_creation() {
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let bob = bob_account();
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
@@ -574,7 +578,7 @@ mod tests {
 
     #[async_test]
     async fn session_creation_waits_for_keys_query() {
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let identity_manager = IdentityManager::new(
             manager.account.static_data.user_id.clone(),
             manager.account.static_data.device_id.clone(),
@@ -638,7 +642,7 @@ mod tests {
         use matrix_sdk_common::instant::{Duration, SystemTime};
         use ruma::SecondsSinceUnixEpoch;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         let bob = bob_account();
         let (_, mut session) = bob.create_session_for(manager.store.account()).await;
 
@@ -692,7 +696,7 @@ mod tests {
         let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
 
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
@@ -735,7 +739,7 @@ mod tests {
         let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
-        let manager = session_manager().await;
+        let manager = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();
 
         // Since we don't have a session with Alice yet, the machine will try to claim
