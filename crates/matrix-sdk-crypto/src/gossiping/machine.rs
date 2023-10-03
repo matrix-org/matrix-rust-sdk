@@ -1123,7 +1123,7 @@ mod tests {
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
-        let store = Store::new(user_id.to_owned(), identity, store, verification);
+        let store = Store::new(identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(user_id, device_id, store, session_cache, Arc::new(DashMap::new()))
@@ -1143,7 +1143,7 @@ mod tests {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
 
-        let store = Store::new(user_id.clone(), identity, store, verification);
+        let store = Store::new(identity, store, verification);
         store.save_devices(&[device, another_device]).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 

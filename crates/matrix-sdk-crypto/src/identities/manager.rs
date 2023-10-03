@@ -812,7 +812,7 @@ pub(crate) mod testing {
         let account = ReadOnlyAccount::with_device_id(&user_id, device_id());
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
-        let store = Store::new(user_id.clone(), identity, store, verification);
+        let store = Store::new(identity, store, verification);
         IdentityManager::new(user_id, device_id().into(), store)
     }
 

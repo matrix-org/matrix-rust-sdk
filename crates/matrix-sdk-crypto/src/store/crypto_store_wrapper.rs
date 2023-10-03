@@ -55,6 +55,11 @@ impl CryptoStoreWrapper {
         }
     }
 
+    /// UserId associated with this store
+    pub(crate) fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
     /// Save the set of changes to the store.
     ///
     /// Also responsible for sending updates to the broadcast streams such as

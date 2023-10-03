@@ -523,7 +523,7 @@ mod tests {
         let user_id = user_id.to_owned();
         let device_id = device_id.into();
 
-        let store = Store::new(user_id.clone(), identity, store, verification);
+        let store = Store::new(identity, store, verification);
 
         let account = Account { inner: account, store: store.clone() };
 

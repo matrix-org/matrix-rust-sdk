@@ -109,7 +109,6 @@ pub struct Store {
 
 #[derive(Debug)]
 struct StoreInner {
-    user_id: OwnedUserId,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     store: Arc<CryptoStoreWrapper>,
     verification_machine: VerificationMachine,
@@ -508,13 +507,11 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 impl Store {
     /// Create a new Store
     pub(crate) fn new(
-        user_id: OwnedUserId,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
         let inner = Arc::new(StoreInner {
-            user_id,
             identity,
             store,
             verification_machine,
@@ -530,7 +527,7 @@ impl Store {
 
     /// UserId associated with this store
     pub(crate) fn user_id(&self) -> &UserId {
-        &self.inner.user_id
+        self.inner.store.user_id()
     }
 
     /// DeviceId associated with this store

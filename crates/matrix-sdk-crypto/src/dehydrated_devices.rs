@@ -95,7 +95,7 @@ impl DehydratedDevices {
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
-        let store = Store::new(user_id.into(), user_identity, store, verification_machine);
+        let store = Store::new(user_identity, store, verification_machine);
 
         let account = Account { inner: account, store };
 

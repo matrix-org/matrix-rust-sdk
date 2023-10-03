@@ -193,8 +193,7 @@ impl OlmMachine {
 
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
-        let store =
-            Store::new(user_id.clone(), user_identity.clone(), store, verification_machine.clone());
+        let store = Store::new(user_identity.clone(), store, verification_machine.clone());
         let device_id: OwnedDeviceId = device_id.into();
         let users_for_key_claim = Arc::new(DashMap::new());
 
