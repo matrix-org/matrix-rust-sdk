@@ -58,6 +58,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
         event_enums::{
@@ -66,7 +67,7 @@ use crate::{
         },
         Cancelled, Emoji, FlowId,
     },
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    ReadOnlyOwnUserIdentity,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -484,12 +485,12 @@ impl<S: Clone> SasState<S> {
     /// Get our own user id.
     #[cfg(test)]
     pub fn user_id(&self) -> &UserId {
-        self.ids.account.user_id()
+        &self.ids.account.user_id
     }
 
     /// Get our own device ID.
     pub fn device_id(&self) -> &DeviceId {
-        self.ids.account.device_id()
+        &self.ids.account.device_id
     }
 
     #[cfg(test)]
@@ -551,7 +552,7 @@ impl SasState<Created> {
     ///
     /// * `other_identity` - The identity of the other user if one exists.
     pub fn new(
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
@@ -572,7 +573,7 @@ impl SasState<Created> {
 
     fn new_helper(
         flow_id: FlowId,
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
@@ -674,7 +675,7 @@ impl SasState<Started> {
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
     pub fn from_start_event(
-        account: ReadOnlyAccount,
+        account: StaticAccountData,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
@@ -1545,7 +1546,7 @@ mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVCIE")
+        device_id!("BOBDEVICE")
     }
 
     async fn get_sas_pair(
@@ -1558,14 +1559,21 @@ mod tests {
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let flow_id = TransactionId::new().into();
-        let alice_sas =
-            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false, None);
+        let alice_sas = SasState::<Created>::new(
+            alice.static_data().clone(),
+            bob_device,
+            None,
+            None,
+            flow_id,
+            false,
+            None,
+        );
 
         let start_content = alice_sas.as_content();
         let flow_id = start_content.flow_id();
 
         let bob_sas = SasState::<Started>::from_start_event(
-            bob.clone(),
+            bob.static_data().clone(),
             alice_device,
             None,
             None,
@@ -1824,8 +1832,15 @@ mod tests {
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let flow_id = TransactionId::new().into();
-        let alice_sas =
-            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false, None);
+        let alice_sas = SasState::<Created>::new(
+            alice.static_data().clone(),
+            bob_device,
+            None,
+            None,
+            flow_id,
+            false,
+            None,
+        );
 
         let mut start_content = alice_sas.as_content();
         let method = start_content.method_mut();
@@ -1841,7 +1856,7 @@ mod tests {
         let content = StartContent::from(&start_content);
 
         SasState::<Started>::from_start_event(
-            bob.clone(),
+            bob.static_data().clone(),
             alice_device.clone(),
             None,
             None,
@@ -1864,7 +1879,7 @@ mod tests {
         let flow_id = content.flow_id().to_owned();
 
         SasState::<Started>::from_start_event(
-            bob.clone(),
+            bob.static_data().clone(),
             alice_device,
             None,
             None,

@@ -33,13 +33,14 @@ use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
 use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    olm::StaticAccountData,
     verification::event_enums::{MacContent, StartContent},
-    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    Emoji, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
-    pub account: ReadOnlyAccount,
+    pub account: StaticAccountData,
     pub own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub other_device: ReadOnlyDevice,
     pub other_identity: Option<ReadOnlyUserIdentities>,
@@ -170,8 +171,8 @@ fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
         {second_user}{second_device}{transaction_id}",
         first_user = ids.other_device.user_id(),
         first_device = ids.other_device.device_id(),
-        second_user = ids.account.user_id(),
-        second_device = ids.account.device_id(),
+        second_user = ids.account.user_id,
+        second_device = ids.account.device_id,
         transaction_id = flow_id,
     )
 }
@@ -268,8 +269,8 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
     format!(
         "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
         {second_user}{second_device}{transaction_id}",
-        first_user = ids.account.user_id(),
-        first_device = ids.account.device_id(),
+        first_user = ids.account.user_id,
+        first_device = ids.account.device_id,
         second_user = ids.other_device.user_id(),
         second_device = ids.other_device.device_id(),
         transaction_id = flow_id,
@@ -293,8 +294,8 @@ pub fn get_mac_content(
 ) -> OutgoingContent {
     let mut mac: BTreeMap<String, Base64> = BTreeMap::new();
 
-    let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
-    let key = ids.account.identity_keys().ed25519.to_base64();
+    let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &ids.account.device_id);
+    let key = ids.account.identity_keys.ed25519.to_base64();
     let info = extra_mac_info_send(ids, flow_id.as_str());
 
     mac.insert(key_id.to_string(), mac_method.calculate_mac(sas, &key, &format!("{info}{key_id}")));
@@ -352,7 +353,7 @@ fn extra_info_sas(
     we_started: bool,
 ) -> String {
     let our_info =
-        format!("{}|{}|{}", ids.account.user_id(), ids.account.device_id(), own_pubkey.to_base64());
+        format!("{}|{}|{}", ids.account.user_id, ids.account.device_id, own_pubkey.to_base64());
     let their_info = format!(
         "{}|{}|{}",
         ids.other_device.user_id(),

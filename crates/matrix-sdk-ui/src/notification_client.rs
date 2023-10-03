@@ -19,7 +19,11 @@ use std::{
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
+use matrix_sdk_base::{
+    crypto::{vodozemac, MegolmError},
+    deserialized_responses::TimelineEvent,
+    RoomState, StoreError,
+};
 use ruma::{
     api::client::sync::sync_events::v4::{
         AccountDataConfig, RoomSubscription, SyncRequestListFilters,
@@ -37,6 +41,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
@@ -86,14 +91,20 @@ pub struct NotificationClient {
     /// rules?
     filter_by_push_rules: bool,
 
-    /// A mutex to serialize requests to sliding sync.
+    /// A mutex to serialize requests to the notifications sliding sync.
     ///
     /// If several notifications come in at the same time (e.g. network was
     /// unreachable because of airplane mode or something similar), then we
     /// need to make sure that repeated calls to `get_notification` won't
     /// cause multiple requests with the same `conn_id` we're using for
     /// notifications. This mutex solves this by sequentializing the requests.
-    sliding_sync_mutex: AsyncMutex<()>,
+    notification_sync_mutex: AsyncMutex<()>,
+
+    /// A mutex to serialize requests to the encryption sliding sync that's used
+    /// in case we didn't have the keys to decipher an event.
+    ///
+    /// Same reasoning as [`Self::notification_sync_mutex`].
+    encryption_sync_mutex: AsyncMutex<()>,
 }
 
 impl NotificationClient {
@@ -114,12 +125,11 @@ impl NotificationClient {
     /// sync, and if the sliding-sync can't find the event, then it'll use a
     /// `/context` query to find the event with associated member information.
     ///
-    /// This is *not* reentrant.
-    ///
     /// An error result means that we couldn't resolve the notification; in that
     /// case, a dummy notification may be displayed instead. A `None` result
     /// means the notification has been filtered out by the user's push
     /// rules.
+    #[instrument(skip(self))]
     pub async fn get_notification(
         &self,
         room_id: &RoomId,
@@ -136,13 +146,12 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
-    /// This is *not* reentrant.
-    ///
     /// Will return true if and only:
     /// - the event was encrypted,
     /// - we successfully ran an encryption sync or waited long enough for an
     ///   existing encryption sync to
     /// decrypt the event.
+    #[instrument(skip_all)]
     async fn retry_decryption(
         &self,
         room: &Room,
@@ -154,6 +163,9 @@ impl NotificationClient {
         if !is_event_encrypted(event.event_type()) {
             return Ok(None);
         }
+
+        // Serialize calls to this function.
+        let _guard = self.encryption_sync_mutex.lock().await;
 
         // The message is still encrypted, and the client is configured to retry
         // decryption.
@@ -173,8 +185,8 @@ impl NotificationClient {
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
-                // create a dummy sync permit. That works under the assumption that there aren't
-                // multiple calls to this function at the same time (i.e. it's not reentrant).
+                // create a dummy sync permit; we're guaranteed there's at most one since we've
+                // acquired the `encryption_sync_mutex' lock here.
                 let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
                 sync_permit.lock_owned().await
             }
@@ -193,31 +205,35 @@ impl NotificationClient {
                     // amount.
                     let mut wait = 200;
 
+                    debug!("Encryption sync running in background");
                     for _ in 0..3 {
-                        tracing::debug!("Sync running in background while getting a notification; waiting for decryption…");
+                        trace!("waiting for decryption…");
 
-                        tokio::time::sleep(Duration::from_millis(wait)).await; // heuristics~~~
-                                                                               //
-                        let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+                        tokio::time::sleep(Duration::from_millis(wait)).await;
 
-                        if !is_event_encrypted(
-                            new_event
-                                .event
-                                .deserialize()
-                                .map_err(|_| Error::InvalidRumaEvent)?
-                                .event_type(),
-                        ) {
-                            tracing::debug!("Waiting succeeded!");
-                            return Ok(Some(new_event));
+                        match room.decrypt_event(raw_event.cast_ref()).await {
+                            Ok(new_event) => {
+                                trace!("Waiting succeeded and event could be decrypted!");
+                                return Ok(Some(new_event));
+                            }
+                            Err(matrix_sdk::Error::MegolmError(
+                                MegolmError::MissingRoomKey(_)
+                                | MegolmError::Decryption(
+                                    vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _),
+                                ),
+                            )) => {
+                                // Decryption error that could be caused by a missing room key;
+                                // retry in a few.
+                                wait *= 2;
+                            }
+                            Err(err) => {
+                                return Err(err.into());
+                            }
                         }
-
-                        wait *= 2;
                     }
 
                     // We couldn't decrypt the event after waiting a few times, abort.
-                    tracing::debug!(
-                        "Timeout waiting for the sync service to decrypt the notification event."
-                    );
+                    debug!("Timeout waiting for the encryption sync to decrypt notification.");
                     return Ok(None);
                 }
             }
@@ -237,19 +253,23 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => {
-                    let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
-                    Ok(Some(new_event))
-                }
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref()).await {
+                    Ok(new_event) => {
+                        trace!("Encryption sync managed to decrypt the event.");
+                        Ok(Some(new_event))
+                    }
+                    Err(err) => {
+                        trace!("Encryption sync failed to decrypt the event: {err}");
+                        Ok(None)
+                    }
+                },
                 Err(err) => {
-                    tracing::warn!(
-                        "error when running encryption_sync in get_notification: {err:#}"
-                    );
+                    warn!("Encryption sync error: {err:#}");
                     Ok(None)
                 }
             },
             Err(err) => {
-                tracing::warn!("error when building encryption_sync in get_notification: {err:#}",);
+                warn!("Encryption sync build error: {err:#}",);
                 Ok(None)
             }
         }
@@ -261,6 +281,7 @@ impl NotificationClient {
     /// This works by requesting explicit state that'll be useful for building
     /// the `NotificationItem`, and subscribing to the room which the
     /// notification relates to.
+    #[instrument(skip_all)]
     async fn try_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -268,7 +289,7 @@ impl NotificationClient {
     ) -> Result<Option<RawNotificationEvent>, Error> {
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
-        let _guard = self.sliding_sync_mutex.lock().await;
+        let _guard = self.notification_sync_mutex.lock().await;
 
         // Set up a sliding sync that only subscribes to the room that had the
         // notification, so we can figure out the full event and associated
@@ -278,6 +299,7 @@ impl NotificationClient {
 
         let cloned_notif = notification.clone();
         let target_event_id = event_id.to_owned();
+
         let timeline_event_handler =
             self.client.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| async move {
                 match raw.get_field::<OwnedEventId>("event_id") {
@@ -289,8 +311,11 @@ impl NotificationClient {
                                 Some(RawNotificationEvent::Timeline(raw));
                         }
                     }
-                    Ok(None) | Err(_) => {
-                        tracing::warn!("could not get event id");
+                    Ok(None) => {
+                        warn!("a sync event had no event id");
+                    }
+                    Err(err) => {
+                        warn!("a sync event id couldn't be decoded: {err}");
                     }
                 }
             });
@@ -307,8 +332,11 @@ impl NotificationClient {
                             *cloned_notif.lock().unwrap() = Some(RawNotificationEvent::Invite(raw));
                         }
                     }
-                    Ok(None) | Err(_) => {
-                        tracing::warn!("could not get event id");
+                    Ok(None) => {
+                        warn!("a room member event had no id");
+                    }
+                    Err(err) => {
+                        warn!("a room member event id couldn't be decoded: {err}");
                     }
                 }
             });
@@ -389,15 +417,11 @@ impl NotificationClient {
     ///
     /// This will run a small sliding sync to retrieve the content of the event,
     /// along with extra data to form a rich notification context.
-    ///
-    /// This is *not* reentrant.
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<NotificationStatus, Error> {
-        tracing::info!("fetching notification event with a sliding sync");
-
         let Some(mut raw_event) = self.try_sliding_sync(room_id, event_id).await? else {
             return Ok(NotificationStatus::EventNotFound);
         };
@@ -449,7 +473,7 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
-        tracing::info!("fetching notification event with a /context query");
+        info!("fetching notification event with a /context query");
 
         // See above comment.
         let Some(room) = self.parent_client.get_room(room_id) else {
@@ -542,7 +566,8 @@ impl NotificationClientBuilder {
             client: self.client,
             parent_client: self.parent_client,
             filter_by_push_rules: self.filter_by_push_rules,
-            sliding_sync_mutex: AsyncMutex::new(()),
+            notification_sync_mutex: AsyncMutex::new(()),
+            encryption_sync_mutex: AsyncMutex::new(()),
             process_setup: self.process_setup,
         }
     }

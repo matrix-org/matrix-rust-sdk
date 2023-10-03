@@ -35,7 +35,6 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            create::RoomCreateEventContent,
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -59,7 +58,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::{MemberInfo, MemberRoomInfo},
-    BaseRoomInfo, DisplayName, RoomMember,
+    BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent, RoomMember,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -258,15 +257,14 @@ impl Room {
     /// `m.room.create` event as the first event for a given room, thus this can
     /// be optional.
     ///
-    /// It can also be redacted in current room versions, leaving only the
-    /// `creator` field.
-    pub fn create_content(&self) -> Option<RoomCreateEventContent> {
-        self.inner
-            .read()
-            .base_info
-            .create
-            .as_ref()
-            .and_then(|e| e.as_original().map(|e| e.content.clone()))
+    /// For room versions earlier than room version 11, if the event is
+    /// redacted, all fields except `creator` will be set to their default
+    /// value.
+    pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
+        match self.inner.read().base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => Some(ev.content.clone()),
+            MinimalStateEvent::Redacted(ev) => Some(ev.content.clone()),
+        }
     }
 
     /// Is this room considered a direct message.
@@ -700,22 +698,19 @@ pub struct RoomInfo {
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
     /// The state of the room.
-    #[serde(rename = "room_type")] // for backwards compatibility
-    room_state: RoomState,
+    pub(crate) room_state: RoomState,
     /// The unread notifications counts.
-    notification_counts: UnreadNotificationsCount,
+    pub(crate) notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
-    summary: RoomSummary,
+    pub(crate) summary: RoomSummary,
     /// Flag remembering if the room members are synced.
-    members_synced: bool,
+    pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
     pub(crate) last_prev_batch: Option<String>,
     /// How much we know about this room.
-    #[serde(default = "SyncInfo::complete")] // see fn docs for why we use this default
-    sync_info: SyncInfo,
+    pub(crate) sync_info: SyncInfo,
     /// Whether or not the encryption info was been synced.
-    #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
-    encryption_state_synced: bool,
+    pub(crate) encryption_state_synced: bool,
     /// The last event send by sliding sync
     #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) latest_event: Option<SyncTimelineEvent>,
@@ -739,24 +734,6 @@ pub(crate) enum SyncInfo {
 
     /// We have all the latest state events.
     FullySynced,
-}
-
-impl SyncInfo {
-    // The sync_info field introduced a new field in the database schema, but to
-    // avoid a database migration, we let serde assume that if the room is in
-    // the database, yet the field isn't, we have synced it before this field
-    // was introduced - which was a a full sync.
-    fn complete() -> Self {
-        SyncInfo::FullySynced
-    }
-}
-
-// The encryption_state_synced field introduced a new field in the database
-// schema, but to avoid a database migration, we let serde assume that if
-// the room is in the database, yet the field isn't, we have synced it
-// before this field was introduced - which was a a full sync.
-fn encryption_state_default() -> bool {
-    true
 }
 
 impl RoomInfo {
@@ -991,14 +968,17 @@ impl RoomInfo {
 
     /// Get the room type of this room.
     pub fn room_type(&self) -> Option<&RoomType> {
-        self.base_info.create.as_ref()?.as_original()?.content.room_type.as_ref()
+        match self.base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => ev.content.room_type.as_ref(),
+            MinimalStateEvent::Redacted(ev) => ev.content.room_type.as_ref(),
+        }
     }
 
-    fn creator(&self) -> Option<&UserId> {
-        #[allow(deprecated)]
+    /// Get the creator of this room.
+    pub fn creator(&self) -> Option<&UserId> {
         match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => ev.content.creator.as_deref(),
-            MinimalStateEvent::Redacted(ev) => ev.content.creator.as_deref(),
+            MinimalStateEvent::Original(ev) => Some(&ev.content.creator),
+            MinimalStateEvent::Redacted(ev) => Some(&ev.content.creator),
         }
     }
 
@@ -1023,7 +1003,8 @@ impl RoomInfo {
         }
     }
 
-    fn name(&self) -> Option<&str> {
+    /// Get the name of this room.
+    pub fn name(&self) -> Option<&str> {
         let name = &self.base_info.name.as_ref()?.as_original()?.content.name;
         (!name.is_empty()).then_some(name)
     }
@@ -1190,7 +1171,7 @@ mod tests {
 
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
-            "room_type": "Invited",
+            "room_state": "Invited",
             "notification_counts": {
                 "highlight_count": 1,
                 "notification_count": 2,
@@ -1234,7 +1215,7 @@ mod tests {
         // cached state
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
-            "room_type": "Invited",
+            "room_state": "Invited",
             "notification_counts": {
                 "highlight_count": 1,
                 "notification_count": 2,

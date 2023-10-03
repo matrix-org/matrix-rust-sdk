@@ -41,7 +41,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
-    olm::{InboundGroupSession, Session},
+    olm::{InboundGroupSession, Session, StaticAccountData},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
@@ -63,8 +63,7 @@ pub(crate) struct GossipMachine {
 
 #[derive(Debug)]
 pub(crate) struct GossipMachineInner {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
+    static_account: StaticAccountData,
     store: Store,
     #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
@@ -77,8 +76,7 @@ pub(crate) struct GossipMachineInner {
 
 impl GossipMachine {
     pub fn new(
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
+        static_account: StaticAccountData,
         store: Store,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
@@ -88,8 +86,7 @@ impl GossipMachine {
 
         Self {
             inner: Arc::new(GossipMachineInner {
-                user_id,
-                device_id,
+                static_account,
                 store,
                 #[cfg(feature = "automatic-room-key-forwarding")]
                 outbound_group_sessions,
@@ -126,12 +123,12 @@ impl GossipMachine {
 
     /// Our own user id.
     pub fn user_id(&self) -> &UserId {
-        &self.inner.user_id
+        &self.inner.static_account.user_id
     }
 
     /// Our own device ID.
     pub fn device_id(&self) -> &DeviceId {
-        &self.inner.device_id
+        &self.inner.static_account.device_id
     }
 
     pub async fn outgoing_to_device_requests(
@@ -1057,7 +1054,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     use crate::{
         gossiping::KeyForwardDecision,
-        olm::OutboundGroupSession,
+        olm::{Account, OutboundGroupSession},
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -1069,7 +1066,7 @@ mod tests {
     };
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, Store},
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
@@ -1122,11 +1119,13 @@ mod tests {
         let account = ReadOnlyAccount::with_device_id(&user_id, &device_id);
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let verification = VerificationMachine::new(account, identity.clone(), store.clone());
-        let store = Store::new(user_id.to_owned(), identity, store, verification);
+        let verification =
+            VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
+        let static_account = account.static_data().clone();
+        let store = Store::new(account, identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(user_id, device_id, store, session_cache, Arc::new(DashMap::new()))
+        GossipMachine::new(static_account, store, session_cache, Arc::new(DashMap::new()))
     }
 
     async fn get_machine() -> GossipMachine {
@@ -1141,19 +1140,15 @@ mod tests {
 
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let verification = VerificationMachine::new(account, identity.clone(), store.clone());
+        let verification =
+            VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
-        let store = Store::new(user_id.clone(), identity, store, verification);
+        let static_account = account.static_data().clone();
+        let store = Store::new(account, identity, store, verification);
         store.save_devices(&[device, another_device]).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(
-            user_id,
-            alice_device_id().into(),
-            store,
-            session_cache,
-            Arc::new(DashMap::new()),
-        )
+        GossipMachine::new(static_account, store, session_cache, Arc::new(DashMap::new()))
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1164,7 +1159,7 @@ mod tests {
     ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
         let alice_account = Account {
-            inner: alice_machine.inner.store.account().clone(),
+            static_data: alice_machine.inner.store.account().static_data().clone(),
             store: alice_machine.inner.store.clone(),
         };
         let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
@@ -1197,8 +1192,7 @@ mod tests {
         let settings = EncryptionSettings { algorithm, ..Default::default() };
         let (group_session, inbound_group_session) = bob_machine
             .inner
-            .store
-            .account()
+            .static_account
             .create_group_session_pair(room_id(), settings)
             .await
             .unwrap();
@@ -1694,7 +1688,6 @@ mod tests {
     #[async_test]
     async fn secret_share_cycle() {
         let alice_machine = get_machine().await;
-        let alice_account = Account { inner: account(), store: alice_machine.inner.store.clone() };
 
         let second_account = alice_2_account();
         let alice_device = ReadOnlyDevice::from_account(&second_account).await;
@@ -1705,7 +1698,8 @@ mod tests {
         alice_machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
-        let (alice_session, _) = alice_account.create_session_for(&second_account).await;
+        let (alice_session, _) =
+            alice_machine.inner.store.account().create_session_for(&second_account).await;
 
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
 

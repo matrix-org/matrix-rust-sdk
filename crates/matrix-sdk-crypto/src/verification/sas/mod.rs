@@ -42,16 +42,17 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    olm::StaticAccountData,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
-    Emoji, ReadOnlyAccount, ToDeviceRequest,
+    Emoji, ToDeviceRequest,
 };
 
 /// Short authentication string object.
 #[derive(Clone, Debug)]
 pub struct Sas {
     inner: SharedObservable<InnerSas>,
-    account: ReadOnlyAccount,
+    account: StaticAccountData,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
     we_started: bool,
@@ -225,12 +226,12 @@ impl From<&InnerSas> for SasState {
 impl Sas {
     /// Get our own user id.
     pub fn user_id(&self) -> &UserId {
-        self.account.user_id()
+        &self.account.user_id
     }
 
     /// Get our own device ID.
     pub fn device_id(&self) -> &DeviceId {
-        self.account.device_id()
+        &self.account.device_id
     }
 
     /// Get the user id of the other side.
@@ -896,16 +897,16 @@ mod tests {
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store = VerificationStore {
-            account: alice.clone(),
+            account: alice.static_data.clone(),
             inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), MemoryStore::new())),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
         };
 
         let bob_store = MemoryStore::new();
-        bob_store.save_devices(vec![alice_device.clone()]).await;
+        bob_store.save_devices(vec![alice_device.clone()]);
 
         let bob_store = VerificationStore {
-            account: bob.clone(),
+            account: bob.static_data.clone(),
             inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store)),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };

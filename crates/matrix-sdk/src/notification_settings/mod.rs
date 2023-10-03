@@ -7,7 +7,7 @@ use ruma::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
-    push::{Action, RuleKind, Ruleset, Tweak},
+    push::{Action, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
     RoomId,
 };
 use tokio::sync::RwLock;
@@ -54,7 +54,7 @@ impl From<bool> for IsEncrypted {
 }
 
 /// Whether or not a room is a `one-to-one`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IsOneToOne {
     /// A room is a `one-to-one` room if it has exactly two members.
     Yes,
@@ -186,9 +186,10 @@ impl NotificationSettings {
         is_one_to_one: IsOneToOne,
         mode: RoomNotificationMode,
     ) -> Result<(), NotificationSettingsError> {
-        let rules = self.rules.read().await.clone();
-        let rule_id = rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
-        let mut rule_commands = RuleCommands::new(rules.ruleset);
+        let rule_ids = vec![
+            rules::get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one.clone()),
+            is_one_to_one.into(),
+        ];
 
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
@@ -198,6 +199,28 @@ impl NotificationSettings {
                 vec![]
             }
         };
+
+        for rule_id in rule_ids {
+            self.set_underride_push_rule_actions(rule_id, actions.clone()).await?
+        }
+
+        Ok(())
+    }
+
+    /// Sets the push rule actions for a given underride push rule.
+    /// [Underride rules](https://spec.matrix.org/v1.8/client-server-api/#push-rules) are the lowest priority push rules
+    ///
+    /// # Arguments
+    ///
+    /// * `rule_id` - the identifier of the push rule
+    /// * `actions` - the actions to set for the push rule
+    pub async fn set_underride_push_rule_actions(
+        &self,
+        rule_id: PredefinedUnderrideRuleId,
+        actions: Vec<Action>,
+    ) -> Result<(), NotificationSettingsError> {
+        let rules = self.rules.read().await.clone();
+        let mut rule_commands = RuleCommands::new(rules.ruleset);
 
         rule_commands.set_rule_actions(RuleKind::Underride, rule_id.as_str(), actions)?;
 
@@ -931,7 +954,76 @@ mod tests {
         ruleset
             .set_actions(
                 RuleKind::Underride,
+                PredefinedUnderrideRuleId::Message,
+                vec![Action::Notify],
+            )
+            .unwrap();
+
+        ruleset
+            .set_actions(
+                RuleKind::Underride,
+                PredefinedUnderrideRuleId::PollStart,
+                vec![Action::Notify],
+            )
+            .unwrap();
+
+        let settings = NotificationSettings::new(client, ruleset);
+        assert_eq!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::AllMessages
+        );
+
+        // After setting the default mode to `MentionsAndKeywordsOnly`
+        settings
+            .set_default_room_notification_mode(
+                IsEncrypted::No,
+                IsOneToOne::No,
+                RoomNotificationMode::MentionsAndKeywordsOnly,
+            )
+            .await
+            .unwrap();
+
+        // The list of actions for this rule must be empty
+        assert_matches!(settings.rules.read().await.ruleset.get(RuleKind::Underride, PredefinedUnderrideRuleId::Message),
+            Some(AnyPushRuleRef::Underride(rule)) => {
+                assert!(rule.actions.is_empty());
+            }
+        );
+
+        assert_matches!(settings.rules.read().await.ruleset.get(RuleKind::Underride, PredefinedUnderrideRuleId::PollStart),
+            Some(AnyPushRuleRef::Underride(rule)) => {
+                assert!(rule.actions.is_empty());
+            }
+        );
+
+        // and the new mode returned by `get_default_room_notification_mode()` should
+        // reflect the change.
+        assert_matches!(
+            settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
+            RoomNotificationMode::MentionsAndKeywordsOnly
+        );
+    }
+
+    #[async_test]
+    async fn test_set_default_room_notification_mode_one_to_one() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // If the initial mode is `AllMessages`
+        let mut ruleset = get_server_default_ruleset();
+        ruleset
+            .set_actions(
+                RuleKind::Underride,
                 PredefinedUnderrideRuleId::RoomOneToOne,
+                vec![Action::Notify],
+            )
+            .unwrap();
+
+        ruleset
+            .set_actions(
+                RuleKind::Underride,
+                PredefinedUnderrideRuleId::PollStartOneToOne,
                 vec![Action::Notify],
             )
             .unwrap();
@@ -954,6 +1046,12 @@ mod tests {
 
         // The list of actions for this rule must be empty
         assert_matches!(settings.rules.read().await.ruleset.get(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne),
+            Some(AnyPushRuleRef::Underride(rule)) => {
+                assert!(rule.actions.is_empty());
+            }
+        );
+
+        assert_matches!(settings.rules.read().await.ruleset.get(RuleKind::Underride, PredefinedUnderrideRuleId::PollStartOneToOne),
             Some(AnyPushRuleRef::Underride(rule)) => {
                 assert!(rule.actions.is_empty());
             }

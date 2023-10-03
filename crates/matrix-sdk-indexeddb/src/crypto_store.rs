@@ -22,8 +22,8 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
-        IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
-        PrivateCrossSigningIdentity, Session,
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        Session, StaticAccountData,
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
@@ -36,7 +36,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
@@ -92,13 +92,14 @@ mod keys {
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
+    static_account: RwLock<Option<StaticAccountData>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
     store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Debug for IndexeddbCryptoStore {
@@ -145,13 +146,6 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
 }
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
-
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
-    identity_keys: Arc<IdentityKeys>,
-}
 
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
@@ -258,7 +252,8 @@ impl IndexeddbCryptoStore {
             session_cache,
             inner: db,
             store_cipher,
-            account_info: RwLock::new(None).into(),
+            static_account: RwLock::new(None),
+            save_changes_lock: Default::default(),
         })
     }
 
@@ -449,8 +444,8 @@ impl IndexeddbCryptoStore {
         }
     }
 
-    fn get_account_info(&self) -> Option<AccountInfo> {
-        self.account_info.read().unwrap().clone()
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().unwrap().clone()
     }
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
@@ -514,6 +509,12 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // Serialize calls to `save_changes`; there are multiple await points below, and we're
+        // pickling data as we go, so we don't want to invalidate data we've previously read and
+        // overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
@@ -553,13 +554,7 @@ impl_crypto_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         let account_pickle = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None
@@ -768,7 +763,7 @@ impl_crypto_store! {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
@@ -819,13 +814,7 @@ impl_crypto_store! {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
@@ -846,11 +835,6 @@ impl_crypto_store! {
         } else {
             Ok(None)
         }
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        self.save_changes(Changes { account: Some(account), ..Default::default() })
-            .await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -874,7 +858,7 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let range = self.encode_to_range(keys::SESSION, sender_key)?;
