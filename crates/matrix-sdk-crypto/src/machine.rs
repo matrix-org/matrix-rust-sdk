@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
@@ -1741,77 +1741,24 @@ impl OlmMachine {
     /// machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
     /// # };
     /// ```
+    #[deprecated(
+        since = "0.7.0",
+        note = "Use the OlmMachine::store::import_exported_room_keys method instead"
+    )]
     pub async fn import_room_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
         #[allow(unused_variables)] from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
-        let mut sessions = Vec::new();
-
-        async fn new_session_better(
-            session: &InboundGroupSession,
-            old_session: Option<InboundGroupSession>,
-        ) -> bool {
-            if let Some(old_session) = &old_session {
-                session.compare(old_session).await == SessionOrdering::Better
-            } else {
-                true
-            }
-        }
-
-        let total_count = exported_keys.len();
-        let mut keys = BTreeMap::new();
-
-        for (i, key) in exported_keys.into_iter().enumerate() {
-            match InboundGroupSession::from_export(&key) {
-                Ok(session) => {
-                    let old_session = self
-                        .inner
-                        .store
-                        .get_inbound_group_session(session.room_id(), session.session_id())
-                        .await?;
-
-                    // Only import the session if we didn't have this session or
-                    // if it's a better version of the same session.
-                    if new_session_better(&session, old_session).await {
-                        #[cfg(feature = "backups_v1")]
-                        if from_backup {
-                            session.mark_as_backed_up();
-                        }
-
-                        keys.entry(session.room_id().to_owned())
-                            .or_insert_with(BTreeMap::new)
-                            .entry(session.sender_key().to_base64())
-                            .or_insert_with(BTreeSet::new)
-                            .insert(session.session_id().to_owned());
-
-                        sessions.push(session);
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        sender_key= key.sender_key.to_base64(),
-                        room_id = ?key.room_id,
-                        session_id = key.session_id,
-                        error = ?e,
-                        "Couldn't import a room key from a file export."
-                    );
-                }
-            }
-
-            progress_listener(i, total_count);
-        }
-
-        let imported_count = sessions.len();
-
-        let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
-
-        self.store().save_changes(changes).await?;
-
-        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
-
-        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
+        self.store()
+            .import_room_keys(
+                exported_keys,
+                #[cfg(feature = "backups_v1")]
+                from_backup,
+                progress_listener,
+            )
+            .await
     }
 
     /// Export the keys that match the given predicate.
