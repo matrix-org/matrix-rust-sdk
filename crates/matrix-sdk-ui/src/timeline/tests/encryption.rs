@@ -96,7 +96,7 @@ async fn retry_message_decryption() {
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
     let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
-    olm_machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .inner
@@ -201,7 +201,7 @@ async fn retry_edit_decryption() {
 
     let own_user_id = user_id!("@example:morheus.localhost");
     let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
-    olm_machine.import_room_keys(keys, false, |_, _| {}).await.unwrap();
+    olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
     timeline
         .inner
@@ -304,7 +304,7 @@ async fn retry_edit_and_more() {
 
     let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
     let keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "testing").unwrap();
-    olm_machine.import_room_keys(keys, false, |_, _| {}).await.unwrap();
+    olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
     timeline
         .inner
@@ -389,7 +389,7 @@ async fn retry_message_decryption_highlighted() {
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
     let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
-    olm_machine.import_room_keys(exported_keys, false, |_, _| {}).await.unwrap();
+    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .inner

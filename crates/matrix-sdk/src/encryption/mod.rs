@@ -1054,7 +1054,7 @@ impl Encryption {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.import_room_keys(import, false, |_, _| {}).await?)
+        Ok(olm.store().import_exported_room_keys(import, |_, _| {}).await?)
     }
 
     /// Get the secret storage manager of the client.
