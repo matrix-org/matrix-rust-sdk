@@ -374,7 +374,9 @@ mod tests {
     };
 
     use crate::{
-        machine::tests::{create_session, get_prepared_machine, to_device_requests_to_content},
+        machine::tests::{
+            create_session, get_prepared_machine_test_helper, to_device_requests_to_content,
+        },
         olm::OutboundGroupSession,
         types::events::ToDeviceEvent,
         utilities::json_convert,
@@ -388,7 +390,7 @@ mod tests {
     }
 
     async fn get_olm_machine() -> OlmMachine {
-        let (olm_machine, _) = get_prepared_machine(user_id(), false).await;
+        let (olm_machine, _) = get_prepared_machine_test_helper(user_id(), false).await;
         olm_machine.bootstrap_cross_signing(false).await.unwrap();
 
         olm_machine

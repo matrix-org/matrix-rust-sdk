@@ -391,13 +391,16 @@ impl OlmMachine {
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
-        let store_transaction = self.inner.store.transaction().await?;
-        if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
-            request_id: TransactionId::new(),
-            request: Arc::new(r.into()),
-        }) {
-            store_transaction.commit().await?; // Note: this saves the account.
-            requests.push(r);
+        {
+            let store_transaction = self.inner.store.transaction().await?;
+            let account = store_transaction.account().await?;
+            if let Some(r) = self.keys_for_upload(&account).await.map(|r| OutgoingRequest {
+                request_id: TransactionId::new(),
+                request: Arc::new(r.into()),
+            }) {
+                store_transaction.commit().await?; // Note: this saves the account.
+                requests.push(r);
+            }
         }
 
         for request in self
@@ -638,9 +641,8 @@ impl OlmMachine {
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
-    async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
-        let (device_keys, one_time_keys, fallback_keys) =
-            self.inner.store.account().keys_for_upload().await;
+    async fn keys_for_upload(&self, account: &ReadOnlyAccount) -> Option<upload_keys::v3::Request> {
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
@@ -2186,7 +2188,7 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    pub(crate) async fn get_prepared_machine(
+    pub(crate) async fn get_prepared_machine_test_helper(
         user_id: &UserId,
         use_fallback_key: bool,
     ) -> (OlmMachine, OneTimeKeys) {
@@ -2194,7 +2196,10 @@ pub(crate) mod tests {
         machine.account().generate_fallback_key_helper().await;
         machine.account().update_uploaded_key_count(0);
         machine.account().generate_one_time_keys().await;
-        let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
+        let request = machine
+            .keys_for_upload(machine.account())
+            .await
+            .expect("Can't prepare initial key upload");
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
 
@@ -2204,7 +2209,7 @@ pub(crate) mod tests {
     }
 
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
-        let (machine, otk) = get_prepared_machine(user_id(), false).await;
+        let (machine, otk) = get_prepared_machine_test_helper(user_id(), false).await;
         let response = keys_query_response();
         let req_id = TransactionId::new();
 
@@ -2218,7 +2223,7 @@ pub(crate) mod tests {
         bob: &UserId,
         use_fallback_key: bool,
     ) -> (OlmMachine, OlmMachine, OneTimeKeys) {
-        let (bob, otk) = get_prepared_machine(bob, use_fallback_key).await;
+        let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(alice, alice_device).await;
@@ -2402,8 +2407,10 @@ pub(crate) mod tests {
 
         let ed25519_key = machine.account().identity_keys().ed25519;
 
-        let mut request =
-            machine.keys_for_upload().await.expect("Can't prepare initial key upload");
+        let mut request = machine
+            .keys_for_upload(machine.account())
+            .await
+            .expect("Can't prepare initial key upload");
 
         let one_time_key: SignedKey = request
             .one_time_keys
@@ -2437,13 +2444,13 @@ pub(crate) mod tests {
 
         machine.receive_keys_upload_response(&response).await.unwrap();
 
-        let ret = machine.keys_for_upload().await;
+        let ret = machine.keys_for_upload(machine.account()).await;
         assert!(ret.is_none());
     }
 
     #[async_test]
     async fn test_keys_query() {
-        let (machine, _) = get_prepared_machine(user_id(), false).await;
+        let (machine, _) = get_prepared_machine_test_helper(user_id(), false).await;
         let response = keys_query_response();
         let alice_id = user_id!("@alice:example.org");
         let alice_device_id: &DeviceId = device_id!("JLAFKJWSCS");
@@ -2461,7 +2468,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_query_keys_for_users() {
-        let (machine, _) = get_prepared_machine(user_id(), false).await;
+        let (machine, _) = get_prepared_machine_test_helper(user_id(), false).await;
         let alice_id = user_id!("@alice:example.org");
         let (_, request) = machine.query_keys_for_users(vec![alice_id]);
         assert!(request.device_keys.contains_key(alice_id));
@@ -3051,7 +3058,7 @@ pub(crate) mod tests {
     /// functions
     #[async_test]
     async fn test_decrypt_unencrypted_event() {
-        let (bob, _) = get_prepared_machine(user_id(), false).await;
+        let (bob, _) = get_prepared_machine_test_helper(user_id(), false).await;
         let room_id = room_id!("!test:example.org");
 
         let event = json!({
@@ -3274,7 +3281,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_verification_states_multiple_device() {
-        let (bob, _) = get_prepared_machine(user_id(), false).await;
+        let (bob, _) = get_prepared_machine_test_helper(user_id(), false).await;
 
         let other_user_id = user_id!("@web2:localhost:8482");
 

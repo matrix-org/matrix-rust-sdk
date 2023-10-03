@@ -74,7 +74,7 @@ use crate::{
         },
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    CryptoStoreError, OlmError, SignatureError,
+    OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
