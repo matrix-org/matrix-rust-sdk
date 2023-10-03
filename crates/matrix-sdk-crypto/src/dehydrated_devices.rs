@@ -60,7 +60,7 @@ use crate::{
     olm::Account,
     store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
-    EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
+    CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -69,13 +69,19 @@ pub enum DehydrationError {
     /// The dehydrated device could not be unpickled.
     #[error(transparent)]
     Pickle(#[from] LibolmPickleError),
+
     /// The dehydrated device could not be signed by our user identity,
     /// we're missing the self-signing key.
     #[error("The self-signing key is missing, can't create a dehydrated device")]
     MissingSigningKey(#[from] SignatureError),
+
     /// We could not deserialize the dehydrated device data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
 }
 
 /// Struct collecting methods to create and rehydrate dehydrated devices.
@@ -234,7 +240,12 @@ impl RehydratedDevice {
 
         // Let us first give the events to the rehydrated device, this will decrypt any
         // encrypted to-device events and fetch out the room keys.
-        let (_, changes) = self.rehydrated.preprocess_sync_changes(sync_changes).await?;
+        let mut rehydrated_transaction = self.rehydrated.store().transaction().await?;
+
+        let (_, changes) = self
+            .rehydrated
+            .preprocess_sync_changes(&mut rehydrated_transaction, sync_changes)
+            .await?;
 
         // Now take the room keys and persist them in our original `OlmMachine`.
         let room_keys = &changes.inbound_group_sessions;
@@ -243,6 +254,8 @@ impl RehydratedDevice {
         trace!(room_key_count = room_keys.len(), "Collected room keys from the rehydrated device");
 
         self.original.store().save_inbound_group_sessions(room_keys).await?;
+
+        rehydrated_transaction.commit().await?;
         self.rehydrated.store().save_changes(changes).await?;
 
         Ok(updates)
@@ -302,8 +315,11 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        let account = self.account.store.account();
+        let mut transaction = self.account.store.transaction().await?;
+
+        let account = transaction.account().await?;
         account.generate_fallback_key_helper().await;
+
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         let mut device_keys = device_keys
@@ -323,6 +339,8 @@ impl DehydratedDevice {
         let device_id = self.account.static_data.device_id.clone();
         let device_data = account.dehydrate(&pickle_key).await;
         let initial_device_display_name = Some(initial_device_display_name);
+
+        transaction.commit().await?;
 
         Ok(
             assign!(put_dehydrated_device::unstable::Request::new(device_id, device_data, device_keys.to_raw()), {

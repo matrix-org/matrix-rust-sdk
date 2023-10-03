@@ -1562,7 +1562,7 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle(algorithm: EventEncryptionAlgorithm) {
+    async fn test_key_share_cycle(algorithm: EventEncryptionAlgorithm) {
         let (alice_machine, alice_account, group_session, bob_machine) =
             machines_for_key_share_test_helper(alice_id(), true, algorithm).await;
 
@@ -1598,7 +1598,14 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .store
+            .with_transaction(|mut tr| async {
+                let res = alice_account.decrypt_to_device_event(&mut tr, &event).await?;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap();
 
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
@@ -1624,7 +1631,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn reject_forward_from_another_user() {
+    async fn test_reject_forward_from_another_user() {
         let (alice_machine, alice_account, group_session, bob_machine) =
             machines_for_key_share_test_helper(
                 bob_id(),
@@ -1665,7 +1672,14 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .store
+            .with_transaction(|mut tr| async {
+                let res = alice_account.decrypt_to_device_event(&mut tr, &event).await?;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap();
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
@@ -1680,14 +1694,14 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn key_share_cycle_megolm_v1() {
-        key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
+    async fn test_key_share_cycle_megolm_v1() {
+        test_key_share_cycle(EventEncryptionAlgorithm::MegolmV1AesSha2).await;
     }
 
     #[async_test]
     #[cfg(all(feature = "experimental-algorithms", feature = "automatic-room-key-forwarding"))]
-    async fn key_share_cycle_megolm_v2() {
-        key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
+    async fn test_key_share_cycle_megolm_v2() {
+        test_key_share_cycle(EventEncryptionAlgorithm::MegolmV2AesSha2).await;
     }
 
     #[async_test]
@@ -1768,12 +1782,14 @@ mod tests {
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
-        use crate::{machine::tests::get_machine_pair_with_setup_sessions, EncryptionSyncChanges};
+        use crate::{
+            machine::tests::get_machine_pair_with_setup_sessions_test_helper, EncryptionSyncChanges,
+        };
 
         let alice_id = user_id!("@alice:localhost");
 
         let (alice_machine, bob_machine) =
-            get_machine_pair_with_setup_sessions(alice_id, alice_id, false).await;
+            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
 
         let key_requests = GossipMachine::request_missing_secrets(
             bob_machine.user_id(),
@@ -1891,7 +1907,7 @@ mod tests {
             .inner
             .store
             .account()
-            .create_session_for(bob_machine.inner.store.account())
+            .create_session_for(&bob_machine.inner.store.cache().await.unwrap().account)
             .await;
         // We create a session now.
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
@@ -1920,7 +1936,14 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .store
+            .with_transaction(|mut tr| async {
+                let res = alice_account.decrypt_to_device_event(&mut tr, &event).await?;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap();
 
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");

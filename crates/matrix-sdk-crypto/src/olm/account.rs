@@ -63,7 +63,7 @@ use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
-    store::{Changes, Store},
+    store::{Changes, Store, StoreTransaction},
     types::{
         events::{
             olm_v1::AnyDecryptedOlmEvent,
@@ -155,13 +155,14 @@ impl OlmMessageHash {
 impl Account {
     async fn decrypt_olm_helper(
         &self,
+        transaction: &mut StoreTransaction,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         ciphertext: &OlmMessage,
     ) -> OlmResult<OlmDecryptionInfo> {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
-        match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
+        match self.decrypt_olm_message(transaction, sender, sender_key, ciphertext).await {
             Ok((session, result)) => {
                 Ok(OlmDecryptionInfo { session, message_hash, result, inbound_group_session: None })
             }
@@ -189,6 +190,7 @@ impl Account {
     #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
     async fn decrypt_olm_v1(
         &self,
+        transaction: &mut StoreTransaction,
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
@@ -197,20 +199,27 @@ impl Account {
 
             Err(EventError::MissingCiphertext.into())
         } else {
-            Box::pin(self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext)).await
+            Box::pin(self.decrypt_olm_helper(
+                transaction,
+                sender,
+                content.sender_key,
+                &content.ciphertext,
+            ))
+            .await
         }
     }
 
     #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
     pub(crate) async fn decrypt_to_device_event(
         &self,
+        transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         trace!("Decrypting a to-device event");
 
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
-                self.decrypt_olm_v1(&event.sender, c).await
+                self.decrypt_olm_v1(transaction, &event.sender, c).await
             }
             #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
@@ -231,7 +240,7 @@ impl Account {
         &self,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        let store_transaction = self.store.transaction().await?;
+        let mut store_transaction = self.store.transaction().await?;
 
         let account = store_transaction.account().await?;
 
@@ -304,9 +313,10 @@ impl Account {
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self, transaction, message))]
     async fn decrypt_olm_message(
         &self,
+        transaction: &mut StoreTransaction,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
@@ -343,7 +353,7 @@ impl Account {
 
                 OlmMessage::PreKey(m) => {
                     // Create the new session.
-                    let account = self.store.account();
+                    let account = transaction.account().await?;
                     let result = match account.create_inbound_session(sender_key, m).await {
                         Ok(r) => r,
                         Err(_) => {
@@ -355,11 +365,8 @@ impl Account {
                     // we might try to create the same session again.
                     // TODO: separate the session cache from the storage so we only add
                     // it to the cache but don't store it.
-                    let changes = Changes {
-                        account: Some(account.clone()),
-                        sessions: vec![result.session.clone()],
-                        ..Default::default()
-                    };
+                    let changes =
+                        Changes { sessions: vec![result.session.clone()], ..Default::default() };
                     self.store.save_changes(changes).await?;
 
                     (SessionType::New(result.session), result.plaintext)
@@ -380,20 +387,11 @@ impl Account {
         match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
             Err(e) => {
-                // We might created a new session but decryption might still
+                // We might have created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
                 // since we don't expect this to happen often or at all.
                 match session {
-                    SessionType::New(s) => {
-                        let account = self.store.account();
-                        let changes = Changes {
-                            account: Some(account.clone()),
-                            sessions: vec![s],
-                            ..Default::default()
-                        };
-                        self.store.save_changes(changes).await?;
-                    }
-                    SessionType::Existing(s) => {
+                    SessionType::New(s) | SessionType::Existing(s) => {
                         self.store.save_sessions(&[s]).await?;
                     }
                 }

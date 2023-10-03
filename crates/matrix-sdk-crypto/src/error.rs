@@ -219,6 +219,10 @@ pub enum SignatureError {
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] CanonicalJsonError),
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    StoreError(#[from] CryptoStoreError),
 }
 
 impl From<SerdeError> for SignatureError {

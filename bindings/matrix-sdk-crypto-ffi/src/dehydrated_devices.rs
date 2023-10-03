@@ -18,6 +18,8 @@ pub enum DehydrationError {
     MissingSigningKey(#[from] matrix_sdk_crypto::SignatureError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Store(#[from] matrix_sdk_crypto::CryptoStoreError),
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
 }
@@ -30,6 +32,7 @@ impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for Dehydrati
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::MissingSigningKey(e) => {
                 Self::MissingSigningKey(e)
             }
+            matrix_sdk_crypto::dehydrated_devices::DehydrationError::Store(e) => Self::Store(e),
         }
     }
 }

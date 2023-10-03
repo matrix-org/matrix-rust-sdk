@@ -353,6 +353,7 @@ impl SessionManager {
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
+        let mut store_transaction = self.store.transaction().await?;
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(user_id, device_id).await {
@@ -378,25 +379,25 @@ impl SessionManager {
                     }
                 };
 
-                let session =
-                    match self.store.account().create_outbound_session(&device, key_map).await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!(
-                                user_id = user_id.as_str(),
-                                device_id = device_id.as_str(),
-                                error = ?e,
-                                "Error creating outbound session"
-                            );
+                let account = store_transaction.account().await?;
+                let session = match account.create_outbound_session(&device, key_map).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            error = ?e,
+                            "Error creating outbound session"
+                        );
 
-                            self.failed_devices
-                                .entry(user_id.to_owned())
-                                .or_default()
-                                .insert(device_id.to_owned());
+                        self.failed_devices
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .insert(device_id.to_owned());
 
-                            continue;
-                        }
-                    };
+                        continue;
+                    }
+                };
 
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
@@ -415,6 +416,7 @@ impl SessionManager {
             }
         }
 
+        store_transaction.commit().await?;
         self.store.save_changes(changes).await?;
         info!(sessions = ?new_sessions, "Established new Olm sessions");
 
@@ -644,7 +646,9 @@ mod tests {
 
         let manager = session_manager_test_helper().await;
         let bob = bob_account();
-        let (_, mut session) = bob.create_session_for(manager.store.account()).await;
+
+        let manager_account = &manager.store.cache().await.unwrap().account;
+        let (_, mut session) = bob.create_session_for(manager_account).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);

@@ -107,13 +107,14 @@ pub struct Store {
     inner: Arc<StoreInner>,
 }
 
-#[derive(Debug, Default)]
-struct StoreCache {
+#[derive(Debug)]
+pub(crate) struct StoreCache {
     tracked_users: DashSet<OwnedUserId>,
     tracked_user_loading_lock: RwLock<bool>,
+    pub account: ReadOnlyAccount,
 }
 
-struct StoreCacheGuard<'a> {
+pub(crate) struct StoreCacheGuard<'a> {
     cache: &'a StoreCache,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
@@ -126,29 +127,38 @@ impl<'a> Deref for StoreCacheGuard<'a> {
     }
 }
 
+/// A temporary transaction (that implies a write) to the underlying store.
+#[allow(missing_debug_implementations)]
 pub struct StoreTransaction {
     store: Store,
-    account: ReadOnlyAccount,
+    changes: PendingChanges,
+    // TODO hold onto the cross-process crypto store lock + cache.
 }
 
 impl StoreTransaction {
+    /// Starts a new `StoreTransaction`.
     pub async fn new(store: Store) -> Result<Self> {
-        // TODO read-or-load from the cache itself
-        let _cache = store.cache().await?;
-
-        let account = store.account().clone();
-
-        Ok(Self { store, account })
+        Ok(Self { store, changes: PendingChanges::default() })
     }
 
-    pub async fn account(&self) -> Result<&ReadOnlyAccount> {
-        // TODO(bnjbvr) introduce account_mut
-        Ok(&self.account)
+    /// Gets a `ReadOnlyAccount` for update.
+    pub async fn account(&mut self) -> Result<ReadOnlyAccount> {
+        if let Some(account) = &self.changes.account {
+            Ok(account.clone())
+        } else {
+            let cache = self.store.cache().await?;
+            self.changes.account = Some(cache.account.clone());
+            Ok(cache.account.clone())
+        }
     }
 
+    /// Commits all dirty fields to the store, and maintains the cache so it reflects the current
+    /// state of the database.
     pub async fn commit(self) -> Result<()> {
         // TODO make the cache coherent with the DB
-        self.store.save_changes(Changes { account: Some(self.account), ..Default::default() }).await
+        self.store.save_pending_changes(self.changes).await?;
+
+        Ok(())
     }
 }
 
@@ -586,11 +596,15 @@ impl Store {
             static_account: account.static_data().clone(),
             identity,
             store,
-            account,
+            account: account.clone(),
             verification_machine,
             users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
             users_for_key_query_condvar: Condvar::new(),
-            cache: Default::default(),
+            cache: StoreCache {
+                tracked_users: Default::default(),
+                tracked_user_loading_lock: Default::default(),
+                account,
+            },
         });
 
         Self { inner }
@@ -616,7 +630,7 @@ impl Store {
         &self.inner.static_account
     }
 
-    async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
+    pub(crate) async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
         // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
         // - try to take the lock,
         // - if acquired, look if another process touched the underlying storage,
@@ -632,6 +646,23 @@ impl Store {
 
     pub(crate) async fn transaction(&self) -> Result<StoreTransaction> {
         StoreTransaction::new(self.clone()).await
+    }
+
+    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would take a
+    // `&StoreTransaction`, but callers didn't quite like that.
+    #[cfg(test)]
+    pub(crate) async fn with_transaction<
+        T,
+        Fut: futures_core::Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
+        F: FnOnce(StoreTransaction) -> Fut,
+    >(
+        &self,
+        func: F,
+    ) -> Result<T, crate::OlmError> {
+        let tr = self.transaction().await?;
+        let (tr, res) = func(tr).await?;
+        tr.commit().await?;
+        Ok(res)
     }
 
     #[cfg(test)]
