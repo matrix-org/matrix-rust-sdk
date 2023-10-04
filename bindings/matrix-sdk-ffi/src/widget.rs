@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use language_tags::LanguageTag;
 use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter},
@@ -78,11 +79,8 @@ impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
 }
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
-        let (id, init_after_content_load, raw_url) = (
-            value.id().to_owned(),
-            value.init_after_content_load(),
-            value.raw_url().as_str().to_string(),
-        );
+        let (id, init_after_content_load, raw_url) =
+            (value.id().to_owned(), value.init_after_content_load(), value.raw_url().to_string());
         WidgetSettings { id, init_after_content_load: init_after_content_load, raw_url }
     }
 }
@@ -182,7 +180,8 @@ pub struct ClientProperties {
     /// The client_id provides the widget with the option to behave differently
     /// for different clients. e.g org.example.ios.
     client_id: String,
-    /// The language tag the client is set to e.g. en-us. (default: `en-US`)
+    /// The language tag the client is set to e.g. en-us. (Undefined and invalid
+    /// becomes: `en-US`)
     language_tag: Option<String>,
     /// A string describing the theme (dark, light) or org.example.dark.
     /// (default: `light`)
@@ -192,6 +191,7 @@ pub struct ClientProperties {
 impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
     fn from(value: ClientProperties) -> Self {
         let ClientProperties { client_id, language_tag, theme } = value;
+        let language_tag = language_tag.and_then(|l| LanguageTag::parse(&l).ok());
         Self::new(&client_id, language_tag, theme)
     }
 }
@@ -354,7 +354,7 @@ pub enum ParseError {
     SetHostOnCannotBeABaseUrl,
     #[error("URLs more than 4 GB are not supported")]
     Overflow,
-    #[error("unknown parse error")]
+    #[error("unknown URL parsing error")]
     Other,
 }
 

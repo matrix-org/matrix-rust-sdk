@@ -1,6 +1,6 @@
 pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
-use ruma::api::client::profile::get_profile;
+use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
 use url::Url;
 
 use crate::Room;
@@ -138,10 +138,10 @@ impl WidgetSettings {
     ) -> Result<Url, url::ParseError> {
         self._generate_webview_url(
             room.client().account().get_profile().await.unwrap_or_default(),
-            room.own_user_id().to_string(),
-            room.room_id().to_string(),
-            room.client().device_id().map(|d| d.to_string()).unwrap_or_default(),
-            room.client().homeserver().to_string(),
+            room.own_user_id(),
+            room.room_id(),
+            room.client().device_id().unwrap_or("UNKNOWN".into()),
+            room.client().homeserver(),
             props,
         )
     }
@@ -150,10 +150,10 @@ impl WidgetSettings {
     fn _generate_webview_url(
         &self,
         profile: get_profile::v3::Response,
-        user_id: String,
-        room_id: String,
-        device_id: String,
-        homeserver_url: String,
+        user_id: &UserId,
+        room_id: &RoomId,
+        device_id: &DeviceId,
+        homeserver_url: Url,
         client_props: ClientProperties,
     ) -> Result<Url, url::ParseError> {
         let avatar_url = profile.avatar_url.map(|url| url.to_string()).unwrap_or_default();
@@ -162,13 +162,13 @@ impl WidgetSettings {
             widget_id: self.id.clone(),
             avatar_url,
             display_name: profile.displayname.unwrap_or_default(),
-            user_id,
-            room_id,
+            user_id: user_id.into(),
+            room_id: room_id.into(),
             language: client_props.language.to_string(),
             client_theme: client_props.theme,
             client_id: client_props.client_id,
-            device_id,
-            homeserver_url,
+            device_id: device_id.into(),
+            homeserver_url: homeserver_url.into(),
         };
         let mut generated_url = self.raw_url.clone();
         url_params::replace_properties(&mut generated_url, query_props);
@@ -209,16 +209,14 @@ impl ClientProperties {
     /// * `language` the language that is used in the client. (default: `en-US`)
     /// * `theme` the theme (dark, light) or org.example.dark. (default:
     ///   `light`)
-    pub fn new(client_id: &str, language: Option<String>, theme: Option<String>) -> Self {
+    pub fn new(client_id: &str, language: Option<LanguageTag>, theme: Option<String>) -> Self {
         // We use a String for the language here, so we don't need to import LanguageTag
         // for the bindings crate. The conversion is done here.
         // its save to unwrap "en-us"
         let default_language = LanguageTag::parse("en-us").unwrap();
         let default_theme = "light".to_owned();
         Self {
-            language: language
-                .and_then(|l| LanguageTag::parse(&l).ok())
-                .unwrap_or(default_language),
+            language: language.unwrap_or(default_language),
             client_id: client_id.to_owned(),
             theme: theme.unwrap_or(default_theme),
         }
@@ -325,7 +323,9 @@ mod tests {
     #[test]
     fn replace_all_properties() {
         let mut url = get_example_url();
+
         const CONVERTED_URL: &str = "https://my.widget.org/custom/path?widgetId=%21%40%2Fabc_widget_id&deviceId=%21%40%2Fabc_device_id&avatarUrl=%21%40%2Fabc_avatar_url&displayname=%21%40%2Fabc_display_name&lang=%21%40%2Fabc_language&theme=%21%40%2Fabc_client_theme&clientId=%21%40%2Fabc_client_id&baseUrl=%21%40%2Fabc_base_url";
+
         replace_properties(&mut url, get_example_props());
         assert_eq!(url.as_str(), CONVERTED_URL);
     }
@@ -339,6 +339,7 @@ mod tests {
     #[test]
     fn new_virtual_element_call_widget_raw_url() {
         const CONVERTED_URL:&str= "https://call.element.io/room#?userId=$matrix_user_id&roomId=$matrix_room_id&widgetId=$matrix_widget_id&avatarUrl=$matrix_avatar_url&displayname=$matrix_display_name&lang=$org.matrix.msc2873.client_language&theme=$org.matrix.msc2873.client_theme&clientId=$org.matrix.msc2873.client_id&deviceId=$org.matrix.msc2873.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&parentUrl=https%3A%2F%2Fcall.element.io&skipLobby=false&confineToRoom=true&appPrompt=true&hideHeader=true&preload=true";
+
         let mut url = get_widget_settings().raw_url().clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
@@ -360,7 +361,7 @@ mod tests {
         parentUrl=https%3A%2F%2Fcall.element.io&widgetId=1/@#w23\
         &userId=%40test%3Auser.org&deviceId=ABCDEFG&roomId=%21room_id%3Aroom.org\
         &lang=en-US&theme=light\
-        &baseUrl=https%3A%2F%2Fclient-matrix.server.org&hideHeader=true\
+        &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F&hideHeader=true\
         &preload=true&skipLobby=false&confineToRoom=true&\
         displayname=hello&avatarUrl=some-url\
         &appPrompt=true&clientId=io.my_matrix.client";
@@ -368,13 +369,13 @@ mod tests {
         let gen = get_widget_settings()
             ._generate_webview_url(
                 get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
-                "@test:user.org".to_string(),
-                "!room_id:room.org".to_string(),
-                "ABCDEFG".to_string(),
-                "https://client-matrix.server.org".to_string(),
+                "@test:user.org".try_into().unwrap(),
+                "!room_id:room.org".try_into().unwrap(),
+                "ABCDEFG".into(),
+                "https://client-matrix.server.org".try_into().unwrap(),
                 ClientProperties::new(
                     "io.my_matrix.client",
-                    Some("en-us".into()),
+                    Some(language_tags::LanguageTag::parse("en-us").unwrap()),
                     Some("light".into()),
                 ),
             )
