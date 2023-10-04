@@ -53,12 +53,12 @@ mod url_params {
         });
 
         let s = url.as_str();
-        let Some(beginning) = s.split_once("$").map(|s| s.0) else {
+        let Some(beginning) = s.split_once('$').map(|s| s.0) else {
             // There is no $ in the string so we don't need to do anything
             return;
         };
         let mut result = String::from(beginning);
-        for section in s.split("$").skip(1) {
+        for section in s.split('$').skip(1) {
             let mut section_added = false;
             for (old, new) in &replace_map {
                 // save to unwrap here since we know all replace strings start with $
