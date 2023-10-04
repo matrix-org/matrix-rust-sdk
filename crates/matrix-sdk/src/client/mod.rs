@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use eyeball::{Observable, SharedObservable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
@@ -209,7 +209,6 @@ pub(crate) struct ClientInner {
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
-    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
@@ -250,7 +249,6 @@ impl ClientInner {
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
             room_update_channels: Default::default(),
-            sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
         }
@@ -1895,16 +1893,6 @@ impl Client {
     pub async fn set_pusher(&self, pusher: Pusher) -> HttpResult<set_pusher::v3::Response> {
         let request = set_pusher::v3::Request::post(pusher);
         self.send(request, None).await
-    }
-
-    /// Subscribe to sync gaps for the given room.
-    ///
-    /// This method is meant to be removed in favor of making event handlers
-    /// more general in the future.
-    pub fn subscribe_sync_gap(&self, room_id: &RoomId) -> Subscriber<()> {
-        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
-        let observable = lock.entry(room_id.to_owned()).or_default();
-        Observable::subscribe(observable)
     }
 
     /// Get the profile for a given user id

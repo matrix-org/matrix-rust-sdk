@@ -20,7 +20,6 @@ use std::{
     time::Duration,
 };
 
-use eyeball::Observable;
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugListOfRawEventsNoId, DebugNotificationMap},
@@ -170,10 +169,6 @@ impl Client {
         self.handle_sync_events(HandlerKind::ToDevice, None, to_device).await?;
 
         for (room_id, room_info) in &rooms.join {
-            if room_info.timeline.limited {
-                self.notify_sync_gap(room_id);
-            }
-
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -197,10 +192,6 @@ impl Client {
         }
 
         for (room_id, room_info) in &rooms.leave {
-            if room_info.timeline.limited {
-                self.notify_sync_gap(room_id);
-            }
-
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -316,12 +307,5 @@ impl Client {
         }
 
         *last_sync_time = Some(now);
-    }
-
-    fn notify_sync_gap(&self, room_id: &RoomId) {
-        let mut lock = self.inner.sync_gap_broadcast_txs.lock().unwrap();
-        if let Some(tx) = lock.get_mut(room_id) {
-            Observable::set(tx, ());
-        }
     }
 }
