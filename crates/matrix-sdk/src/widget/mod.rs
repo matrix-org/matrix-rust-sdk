@@ -19,7 +19,7 @@ use self::{
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
-    widget_settings::{ClientProperties, WidgetSettings},
+    widget_settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
 };
 
 /// An object that handles all interactions of a widget living inside a webview

@@ -1,10 +1,11 @@
-mod element_call;
-
+pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
 use ruma::api::client::profile::get_profile;
 use url::Url;
 
 use crate::Room;
+
+mod element_call;
 
 mod url_params {
     use url::Url;
@@ -20,6 +21,7 @@ mod url_params {
     pub static CLIENT_ID: &str = "$org.matrix.msc2873.client_id";
     pub static DEVICE_ID: &str = "$org.matrix.msc2873.matrix_device_id";
     pub static HOMESERVER_URL: &str = "$org.matrix.msc4039.matrix_base_url";
+
     pub struct QueryProperties {
         pub(crate) widget_id: String,
         pub(crate) avatar_url: String,
@@ -33,20 +35,46 @@ mod url_params {
         pub(crate) homeserver_url: String,
     }
     pub fn replace_properties(url: &mut Url, props: QueryProperties) {
-        *url = Url::parse(
-            &url.as_str()
-                .replace(WIDGET_ID, &encode(&props.widget_id))
-                .replace(AVATAR_URL, &encode(&props.avatar_url))
-                .replace(DEVICE_ID, &encode(&props.device_id))
-                .replace(DISPLAY_NAME, &encode(&props.display_name))
-                .replace(HOMESERVER_URL, &encode(&props.homeserver_url))
-                .replace(USER_ID, &encode(&props.user_id))
-                .replace(ROOM_ID, &encode(&props.room_id))
-                .replace(LANGUAGE, &encode(&props.language))
-                .replace(CLIENT_THEME, &encode(&props.client_theme))
-                .replace(CLIENT_ID, &encode(&props.client_id)),
-        )
-        .unwrap();
+        let replace_map: [(&str, String); 10] = [
+            (WIDGET_ID, encode(&props.widget_id).into()),
+            (AVATAR_URL, encode(&props.avatar_url).into()),
+            (DEVICE_ID, encode(&props.device_id).into()),
+            (DISPLAY_NAME, encode(&props.display_name).into()),
+            (HOMESERVER_URL, encode(&props.homeserver_url).into()),
+            (USER_ID, encode(&props.user_id).into()),
+            (ROOM_ID, encode(&props.room_id).into()),
+            (LANGUAGE, encode(&props.language).into()),
+            (CLIENT_THEME, encode(&props.client_theme).into()),
+            (CLIENT_ID, encode(&props.client_id).into()),
+        ]
+        .map(|to_replace| {
+            // Its save to unwrap here since we know all replace strings start with `$`
+            (to_replace.0.get(1..).unwrap(), to_replace.1)
+        });
+
+        let s = url.as_str();
+        let Some(beginning) = s.split_once("$").map(|s| s.0) else {
+            // There is no $ in the string so we don't need to do anything
+            return;
+        };
+        let mut result = String::from(beginning);
+        for section in s.split("$").skip(1) {
+            let mut section_added = false;
+            for (old, new) in &replace_map {
+                // save to unwrap here since we know all replace strings start with $
+                if section.starts_with(old) {
+                    result.push_str(new);
+                    if let Some(rest) = section.get(old.len()..) {
+                        result.push_str(rest);
+                    }
+                    section_added = true;
+                }
+            }
+            if !section_added {
+                result.push_str(section);
+            }
+        }
+        *url = Url::parse(&result).unwrap();
     }
 }
 
@@ -94,6 +122,7 @@ impl WidgetSettings {
     pub fn base_url(&self) -> Option<Url> {
         base_url(&self.raw_url)
     }
+
     /// Create the actual [`Url`] that can be used to setup the WebView or
     /// IFrame that contains the widget.
     ///
@@ -116,6 +145,7 @@ impl WidgetSettings {
             props,
         )
     }
+
     // Using a separate function (without Room as a param) for tests.
     fn _generate_webview_url(
         &self,
@@ -183,7 +213,7 @@ impl ClientProperties {
         // We use a String for the language here, so we don't need to import LanguageTag
         // for the bindings crate. The conversion is done here.
         // its save to unwrap "en-us"
-        let default_language = LanguageTag::parse(&"en-us").unwrap();
+        let default_language = LanguageTag::parse("en-us").unwrap();
         let default_theme = "light".to_owned();
         Self {
             language: language
@@ -214,20 +244,23 @@ mod tests {
     use url::Url;
 
     use super::{
+        element_call::VirtualElementCallWidgetOptions,
         url_params::{replace_properties, QueryProperties},
         WidgetSettings,
     };
     use crate::widget::ClientProperties;
 
-    const EXAMPLE_URL: &str = "https://my.widget.org/custom/path?\
-    widgetId=$matrix_widget_id\
+    const EXAMPLE_URL: &str = "\
+    https://my.widget.org/custom/path\
+    ?widgetId=$matrix_widget_id\
     &deviceId=$org.matrix.msc2873.matrix_device_id\
     &avatarUrl=$matrix_avatar_url\
     &displayname=$matrix_display_name\
     &lang=$org.matrix.msc2873.client_language\
     &theme=$org.matrix.msc2873.client_theme\
     &clientId=$org.matrix.msc2873.client_id\
-    &baseUrl=$org.matrix.msc4039.matrix_base_url";
+    &baseUrl=$org.matrix.msc4039.matrix_base_url\
+    ";
 
     const WIDGET_ID: &str = "1/@#w23";
 
@@ -249,20 +282,21 @@ mod tests {
             homeserver_url: "!@/abc_base_url".to_owned(),
         }
     }
+
     fn get_widget_settings() -> WidgetSettings {
-        WidgetSettings::new_virtual_element_call_widget(
-            "https://call.element.io".to_owned(),
-            WIDGET_ID.to_owned(),
-            None,
-            Some(true),
-            Some(true),
-            None,
-            Some(true),
-            Some(false),
-            Some(true),
-            None,
-            None,
-        )
+        WidgetSettings::new_virtual_element_call_widget(VirtualElementCallWidgetOptions {
+            element_call_url: "https://call.element.io".to_owned(),
+            widget_id: WIDGET_ID.to_owned(),
+            parent_url: None,
+            hide_header: Some(true),
+            preload: Some(true),
+            font_scale: None,
+            app_prompt: Some(true),
+            skip_lobby: Some(false),
+            confine_to_room: Some(true),
+            fonts: None,
+            analytics_id: None,
+        })
         .expect("could not parse virtual element call widget")
     }
 
@@ -271,19 +305,23 @@ mod tests {
     trait FragmentQuery {
         fn fragment_query(&self) -> Option<&str>;
     }
+
     impl FragmentQuery for Url {
         fn fragment_query(&self) -> Option<&str> {
             Some(self.fragment()?.split_once('?')?.1)
         }
     }
+
     type QuerySet = HashSet<(String, String)>;
-    use serde_urlencoded::from_str;
+
+    use serde_html_form::from_str;
 
     fn get_query_sets(url: &Url) -> Option<(QuerySet, QuerySet)> {
         let fq = from_str::<QuerySet>(url.fragment_query().unwrap_or_default()).ok()?;
         let q = from_str::<QuerySet>(url.query().unwrap_or_default()).ok()?;
         Some((q, fq))
     }
+
     #[test]
     fn replace_all_properties() {
         let mut url = get_example_url();
@@ -297,6 +335,7 @@ mod tests {
         let widget_settings = get_widget_settings();
         assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
     }
+
     #[test]
     fn new_virtual_element_call_widget_raw_url() {
         const CONVERTED_URL:&str= "https://call.element.io/room#?userId=$matrix_user_id&roomId=$matrix_room_id&widgetId=$matrix_widget_id&avatarUrl=$matrix_avatar_url&displayname=$matrix_display_name&lang=$org.matrix.msc2873.client_language&theme=$org.matrix.msc2873.client_theme&clientId=$org.matrix.msc2873.client_id&deviceId=$org.matrix.msc2873.matrix_device_id&baseUrl=$org.matrix.msc4039.matrix_base_url&parentUrl=https%3A%2F%2Fcall.element.io&skipLobby=false&confineToRoom=true&appPrompt=true&hideHeader=true&preload=true";
@@ -309,10 +348,12 @@ mod tests {
         gen.set_query(None);
         assert_eq!(url, gen);
     }
+
     #[test]
     fn new_virtual_element_call_widget_id() {
         assert_eq!(get_widget_settings().id(), WIDGET_ID);
     }
+
     #[test]
     fn new_virtual_element_call_widget_webview_url() {
         const CONVERTED_URL: &str = "https://call.element.io/room#?\

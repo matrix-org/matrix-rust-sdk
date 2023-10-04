@@ -160,17 +160,19 @@ pub fn new_virtual_element_call_widget(
     analytics_id: Option<String>,
 ) -> Result<WidgetSettings, ParseError> {
     Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(
-        element_call_url,
-        widget_id,
-        parent_url,
-        hide_header,
-        preload,
-        font_scale,
-        app_prompt,
-        skip_lobby,
-        confine_to_room,
-        fonts,
-        analytics_id,
+        matrix_sdk::widget::VirtualElementCallWidgetOptions {
+            element_call_url,
+            widget_id,
+            parent_url,
+            hide_header,
+            preload,
+            font_scale,
+            app_prompt,
+            skip_lobby,
+            confine_to_room,
+            fonts,
+            analytics_id,
+        },
     )
     .map(|w| w.into())?)
 }
