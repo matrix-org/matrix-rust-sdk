@@ -989,8 +989,6 @@ impl GossipMachine {
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        use vodozemac::megolm::SessionKey;
-
         let Some(info) = event.room_key_info() else {
             warn!(
                 sender_key = sender_key.to_base64(),
@@ -1005,13 +1003,13 @@ impl GossipMachine {
         else {
             // We did not request this key, so determine if this key was
             // forwarded as a result from a room invite
-            let (room_id, session_key, shared_history) = match &event.content {
+            let session = match &event.content {
                 ForwardedRoomKeyContent::MegolmV1AesSha2(c) => {
-                    (&c.room_id, &c.session_key, c.shared_history)
+                    InboundGroupSession::from(c.as_ref())
                 }
                 #[cfg(feature = "experimental-algorithms")]
                 ForwardedRoomKeyContent::MegolmV2AesSha2(c) => {
-                    (&c.room_id, &c.session_key, c.shared_history)
+                    InboundGroupSession::from(c.as_ref())
                 }
                 ForwardedRoomKeyContent::Unknown(_) => {
                     warn!(
@@ -1027,32 +1025,25 @@ impl GossipMachine {
                 }
             };
 
-            if shared_history {
-                // Content does not indicate level of history visibility, so
-                // set it to least permissive for shared history
-                let visibility = Some(HistoryVisibility::Shared);
-                let session_key = SessionKey::from(session_key);
-
-                return Ok(Some(InboundGroupSession::new(
-                    sender_key,
-                    event.keys.ed25519,
-                    room_id,
-                    &session_key,
-                    event.content.algorithm(),
+            if let Some(visibility) = session.history_visibility.as_ref() {
+                if matches!(
                     visibility,
-                )?));
-            } else {
-                warn!(
-                    sender_key = ?sender_key,
-                    room_id = ?info.room_id(),
-                    session_id = info.session_id(),
-                    sender_key = ?sender_key,
-                    algorithm = ?info.algorithm(),
-                    "Received a forwarded room key that we didn't request",
-                );
-
-                return Ok(None);
+                    HistoryVisibility::Shared | HistoryVisibility::WorldReadable
+                ) {
+                    return Ok(Some(session));
+                }
             }
+
+            warn!(
+                sender_key = ?sender_key,
+                room_id = ?info.room_id(),
+                session_id = info.session_id(),
+                sender_key = ?sender_key,
+                algorithm = ?info.algorithm(),
+                "Received a forwarded room key that we didn't request",
+            );
+
+            return Ok(None);
         };
 
         if self.should_accept_forward(&request, sender_key).await? {
