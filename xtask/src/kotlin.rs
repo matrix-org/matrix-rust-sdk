@@ -140,6 +140,7 @@ fn generate_uniffi_bindings(
         vec![TargetLanguage::Kotlin],
         Some(ffi_generated_dir),
         Some(library_path),
+        None,
         false,
     )?;
     Ok(())
