@@ -16,9 +16,8 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{pin::Pin, sync::Arc, task::Poll, time::Duration};
+use std::{ops::ControlFlow, pin::Pin, sync::Arc, task::Poll};
 
-use async_std::sync::{Condvar, Mutex};
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -27,7 +26,7 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{MessagesOptions, Receipts, Room},
+    room::{Receipts, Room},
     Client, Result,
 };
 use matrix_sdk_base::RoomState;
@@ -35,7 +34,6 @@ use mime::Mime;
 use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
-    assign,
     events::{
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
@@ -54,8 +52,8 @@ use ruma::{
     UserId,
 };
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info, instrument, warn};
+use tokio::sync::{mpsc::Sender, Mutex, Notify};
+use tracing::{error, info, instrument, warn};
 
 mod builder;
 mod error;
@@ -112,10 +110,13 @@ use self::{
 pub struct Timeline {
     inner: TimelineInner,
 
-    start_token: Arc<Mutex<Option<String>>>,
-    start_token_condvar: Arc<Condvar>,
+    /// Mutex that ensures only a single pagination is running at once
+    back_pagination_mtx: Mutex<()>,
     /// Observable for whether a pagination is currently running
     back_pagination_status: SharedObservable<BackPaginationStatus>,
+
+    /// Notifier for handled sync responses.
+    sync_response_notify: Arc<Notify>,
 
     msg_sender: Sender<LocalMessage>,
     drop_handle: Arc<TimelineDropHandle>,
@@ -143,11 +144,8 @@ impl Timeline {
         self.inner.room()
     }
 
-    /// Clear all timeline items, and reset pagination parameters.
+    /// Clear all timeline items.
     pub async fn clear(&self) {
-        let mut start_lock = self.start_token.lock().await;
-        *start_lock = None;
-
         self.inner.clear().await;
     }
 
@@ -158,87 +156,33 @@ impl Timeline {
 
     /// Add more events to the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id(), ?options))]
-    pub async fn paginate_backwards(&self, mut options: PaginationOptions<'_>) -> Result<()> {
-        let mut start_lock = self.start_token.lock().await;
-        if start_lock.is_none()
-            && self.back_pagination_status.get() == BackPaginationStatus::TimelineStartReached
-        {
+    pub async fn paginate_backwards(&self, options: PaginationOptions<'_>) -> Result<()> {
+        if self.back_pagination_status.get() == BackPaginationStatus::TimelineStartReached {
             warn!("Start of timeline reached, ignoring backwards-pagination request");
             return Ok(());
         }
 
-        self.back_pagination_status.set(BackPaginationStatus::Paginating);
-
-        if start_lock.is_none() && options.wait_for_token {
-            info!("No prev_batch token, waiting");
-            (start_lock, _) = self
-                .start_token_condvar
-                .wait_timeout_until(start_lock, Duration::from_secs(3), |tok| tok.is_some())
-                .await;
-
-            if start_lock.is_none() {
-                debug!("Waiting for prev_batch token timed out after 3s");
-            }
-        }
-
-        let mut from = start_lock.clone();
-        let mut outcome = PaginationOutcome::new();
-
-        while let Some(limit) = options.next_event_limit(outcome) {
-            let messages = self
-                .room()
-                .messages(assign!(MessagesOptions::backward(), {
-                    from,
-                    limit: limit.into(),
-                }))
-                .await
-                .map_err(|e| {
-                    self.back_pagination_status.set(BackPaginationStatus::Idle);
-                    e
-                })?;
-
-            let process_events_result = async {
-                outcome.events_received = messages.chunk.len().try_into().ok()?;
-                outcome.total_events_received =
-                    outcome.total_events_received.checked_add(outcome.events_received)?;
-
-                let res = self
-                    .inner
-                    .handle_back_paginated_events(messages.chunk, messages.end.clone())
-                    .await?;
-
-                outcome.items_added = res.items_added;
-                outcome.items_updated = res.items_updated;
-                outcome.total_items_added =
-                    outcome.total_items_added.checked_add(outcome.items_added)?;
-                outcome.total_items_updated =
-                    outcome.total_items_updated.checked_add(outcome.items_updated)?;
-
-                Some(())
-            }
-            .await;
-
-            from = messages.end;
-
-            if from.is_none() {
-                break;
-            }
-
-            if process_events_result.is_none() {
-                error!("Received an excessive number of events, ending pagination (u16 overflow)");
-                break;
-            }
-        }
-
-        let status = if from.is_some() {
-            BackPaginationStatus::Idle
-        } else {
-            BackPaginationStatus::TimelineStartReached
+        // Ignore extra back pagination requests if one is already running.
+        let Ok(_guard) = self.back_pagination_mtx.try_lock() else {
+            info!("Couldn't acquire pack pagination mutex, another request must be running");
+            return Ok(());
         };
-        self.back_pagination_status.set(status);
-        *start_lock = from;
 
-        Ok(())
+        loop {
+            match self.paginate_backwards_impl(options.clone()).await {
+                Ok(ControlFlow::Continue(())) => {
+                    // loop
+                }
+                Ok(ControlFlow::Break(status)) => {
+                    self.back_pagination_status.set_if_not_eq(status);
+                    return Ok(());
+                }
+                Err(e) => {
+                    self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Idle);
+                    return Err(e);
+                }
+            }
+        }
     }
 
     /// Retry decryption of previously un-decryptable events given a list of
