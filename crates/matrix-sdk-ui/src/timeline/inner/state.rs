@@ -76,6 +76,11 @@ impl TimelineInnerState {
         }
     }
 
+    pub(super) fn back_pagination_token(&self) -> Option<&str> {
+        let (_, token) = self.meta.back_pagination_tokens.last()?;
+        Some(token)
+    }
+
     #[tracing::instrument(skip_all)]
     pub(super) async fn add_initial_events<P: RoomDataProvider>(
         &mut self,

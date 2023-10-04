@@ -3407,7 +3407,6 @@ dependencies = [
  "assert_matches",
  "async-once-cell",
  "async-rx",
- "async-std",
  "async-stream",
  "async-trait",
  "async_cell",

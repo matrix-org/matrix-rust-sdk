@@ -12,9 +12,108 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::ControlFlow};
+use std::{fmt, ops::ControlFlow, pin::pin, sync::Arc, time::Duration};
+
+use matrix_sdk::{room::MessagesOptions, Result};
+use matrix_sdk_base::timeout::timeout;
+use ruma::assign;
+use tracing::{debug, error, info, warn};
+
+use super::{inner::HandleBackPaginatedEventsError, Timeline};
+
+impl Timeline {
+    pub(super) async fn paginate_backwards_impl(
+        &self,
+        mut options: PaginationOptions<'_>,
+    ) -> Result<ControlFlow<BackPaginationStatus>> {
+        let mut from = match self.inner.back_pagination_token().await {
+            None if options.wait_for_token => {
+                let notified = pin!(self.sync_response_notify.notified());
+                match timeout(notified, Duration::from_secs(3)).await {
+                    Ok(()) => match self.inner.back_pagination_token().await {
+                        Some(token) => Some(token),
+                        None => {
+                            warn!(
+                                "Sync response without prev_batch received, \
+                                 start of timeline reached?"
+                            );
+                            return Ok(ControlFlow::Break(BackPaginationStatus::Idle));
+                        }
+                    },
+                    Err(_) => {
+                        debug!("Waiting for prev_batch token timed out after 3s");
+                        None
+                    }
+                }
+            }
+            token => token,
+        };
+
+        self.back_pagination_status.set_if_not_eq(BackPaginationStatus::Paginating);
+
+        let mut outcome = PaginationOutcome::new();
+        while let Some(limit) = options.next_event_limit(outcome) {
+            let messages = self
+                .room()
+                .messages(assign!(MessagesOptions::backward(), {
+                    from: from.clone(),
+                    limit: limit.into(),
+                }))
+                .await?;
+            let chunk_len = messages.chunk.len();
+
+            let tokens = PaginationTokens { from, to: messages.end.clone() };
+            let res = match self.inner.handle_back_paginated_events(messages.chunk, tokens).await {
+                Ok(result) => Some(result),
+                Err(HandleBackPaginatedEventsError::TokenMismatch) => {
+                    info!("Start of timeline was altered since pagination was started, resetting");
+                    return Ok(ControlFlow::Continue(()));
+                }
+                Err(HandleBackPaginatedEventsError::ResultOverflow) => None,
+            };
+
+            // FIXME: Change to try block once stable
+            let process_events_result = (|| {
+                let res = res?;
+
+                outcome.events_received = chunk_len.try_into().ok()?;
+                outcome.total_events_received =
+                    outcome.total_events_received.checked_add(outcome.events_received)?;
+
+                outcome.items_added = res.items_added;
+                outcome.items_updated = res.items_updated;
+                outcome.total_items_added =
+                    outcome.total_items_added.checked_add(outcome.items_added)?;
+                outcome.total_items_updated =
+                    outcome.total_items_updated.checked_add(outcome.items_updated)?;
+
+                Some(())
+            })();
+
+            from = messages.end;
+
+            if from.is_none() {
+                break;
+            }
+
+            if process_events_result.is_none() {
+                error!("Received an excessive number of events, ending pagination");
+                break;
+            }
+        }
+
+        let status = if from.is_some() {
+            BackPaginationStatus::Idle
+        } else {
+            BackPaginationStatus::TimelineStartReached
+        };
+
+        Ok(ControlFlow::Break(status))
+    }
+}
 
 /// Options for pagination.
+#[derive(Clone)]
 pub struct PaginationOptions<'a> {
     inner: PaginationOptionsInner<'a>,
     pub(super) wait_for_token: bool,
@@ -53,11 +152,11 @@ impl<'a> PaginationOptions<'a> {
     /// `ControlFlow::Break(())`).
     pub fn custom(
         initial_event_limit: u16,
-        pagination_strategy: impl FnMut(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a,
+        pagination_strategy: impl Fn(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a,
     ) -> Self {
         Self::new(PaginationOptionsInner::Custom {
             event_limit_if_first: Some(initial_event_limit),
-            strategy: Box::new(pagination_strategy),
+            strategy: Arc::new(pagination_strategy),
         })
     }
 
@@ -99,6 +198,7 @@ impl<'a> PaginationOptions<'a> {
     }
 }
 
+#[derive(Clone)]
 pub enum PaginationOptionsInner<'a> {
     SingleRequest {
         event_limit_if_first: Option<u16>,
@@ -109,7 +209,7 @@ pub enum PaginationOptionsInner<'a> {
     },
     Custom {
         event_limit_if_first: Option<u16>,
-        strategy: Box<dyn FnMut(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a>,
+        strategy: Arc<dyn Fn(PaginationOutcome) -> ControlFlow<(), u16> + Send + 'a>,
     },
 }
 
@@ -177,4 +277,12 @@ pub enum BackPaginationStatus {
     Idle,
     Paginating,
     TimelineStartReached,
+}
+
+#[derive(Default)]
+pub(super) struct PaginationTokens {
+    /// The `from` parameter of the pagination request.
+    pub from: Option<String>,
+    /// The `end` parameter of the pagination response.
+    pub to: Option<String>,
 }

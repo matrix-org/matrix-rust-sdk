@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use async_std::sync::Mutex;
 use eyeball::SharedObservable;
 use imbl::Vector;
 use matrix_sdk::{
@@ -24,7 +23,7 @@ use ruma::events::{
     receipt::{ReceiptThread, ReceiptType},
     AnySyncTimelineEvent,
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Notify};
 use tracing::{error, info, info_span, trace, warn, Instrument};
 
 #[cfg(feature = "e2e-encryption")]
@@ -163,7 +162,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events, prev_token.clone()).await;
+            inner.add_initial_events(events, prev_token).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;
@@ -172,12 +171,11 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
-        let start_token = Arc::new(Mutex::new(prev_token));
-
+        let sync_response_notify = Arc::new(Notify::new());
         let mut room_update_rx = room.subscribe_to_updates();
         let room_update_join_handle = spawn({
+            let sync_response_notify = sync_response_notify.clone();
             let inner = inner.clone();
-            let start_token = start_token.clone();
             async move {
                 loop {
                     let update = match room_update_rx.recv().await {
@@ -192,29 +190,19 @@ impl TimelineBuilder {
 
                     trace!("Handling a room update");
 
-                    let update_start_token = |prev_batch: &Option<_>| {
-                        // Only update start_token if it's not currently locked.
-                        // If it is locked, pagination is currently in progress.
-                        if let Some(mut start_token) = start_token.try_lock() {
-                            if start_token.is_none() && prev_batch.is_some() {
-                                *start_token = prev_batch.clone();
-                            }
-                        }
-                    };
-
                     match update {
                         RoomUpdate::Left { updates, .. } => {
-                            update_start_token(&updates.timeline.prev_batch);
                             inner.handle_sync_timeline(updates.timeline).await;
                         }
                         RoomUpdate::Joined { updates, .. } => {
-                            update_start_token(&updates.timeline.prev_batch);
                             inner.handle_joined_room_update(updates).await;
                         }
                         RoomUpdate::Invited { .. } => {
                             warn!("Room is in invited state, can't build or update its timeline");
                         }
                     }
+
+                    sync_response_notify.notify_waiters();
                 }
             }
             .instrument(info_span!("room_update_handler", room_id = ?room.room_id()))
@@ -223,15 +211,8 @@ impl TimelineBuilder {
         let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
         let ignore_user_list_update_join_handle = spawn({
             let inner = inner.clone();
-            let start_token = start_token.clone();
             async move {
                 while ignore_user_list_stream.next().await.is_some() {
-                    // Same as `Timeline::reset`, but Timeline is not clonable
-                    // and we need to avoid circular references
-                    let mut start_lock = start_token.lock().await;
-
-                    *start_lock = None;
-
                     inner.clear().await;
                 }
             }
@@ -262,9 +243,9 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             inner,
-            start_token,
-            start_token_condvar: Default::default(),
+            back_pagination_mtx: Default::default(),
             back_pagination_status: SharedObservable::new(BackPaginationStatus::Idle),
+            sync_response_notify,
             msg_sender,
             drop_handle: Arc::new(TimelineDropHandle {
                 client,
