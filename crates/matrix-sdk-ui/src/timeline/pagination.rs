@@ -26,10 +26,14 @@ impl Timeline {
         &self,
         mut options: PaginationOptions<'_>,
     ) -> Result<ControlFlow<BackPaginationStatus>> {
+        // How long to wait for the back-pagination token to be set if the
+        // `wait_for_token` option is set
+        const WAIT_FOR_TOKEN_TIMEOUT: Duration = Duration::from_secs(3);
+
         let mut from = match self.inner.back_pagination_token().await {
             None if options.wait_for_token => {
                 let notified = pin!(self.sync_response_notify.notified());
-                match timeout(notified, Duration::from_secs(3)).await {
+                match timeout(notified, WAIT_FOR_TOKEN_TIMEOUT).await {
                     Ok(()) => match self.inner.back_pagination_token().await {
                         Some(token) => Some(token),
                         None => {
