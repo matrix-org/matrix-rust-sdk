@@ -81,7 +81,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
         let (id, init_after_content_load, raw_url) =
             (value.id().to_owned(), value.init_after_content_load(), value.raw_url().to_string());
-        WidgetSettings { id, init_after_content_load: init_after_content_load, raw_url }
+        WidgetSettings { id, init_after_content_load, raw_url }
     }
 }
 
@@ -108,71 +108,81 @@ pub async fn generate_webview_url(
     .map(|url| url.to_string())?)
 }
 
+/// Properties to create a new virtual Element Call widget.
+#[derive(uniffi::Record, Clone)]
+pub struct VirtualElementCallWidgetOptions {
+    /// the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    pub element_call_url: String,
+    /// the widget id.
+    pub widget_id: String,
+    /// The url that is used as the target for the PostMessages sent
+    /// by the widget (to the client). For a web app client this is the client
+    /// url. In case of using other platforms the client most likely is setup
+    /// up to listen to postmessages in the same webview the widget is
+    /// hosted. In this case the parent_url is set to the url of the
+    /// webview with the widget. Be aware, that this means, the widget
+    /// will receive its own postmessage messages. The matrix-widget-api
+    /// (js) ignores those so this works but it might break custom
+    /// implementations. So always keep this in mind. Defaults to
+    /// `element_call_url` for the non IFrame (dedicated webview) usecase.
+    pub parent_url: Option<String>,
+    /// defines if the branding header of Element call should be hidden.
+    /// (default: `true`)
+    pub hide_header: Option<bool>,
+    /// if set, the lobby will be skipped and the widget will join the
+    /// call on the `io.element.join` action. (default: `false`)
+    pub preload: Option<bool>,
+    /// The font scale which will be used inside element call. (default: `1`)
+    pub font_scale: Option<f64>,
+    /// whether element call should prompt the user to open in the browser or
+    /// the app (default: `false`).
+    pub app_prompt: Option<bool>,
+    ///Don't show the lobby and join the call immediately. (default: `false`)
+    pub skip_lobby: Option<bool>,
+    ///Make it not possible to get to the calls list in the webview. (default:
+    /// `true`)
+    pub confine_to_room: Option<bool>,
+    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
+    pub fonts: Option<Vec<String>>,
+    /// Can be used to pass a PostHog id to element call.
+    pub analytics_id: Option<String>,
+}
+
+impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
+    fn from(value: VirtualElementCallWidgetOptions) -> Self {
+        Self {
+            element_call_url: value.element_call_url,
+            widget_id: value.widget_id,
+            parent_url: value.parent_url,
+            hide_header: value.hide_header,
+            preload: value.preload,
+            font_scale: value.font_scale,
+            app_prompt: value.app_prompt,
+            skip_lobby: value.skip_lobby,
+            confine_to_room: value.confine_to_room,
+            fonts: value.fonts,
+            analytics_id: value.analytics_id,
+        }
+    }
+}
+
 /// `WidgetSettings` are usually created from a state event.
 /// (currently unimplemented)
-/// But in some cases the client wants to create custom `WidgetSettings`
+///
+/// In some cases the client wants to create custom `WidgetSettings`
 /// for specific rooms based on other conditions.
 /// This function returns a `WidgetSettings` object which can be used
 /// to setup a widget using `run_client_widget_api`
 /// and to generate the correct url for the widget.
-///
-/// # Arguments
-/// * `element_call_url` - the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
-/// * `id` - the widget id.
-/// * `parentUrl` - The url that is used as the target for the PostMessages sent
-///   by the widget (to the client). For a web app client this is the client
-///   url. In case of using other platforms the client most likely is setup up
-///   to listen to postmessages in the same webview the widget is hosted. In
-///   this case the parent_url is set to the url of the webview with the widget.
-///   Be aware, that this means, the widget will receive its own postmessage
-///   messages. The matrix-widget-api (js) ignores those so this works but it
-///   might break custom implementations. So always keep this in mind. Defaults
-///   to `element_call_url` for the non IFrame (dedicated webview) usecase.
-/// * `hide_header` - defines if the branding header of Element call should be
-///   hidden. (default: `true`)
-/// * `preload` - if set, the lobby will be skipped and the widget will join the
-///   call on the `io.element.join` action. (default: `false`)
-/// * `font_scale` - The font scale which will be used inside element call.
-///   (default: `1`)
-/// * `app_prompt` - whether element call should prompt the user to open in the
-///   browser or the app (default: `false`).
-/// * `skip_lobby` Don't show the lobby and join the call immediately. (default:
-///   `false`)
-/// * `confine_to_room` Make it not possible to get to the calls list in the
-///   webview. (default: `true`)
-/// * `fonts` A list of fonts to adapt to ios/android system fonts. (default:
-///   `[]`)
-/// * `analytics_id` - Can be used to pass a PostHog id to element call.
+///  # Arguments
+/// * - `props` A struct containing the configuration parameters for a
+///   element call widget.
 #[uniffi::export]
 pub fn new_virtual_element_call_widget(
-    element_call_url: String,
-    widget_id: String,
-    parent_url: Option<String>,
-    hide_header: Option<bool>,
-    preload: Option<bool>,
-    font_scale: Option<f64>,
-    app_prompt: Option<bool>,
-    skip_lobby: Option<bool>,
-    confine_to_room: Option<bool>,
-    fonts: Option<Vec<String>>,
-    analytics_id: Option<String>,
+    props: VirtualElementCallWidgetOptions,
 ) -> Result<WidgetSettings, ParseError> {
-    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(
-        matrix_sdk::widget::VirtualElementCallWidgetOptions {
-            element_call_url,
-            widget_id,
-            parent_url,
-            hide_header,
-            preload,
-            font_scale,
-            app_prompt,
-            skip_lobby,
-            confine_to_room,
-            fonts,
-            analytics_id,
-        },
-    )
-    .map(|w| w.into())?)
+    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props.into())
+        .map(|w| w.into())?)
 }
 
 #[derive(uniffi::Record)]
