@@ -59,12 +59,17 @@ pub enum CryptoStoreError {
     Identifier(#[from] IdParseError),
 }
 
-#[derive(Debug, uniffi::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum DecryptionError {
+    #[error("serialization error: {error}")]
     Serialization { error: String },
+    #[error("identifier parsing error: {error}")]
     Identifier { error: String },
+    #[error("megolm error: {error}")]
     Megolm { error: String },
+    #[error("missing room key: {error}")]
     MissingRoomKey { error: String, withheld_code: Option<String> },
+    #[error("store error: {error}")]
     Store { error: String },
 }
 
