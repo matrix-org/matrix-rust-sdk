@@ -306,13 +306,24 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .insert(receipt_type, receipt);
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
+    pub(super) async fn add_initial_events(
+        &mut self,
+        events: Vector<SyncTimelineEvent>,
+        back_pagination_token: Option<String>,
+    ) {
         if events.is_empty() {
             return;
         }
 
         let mut state = self.state.write().await;
-        state.add_initial_events(events, &self.room_data_provider, &self.settings).await;
+        state
+            .add_initial_events(
+                events,
+                back_pagination_token,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await;
     }
 
     pub(super) async fn clear(&self) {
@@ -563,12 +574,27 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     /// Returns the number of timeline updates that were made. Short-circuits
     /// and returns `None` if the number of items added or updated exceeds
     /// `u16::MAX`, which should practically never happen.
+    ///
+    /// # Arguments
+    ///
+    /// * `events` - The events from back-pagination
+    ///
+    /// * `back_pagination_token` - The back-pagination token for loading
+    ///   further events
     pub(super) async fn handle_back_paginated_events(
         &self,
         events: Vec<TimelineEvent>,
+        back_pagination_token: Option<String>,
     ) -> Option<HandleManyEventsResult> {
         let mut state = self.state.write().await;
-        state.handle_back_paginated_events(events, &self.room_data_provider, &self.settings).await
+        state
+            .handle_back_paginated_events(
+                events,
+                back_pagination_token,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {

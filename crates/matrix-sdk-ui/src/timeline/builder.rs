@@ -163,7 +163,7 @@ impl TimelineBuilder {
         }
 
         if has_events {
-            inner.add_initial_events(events).await;
+            inner.add_initial_events(events, prev_token.clone()).await;
         }
         if track_read_marker_and_receipts {
             inner.load_fully_read_event().await;

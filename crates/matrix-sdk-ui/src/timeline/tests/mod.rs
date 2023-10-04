@@ -198,7 +198,7 @@ impl TestTimeline {
 
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
-        self.inner.handle_back_paginated_events(vec![timeline_event]).await;
+        self.inner.handle_back_paginated_events(vec![timeline_event], None).await;
     }
 
     async fn handle_read_receipts(

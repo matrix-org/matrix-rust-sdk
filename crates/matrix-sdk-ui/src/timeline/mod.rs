@@ -202,7 +202,10 @@ impl Timeline {
                 outcome.total_events_received =
                     outcome.total_events_received.checked_add(outcome.events_received)?;
 
-                let res = self.inner.handle_back_paginated_events(messages.chunk).await?;
+                let res = self
+                    .inner
+                    .handle_back_paginated_events(messages.chunk, messages.end.clone())
+                    .await?;
 
                 outcome.items_added = res.items_added;
                 outcome.items_updated = res.items_updated;
