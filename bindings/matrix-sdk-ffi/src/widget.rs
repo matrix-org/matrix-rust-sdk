@@ -24,7 +24,7 @@ pub fn make_widget_driver(settings: WidgetSettings) -> Result<WidgetDriverAndHan
 }
 
 /// An object that handles all interactions of a widget living inside a webview
-/// or iframe with the Matrix world.
+/// or IFrame with the Matrix world.
 #[derive(uniffi::Object)]
 pub struct WidgetDriver(Mutex<Option<matrix_sdk::widget::WidgetDriver>>);
 
@@ -195,7 +195,7 @@ impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
 }
 
 /// A handle that encapsulates the communication between a widget driver and the
-/// corresponding widget (inside a webview or iframe).
+/// corresponding widget (inside a webview or IFrame).
 #[derive(uniffi::Object)]
 pub struct WidgetDriverHandle(matrix_sdk::widget::WidgetDriverHandle);
 
