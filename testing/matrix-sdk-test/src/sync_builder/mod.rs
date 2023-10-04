@@ -28,7 +28,7 @@ pub use joined_room::JoinedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
 pub use test_event::{
     EphemeralTestEvent, GlobalAccountDataTestEvent, PresenceTestEvent, RoomAccountDataTestEvent,
-    StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
+    StateTestEvent, StrippedStateTestEvent,
 };
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
@@ -37,41 +37,6 @@ pub use test_event::{
 /// It supports generated a number of canned events, such as a member entering a
 /// room, his power level and display name changing and similar. It also
 /// supports insertion of custom events in the form of `EventsJson` values.
-///
-/// **Important** You *must* use the *same* builder when sending multiple sync
-/// responses to a single client. Otherwise, the subsequent responses will be
-/// *ignored* by the client because the `next_batch` sync token will not be
-/// rotated properly.
-///
-/// # Example usage
-///
-/// ```rust
-/// use matrix_sdk_test::{SyncResponseBuilder, JoinedRoomBuilder, TimelineTestEvent};
-///
-/// let mut builder = SyncResponseBuilder::new();
-///
-/// // response1 now contains events that add an example member to the room and change their power
-/// // level
-/// let response1 = builder
-///     .add_joined_room(
-///         JoinedRoomBuilder::default()
-///             .add_timeline_event(TimelineTestEvent::Member)
-///             .add_timeline_event(TimelineTestEvent::PowerLevels)
-///     )
-///     .build_sync_response();
-///
-/// // response2 is now empty (nothing changed)
-/// let response2 = builder.build_sync_response();
-///
-/// // response3 contains a display name change for member example
-/// let response3 = builder
-///     .add_joined_room(
-///         JoinedRoomBuilder::default()
-///             .add_timeline_event(TimelineTestEvent::MemberNameChange)
-///             .add_timeline_event(TimelineTestEvent::PowerLevels)
-///     )
-///     .build_sync_response();
-/// ```
 #[derive(Default)]
 pub struct SyncResponseBuilder {
     /// Updates to joined `Room`s.

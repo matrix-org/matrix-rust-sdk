@@ -288,83 +288,6 @@ pub static MEMBER_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static MESSAGE_EDIT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "body": " * edited message",
-            "m.new_content": {
-                "body": "edited message",
-                "msgtype": "m.text"
-            },
-            "m.relates_to": {
-                "event_id": "$someeventid:foo",
-                "rel_type": "m.replace"
-            },
-            "msgtype": "m.text"
-        },
-        "event_id": "$eventid:foo",
-        "origin_server_ts": 159026265,
-        "sender": "@alice:matrix.org",
-        "type": "m.room.message",
-        "unsigned": {
-            "age": 85
-        }
-    })
-});
-
-pub static MESSAGE_EMOTE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "body": "is dancing", "format": "org.matrix.custom.html",
-            "formatted_body": "<strong>is dancing</strong>",
-            "msgtype": "m.emote"
-        },
-        "event_id": "$152037280074GZeOm:localhost",
-        "origin_server_ts": 152037280,
-        "sender": "@example:localhost",
-        "type": "m.room.message",
-        "unsigned": {
-            "age": 598971
-        }
-    })
-});
-
-pub static MESSAGE_NOTICE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-      "origin_server_ts": 153356516,
-      "sender": "@_neb_github:matrix.org",
-      "event_id": "$153356516319138IHRIC:matrix.org",
-      "unsigned": {
-        "age": 743
-      },
-      "content": {
-        "body": "https://github.com/matrix-org/matrix-python-sdk/issues/266 : Consider allowing MatrixClient.__init__ to take sync_token kwarg",
-        "format": "org.matrix.custom.html",
-        "formatted_body": "<a href='https://github.com/matrix-org/matrix-python-sdk/pull/313'>313: nio wins!</a>",
-        "msgtype": "m.notice"
-      },
-      "type": "m.room.message",
-      "room_id": "!YHhmBTmGBHGQOlGpaZ:matrix.org"
-    })
-});
-
-pub static MESSAGE_TEXT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "body": "is dancing", "format": "org.matrix.custom.html",
-            "formatted_body": "<strong>is dancing</strong>",
-            "msgtype": "m.text"
-        },
-        "event_id": "$152037280074GZeOm:localhost",
-        "origin_server_ts": 152037280,
-        "sender": "@example:localhost",
-        "type": "m.room.message",
-        "unsigned": {
-            "age": 598971
-        }
-    })
-});
-
 pub static NAME: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -652,25 +575,6 @@ pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static REACTION: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "m.relates_to": {
-                "event_id": "$MDitXXXXXXuBlpP7S6c6XXXXXXXC2HqZ3peV1NrV4PKA",
-                "key": "👍",
-                "rel_type": "m.annotation"
-            }
-        },
-        "event_id": "$QZn9xEXXXXXfd2tAGFH-XXgsffZlVMobk47Tl5Lpdtg",
-        "origin_server_ts": 159027581,
-        "sender": "@devinr528:matrix.org",
-        "type": "m.reaction",
-        "unsigned": {
-            "age": 85
-        }
-    })
-});
-
 pub static READ_RECEIPT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -734,44 +638,6 @@ pub static REDACTED_STATE: Lazy<JsonValue> = Lazy::new(|| {
             },
             "redacted_by": "$redaction_example_id:example.org"
         }
-    })
-});
-
-pub static REDACTED: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {},
-        "event_id": "$15275046980maRLj:localhost",
-        "origin_server_ts": 1527504698,
-        "sender": "@example:localhost",
-        "type": "m.room.message",
-        "unsigned": {
-            "age": 19334,
-            "redacted_because": {
-                "content": {},
-                "event_id": "$15275047031IXQRi:localhost",
-                "origin_server_ts": 1527504703,
-                "redacts": "$15275046980maRLj:localhost",
-                "sender": "@example:localhost",
-                "type": "m.room.redaction",
-                "unsigned": {
-                    "age": 14523
-                }
-            },
-            "redacted_by": "$15275047031IXQRi:localhost"
-        }
-    })
-});
-
-pub static REDACTION: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "reason": "😀"
-        },
-        "event_id": "$151957878228ssqrJ:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "type": "m.room.redaction",
-        "redacts": "$151957878228ssqrj:localhost"
     })
 });
 

@@ -22,8 +22,8 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_crypto::{
     olm::{
-        IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
-        PrivateCrossSigningIdentity, Session,
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        Session, StaticAccountData,
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
@@ -36,7 +36,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::Mutex;
@@ -60,10 +60,10 @@ mod keys {
     pub const DEVICES: &str = "devices";
     pub const IDENTITIES: &str = "identities";
 
-    pub const OUTGOING_SECRET_REQUESTS: &str = "outgoing_secret_requests";
-    pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
-    pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
-    pub const KEY_REQUEST: &str = "key_request";
+    pub const GOSSIP_REQUESTS: &str = "gossip_requests";
+    pub const GOSSIP_REQUESTS_UNSENT_INDEX: &str = "unsent";
+    pub const GOSSIP_REQUESTS_BY_INFO_INDEX: &str = "by_info";
+
     pub const ROOM_SETTINGS: &str = "room_settings";
 
     pub const SECRETS_INBOX: &str = "secrets_inbox";
@@ -92,13 +92,14 @@ mod keys {
 ///
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
-    account_info: Arc<RwLock<Option<AccountInfo>>>,
+    static_account: RwLock<Option<StaticAccountData>>,
     name: String,
     pub(crate) inner: IdbDatabase,
 
     store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Debug for IndexeddbCryptoStore {
@@ -146,13 +147,6 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
 
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
-    identity_keys: Arc<IdentityKeys>,
-}
-
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
         prefix: &str,
@@ -161,7 +155,7 @@ impl IndexeddbCryptoStore {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 4)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 5)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
             // works with an unsigned integer.
@@ -182,10 +176,6 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(keys::DEVICES)?;
 
                 db.create_object_store(keys::IDENTITIES)?;
-                db.create_object_store(keys::OUTGOING_SECRET_REQUESTS)?;
-                db.create_object_store(keys::UNSENT_SECRET_REQUESTS)?;
-                db.create_object_store(keys::SECRET_REQUESTS_BY_INFO)?;
-
                 db.create_object_store(keys::BACKUP_KEYS)?;
             }
 
@@ -221,6 +211,36 @@ impl IndexeddbCryptoStore {
                 db.create_object_store(keys::SECRETS_INBOX)?;
             }
 
+            if old_version < 5 {
+                let db = evt.db();
+
+                // Create a new store for outgoing secret requests
+                let object_store = db.create_object_store(keys::GOSSIP_REQUESTS)?;
+
+                let mut params = IdbIndexParameters::new();
+                params.unique(false);
+                object_store.create_index_with_params(
+                    keys::GOSSIP_REQUESTS_UNSENT_INDEX,
+                    &IdbKeyPath::str("unsent"),
+                    &params,
+                )?;
+
+                let mut params = IdbIndexParameters::new();
+                params.unique(true);
+                object_store.create_index_with_params(
+                    keys::GOSSIP_REQUESTS_BY_INFO_INDEX,
+                    &IdbKeyPath::str("info"),
+                    &params,
+                )?;
+
+                if old_version > 0 {
+                    // we just delete any existing requests.
+                    db.delete_object_store("outgoing_secret_requests")?;
+                    db.delete_object_store("unsent_secret_requests")?;
+                    db.delete_object_store("secret_requests_by_info")?;
+                }
+            }
+
             Ok(())
         }));
 
@@ -232,7 +252,8 @@ impl IndexeddbCryptoStore {
             session_cache,
             inner: db,
             store_cipher,
-            account_info: RwLock::new(None).into(),
+            static_account: RwLock::new(None),
+            save_changes_lock: Default::default(),
         })
     }
 
@@ -241,13 +262,38 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher("crypto", None).await
     }
 
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// First calls [`SafeEncode::as_encoded_string`]
+    /// on the `key` to encode it into a formatted string.
+    ///
+    /// Then, if a cipher is configured, hashes the formatted key and returns
+    /// the hash encoded as unpadded base64.
+    ///
+    /// If no cipher is configured, just returns the formatted key.
+    ///
+    /// This is faster than [`serialize_value`] and reliably gives the same
+    /// output for the same input, making it suitable for index keys.
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
     where
         T: SafeEncode,
     {
+        self.encode_key_as_string(table_name, key).into()
+    }
+
+    /// Hash the given key securely for the given tablename, using the store
+    /// cipher.
+    ///
+    /// The same as [`encode_key`], but stops short of converting the resulting
+    /// base64 string into a JsValue
+    fn encode_key_as_string<T>(&self, table_name: &str, key: T) -> String
+    where
+        T: SafeEncode,
+    {
         match &self.store_cipher {
-            Some(cipher) => key.encode_secure(table_name, cipher),
-            None => key.encode(),
+            Some(cipher) => key.as_secure_string(table_name, cipher),
+            None => key.as_encoded_string(),
         }
     }
 
@@ -335,9 +381,19 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
+    /// Encode the value for storage as a value in indexeddb.
+    ///
+    /// First, serialise the given value as JSON.
+    ///
+    /// Then, if a store cipher is enabled, encrypt the JSON string using the
+    /// configured store cipher, giving a byte array. Then, wrap the byte
+    /// array as a `JsValue`.
+    ///
+    /// If no cipher is enabled, deserialises the JSON string again giving a JS
+    /// object.
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(key) = &self.store_cipher {
-            let value = key.encrypt_value(value).map_err(CryptoStoreError::backend)?;
+        if let Some(cipher) = &self.store_cipher {
+            let value = cipher.encrypt_value(value).map_err(CryptoStoreError::backend)?;
 
             Ok(JsValue::from_serde(&value)?)
         } else {
@@ -345,20 +401,80 @@ impl IndexeddbCryptoStore {
         }
     }
 
+    /// Encode the value for storage as a value in indexeddb.
+    ///
+    /// This is the same algorithm as [`serialize_value`], but stops short of
+    /// encoding the resultant byte vector in a JsValue.
+    ///
+    /// Returns a byte vector which is either the JSON serialisation of the
+    /// value, or an encrypted version thereof.
+    fn serialize_value_as_bytes(
+        &self,
+        value: &impl Serialize,
+    ) -> Result<Vec<u8>, CryptoStoreError> {
+        match &self.store_cipher {
+            Some(cipher) => cipher.encrypt_value(value).map_err(CryptoStoreError::backend),
+            None => serde_json::to_vec(value).map_err(CryptoStoreError::backend),
+        }
+    }
+
+    /// Decode a value that was previously encoded with [`serialize_value`]
     fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &self.store_cipher {
+        if let Some(cipher) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
-            key.decrypt_value(&value).map_err(CryptoStoreError::backend)
+            cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)
         } else {
             Ok(value.into_serde()?)
         }
     }
 
-    fn get_account_info(&self) -> Option<AccountInfo> {
-        self.account_info.read().unwrap().clone()
+    /// Decode a value that was previously encoded with
+    /// [`serialize_value_as_bytes`]
+    fn deserialize_value_from_bytes<T: DeserializeOwned>(
+        &self,
+        value: &[u8],
+    ) -> Result<T, CryptoStoreError> {
+        if let Some(cipher) = &self.store_cipher {
+            cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
+        } else {
+            serde_json::from_slice(value).map_err(CryptoStoreError::backend)
+        }
+    }
+
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().unwrap().clone()
+    }
+
+    /// Transform a [`GossipRequest`] into a `JsValue` holding a
+    /// [`GossipRequestIndexedDbObject`], ready for storing
+    fn serialize_gossip_request(
+        &self,
+        gossip_request: &GossipRequest,
+    ) -> Result<JsValue, CryptoStoreError> {
+        let obj = GossipRequestIndexedDbObject {
+            // hash the info as a key so that it can be used in index lookups.
+            info: self.encode_key_as_string(keys::GOSSIP_REQUESTS, gossip_request.info.as_key()),
+
+            // serialize and encrypt the data about the request
+            request: self.serialize_value_as_bytes(gossip_request)?,
+
+            unsent: if gossip_request.sent_out { None } else { Some(1) },
+        };
+
+        Ok(obj.try_into()?)
+    }
+
+    /// Transform a JsValue holding a [`GossipRequestIndexedDbObject`] back into
+    /// a [`GossipRequest`]
+    fn deserialize_gossip_request(
+        &self,
+        stored_request: JsValue,
+    ) -> Result<GossipRequest, CryptoStoreError> {
+        let idb_object: GossipRequestIndexedDbObject = stored_request.try_into()?;
+        self.deserialize_value_from_bytes(&idb_object.request)
     }
 }
 
@@ -393,6 +509,12 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
+        // Serialize calls to `save_changes`; there are multiple await points below, and we're
+        // pickling data as we go, so we don't want to invalidate data we've previously read and
+        // overwrite it in the store.
+        // TODO: #2000 should make this lock go away, or change its shape.
+        let _guard = self.save_changes_lock.lock().await;
+
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some() || changes.next_batch_token.is_some(), keys::CORE),
             (changes.backup_decryption_key.is_some() || changes.backup_version.is_some(), keys::BACKUP_KEYS),
@@ -420,11 +542,7 @@ impl_crypto_store! {
         .collect();
 
         if !changes.key_requests.is_empty() {
-            stores.extend([
-                keys::SECRET_REQUESTS_BY_INFO,
-                keys::UNSENT_SECRET_REQUESTS,
-                keys::OUTGOING_SECRET_REQUESTS,
-            ])
+            stores.extend([keys::GOSSIP_REQUESTS])
         }
 
         if stores.is_empty() {
@@ -436,13 +554,7 @@ impl_crypto_store! {
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         let account_pickle = if let Some(account) = changes.account {
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
             Some(account.pickle().await)
         } else {
             None
@@ -572,26 +684,15 @@ impl_crypto_store! {
         }
 
         if !key_requests.is_empty() {
-            let secret_requests_by_info = tx.object_store(keys::SECRET_REQUESTS_BY_INFO)?;
-            let unsent_secret_requests = tx.object_store(keys::UNSENT_SECRET_REQUESTS)?;
-            let outgoing_secret_requests = tx.object_store(keys::OUTGOING_SECRET_REQUESTS)?;
-            for key_request in &key_requests {
-                let key_request_id =
-                    self.encode_key(keys::KEY_REQUEST, key_request.request_id.as_str());
-                secret_requests_by_info.put_key_val(
-                    &self.encode_key(keys::KEY_REQUEST, key_request.info.as_key()),
-                    &key_request_id,
-                )?;
+            let gossip_requests = tx.object_store(keys::GOSSIP_REQUESTS)?;
 
-                if key_request.sent_out {
-                    unsent_secret_requests.delete(&key_request_id)?;
-                    outgoing_secret_requests
-                        .put_key_val(&key_request_id, &self.serialize_value(&key_request)?)?;
-                } else {
-                    outgoing_secret_requests.delete(&key_request_id)?;
-                    unsent_secret_requests
-                        .put_key_val(&key_request_id, &self.serialize_value(&key_request)?)?;
-                }
+            for gossip_request in &key_requests {
+                let key_request_id = self.encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
+                let key_request_value = self.serialize_gossip_request(gossip_request)?;
+                gossip_requests.put_key_val_owned(
+                    key_request_id,
+                    &key_request_value,
+                )?;
             }
         }
 
@@ -662,7 +763,7 @@ impl_crypto_store! {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
@@ -690,27 +791,15 @@ impl_crypto_store! {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        // in this internal we expect key to already be escaped or encrypted
-        let jskey = JsValue::from_str(request_id.as_str());
-        let dbs = [keys::OUTGOING_SECRET_REQUESTS, keys::UNSENT_SECRET_REQUESTS];
-        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
-
-        let request = tx
-            .object_store(keys::OUTGOING_SECRET_REQUESTS)?
-            .get(&jskey)?
+        let jskey = self.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readonly)?
+            .object_store(keys::GOSSIP_REQUESTS)?
+            .get_owned(jskey)?
             .await?
-            .map(|i| self.deserialize_value(i))
-            .transpose()?;
-
-        Ok(match request {
-            None => tx
-                .object_store(keys::UNSENT_SECRET_REQUESTS)?
-                .get(&jskey)?
-                .await?
-                .map(|i| self.deserialize_value(i))
-                .transpose()?,
-            Some(request) => Some(request),
-        })
+            .map(|val| self.deserialize_gossip_request(val))
+            .transpose()?)
     }
 
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
@@ -725,13 +814,7 @@ impl_crypto_store! {
 
             let account = ReadOnlyAccount::from_pickle(pickle).map_err(CryptoStoreError::from)?;
 
-            let account_info = AccountInfo {
-                user_id: account.user_id.clone(),
-                device_id: account.device_id.clone(),
-                identity_keys: account.identity_keys.clone(),
-            };
-
-            *self.account_info.write().unwrap() = Some(account_info);
+            *self.static_account.write().unwrap() = Some(account.static_data().clone());
 
             Ok(Some(account))
         } else {
@@ -752,11 +835,6 @@ impl_crypto_store! {
         } else {
             Ok(None)
         }
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        self.save_changes(Changes { account: Some(account), ..Default::default() })
-            .await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -780,7 +858,7 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let range = self.encode_to_range(keys::SESSION, sender_key)?;
@@ -995,72 +1073,49 @@ impl_crypto_store! {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let id = self
+        let key = self.encode_key(keys::GOSSIP_REQUESTS, key_info.as_key());
+
+        let val = self
             .inner
             .transaction_on_one_with_mode(
-                keys::SECRET_REQUESTS_BY_INFO,
+                keys::GOSSIP_REQUESTS,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::SECRET_REQUESTS_BY_INFO)?
-            .get(&self.encode_key(keys::KEY_REQUEST, key_info.as_key()))?
-            .await?
-            .and_then(|i| i.as_string());
-        if let Some(id) = id {
-            self.get_outgoing_secret_requests(id.as_str().into()).await
+            .object_store(keys::GOSSIP_REQUESTS)?
+            .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
+            .get_owned(key)?
+            .await?;
+
+        if let Some(val) = val {
+            let deser = self.deserialize_gossip_request(val)?;
+            Ok(Some(deser))
         } else {
             Ok(None)
         }
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
-        Ok(self
+        let results = self
             .inner
             .transaction_on_one_with_mode(
-                keys::UNSENT_SECRET_REQUESTS,
+                keys::GOSSIP_REQUESTS,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::UNSENT_SECRET_REQUESTS)?
+            .object_store(keys::GOSSIP_REQUESTS)?
+            .index(keys::GOSSIP_REQUESTS_UNSENT_INDEX)?
             .get_all()?
             .await?
             .iter()
-            .filter_map(|i| self.deserialize_value(i).ok())
-            .collect())
+            .filter_map(|val| self.deserialize_gossip_request(val).ok())
+            .collect();
+
+        Ok(results)
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
-        let jskey = self.encode_key(keys::KEY_REQUEST, request_id); //.as_str());
-        let dbs = [
-            keys::OUTGOING_SECRET_REQUESTS,
-            keys::UNSENT_SECRET_REQUESTS,
-            keys::SECRET_REQUESTS_BY_INFO,
-        ];
-        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readwrite)?;
-
-        let request: Option<GossipRequest> = tx
-            .object_store(keys::OUTGOING_SECRET_REQUESTS)?
-            .get(&jskey)?
-            .await?
-            .map(|i| self.deserialize_value(i))
-            .transpose()?;
-
-        let request = match request {
-            None => tx
-                .object_store(keys::UNSENT_SECRET_REQUESTS)?
-                .get(&jskey)?
-                .await?
-                .map(|i| self.deserialize_value(i))
-                .transpose()?,
-            Some(request) => Some(request),
-        };
-
-        if let Some(inner) = request {
-            tx.object_store(keys::SECRET_REQUESTS_BY_INFO)?
-                .delete(&self.encode_key(keys::KEY_REQUEST, inner.info.as_key()))?;
-        }
-
-        tx.object_store(keys::UNSENT_SECRET_REQUESTS)?.delete(&jskey)?;
-        tx.object_store(keys::OUTGOING_SECRET_REQUESTS)?.delete(&jskey)?;
-
+        let jskey = self.encode_key(keys::GOSSIP_REQUESTS, request_id);
+        let tx = self.inner.transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readwrite)?;
+        tx.object_store(keys::GOSSIP_REQUESTS)?.delete_owned(jskey)?;
         tx.await.into_result().map_err(|e| e.into())
     }
 
@@ -1203,6 +1258,50 @@ impl Drop for IndexeddbCryptoStore {
     }
 }
 
+/// The objects we store in the gossip_requests indexeddb object store
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct GossipRequestIndexedDbObject {
+    /// Encrypted hash of the [`SecretInfo`] structure.
+    info: String,
+
+    /// Encrypted serialised representation of the [`GossipRequest`] as a whole.
+    request: Vec<u8>,
+
+    /// Whether the request has yet to be sent out.
+    ///
+    /// Really, this represents a boolean value, but booleans don't work as keys
+    /// in indexeddb (see [ECMA spec]). In any case, we don't need to be
+    /// able to retrieve entries where `unsent` is false, so we may as well
+    /// omit them from the index (see also [Stack Overflow]).
+    ///
+    /// To avoid too much `serde` magic, we use an `Option`, and omit the value
+    /// altogether if it is `None`, which means it will be excluded from the
+    /// "unsent" index. If it is `Some`, the actual value is unimportant.
+    ///
+    /// [ECMA spec]: https://w3c.github.io/IndexedDB/#key
+    /// [Stack overflow]: https://stackoverflow.com/a/24501949/637864
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unsent: Option<u8>,
+}
+
+impl TryInto<JsValue> for GossipRequestIndexedDbObject {
+    type Error = IndexeddbCryptoStoreError;
+
+    fn try_into(self) -> std::result::Result<JsValue, Self::Error> {
+        serde_wasm_bindgen::to_value(&self)
+            .map_err(|e| IndexeddbCryptoStoreError::Json(serde::ser::Error::custom(e.to_string())))
+    }
+}
+
+impl TryFrom<JsValue> for GossipRequestIndexedDbObject {
+    type Error = IndexeddbCryptoStoreError;
+
+    fn try_from(value: JsValue) -> std::result::Result<Self, Self::Error> {
+        serde_wasm_bindgen::from_value(value)
+            .map_err(|e| IndexeddbCryptoStoreError::Json(serde::de::Error::custom(e.to_string())))
+    }
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
@@ -1225,21 +1324,20 @@ mod tests {
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
-#[rustfmt::skip]
 mod encrypted_tests {
-    use super::IndexeddbCryptoStore;
     use matrix_sdk_crypto::cryptostore_integration_tests;
+
+    use super::IndexeddbCryptoStore;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
         let pass = passphrase.unwrap_or(name);
-        IndexeddbCryptoStore::open_with_passphrase(name, pass)
+        // make sure to use a different store name than the equivalent unencrypted test
+        let store_name = name.to_owned() + "_enc";
+        IndexeddbCryptoStore::open_with_passphrase(&store_name, pass)
             .await
             .expect("Can't create a passphrase protected store")
     }
-
-    // FIXME: the tests pass, if run one by one, but run all together locally,
-    //        as well as CI fails... see matrix-org/matrix-rust-sdk#661
-    //     cryptostore_integration_tests!();
+    cryptostore_integration_tests!();
 }

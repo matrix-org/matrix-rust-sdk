@@ -24,7 +24,7 @@ use wiremock::{
 use crate::{logged_in_client, no_retry_test_client};
 
 #[async_test]
-async fn restore_session() {
+async fn test_restore_session() {
     let (client, _) = logged_in_client().await;
     let auth = client.matrix_auth();
 
@@ -35,7 +35,7 @@ async fn restore_session() {
 }
 
 #[async_test]
-async fn login() {
+async fn test_login() {
     let (client, server) = no_retry_test_client().await;
     let homeserver = Url::parse(&server.uri()).unwrap();
 
@@ -70,11 +70,11 @@ async fn login() {
     assert_matches!(client.auth_api(), Some(AuthApi::Matrix(_)));
     assert_matches!(client.session(), Some(AuthSession::Matrix(_)));
 
-    assert_eq!(client.homeserver().await, homeserver);
+    assert_eq!(client.homeserver(), homeserver);
 }
 
 #[async_test]
-async fn login_with_discovery() {
+async fn test_login_with_discovery() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -88,11 +88,11 @@ async fn login_with_discovery() {
     let logged_in = client.logged_in();
     assert!(logged_in, "Client should be logged in");
 
-    assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
+    assert_eq!(client.homeserver().as_str(), "https://example.org/");
 }
 
 #[async_test]
-async fn login_no_discovery() {
+async fn test_login_no_discovery() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -106,12 +106,12 @@ async fn login_no_discovery() {
     let logged_in = client.logged_in();
     assert!(logged_in, "Client should be logged in");
 
-    assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
+    assert_eq!(client.homeserver(), Url::parse(&server.uri()).unwrap());
 }
 
 #[async_test]
 #[cfg(feature = "sso-login")]
-async fn login_with_sso() {
+async fn test_login_with_sso() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -148,7 +148,7 @@ async fn login_with_sso() {
 }
 
 #[async_test]
-async fn login_with_sso_token() {
+async fn test_login_with_sso_token() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("GET"))
@@ -183,7 +183,7 @@ async fn login_with_sso_token() {
 }
 
 #[async_test]
-async fn login_error() {
+async fn test_login_error() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -214,7 +214,7 @@ async fn login_error() {
 }
 
 #[async_test]
-async fn register_error() {
+async fn test_register_error() {
     let (client, server) = no_retry_test_client().await;
 
     Mock::given(method("POST"))
@@ -255,7 +255,7 @@ async fn register_error() {
 }
 
 #[test]
-fn deserialize_session() {
+fn test_deserialize_session() {
     // First version, or second version without refresh token.
     let json = json!({
         "access_token": "abcd",
@@ -283,7 +283,7 @@ fn deserialize_session() {
 }
 
 #[test]
-fn serialize_session() {
+fn test_serialize_session() {
     // Without refresh token.
     let mut session = MatrixSession {
         meta: SessionMeta {

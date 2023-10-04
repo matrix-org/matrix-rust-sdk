@@ -61,11 +61,28 @@ pub fn message_event_content_from_markdown(
 }
 
 #[uniffi::export]
+pub fn message_event_content_from_markdown_as_emote(
+    md: String,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_markdown(md)))
+}
+
+#[uniffi::export]
 pub fn message_event_content_from_html(
     body: String,
     html_body: String,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
     Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_html(
+        body, html_body,
+    )))
+}
+
+#[uniffi::export]
+pub fn message_event_content_from_html_as_emote(
+    body: String,
+    html_body: String,
+) -> Arc<RoomMessageEventContentWithoutRelation> {
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_html(
         body, html_body,
     )))
 }

@@ -323,6 +323,15 @@ impl EventTimelineItem {
         }
     }
 
+    /// Check whether this item can be edited.
+    ///
+    /// Please also check whether the `sender` of this event is the client's
+    /// current user before presenting an edit button in the UI.
+    pub fn can_be_edited(&self) -> bool {
+        // This must be in sync with the early returns of `Timeline::edit`
+        self.event_id().is_some() && self.content().as_message().is_some()
+    }
+
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///

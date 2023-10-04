@@ -466,7 +466,7 @@ async fn marking_room_as_dm() {
                 "!abcdefgh:example.com",
                 "!hgfedcba:example.com"
             ],
-            "alice:example.com": [
+            "@alice:example.com": [
                 "!abcdefgh:example.com",
             ]
         })))

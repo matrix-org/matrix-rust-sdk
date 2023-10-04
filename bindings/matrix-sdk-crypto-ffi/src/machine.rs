@@ -1295,6 +1295,16 @@ impl OlmMachine {
         Ok(())
     }
 
+    /// Request missing local secrets from our devices (cross signing private
+    /// keys, megolm backup). This will ask the sdk to create outgoing
+    /// request to get the missing secrets.
+    ///
+    /// The requests will be processed as soon as `outgoing_requests()` is
+    /// called to process them.
+    pub fn query_missing_secrets_from_other_sessions(&self) -> Result<bool, CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.query_missing_secrets_from_other_sessions())?)
+    }
+
     /// Activate the given backup key to be used with the given backup version.
     ///
     /// **Warning**: The caller needs to make sure that the given `BackupKey` is

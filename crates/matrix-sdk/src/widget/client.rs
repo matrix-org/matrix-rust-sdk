@@ -1,10 +1,12 @@
 //! Internal client widget API implementation.
 
-use std::{borrow::Cow, ops::Deref};
+use std::{borrow::Cow, error::Error, ops::Deref};
 
 use ruma::{
-    events::{AnySyncTimelineEvent, TimelineEventType},
+    api::client::account::request_openid_token::v3::Response as OpenIdResponse,
+    events::{AnyTimelineEvent, TimelineEventType},
     serde::Raw,
+    OwnedEventId,
 };
 use serde_json::Value as JsonValue;
 
@@ -32,19 +34,21 @@ impl ClientApi {
 pub enum Event {
     /// An incoming raw message from the widget.
     MessageFromWidget(String),
+    /// Matrix event received. This one is delivered as a result of client
+    /// subscribing to the events (`Action::Subscribe` command).
+    MatrixEventReceived(Raw<AnyTimelineEvent>),
     /// Client acquired permissions from the user.
     /// A response to an `Action::AcquirePermissions` command.
     PermissionsAcquired(CommandResult<Permissions>),
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
-    OpenIdReceived(CommandResult<String>),
+    OpenIdReceived(CommandResult<OpenIdResponse>),
     /// Client read some matrix event(s).
-    /// A response to an `Action::ReadMatrixEvent` or `Action::Subscribe`
-    /// commands.
-    MatrixEventRead(CommandResult<Vec<Raw<AnySyncTimelineEvent>>>),
+    /// A response to an `Action::ReadMatrixEvent` commands.
+    MatrixEventRead(CommandResult<Vec<Raw<AnyTimelineEvent>>>),
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(CommandResult<String>),
+    MatrixEventSent(CommandResult<OwnedEventId>),
 }
 
 /// Action (a command) that client (driver) must perform.
@@ -56,7 +60,7 @@ pub enum Action {
     /// Must eventually be answered with `Event::PermissionsAcquired`.
     AcquirePermissions(Command<Permissions>),
     /// Get OpenId token for a given request ID.
-    GetOpenId(Command<String>),
+    GetOpenId(Command<()>),
     /// Read matrix event(s) that corresponds to the given description.
     ReadMatrixEvent(Command<ReadEventCommand>),
     // Send matrix event that corresponds to the given description.
@@ -74,10 +78,11 @@ pub struct ReadEventCommand {
     /// Read event(s) of a given type.
     pub event_type: TimelineEventType,
     /// Limits for the Matrix request.
-    pub limit: usize,
+    pub limit: u32,
 }
 
 /// Command to send matrix event.
+#[derive(Clone)]
 pub struct SendEventCommand {
     /// type of an event.
     pub event_type: TimelineEventType,
@@ -103,8 +108,12 @@ pub struct Command<T> {
 
 impl<T> Command<T> {
     /// Consumes the command and produces a command result with given data.
-    pub fn result<R>(self, result: Result<R, Cow<'static, str>>) -> CommandResult<R> {
-        CommandResult { id: self.id, result }
+    pub fn result<U, E: Error>(self, result: Result<U, E>) -> CommandResult<U> {
+        CommandResult { id: self.id, result: result.map_err(|e| e.to_string().into()) }
+    }
+
+    pub fn ok<U>(self, value: U) -> CommandResult<U> {
+        CommandResult { id: self.id, result: Ok(value) }
     }
 }
 

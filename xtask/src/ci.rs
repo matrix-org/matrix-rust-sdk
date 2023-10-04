@@ -35,13 +35,13 @@ enum CiCommand {
         cmd: Option<FeatureSet>,
     },
 
-    /// Run checks for the wasm target
+    /// Run clippy checks for the wasm target
     Wasm {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
 
-    /// Run wasm-pack tests
+    /// Run tests with `wasm-pack test`
     WasmPack {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
@@ -72,14 +72,24 @@ enum FeatureSet {
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 enum WasmFeatureSet {
+    /// Check `matrix-sdk-qrcode` crate
     MatrixSdkQrcode,
-    MatrixSdkNoDefault,
+    /// Check `matrix-sdk-base` crate
     MatrixSdkBase,
+    /// Check `matrix-sdk-common` crate
     MatrixSdkCommon,
+    /// Check `matrix-sdk` crate with no default features
+    MatrixSdkNoDefault,
+    /// Check `matrix-sdk` crate with `indexeddb` feature (but not
+    /// `e2e-encryption`)
     MatrixSdkIndexeddbStoresNoCrypto,
+    /// Check `matrix-sdk` crate with `indexeddb` and `e2e-encryption` features
     MatrixSdkIndexeddbStores,
+    /// Check `matrix-sdk-indexeddb` crate without `e2e-encryption` feature
     IndexeddbNoCrypto,
+    /// Check `matrix-sdk-indexeddb` crate with `e2e-encryption` feature
     IndexeddbWithCrypto,
+    /// Equivalent to `IndexeddbNoCrypto` followed by `IndexeddbWithCrypto`
     Indexeddb,
 }
 

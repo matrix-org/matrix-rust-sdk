@@ -2,6 +2,8 @@
 name = "matrix-sdk-ui"
 version = "0.6.0"
 edition = "2021"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
 rust-version = { workspace = true }
 
 [features]

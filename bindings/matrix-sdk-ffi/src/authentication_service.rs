@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use futures_util::future::join;
 use matrix_sdk::{
     oidc::{
         types::{
@@ -388,11 +387,9 @@ impl AuthenticationService {
         &self,
         client: &Arc<Client>,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let login_details = join(client.async_homeserver(), client.supports_password_login()).await;
-
-        let url = login_details.0;
         let supports_oidc_login = client.discovered_authentication_server().is_some();
-        let supports_password_login = login_details.1.ok().unwrap_or(false);
+        let supports_password_login = client.supports_password_login().await.ok().unwrap_or(false);
+        let url = client.homeserver();
 
         Ok(HomeserverLoginDetails { url, supports_oidc_login, supports_password_login })
     }

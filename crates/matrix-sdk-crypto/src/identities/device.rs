@@ -177,8 +177,8 @@ impl Device {
 
     /// Is this our own device?
     pub fn is_our_own_device(&self) -> bool {
-        let own_ed25519_key = self.verification_machine.store.account.identity_keys().ed25519;
-        let own_curve25519_key = self.verification_machine.store.account.identity_keys().curve25519;
+        let own_ed25519_key = self.verification_machine.store.account.identity_keys.ed25519;
+        let own_curve25519_key = self.verification_machine.store.account.identity_keys.curve25519;
 
         self.user_id() == self.verification_machine.own_user_id()
             && self.device_id() == self.verification_machine.own_device_id()

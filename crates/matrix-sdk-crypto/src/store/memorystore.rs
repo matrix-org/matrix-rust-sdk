@@ -94,13 +94,13 @@ impl MemoryStore {
         Self::default()
     }
 
-    pub(crate) async fn save_devices(&self, devices: Vec<ReadOnlyDevice>) {
+    pub(crate) fn save_devices(&self, devices: Vec<ReadOnlyDevice>) {
         for device in devices {
             let _ = self.devices.add(device);
         }
     }
 
-    async fn delete_devices(&self, devices: Vec<ReadOnlyDevice>) {
+    fn delete_devices(&self, devices: Vec<ReadOnlyDevice>) {
         for device in devices {
             let _ = self.devices.remove(device.user_id(), device.device_id());
         }
@@ -112,7 +112,7 @@ impl MemoryStore {
         }
     }
 
-    async fn save_inbound_group_sessions(&self, sessions: Vec<InboundGroupSession>) {
+    fn save_inbound_group_sessions(&self, sessions: Vec<InboundGroupSession>) {
         for session in sessions {
             self.inbound_group_sessions.add(session);
         }
@@ -130,10 +130,6 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&self, _: ReadOnlyAccount) -> Result<()> {
-        Ok(())
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         Ok(None)
     }
@@ -144,11 +140,11 @@ impl CryptoStore for MemoryStore {
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
-        self.save_inbound_group_sessions(changes.inbound_group_sessions).await;
+        self.save_inbound_group_sessions(changes.inbound_group_sessions);
 
-        self.save_devices(changes.devices.new).await;
-        self.save_devices(changes.devices.changed).await;
-        self.delete_devices(changes.devices.deleted).await;
+        self.save_devices(changes.devices.new);
+        self.save_devices(changes.devices.changed);
+        self.delete_devices(changes.devices.deleted);
 
         for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
             let _ = self.identities.insert(identity.user_id().to_owned(), identity.clone());
@@ -190,8 +186,9 @@ impl CryptoStore for MemoryStore {
             }
         }
 
-        // Note: this will save an empty next_batch token, if provided an empty one.
-        *self.next_batch_token.write().await = changes.next_batch_token;
+        if let Some(next_batch_token) = changes.next_batch_token {
+            *self.next_batch_token.write().await = Some(next_batch_token);
+        }
 
         Ok(())
     }
@@ -419,7 +416,7 @@ mod tests {
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
-        store.save_account(account).await.unwrap();
+        store.save_changes(Changes { account: Some(account), ..Default::default() }).await.unwrap();
 
         store.save_sessions(vec![session.clone()]).await;
 
@@ -449,7 +446,7 @@ mod tests {
         .unwrap();
 
         let store = MemoryStore::new();
-        store.save_inbound_group_sessions(vec![inbound.clone()]).await;
+        store.save_inbound_group_sessions(vec![inbound.clone()]);
 
         let loaded_session =
             store.get_inbound_group_session(room_id, outbound.session_id()).await.unwrap().unwrap();
@@ -461,7 +458,7 @@ mod tests {
         let device = get_device();
         let store = MemoryStore::new();
 
-        store.save_devices(vec![device.clone()]).await;
+        store.save_devices(vec![device.clone()]);
 
         let loaded_device =
             store.get_device(device.user_id(), device.device_id()).await.unwrap().unwrap();
@@ -477,7 +474,7 @@ mod tests {
 
         assert_eq!(&device, loaded_device);
 
-        store.delete_devices(vec![device.clone()]).await;
+        store.delete_devices(vec![device.clone()]);
         assert!(store.get_device(device.user_id(), device.device_id()).await.unwrap().is_none());
     }
 

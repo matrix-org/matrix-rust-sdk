@@ -43,13 +43,15 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
+                AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
+                RoomMessageEventContent,
             },
             redaction::RoomRedactionEventContent,
         },
         AnyMessageLikeEventContent,
     },
-    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
+    UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -78,7 +80,7 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
-    error::{Error, UnsupportedReplyItem},
+    error::{Error, UnsupportedEditItem, UnsupportedReplyItem},
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
@@ -339,18 +341,6 @@ impl Timeline {
     ///
     /// * `content` - The content of the message event.
     ///
-    /// * `txn_id` - A locally-unique ID describing a message transaction with
-    ///   the homeserver. Unless you're doing something special, you can pass in
-    ///   `None` which will create a suitable one for you automatically.
-    ///     * On the sending side, this field is used for re-trying earlier
-    ///       failed transactions. Subsequent messages *must never* re-use an
-    ///       earlier transaction ID.
-    ///     * On the receiving side, the field is used for recognizing our own
-    ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`MessageLikeUnsigned`] field `transaction_id` of the
-    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
-    ///       device. Other devices will not see it.
-    ///
     /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
@@ -381,8 +371,6 @@ impl Timeline {
     ///
     /// * `add_mentions` - Set to `Yes` if the `mentions` of `content` are
     ///   propagated according to user intent, `No` otherwise
-    ///
-    /// * `txn_id` - Optional transaction ID, usually `None`
     #[instrument(skip(self, content, reply_item))]
     pub async fn send_reply(
         &self,
@@ -423,6 +411,60 @@ impl Timeline {
                 )
             }
         };
+
+        self.send(content.into()).await;
+        Ok(())
+    }
+
+    /// Send an edit to the given event.
+    ///
+    /// Currently only supports `m.room.message` events whose event ID is known.
+    /// Please check [`EventTimelineItem::can_be_edited`] before calling this.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_content` - The content of the reply
+    ///
+    /// * `edit_item` - The event item you want to edit
+    #[instrument(skip(self, new_content))]
+    pub async fn edit(
+        &self,
+        new_content: RoomMessageEventContent,
+        edit_item: &EventTimelineItem,
+    ) -> Result<(), UnsupportedEditItem> {
+        // Early returns here must be in sync with
+        // `EventTimelineItem::can_be_edited`
+        let Some(event_id) = edit_item.event_id() else {
+            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
+        };
+        let TimelineItemContent::Message(original_content) = edit_item.content() else {
+            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+        };
+
+        let replied_to_message =
+            original_content.in_reply_to().and_then(|details| match &details.event {
+                TimelineDetails::Ready(event) => match event.content() {
+                    TimelineItemContent::Message(msg) => Some(OriginalRoomMessageEvent {
+                        content: msg.to_content(),
+                        event_id: event_id.to_owned(),
+                        sender: event.sender.clone(),
+                        // Dummy value, not used by make_replacement
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        room_id: self.room().room_id().to_owned(),
+                        unsigned: Default::default(),
+                    }),
+                    _ => None,
+                },
+                _ => {
+                    warn!("original event is a reply, but we don't have the replied-to event");
+                    None
+                }
+            });
+
+        let content = new_content.make_replacement(
+            ReplacementMetadata::new(event_id.to_owned(), None),
+            replied_to_message.as_ref(),
+        );
 
         self.send(content.into()).await;
         Ok(())

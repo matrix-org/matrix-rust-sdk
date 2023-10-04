@@ -43,13 +43,6 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Load an account that was previously stored.
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, Self::Error>;
 
-    /// Save the given account in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `account` - The account that should be stored.
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<(), Self::Error>;
-
     /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, Self::Error>;
 
@@ -285,10 +278,6 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         self.0.load_account().await.map_err(Into::into)
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        self.0.save_account(account).await.map_err(Into::into)
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {

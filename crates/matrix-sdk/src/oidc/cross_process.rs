@@ -275,7 +275,11 @@ mod tests {
         // Create a client that will use sqlite databases.
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await.unwrap();
+        let client = test_client_builder(Some("https://example.org".to_owned()))
+            .sqlite_store(tmp_dir, None)
+            .build()
+            .await
+            .unwrap();
 
         let tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),
@@ -385,7 +389,10 @@ mod tests {
         // refreshes whenever one spawns two refreshes around the same time.
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await?;
+        let client = test_client_builder(Some("https://example.org".to_owned()))
+            .sqlite_store(tmp_dir, None)
+            .build()
+            .await?;
 
         let prev_tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),
@@ -438,7 +445,10 @@ mod tests {
     #[async_test]
     async fn test_logout() -> anyhow::Result<()> {
         let tmp_dir = tempfile::tempdir()?;
-        let client = test_client_builder(None).sqlite_store(tmp_dir, None).build().await?;
+        let client = test_client_builder(Some("https://example.org".to_owned()))
+            .sqlite_store(tmp_dir, None)
+            .build()
+            .await?;
 
         let tokens = OidcSessionTokens {
             access_token: "prev-access-token".to_owned(),

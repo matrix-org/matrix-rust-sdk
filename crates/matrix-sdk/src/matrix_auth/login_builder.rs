@@ -171,7 +171,7 @@ impl LoginBuilder {
     )]
     pub async fn send(self) -> Result<login::v3::Response> {
         let client = &self.auth.client;
-        let homeserver = client.homeserver().await;
+        let homeserver = client.homeserver();
         info!(homeserver = homeserver.as_str(), identifier = ?self.login_method.id(), "Logging in");
 
         let request = assign!(login::v3::Request::new(self.login_method.into_login_info()), {
@@ -334,7 +334,7 @@ where
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
         let client = &self.auth.client;
-        let homeserver = client.homeserver().await;
+        let homeserver = client.homeserver();
         info!(%homeserver, "Logging in");
 
         let (signal_tx, signal_rx) = oneshot::channel();

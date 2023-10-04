@@ -328,7 +328,7 @@ impl SessionManager {
             .failures
             .keys()
             .filter_map(|s| ServerName::parse(s).ok())
-            .filter(|s| s != self.account.user_id().server_name());
+            .filter(|s| s != self.account.static_data.user_id.server_name());
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
         self.failures.extend(failed_servers);
@@ -378,24 +378,25 @@ impl SessionManager {
                     }
                 };
 
-                let session = match self.account.create_outbound_session(&device, key_map).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!(
-                            user_id = user_id.as_str(),
-                            device_id = device_id.as_str(),
-                            error = ?e,
-                            "Error creating outbound session"
-                        );
+                let session =
+                    match self.store.account().create_outbound_session(&device, key_map).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(
+                                user_id = user_id.as_str(),
+                                device_id = device_id.as_str(),
+                                error = ?e,
+                                "Error creating outbound session"
+                            );
 
-                        self.failed_devices
-                            .entry(user_id.to_owned())
-                            .or_default()
-                            .insert(device_id.to_owned());
+                            self.failed_devices
+                                .entry(user_id.to_owned())
+                                .or_default()
+                                .insert(device_id.to_owned());
 
-                        continue;
-                    }
-                };
+                            continue;
+                        }
+                    };
 
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
@@ -515,23 +516,22 @@ mod tests {
         let users_for_key_claim = Arc::new(DashMap::new());
         let account = ReadOnlyAccount::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
-        store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
-        let verification =
-            VerificationMachine::new(account.clone(), identity.clone(), store.clone());
+        let verification = VerificationMachine::new(
+            account.static_data().clone(),
+            identity.clone(),
+            store.clone(),
+        );
 
-        let user_id = user_id.to_owned();
-        let device_id = device_id.into();
+        let store = Store::new(account.clone(), identity, store, verification);
+        store.save_account(account.clone()).await.unwrap();
 
-        let store = Store::new(user_id.clone(), identity, store, verification);
-
-        let account = Account { inner: account, store: store.clone() };
+        let account = Account { static_data: account.static_data.clone(), store: store.clone() };
 
         let session_cache = GroupSessionCache::new(store.clone());
 
         let key_request = GossipMachine::new(
-            user_id,
-            device_id,
+            account.static_data.clone(),
             store.clone(),
             session_cache,
             users_for_key_claim.clone(),
@@ -576,8 +576,8 @@ mod tests {
     async fn session_creation_waits_for_keys_query() {
         let manager = session_manager().await;
         let identity_manager = IdentityManager::new(
-            manager.account.user_id.clone(),
-            manager.account.device_id.clone(),
+            manager.account.static_data.user_id.clone(),
+            manager.account.static_data.device_id.clone(),
             manager.store.clone(),
         );
 
@@ -596,7 +596,7 @@ mod tests {
         // for now.
         let missing_sessions_task = {
             let manager = manager.clone();
-            let bob_user_id = bob.user_id.clone();
+            let bob_user_id = bob.user_id().to_owned();
 
             #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
             tokio::spawn(async move {
@@ -605,7 +605,7 @@ mod tests {
         };
 
         // the initial keys query completes, and we start another
-        let response_json = json!({ "device_keys": { manager.account.user_id(): {}}});
+        let response_json = json!({ "device_keys": { manager.account.static_data.user_id: {}}});
         let response =
             KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
@@ -640,7 +640,7 @@ mod tests {
 
         let manager = session_manager().await;
         let bob = bob_account();
-        let (_, mut session) = bob.create_session_for(&manager.account).await;
+        let (_, mut session) = bob.create_session_for(manager.store.account()).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);

@@ -19,11 +19,18 @@ use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{
-    async_test, sync_timeline_event, GlobalAccountDataTestEvent, JoinedRoomBuilder,
-    SyncResponseBuilder, TimelineTestEvent,
+    async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent, VirtualTimelineItem};
-use ruma::{event_id, events::room::message::MessageType, room_id};
+use ruma::{
+    event_id,
+    events::room::{
+        member::{MembershipState, RoomMemberEventContent},
+        message::{MessageType, RoomMessageEventContent},
+    },
+    room_id,
+};
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -35,10 +42,11 @@ async fn batched() {
     let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut ev_builder = SyncResponseBuilder::new();
-    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let event_builder = EventBuilder::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -48,18 +56,30 @@ async fn batched() {
 
     let hdl = tokio::spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
-        // One day divider, three event items
-        assert_eq!(next_batch.len(), 4);
+        // There can be more than three updates because we add things like
+        // day dividers and implicit read receipts
+        assert!(next_batch.len() >= 3);
     });
 
-    ev_builder.add_joined_room(
+    sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(TimelineTestEvent::MessageText)
-            .add_timeline_event(TimelineTestEvent::Member)
-            .add_timeline_event(TimelineTestEvent::MessageNotice),
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &ALICE,
+                RoomMessageEventContent::text_plain("text message event"),
+            ))
+            .add_timeline_event(event_builder.make_sync_state_event(
+                &BOB,
+                BOB.as_str(),
+                RoomMemberEventContent::new(MembershipState::Join),
+                Some(RoomMemberEventContent::new(MembershipState::Invite)),
+            ))
+            .add_timeline_event(event_builder.make_sync_message_event(
+                &BOB,
+                RoomMessageEventContent::notice_plain("notice message event"),
+            )),
     );
 
-    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     tokio::time::timeout(Duration::from_millis(500), hdl).await.unwrap().unwrap();

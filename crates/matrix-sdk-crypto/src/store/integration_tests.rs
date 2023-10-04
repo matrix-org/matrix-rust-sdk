@@ -65,7 +65,8 @@ macro_rules! cryptostore_integration_tests {
             pub async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
                 let store = get_store(name, None).await;
                 let account = get_account();
-                store.save_account(account.clone()).await.expect("Can't save account");
+
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 (account, store)
             }
@@ -96,7 +97,7 @@ macro_rules! cryptostore_integration_tests {
             #[async_test]
             async fn save_account_via_generic_save() {
                 let store = get_store("save_account_via_generic", None).await;
-                assert!(store.get_account_info().is_none());
+                assert!(store.get_static_account().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
@@ -104,18 +105,18 @@ macro_rules! cryptostore_integration_tests {
                     .save_changes(Changes { account: Some(account), ..Default::default() })
                     .await
                     .expect("Can't save account");
-                assert!(store.get_account_info().is_some());
+                assert!(store.get_static_account().is_some());
             }
 
             #[async_test]
             async fn save_account() {
                 let store = get_store("save_account", None).await;
-                assert!(store.get_account_info().is_none());
+                assert!(store.get_static_account().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
-                store.save_account(account).await.expect("Can't save account");
-                assert!(store.get_account_info().is_some());
+                store.save_changes(Changes { account: Some(account), ..Default::default() }).await.expect("Can't save account");
+                assert!(store.get_static_account().is_some());
             }
 
             #[async_test]
@@ -123,7 +124,7 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("load_account", None).await;
                 let account = get_account();
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -137,7 +138,7 @@ macro_rules! cryptostore_integration_tests {
                     get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -150,12 +151,12 @@ macro_rules! cryptostore_integration_tests {
                 let store = get_store("save_and_share_account", None).await;
                 let account = get_account();
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 account.mark_as_shared();
                 account.update_uploaded_key_count(50);
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 let loaded_account = store.load_account().await.expect("Can't load account");
                 let loaded_account = loaded_account.unwrap();
@@ -168,7 +169,7 @@ macro_rules! cryptostore_integration_tests {
             async fn load_sessions() {
                 let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
@@ -192,7 +193,7 @@ macro_rules! cryptostore_integration_tests {
                 let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() }).await.expect("Can't save account");
 
                 let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -490,7 +491,9 @@ macro_rules! cryptostore_integration_tests {
 
                 let account = ReadOnlyAccount::with_device_id(&user_id, device_id);
 
-                store.save_account(account.clone()).await.expect("Can't save account");
+                store.save_changes(Changes { account: Some(account.clone()), ..Default::default() })
+                    .await
+                    .expect("Can't save account");
 
                 let own_identity = get_own_identity();
 
@@ -515,7 +518,7 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_user.master_key(), own_identity.master_key());
                 assert_eq!(loaded_user.self_signing_key(), own_identity.self_signing_key());
-                assert_eq!(loaded_user, own_identity.clone().into());
+                assert_eq!(loaded_user.own().unwrap().clone(), own_identity.clone());
 
                 let other_identity = get_other_identity();
 
@@ -534,7 +537,8 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_user.master_key(), other_identity.master_key());
                 assert_eq!(loaded_user.self_signing_key(), other_identity.self_signing_key());
-                assert_eq!(loaded_user, other_identity.into());
+                assert_eq!(loaded_user.user_id(), other_identity.user_id());
+                assert_eq!(loaded_user.other().unwrap().clone(), other_identity);
 
                 own_identity.mark_as_verified();
 

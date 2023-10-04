@@ -14,15 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-sliding-sync")]
-use std::sync::RwLock as StdRwLock;
 use std::{
     collections::{btree_map, hash_map::DefaultHasher, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock},
 };
 
 use dashmap::DashMap;
@@ -65,9 +63,7 @@ use ruma::{
     ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-#[cfg(feature = "e2e-encryption")]
-use tokio::sync::Mutex;
-use tokio::sync::{broadcast, OnceCell, RwLock, RwLockReadGuard};
+use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, Instrument, Span};
 use url::Url;
 
@@ -144,21 +140,12 @@ pub struct Client {
     pub(crate) inner: Arc<ClientInner>,
 }
 
-pub(crate) struct ClientInner {
-    /// All the data related to authentication and authorization.
-    pub(crate) auth_ctx: Arc<AuthCtx>,
-
-    /// The URL of the homeserver to connect to.
-    homeserver: RwLock<Url>,
-    /// The sliding sync proxy that is trusted by the homeserver.
-    #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: StdRwLock<Option<Url>>,
-    /// The underlying HTTP client.
-    pub(crate) http_client: HttpClient,
-    /// User session data.
-    base_client: BaseClient,
-    /// The Matrix versions the server supports (well-known ones only)
-    server_versions: OnceCell<Box<[MatrixVersion]>>,
+#[derive(Default)]
+pub(crate) struct ClientLocks {
+    /// Lock ensuring that only a single room may be marked as a DM at once.
+    /// Look at the [`Room::mark_as_dm()`] method for a more detailed
+    /// explanation.
+    pub(crate) mark_as_dm_lock: Mutex<()>,
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -172,27 +159,9 @@ pub(crate) struct ClientInner {
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
     pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
-    pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
-    /// Event handlers. See `add_event_handler`.
-    pub(crate) event_handlers: EventHandlerStore,
-    /// Notification handlers. See `register_notification_handler`.
-    notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
-    pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
-    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
-    /// Whether the client should update its homeserver URL with the discovery
-    /// information present in the login response.
-    respect_login_well_known: bool,
-    /// An event that can be listened on to wait for a successful sync. The
-    /// event will only be fired if a sync loop is running. Can be used for
-    /// synchronization, e.g. if we send out a request to create a room, we can
-    /// wait for the sync to get the data to fetch a room object from the state
-    /// store.
-    pub(crate) sync_beat: event_listener::Event,
-
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
-
     /// Latest "generation" of data known by the crypto store.
     ///
     /// This is a counter that only increments, set in the database (and can
@@ -215,6 +184,43 @@ pub(crate) struct ClientInner {
     pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
+pub(crate) struct ClientInner {
+    /// All the data related to authentication and authorization.
+    pub(crate) auth_ctx: Arc<AuthCtx>,
+
+    /// The URL of the homeserver to connect to.
+    homeserver: StdRwLock<Url>,
+    /// The sliding sync proxy that is trusted by the homeserver.
+    #[cfg(feature = "experimental-sliding-sync")]
+    sliding_sync_proxy: StdRwLock<Option<Url>>,
+    /// The underlying HTTP client.
+    pub(crate) http_client: HttpClient,
+    /// User session data.
+    base_client: BaseClient,
+    /// The Matrix versions the server supports (well-known ones only)
+    server_versions: OnceCell<Box<[MatrixVersion]>>,
+    /// Collection of locks individual client methods might want to use, either
+    /// to ensure that only a single call to a method happens at once or to
+    /// deduplicate multiple calls to a method.
+    locks: ClientLocks,
+    pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
+    /// Event handlers. See `add_event_handler`.
+    pub(crate) event_handlers: EventHandlerStore,
+    /// Notification handlers. See `register_notification_handler`.
+    notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
+    pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
+    pub(crate) sync_gap_broadcast_txs: StdMutex<BTreeMap<OwnedRoomId, Observable<()>>>,
+    /// Whether the client should update its homeserver URL with the discovery
+    /// information present in the login response.
+    respect_login_well_known: bool,
+    /// An event that can be listened on to wait for a successful sync. The
+    /// event will only be fired if a sync loop is running. Can be used for
+    /// synchronization, e.g. if we send out a request to create a room, we can
+    /// wait for the sync to get the data to fetch a room object from the state
+    /// store.
+    pub(crate) sync_beat: event_listener::Event,
+}
+
 impl ClientInner {
     /// Create a new `ClientInner`.
     ///
@@ -232,19 +238,14 @@ impl ClientInner {
         respect_login_well_known: bool,
     ) -> Self {
         Self {
-            homeserver: RwLock::new(homeserver),
+            homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
             http_client,
             base_client,
+            locks: Default::default(),
             server_versions: OnceCell::new_with(server_versions),
-            #[cfg(feature = "e2e-encryption")]
-            group_session_deduplicated_handler: Default::default(),
-            #[cfg(feature = "e2e-encryption")]
-            key_claim_lock: Default::default(),
-            members_request_deduplicated_handler: Default::default(),
-            encryption_state_deduplicated_handler: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -252,10 +253,6 @@ impl ClientInner {
             sync_gap_broadcast_txs: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
-            #[cfg(feature = "e2e-encryption")]
-            cross_process_crypto_store_lock: OnceCell::new(),
-            #[cfg(feature = "e2e-encryption")]
-            crypto_store_generation: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -296,14 +293,17 @@ impl Client {
         &self.inner.base_client
     }
 
+    pub(crate) fn locks(&self) -> &ClientLocks {
+        &self.inner.locks
+    }
+
     /// Change the homeserver URL used by this client.
     ///
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    async fn set_homeserver(&self, homeserver_url: Url) {
-        let mut homeserver = self.inner.homeserver.write().await;
-        *homeserver = homeserver_url;
+    fn set_homeserver(&self, homeserver_url: Url) {
+        *self.inner.homeserver.write().unwrap() = homeserver_url;
     }
 
     /// Get the capabilities of the homeserver.
@@ -351,8 +351,8 @@ impl Client {
     }
 
     /// The Homeserver of the client.
-    pub async fn homeserver(&self) -> Url {
-        self.inner.homeserver.read().await.clone()
+    pub fn homeserver(&self) -> Url {
+        self.inner.homeserver.read().unwrap().clone()
     }
 
     /// The sliding sync proxy that is trusted by the homeserver.
@@ -860,14 +860,11 @@ impl Client {
     ///
     /// * `login_well_known` - The `well_known` field from a successful login
     ///   response.
-    pub(crate) async fn maybe_update_login_well_known(
-        &self,
-        login_well_known: Option<&DiscoveryInfo>,
-    ) {
+    pub(crate) fn maybe_update_login_well_known(&self, login_well_known: Option<&DiscoveryInfo>) {
         if self.inner.respect_login_well_known {
             if let Some(well_known) = login_well_known {
                 if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
-                    self.set_homeserver(homeserver).await;
+                    self.set_homeserver(homeserver);
                 }
             }
         }
@@ -1260,7 +1257,7 @@ impl Client {
     {
         let homeserver = match homeserver {
             Some(hs) => hs,
-            None => self.homeserver().await.to_string(),
+            None => self.homeserver().to_string(),
         };
 
         let access_token = self.access_token();
@@ -1302,7 +1299,7 @@ impl Client {
             .send(
                 get_supported_versions::Request::new(),
                 None,
-                self.homeserver().await.to_string(),
+                self.homeserver().to_string(),
                 None,
                 &[MatrixVersion::V1_0],
                 Default::default(),
@@ -1931,7 +1928,7 @@ impl Client {
         let client = Client {
             inner: Arc::new(ClientInner::new(
                 self.inner.auth_ctx.clone(),
-                self.inner.homeserver.read().await.clone(),
+                self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.inner.sliding_sync_proxy.read().unwrap().clone(),
                 self.inner.http_client.clone(),
@@ -1982,7 +1979,7 @@ pub(crate) mod tests {
     };
 
     #[async_test]
-    async fn account_data() {
+    async fn test_account_data() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2009,7 +2006,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn successful_discovery() {
+    async fn test_successful_discovery() {
         let server = MockServer::start().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2035,11 +2032,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(server_url.as_ref()).unwrap());
     }
 
     #[async_test]
-    async fn discovery_broken_server() {
+    async fn test_discovery_broken_server() {
         let server = MockServer::start().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2062,7 +2059,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn room_creation() {
+    async fn test_room_creation() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2077,14 +2074,14 @@ pub(crate) mod tests {
         client.inner.base_client.receive_sync_response(response).await.unwrap();
         let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
-        assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(&server.uri()).unwrap());
 
         let room = client.get_room(room_id).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 
     #[async_test]
-    async fn retry_limit_http_requests() {
+    async fn test_retry_limit_http_requests() {
         let server = MockServer::start().await;
         let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_limit(3))
@@ -2105,7 +2102,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn retry_timeout_http_requests() {
+    async fn test_retry_timeout_http_requests() {
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
         let server = MockServer::start().await;
@@ -2128,7 +2125,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn short_retry_initial_http_requests() {
+    async fn test_short_retry_initial_http_requests() {
         let server = MockServer::start().await;
         let client = test_client_builder(Some(server.uri())).build().await.unwrap();
 
@@ -2143,7 +2140,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn no_retry_http_requests() {
+    async fn test_no_retry_http_requests() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -2158,17 +2155,17 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn set_homeserver() {
+    async fn test_set_homeserver() {
         let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
-        assert_eq!(client.homeserver().await.as_ref(), "http://localhost/");
+        assert_eq!(client.homeserver().as_ref(), "http://localhost/");
 
         let homeserver = Url::parse("http://example.com/").unwrap();
-        client.set_homeserver(homeserver.clone()).await;
-        assert_eq!(client.homeserver().await, homeserver);
+        client.set_homeserver(homeserver.clone());
+        assert_eq!(client.homeserver(), homeserver);
     }
 
     #[async_test]
-    async fn search_user_request() {
+    async fn test_search_user_request() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 

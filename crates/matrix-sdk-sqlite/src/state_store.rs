@@ -13,8 +13,9 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use itertools::Itertools;
 use matrix_sdk_base::{
-    deserialized_responses::RawAnySyncOrStrippedState,
+    deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     media::{MediaRequest, UniqueKey},
+    store::migration_helpers::RoomInfoV1,
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
 };
@@ -24,7 +25,10 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        room::{
+            create::RoomCreateEventContent,
+            member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -57,7 +61,7 @@ mod keys {
     pub const MEDIA: &str = "media";
 }
 
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -140,7 +144,7 @@ impl SqliteStateStore {
                     .query_map((), |row| row.get::<_, Vec<u8>>(0))?
                 {
                     let data = data?;
-                    let room_info: RoomInfo = this.deserialize_json(&data)?;
+                    let room_info: RoomInfoV1 = this.deserialize_json(&data)?;
 
                     let room_id = this.encode_key(keys::ROOM_INFO, room_info.room_id());
                     let state = this
@@ -156,6 +160,56 @@ impl SqliteStateStore {
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/002_b_replace_room_info.sql"
                 ))?;
+
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+        }
+
+        // Migration to v3: RoomInfo format has changed.
+        if from < 3 && to >= 3 {
+            let this = self.clone();
+            conn.with_transaction(move |txn| {
+                // Migrate data .
+                for data in txn
+                    .prepare("SELECT data FROM room_info")?
+                    .query_map((), |row| row.get::<_, Vec<u8>>(0))?
+                {
+                    let data = data?;
+                    let room_info_v1: RoomInfoV1 = this.deserialize_json(&data)?;
+
+                    // Get the `m.room.create` event from the room state.
+                    let room_id = this.encode_key(keys::STATE_EVENT, room_info_v1.room_id());
+                    let event_type =
+                        this.encode_key(keys::STATE_EVENT, StateEventType::RoomCreate.to_string());
+                    let create_res = txn
+                        .prepare(
+                            "SELECT stripped, data FROM state_event
+                             WHERE room_id = ? AND event_type = ?",
+                        )?
+                        .query_row([room_id, event_type], |row| {
+                            Ok((row.get::<_, bool>(0)?, row.get::<_, Vec<u8>>(1)?))
+                        })
+                        .optional()?;
+
+                    let create = create_res.and_then(|(stripped, data)| {
+                        let create = if stripped {
+                            SyncOrStrippedState::<RoomCreateEventContent>::Stripped(
+                                this.deserialize_json(&data).ok()?,
+                            )
+                        } else {
+                            SyncOrStrippedState::Sync(this.deserialize_json(&data).ok()?)
+                        };
+                        Some(create)
+                    });
+
+                    let migrated_room_info = room_info_v1.migrate(create.as_ref());
+
+                    let data = this.serialize_json(&migrated_room_info)?;
+                    let room_id = this.encode_key(keys::ROOM_INFO, migrated_room_info.room_id());
+                    txn.prepare_cached("UPDATE room_info SET data = ? WHERE room_id = ?")?
+                        .execute((data, room_id))?;
+                }
 
                 Result::<_, Error>::Ok(())
             })
@@ -1662,10 +1716,15 @@ mod migration_tests {
         },
     };
 
-    use matrix_sdk_base::{RoomInfo, RoomState, StateStore};
+    use matrix_sdk_base::{sync::UnreadNotificationsCount, RoomState, StateStore};
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use ruma::RoomId;
+    use ruma::{
+        events::{room::create::RoomCreateEventContent, StateEventType},
+        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    };
+    use rusqlite::Transaction;
+    use serde_json::json;
     use tempfile::{tempdir, TempDir};
 
     use super::{create_pool, init, keys, SqliteStateStore};
@@ -1697,6 +1756,50 @@ mod migration_tests {
         Ok(this)
     }
 
+    fn room_info_v1_json(
+        room_id: &RoomId,
+        state: RoomState,
+        name: Option<&str>,
+        creator: Option<&UserId>,
+    ) -> serde_json::Value {
+        // Test with name set or not.
+        let name_content = match name {
+            Some(name) => json!({ "name": name }),
+            None => json!({ "name": null }),
+        };
+        // Test with creator set or not.
+        let create_content = match creator {
+            Some(creator) => RoomCreateEventContent::new_v1(creator.to_owned()),
+            None => RoomCreateEventContent::new_v11(),
+        };
+
+        json!({
+            "room_id": room_id,
+            "room_type": state,
+            "notification_counts": UnreadNotificationsCount::default(),
+            "summary": {
+                "heroes": [],
+                "joined_member_count": 0,
+                "invited_member_count": 0,
+            },
+            "members_synced": false,
+            "base_info": {
+                "dm_targets": [],
+                "max_power_level": 100,
+                "name": {
+                    "Original": {
+                        "content": name_content,
+                    },
+                },
+                "create": {
+                    "Original": {
+                        "content": create_content,
+                    }
+                }
+            },
+        })
+    }
+
     #[async_test]
     pub async fn test_migrating_v1_to_v2() {
         let path = new_path();
@@ -1711,13 +1814,13 @@ mod migration_tests {
                     let room_id = RoomId::parse(format!("!room_{i}:localhost")).unwrap();
                     let (state, stripped) =
                         if i < 3 { (RoomState::Joined, false) } else { (RoomState::Invited, true) };
-                    let info = RoomInfo::new(&room_id, state);
+                    let info = room_info_v1_json(&room_id, state, None, None);
 
                     let room_id = this.encode_key(keys::ROOM_INFO, room_id);
                     let data = this.serialize_json(&info)?;
 
                     txn.prepare_cached(
-                        "INSERT OR REPLACE INTO room_info (room_id, stripped, data)
+                        "INSERT INTO room_info (room_id, stripped, data)
                          VALUES (?, ?, ?)",
                     )?
                     .execute((room_id, stripped, data))?;
@@ -1737,5 +1840,136 @@ mod migration_tests {
         #[allow(deprecated)]
         let stripped_rooms = store.get_stripped_room_infos().await.unwrap();
         assert_eq!(stripped_rooms.len(), 2);
+    }
+
+    // Add a room in version 2 format of the state store.
+    fn add_room_v2(
+        this: &SqliteStateStore,
+        txn: &Transaction<'_>,
+        room_id: &RoomId,
+        name: Option<&str>,
+        create_creator: Option<&UserId>,
+        create_sender: Option<&UserId>,
+    ) -> Result<(), Error> {
+        let room_info_json = room_info_v1_json(room_id, RoomState::Joined, name, create_creator);
+
+        let encoded_room_id = this.encode_key(keys::ROOM_INFO, room_id);
+        let encoded_state =
+            this.encode_key(keys::ROOM_INFO, serde_json::to_string(&RoomState::Joined)?);
+        let data = this.serialize_json(&room_info_json)?;
+
+        txn.prepare_cached(
+            "INSERT INTO room_info (room_id, state, data)
+             VALUES (?, ?, ?)",
+        )?
+        .execute((encoded_room_id, encoded_state, data))?;
+
+        // Test with or without `m.room.create` event in the room state.
+        let Some(create_sender) = create_sender else {
+            return Ok(());
+        };
+
+        let create_content = match create_creator {
+            Some(creator) => RoomCreateEventContent::new_v1(creator.to_owned()),
+            None => RoomCreateEventContent::new_v11(),
+        };
+
+        let event_id = EventId::new(server_name!("dummy.local"));
+        let create_event = json!({
+            "content": create_content,
+            "event_id": event_id,
+            "sender": create_sender.to_owned(),
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "state_key": "",
+            "type": "m.room.create",
+            "unsigned": {},
+        });
+
+        let encoded_room_id = this.encode_key(keys::STATE_EVENT, room_id);
+        let encoded_event_type =
+            this.encode_key(keys::STATE_EVENT, StateEventType::RoomCreate.to_string());
+        let encoded_state_key = this.encode_key(keys::STATE_EVENT, "");
+        let stripped = false;
+        let encoded_event_id = this.encode_key(keys::STATE_EVENT, event_id);
+        let data = this.serialize_json(&create_event)?;
+
+        txn.prepare_cached(
+            "INSERT
+             INTO state_event (room_id, event_type, state_key, stripped, event_id, data)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )?
+        .execute((
+            encoded_room_id,
+            encoded_event_type,
+            encoded_state_key,
+            stripped,
+            encoded_event_id,
+            data,
+        ))?;
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v2_to_v3() {
+        let path = new_path();
+
+        // Room A: with name, creator and sender.
+        let room_a_id = room_id!("!room_a:dummy.local");
+        let room_a_name = "Room A";
+        let room_a_creator = user_id!("@creator:dummy.local");
+        // Use a different sender to check that sender is used over creator in
+        // migration.
+        let room_a_create_sender = user_id!("@sender:dummy.local");
+
+        // Room B: without name, creator and sender.
+        let room_b_id = room_id!("!room_b:dummy.local");
+
+        // Room C: only with sender.
+        let room_c_id = room_id!("!room_c:dummy.local");
+        let room_c_create_sender = user_id!("@creator:dummy.local");
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&path, 2).await.unwrap();
+            let conn = db.pool.get().await.unwrap();
+
+            let this = db.clone();
+            conn.with_transaction(move |txn| {
+                add_room_v2(
+                    &this,
+                    txn,
+                    room_a_id,
+                    Some(room_a_name),
+                    Some(room_a_creator),
+                    Some(room_a_create_sender),
+                )?;
+                add_room_v2(&this, txn, room_b_id, None, None, None)?;
+                add_room_v2(&this, txn, room_c_id, None, None, Some(room_c_create_sender))?;
+
+                Result::<_, Error>::Ok(())
+            })
+            .await
+            .unwrap();
+        }
+
+        // This transparently migrates to the latest version.
+        let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
+
+        // Check all room infos are there.
+        let room_infos = store.get_room_infos().await.unwrap();
+        assert_eq!(room_infos.len(), 3);
+
+        let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();
+        assert_eq!(room_a.name(), Some(room_a_name));
+        assert_eq!(room_a.creator(), Some(room_a_create_sender));
+
+        let room_b = room_infos.iter().find(|r| r.room_id() == room_b_id).unwrap();
+        assert_eq!(room_b.name(), None);
+        assert_eq!(room_b.creator(), None);
+
+        let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
+        assert_eq!(room_c.name(), None);
+        assert_eq!(room_c.creator(), Some(room_c_create_sender));
     }
 }
