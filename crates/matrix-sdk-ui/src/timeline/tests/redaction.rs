@@ -146,11 +146,14 @@ async fn reaction_redaction_timeline_filter() {
     // Initialise a timeline with a redacted reaction.
     timeline
         .inner
-        .add_initial_events(vector![SyncTimelineEvent::new(
-            timeline
-                .event_builder
-                .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
-        )])
+        .add_initial_events(
+            vector![SyncTimelineEvent::new(
+                timeline
+                    .event_builder
+                    .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new())
+            )],
+            None,
+        )
         .await;
     // Timeline items are actually empty.
     assert_eq!(timeline.inner.items().await.len(), 0);

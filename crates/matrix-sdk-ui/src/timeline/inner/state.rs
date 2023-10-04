@@ -80,6 +80,7 @@ impl TimelineInnerState {
     pub(super) async fn add_initial_events<P: RoomDataProvider>(
         &mut self,
         events: Vector<SyncTimelineEvent>,
+        mut back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) {
@@ -90,6 +91,8 @@ impl TimelineInnerState {
             txn.handle_remote_event(
                 event,
                 TimelineItemPosition::End { from_cache: true },
+                // back pagination token, if any, is added to the first event
+                back_pagination_token.take(),
                 room_data_provider,
                 settings,
             )
@@ -155,17 +158,23 @@ impl TimelineInnerState {
     pub(super) async fn handle_back_paginated_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<TimelineEvent>,
+        mut back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> Option<HandleManyEventsResult> {
         let mut txn = self.transaction();
 
+        let num_events = events.len();
         let mut total = HandleManyEventsResult::default();
-        for event in events {
+        for (i, event) in events.into_iter().enumerate() {
+            // back pagination token is used for the last event in the chunk
+            // because back-paginated events have reverse order from sync events
+            let token = if i == num_events - 1 { back_pagination_token.take() } else { None };
             let res = txn
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Start,
+                    token,
                     room_data_provider,
                     settings,
                 )
@@ -188,7 +197,7 @@ impl TimelineInnerState {
         settings: &TimelineInnerSettings,
     ) {
         let mut txn = self.transaction();
-        txn.handle_live_event(event, room_data_provider, settings).await;
+        txn.handle_live_event(event, None, room_data_provider, settings).await;
         txn.commit();
     }
 
@@ -294,6 +303,7 @@ impl TimelineInnerState {
                 .handle_remote_event(
                     event.into(),
                     TimelineItemPosition::Update(idx),
+                    None,
                     room_data_provider,
                     settings,
                 )
@@ -458,7 +468,7 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
 impl TimelineInnerStateTransaction<'_> {
     async fn handle_sync_timeline<P: RoomDataProvider>(
         &mut self,
-        timeline: Timeline,
+        mut timeline: Timeline,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) {
@@ -470,7 +480,8 @@ impl TimelineInnerStateTransaction<'_> {
         let num_events = timeline.events.len();
         for (i, event) in timeline.events.into_iter().enumerate() {
             trace!("Handling event {} out of {num_events}", i + 1);
-            self.handle_live_event(event, room_data_provider, settings).await;
+            self.handle_live_event(event, timeline.prev_batch.take(), room_data_provider, settings)
+                .await;
         }
     }
 
@@ -481,12 +492,14 @@ impl TimelineInnerStateTransaction<'_> {
     async fn handle_live_event<P: RoomDataProvider>(
         &mut self,
         event: SyncTimelineEvent,
+        back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> HandleEventResult {
         self.handle_remote_event(
             event,
             TimelineItemPosition::End { from_cache: false },
+            back_pagination_token,
             room_data_provider,
             settings,
         )
@@ -500,6 +513,7 @@ impl TimelineInnerStateTransaction<'_> {
         &mut self,
         event: SyncTimelineEvent,
         position: TimelineItemPosition,
+        back_pagination_token: Option<String>,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> HandleEventResult {
@@ -542,6 +556,10 @@ impl TimelineInnerStateTransaction<'_> {
                 }
             },
         };
+
+        if let Some(token) = back_pagination_token {
+            self.meta.back_pagination_tokens.push((event_id.clone(), token));
+        }
 
         let is_own_event = sender == room_data_provider.own_user_id();
         let sender_profile = room_data_provider.profile(&sender).await;
@@ -598,6 +616,7 @@ impl TimelineInnerStateTransaction<'_> {
         self.reactions.clear();
         self.fully_read_event = None;
         self.event_should_update_fully_read_marker = false;
+        self.back_pagination_tokens.clear();
     }
 
     #[instrument(skip_all)]
@@ -671,6 +690,12 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// the in flight reaction request state that is ongoing
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
     pub room_version: RoomVersionId,
+
+    /// Back-pagination tokens, reversed in order compared to the associated
+    /// timeline items (to allow efficient pushing and popping).
+    ///
+    /// Private because it's not needed by `TimelineEventHandler`.
+    back_pagination_tokens: Vec<(OwnedEventId, String)>,
 }
 
 impl TimelineInnerMetadata {
@@ -685,6 +710,7 @@ impl TimelineInnerMetadata {
             reaction_state: Default::default(),
             in_flight_reaction: Default::default(),
             room_version,
+            back_pagination_tokens: Vec::new(),
         }
     }
 
