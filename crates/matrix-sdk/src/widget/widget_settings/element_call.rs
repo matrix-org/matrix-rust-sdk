@@ -40,7 +40,8 @@ impl WidgetSettings {
     /// and to generate the correct url for the widget.
     ///
     /// # Arguments
-    /// * `element_call_url` - the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    /// * `element_call_url` - the url to the app e.g. <https://call.element.io>,
+    ///   <https://call.element.dev>
     /// * `id` - the widget id.
     /// * `parentUrl` - The url that is used as the target for the PostMessages
     ///   sent by the widget (to the client). For a web app client this is the
