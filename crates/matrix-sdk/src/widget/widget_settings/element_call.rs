@@ -69,6 +69,7 @@ pub struct VirtualElementCallWidgetOptions {
     /// Can be used to pass a PostHog id to element call.
     pub analytics_id: Option<String>,
 }
+
 impl WidgetSettings {
     /// `WidgetSettings` are usually created from a state event.
     /// (currently unimplemented)
