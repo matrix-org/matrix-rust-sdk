@@ -200,6 +200,7 @@ pub struct ClientProperties {
     /// A string describing the theme (dark, light) or org.example.dark.
     theme: String,
 }
+
 impl ClientProperties {
     /// Create client Properties with a String as the language_tag.
     /// If a malformatted language_tag is provided it will default to en-US.
