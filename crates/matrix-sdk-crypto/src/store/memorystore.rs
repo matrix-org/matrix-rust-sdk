@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap, HashSet},
     convert::Infallible,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
-use dashmap::{DashMap, DashSet};
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
@@ -55,15 +54,15 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    olm_hashes: DashMap<String, DashSet<String>>,
+    olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
-    identities: DashMap<OwnedUserId, ReadOnlyUserIdentities>,
-    outgoing_key_requests: DashMap<OwnedTransactionId, GossipRequest>,
-    key_requests_by_info: DashMap<String, OwnedTransactionId>,
-    direct_withheld_info: DashMap<OwnedRoomId, DashMap<String, RoomKeyWithheldEvent>>,
-    custom_values: DashMap<String, Vec<u8>>,
-    leases: DashMap<String, (String, Instant)>,
-    secret_inbox: DashMap<String, Vec<GossippedSecret>>,
+    identities: StdRwLock<HashMap<OwnedUserId, ReadOnlyUserIdentities>>,
+    outgoing_key_requests: StdRwLock<HashMap<OwnedTransactionId, GossipRequest>>,
+    key_requests_by_info: StdRwLock<HashMap<String, OwnedTransactionId>>,
+    direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEvent>>>,
+    custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
+    leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     next_batch_token: RwLock<Option<String>>,
 }
@@ -146,23 +145,31 @@ impl CryptoStore for MemoryStore {
         self.save_devices(changes.devices.changed);
         self.delete_devices(changes.devices.deleted);
 
-        for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
-            let _ = self.identities.insert(identity.user_id().to_owned(), identity.clone());
+        {
+            let mut identities = self.identities.write().unwrap();
+            for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
+                identities.insert(identity.user_id().to_owned(), identity.clone());
+            }
         }
 
-        for hash in changes.message_hashes {
-            self.olm_hashes
-                .entry(hash.sender_key.to_owned())
-                .or_default()
-                .insert(hash.hash.clone());
+        {
+            let mut olm_hashes = self.olm_hashes.write().unwrap();
+            for hash in changes.message_hashes {
+                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash.clone());
+            }
         }
 
-        for key_request in changes.key_requests {
-            let id = key_request.request_id.clone();
-            let info_string = encode_key_info(&key_request.info);
+        {
+            let mut outgoing_key_requests = self.outgoing_key_requests.write().unwrap();
+            let mut key_requests_by_info = self.key_requests_by_info.write().unwrap();
 
-            self.outgoing_key_requests.insert(id.clone(), key_request);
-            self.key_requests_by_info.insert(info_string, id);
+            for key_request in changes.key_requests {
+                let id = key_request.request_id.clone();
+                let info_string = encode_key_info(&key_request.info);
+
+                outgoing_key_requests.insert(id.clone(), key_request);
+                key_requests_by_info.insert(info_string, id);
+            }
         }
 
         if let Some(key) = changes.backup_decryption_key {
@@ -173,16 +180,22 @@ impl CryptoStore for MemoryStore {
             self.backup_keys.write().await.backup_version = Some(version);
         }
 
-        for secret in changes.secrets {
-            self.secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
+        {
+            let mut secret_inbox = self.secret_inbox.write().unwrap();
+            for secret in changes.secrets {
+                secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
+            }
         }
 
-        for (room_id, data) in changes.withheld_session_info {
-            for (session_id, event) in data {
-                self.direct_withheld_info
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .insert(session_id, event);
+        {
+            let mut direct_withheld_info = self.direct_withheld_info.write().unwrap();
+            for (room_id, data) in changes.withheld_session_info {
+                for (session_id, event) in data {
+                    direct_withheld_info
+                        .entry(room_id.to_owned())
+                        .or_default()
+                        .insert(session_id, event);
+                }
             }
         }
 
@@ -212,8 +225,10 @@ impl CryptoStore for MemoryStore {
     ) -> Result<Option<RoomKeyWithheldEvent>> {
         Ok(self
             .direct_withheld_info
+            .read()
+            .unwrap()
             .get(room_id)
-            .and_then(|e| Some(e.value().get(session_id)?.value().to_owned())))
+            .and_then(|e| Some(e.get(session_id)?.to_owned())))
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -280,12 +295,14 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
-        Ok(self.identities.get(user_id).map(|i| i.clone()))
+        Ok(self.identities.read().unwrap().get(user_id).cloned())
     }
 
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
         Ok(self
             .olm_hashes
+            .write()
+            .unwrap()
             .entry(message_hash.sender_key.to_owned())
             .or_default()
             .contains(&message_hash.hash))
@@ -295,7 +312,7 @@ impl CryptoStore for MemoryStore {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        Ok(self.outgoing_key_requests.get(request_id).map(|r| r.clone()))
+        Ok(self.outgoing_key_requests.read().unwrap().get(request_id).cloned())
     }
 
     async fn get_secret_request_by_info(
@@ -306,24 +323,29 @@ impl CryptoStore for MemoryStore {
 
         Ok(self
             .key_requests_by_info
+            .read()
+            .unwrap()
             .get(&key_info_string)
-            .and_then(|i| self.outgoing_key_requests.get(&*i).map(|r| r.clone())))
+            .and_then(|i| self.outgoing_key_requests.read().unwrap().get(i).cloned()))
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         Ok(self
             .outgoing_key_requests
-            .iter()
-            .filter(|i| !i.value().sent_out)
-            .map(|i| i.value().clone())
+            .read()
+            .unwrap()
+            .values()
+            .filter(|req| !req.sent_out)
+            .cloned()
             .collect())
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
-        self.outgoing_key_requests.remove(request_id).and_then(|(_, i)| {
+        let req = self.outgoing_key_requests.write().unwrap().remove(request_id);
+        if let Some(i) = req {
             let key_info_string = encode_key_info(&i.info);
-            self.key_requests_by_info.remove(&key_info_string)
-        });
+            self.key_requests_by_info.write().unwrap().remove(&key_info_string);
+        }
 
         Ok(())
     }
@@ -332,11 +354,17 @@ impl CryptoStore for MemoryStore {
         &self,
         secret_name: &SecretName,
     ) -> Result<Vec<GossippedSecret>> {
-        Ok(self.secret_inbox.entry(secret_name.to_string()).or_default().to_owned())
+        Ok(self
+            .secret_inbox
+            .write()
+            .unwrap()
+            .entry(secret_name.to_string())
+            .or_default()
+            .to_owned())
     }
 
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
-        self.secret_inbox.remove(secret_name.as_str());
+        self.secret_inbox.write().unwrap().remove(secret_name.as_str());
 
         Ok(())
     }
@@ -347,16 +375,16 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.custom_values.get(key).map(|val| val.clone()))
+        Ok(self.custom_values.read().unwrap().get(key).cloned())
     }
 
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        self.custom_values.insert(key.to_owned(), value);
+        self.custom_values.write().unwrap().insert(key.to_owned(), value);
         Ok(())
     }
 
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
-        self.custom_values.remove(key);
+        self.custom_values.write().unwrap().remove(key);
         Ok(())
     }
 
@@ -368,32 +396,33 @@ impl CryptoStore for MemoryStore {
     ) -> Result<bool> {
         let now = Instant::now();
         let expiration = now + Duration::from_millis(lease_duration_ms.into());
-        if let Some(mut prev) = self.leases.get_mut(key) {
-            if prev.0 == holder {
-                // We had the lease before, extend it.
-                prev.1 = expiration;
-                Ok(true)
-            } else {
-                // We didn't have it.
-                if prev.1 < now {
-                    // Steal it!
-                    prev.0 = holder.to_owned();
+        match self.leases.write().unwrap().entry(key.to_owned()) {
+            Entry::Occupied(mut o) => {
+                let prev = o.get_mut();
+                if prev.0 == holder {
+                    // We had the lease before, extend it.
                     prev.1 = expiration;
                     Ok(true)
                 } else {
-                    // We tried our best.
-                    Ok(false)
+                    // We didn't have it.
+                    if prev.1 < now {
+                        // Steal it!
+                        prev.0 = holder.to_owned();
+                        prev.1 = expiration;
+                        Ok(true)
+                    } else {
+                        // We tried our best.
+                        Ok(false)
+                    }
                 }
             }
-        } else {
-            self.leases.insert(
-                key.to_owned(),
-                (
+            Entry::Vacant(v) => {
+                v.insert((
                     holder.to_owned(),
                     Instant::now() + Duration::from_millis(lease_duration_ms.into()),
-                ),
-            );
-            Ok(true)
+                ));
+                Ok(true)
+            }
         }
     }
 }
