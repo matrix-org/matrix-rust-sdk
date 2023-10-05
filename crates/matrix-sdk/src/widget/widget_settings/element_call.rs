@@ -29,6 +29,7 @@ struct ElementCallParams {
     font_scale: Option<f64>,
     fonts: Option<String>,
 }
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(Debug)]
 pub struct VirtualElementCallWidgetOptions {
