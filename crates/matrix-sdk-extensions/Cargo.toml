@@ -1,0 +1,17 @@
+[package]
+authors = ["Ivan Enderlin <ivan@mnt.io>"]
+edition = "2021"
+name = "matrix-sdk-extensions"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = { workspace = true }
+version = "0.0.1"
+
+[features]
+default = ["native", "javascriptcore"]
+native = ["dep:wasmtime"]
+javascriptcore = ["dep:javascriptcore"]
+
+[dependencies]
+wasmtime = { version ="13.0.0", features = ["component-model"], optional = true }
+javascriptcore = { git = "https://github.com/endoli/javascriptcore.rs", branch = "main", optional = true }
+anyhow.workspace = true

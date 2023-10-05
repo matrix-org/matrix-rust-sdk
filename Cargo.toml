@@ -12,6 +12,7 @@ members = [
 # xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
+exclude = ["crates/matrix-sdk-extensions/guests"]
 
 [workspace.package]
 rust-version = "1.70"

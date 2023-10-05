@@ -1,0 +1,14 @@
+[package]
+name = "timeline"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { git = "https://github.com/bytecodealliance/wit-bindgen", branch = "main" }
+
+[dev-dependencies]
+wasmtime = { version = "13.0.0", features = ["component-model"] }

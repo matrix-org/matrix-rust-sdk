@@ -1,0 +1,10 @@
+package matrix:ui-timeline
+
+interface std {
+    print: func(msg: string);
+}
+
+world timeline {
+    import std;
+    export greet: func(who: string);
+}
