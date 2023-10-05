@@ -18,13 +18,12 @@
 //! `CryptoStore`.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
-    sync::{atomic::AtomicBool, Arc, Weak},
+    sync::{atomic::AtomicBool, Arc, RwLock as StdRwLock, Weak},
 };
 
 use atomic::Ordering;
-use dashmap::DashMap;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::Mutex;
 use tracing::{field::display, instrument, trace, Span};
@@ -37,7 +36,8 @@ use crate::{
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default, Clone)]
 pub struct SessionStore {
-    entries: Arc<DashMap<String, Arc<Mutex<Vec<Session>>>>>,
+    #[allow(clippy::type_complexity)]
+    entries: Arc<StdRwLock<BTreeMap<String, Arc<Mutex<Vec<Session>>>>>>,
 }
 
 impl SessionStore {
@@ -51,7 +51,14 @@ impl SessionStore {
     /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        let sessions_lock = self.entries.entry(session.sender_key.to_base64()).or_default();
+        let sessions_lock = self
+            .entries
+            .write()
+            .unwrap()
+            .entry(session.sender_key.to_base64())
+            .or_default()
+            .clone();
+
         let mut sessions = sessions_lock.lock().await;
 
         if !sessions.contains(&session) {
@@ -64,19 +71,19 @@ impl SessionStore {
 
     /// Get all the sessions that belong to the given sender key.
     pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
-        self.entries.get(sender_key).map(|s| s.clone())
+        self.entries.read().unwrap().get(sender_key).cloned()
     }
 
     /// Add a list of sessions belonging to the sender key.
     pub fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
-        self.entries.insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
+        self.entries.write().unwrap().insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
 }
 
 #[derive(Debug, Default)]
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
-    entries: DashMap<OwnedRoomId, HashMap<String, InboundGroupSession>>,
+    entries: StdRwLock<BTreeMap<OwnedRoomId, HashMap<String, InboundGroupSession>>>,
 }
 
 impl GroupSessionStore {
@@ -91,6 +98,8 @@ impl GroupSessionStore {
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
+            .write()
+            .unwrap()
             .entry(session.room_id().to_owned())
             .or_default()
             .insert(session.session_id().to_owned(), session)
@@ -99,15 +108,12 @@ impl GroupSessionStore {
 
     /// Get all the group sessions the store knows about.
     pub fn get_all(&self) -> Vec<InboundGroupSession> {
-        self.entries
-            .iter()
-            .flat_map(|keys| keys.values().cloned().collect::<Vec<InboundGroupSession>>())
-            .collect()
+        self.entries.read().unwrap().values().flat_map(HashMap::values).cloned().collect()
     }
 
     /// Get the number of `InboundGroupSession`s we have.
     pub fn count(&self) -> usize {
-        self.entries.iter().map(|d| d.value().len()).sum()
+        self.entries.read().unwrap().values().map(HashMap::len).sum()
     }
 
     /// Get a inbound group session from our store.
@@ -117,14 +123,14 @@ impl GroupSessionStore {
     ///
     /// * `session_id` - The unique id of the session.
     pub fn get(&self, room_id: &RoomId, session_id: &str) -> Option<InboundGroupSession> {
-        self.entries.get(room_id)?.get(session_id).cloned()
+        self.entries.read().unwrap().get(room_id)?.get(session_id).cloned()
     }
 }
 
 /// In-memory store holding the devices of users.
 #[derive(Debug, Default)]
 pub struct DeviceStore {
-    entries: DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>,
+    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ReadOnlyDevice>>>,
 }
 
 impl DeviceStore {
@@ -139,6 +145,8 @@ impl DeviceStore {
     pub fn add(&self, device: ReadOnlyDevice) -> bool {
         let user_id = device.user_id();
         self.entries
+            .write()
+            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
             .insert(device.device_id().into(), device)
@@ -147,7 +155,7 @@ impl DeviceStore {
 
     /// Get the device with the given device_id and belonging to the given user.
     pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
-        self.entries.get(user_id).and_then(|m| m.get(device_id).map(|d| d.value().clone()))
+        Some(self.entries.read().unwrap().get(user_id)?.get(device_id)?.clone())
     }
 
     /// Remove the device with the given device_id and belonging to the given
@@ -155,16 +163,18 @@ impl DeviceStore {
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
     pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
-        self.entries.get(user_id).and_then(|m| m.remove(device_id)).map(|(_, d)| d)
+        self.entries.write().unwrap().get_mut(user_id)?.remove(device_id)
     }
 
     /// Get a read-only view over all devices of the given user.
     pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, ReadOnlyDevice> {
         self.entries
+            .write()
+            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
             .iter()
-            .map(|i| (i.key().to_owned(), i.value().clone()))
+            .map(|(key, value)| (key.to_owned(), value.clone()))
             .collect()
     }
 }

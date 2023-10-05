@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock as StdRwLock},
+};
 
 use as_variant::as_variant;
-use dashmap::DashMap;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::{trace, warn};
 
@@ -24,11 +26,16 @@ use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
 use crate::QrVerification;
 use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VerificationCache {
-    verification: Arc<DashMap<OwnedUserId, DashMap<String, Verification>>>,
-    outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
-    flow_ids_waiting_for_response: Arc<DashMap<OwnedTransactionId, (OwnedUserId, FlowId)>>,
+    inner: Arc<VerificationCacheInner>,
+}
+
+#[derive(Debug, Default)]
+struct VerificationCacheInner {
+    verification: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<String, Verification>>>,
+    outgoing_requests: StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>,
+    flow_ids_waiting_for_response: StdRwLock<BTreeMap<OwnedTransactionId, (OwnedUserId, FlowId)>>,
 }
 
 #[derive(Debug)]
@@ -39,17 +46,13 @@ pub struct RequestInfo {
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self {
-            verification: Default::default(),
-            outgoing_requests: Default::default(),
-            flow_ids_waiting_for_response: Default::default(),
-        }
+        Self::default()
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        self.verification.iter().all(|m| m.is_empty())
+        self.inner.verification.read().unwrap().values().all(|m| m.is_empty())
     }
 
     /// Add a new `Verification` object to the cache, this will cancel any
@@ -58,15 +61,14 @@ impl VerificationCache {
     pub fn insert(&self, verification: impl Into<Verification>) {
         let verification = verification.into();
 
-        let entry = self.verification.entry(verification.other_user().to_owned()).or_default();
-        let user_verifications = entry.value();
+        let mut verification_write_guard = self.inner.verification.write().unwrap();
+        let user_verifications =
+            verification_write_guard.entry(verification.other_user().to_owned()).or_default();
 
         // Cancel all the old verifications as well as the new one we have for
         // this user if someone tries to have two verifications going on at
         // once.
-        for old in user_verifications {
-            let old_verification = old.value();
-
+        for old_verification in user_verifications.values() {
             if !old_verification.is_cancelled() {
                 warn!(
                     user_id = verification.other_user().as_str(),
@@ -118,41 +120,36 @@ impl VerificationCache {
     }
 
     pub fn replace(&self, verification: Verification) {
-        self.verification
+        self.inner
+            .verification
+            .write()
+            .unwrap()
             .entry(verification.other_user().to_owned())
             .or_default()
             .insert(verification.flow_id().to_owned(), verification.clone());
     }
 
     pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
-        self.verification.get(sender)?.get(flow_id).map(|v| v.clone())
+        self.inner.verification.read().unwrap().get(sender)?.get(flow_id).cloned()
     }
 
     pub fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
-        self.outgoing_requests.iter().map(|r| (*r).clone()).collect()
+        self.inner.outgoing_requests.read().unwrap().values().cloned().collect()
     }
 
     pub fn garbage_collect(&self) -> Vec<OutgoingVerificationRequest> {
-        for user_verification in self.verification.iter() {
+        let verification = &mut self.inner.verification.write().unwrap();
+
+        for user_verification in verification.values_mut() {
             user_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
         }
 
-        self.verification.retain(|_, m| !m.is_empty());
+        verification.retain(|_, m| !m.is_empty());
 
-        self.verification
-            .iter()
-            .flat_map(|v| {
-                let requests: Vec<OutgoingVerificationRequest> = v
-                    .value()
-                    .iter()
-                    .filter_map(|s| {
-                        as_variant!(s.value(), Verification::SasV1)
-                            .and_then(|s| s.cancel_if_timed_out())
-                    })
-                    .collect();
-
-                requests
-            })
+        verification
+            .values()
+            .flat_map(BTreeMap::values)
+            .filter_map(|s| as_variant!(s, Verification::SasV1)?.cancel_if_timed_out())
             .collect()
     }
 
@@ -162,7 +159,7 @@ impl VerificationCache {
 
     pub fn add_request(&self, request: OutgoingRequest) {
         trace!("Adding an outgoing verification request {:?}", request);
-        self.outgoing_requests.insert(request.request_id.clone(), request);
+        self.inner.outgoing_requests.write().unwrap().insert(request.request_id.clone(), request);
     }
 
     pub fn add_verification_request(&self, request: OutgoingVerificationRequest) {
@@ -187,7 +184,7 @@ impl VerificationCache {
                 "Storing the request info, waiting for the request to be marked as sent"
             );
 
-            self.flow_ids_waiting_for_response.insert(
+            self.inner.flow_ids_waiting_for_response.write().unwrap().insert(
                 request_info.request_id.to_owned(),
                 (recipient.to_owned(), request_info.flow_id),
             );
@@ -211,7 +208,7 @@ impl VerificationCache {
                     request: Arc::new(request.into()),
                 };
 
-                self.outgoing_requests.insert(request_id, request);
+                self.inner.outgoing_requests.write().unwrap().insert(request_id, request);
             }
 
             OutgoingContent::Room(r, c) => {
@@ -223,18 +220,18 @@ impl VerificationCache {
                     request_id: request_id.clone(),
                 };
 
-                self.outgoing_requests.insert(request_id, request);
+                self.inner.outgoing_requests.write().unwrap().insert(request_id, request);
             }
         }
     }
 
     pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
-        if let Some(request_id) = self.outgoing_requests.remove(request_id) {
+        if let Some(request_id) = self.inner.outgoing_requests.write().unwrap().remove(request_id) {
             trace!(?request_id, "Marking a verification HTTP request as sent");
         }
 
         if let Some((user_id, flow_id)) =
-            self.flow_ids_waiting_for_response.get(request_id).as_deref()
+            self.inner.flow_ids_waiting_for_response.read().unwrap().get(request_id)
         {
             if let Some(verification) = self.get(user_id, flow_id.as_str()) {
                 match verification {

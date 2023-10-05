@@ -37,7 +37,6 @@ byteorder = { workspace = true }
 cbc = { version = "0.1.2", features = ["std"], optional = true }
 cfg-if = "1.0"
 ctr = "0.9.1"
-dashmap = { workspace = true }
 eyeball = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }

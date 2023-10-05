@@ -18,12 +18,11 @@ use std::{
     fmt,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, RwLock as StdRwLock,
     },
     time::Duration,
 };
 
-use dashmap::DashMap;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
@@ -140,8 +139,11 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
-    to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    pub(crate) shared_with_set:
+        Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>>>,
+    #[allow(clippy::type_complexity)]
+    to_share_with_set:
+        Arc<StdRwLock<BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
@@ -228,8 +230,8 @@ impl OutboundGroupSession {
             shared: Arc::new(AtomicBool::new(false)),
             invalidated: Arc::new(AtomicBool::new(false)),
             settings: Arc::new(settings),
-            shared_with_set: Arc::new(DashMap::new()),
-            to_share_with_set: Arc::new(DashMap::new()),
+            shared_with_set: Default::default(),
+            to_share_with_set: Default::default(),
         })
     }
 
@@ -248,7 +250,7 @@ impl OutboundGroupSession {
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
-        self.to_share_with_set.insert(request_id, (request, share_infos));
+        self.to_share_with_set.write().unwrap().insert(request_id, (request, share_infos));
     }
 
     /// Create a new `m.room_key.withheld` event content with the given code for
@@ -284,7 +286,8 @@ impl OutboundGroupSession {
     ) -> BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>> {
         let mut no_olm_devices = BTreeMap::new();
 
-        if let Some((_, (to_device, request))) = self.to_share_with_set.remove(request_id) {
+        let removed = self.to_share_with_set.write().unwrap().remove(request_id);
+        if let Some((to_device, request)) = removed {
             let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
                 .iter()
                 .map(|(u, d)| (u.as_ref(), d.keys().map(|d| d.as_ref()).collect()))
@@ -305,10 +308,10 @@ impl OutboundGroupSession {
                     .collect();
                 no_olm_devices.insert(user_id.to_owned(), no_olms);
 
-                self.shared_with_set.entry(user_id).or_default().extend(info);
+                self.shared_with_set.write().unwrap().entry(user_id).or_default().extend(info);
             }
 
-            if self.to_share_with_set.is_empty() {
+            if self.to_share_with_set.read().unwrap().is_empty() {
                 debug!(
                     session_id = self.session_id(),
                     room_id = ?self.room_id,
@@ -320,7 +323,7 @@ impl OutboundGroupSession {
             }
         } else {
             let request_ids: Vec<String> =
-                self.to_share_with_set.iter().map(|e| e.key().to_string()).collect();
+                self.to_share_with_set.read().unwrap().keys().map(|k| k.to_string()).collect();
 
             error!(
                 all_request_ids = ?request_ids,
@@ -494,18 +497,19 @@ impl OutboundGroupSession {
     /// Has or will the session be shared with the given user/device pair.
     pub(crate) fn is_shared_with(&self, device: &Device) -> ShareState {
         // Check if we shared the session.
-        let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
-            d.get(device.device_id()).map(|s| match s.value() {
-                ShareInfo::Shared(s) => {
-                    if device.curve25519_key() == Some(s.sender_key) {
-                        ShareState::Shared(s.message_index)
-                    } else {
-                        ShareState::SharedButChangedSenderKey
+        let shared_state =
+            self.shared_with_set.read().unwrap().get(device.user_id()).and_then(|d| {
+                d.get(device.device_id()).map(|s| match s {
+                    ShareInfo::Shared(s) => {
+                        if device.curve25519_key() == Some(s.sender_key) {
+                            ShareState::Shared(s.message_index)
+                        } else {
+                            ShareState::SharedButChangedSenderKey
+                        }
                     }
-                }
-                ShareInfo::Withheld(_) => ShareState::NotShared,
-            })
-        });
+                    ShareInfo::Withheld(_) => ShareState::NotShared,
+                })
+            });
 
         if let Some(state) = shared_state {
             state
@@ -515,11 +519,11 @@ impl OutboundGroupSession {
 
             // Find the first request that contains the given user id and
             // device ID.
-            let shared = self.to_share_with_set.iter().find_map(|item| {
-                let share_info = &item.value().1;
-
-                share_info.get(device.user_id()).and_then(|d| {
-                    d.get(device.device_id()).map(|info| match info {
+            let shared =
+                self.to_share_with_set.read().unwrap().values().find_map(|(_, share_info)| {
+                    let d = share_info.get(device.user_id())?;
+                    let info = d.get(device.device_id())?;
+                    Some(match info {
                         ShareInfo::Shared(info) => {
                             if device.curve25519_key() == Some(info.sender_key) {
                                 ShareState::Shared(info.message_index)
@@ -529,8 +533,7 @@ impl OutboundGroupSession {
                         }
                         ShareInfo::Withheld(_) => ShareState::NotShared,
                     })
-                })
-            });
+                });
 
             shared.unwrap_or(ShareState::NotShared)
         }
@@ -538,10 +541,12 @@ impl OutboundGroupSession {
 
     pub(crate) fn is_withheld_to(&self, device: &Device, code: &WithheldCode) -> bool {
         self.shared_with_set
+            .read()
+            .unwrap()
             .get(device.user_id())
             .and_then(|d| {
                 let info = d.get(device.device_id())?;
-                Some(matches!(info.value(), ShareInfo::Withheld(c) if c == code))
+                Some(matches!(info, ShareInfo::Withheld(c) if c == code))
             })
             .unwrap_or_else(|| {
                 // If we haven't yet withheld, check if we're going to withheld
@@ -549,9 +554,7 @@ impl OutboundGroupSession {
 
                 // Find the first request that contains the given user id and
                 // device ID.
-                self.to_share_with_set.iter().any(|item| {
-                    let share_info = &item.value().1;
-
+                self.to_share_with_set.read().unwrap().values().any(|(_, share_info)| {
                     share_info
                         .get(device.user_id())
                         .and_then(|d| d.get(device.device_id()))
@@ -571,6 +574,8 @@ impl OutboundGroupSession {
         index: u32,
     ) {
         self.shared_with_set
+            .write()
+            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
             .insert(device_id.to_owned(), ShareInfo::new_shared(sender_key, index));
@@ -585,21 +590,24 @@ impl OutboundGroupSession {
         device_id: &DeviceId,
         sender_key: Curve25519PublicKey,
     ) {
-        self.shared_with_set.entry(user_id.to_owned()).or_default().insert(
-            device_id.to_owned(),
-            ShareInfo::new_shared(sender_key, self.message_index().await),
-        );
+        let share_info = ShareInfo::new_shared(sender_key, self.message_index().await);
+        self.shared_with_set
+            .write()
+            .unwrap()
+            .entry(user_id.to_owned())
+            .or_default()
+            .insert(device_id.to_owned(), share_info);
     }
 
     /// Get the list of requests that need to be sent out for this session to be
     /// marked as shared.
     pub(crate) fn pending_requests(&self) -> Vec<Arc<ToDeviceRequest>> {
-        self.to_share_with_set.iter().map(|i| i.value().0.clone()).collect()
+        self.to_share_with_set.read().unwrap().values().map(|(req, _)| req.clone()).collect()
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
     pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
-        self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
+        self.to_share_with_set.read().unwrap().keys().cloned().collect()
     }
 
     /// Restore a Session from a previously pickled string.
@@ -638,14 +646,8 @@ impl OutboundGroupSession {
             shared: AtomicBool::from(pickle.shared).into(),
             invalidated: AtomicBool::from(pickle.invalidated).into(),
             settings: pickle.settings,
-            shared_with_set: Arc::new(
-                pickle
-                    .shared_with_set
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into_iter().collect()))
-                    .collect(),
-            ),
-            to_share_with_set: Arc::new(pickle.requests.into_iter().collect()),
+            shared_with_set: Arc::new(StdRwLock::new(pickle.shared_with_set)),
+            to_share_with_set: Arc::new(StdRwLock::new(pickle.requests)),
         })
     }
 
@@ -668,21 +670,8 @@ impl OutboundGroupSession {
             message_count: self.message_count.load(Ordering::SeqCst),
             shared: self.shared(),
             invalidated: self.invalidated(),
-            shared_with_set: self
-                .shared_with_set
-                .iter()
-                .map(|u| {
-                    (
-                        u.key().clone(),
-                        u.value().iter().map(|d| (d.key().clone(), d.value().clone())).collect(),
-                    )
-                })
-                .collect(),
-            requests: self
-                .to_share_with_set
-                .iter()
-                .map(|r| (r.key().clone(), r.value().clone()))
-                .collect(),
+            shared_with_set: self.shared_with_set.read().unwrap().clone(),
+            requests: self.to_share_with_set.read().unwrap().clone(),
         }
     }
 }

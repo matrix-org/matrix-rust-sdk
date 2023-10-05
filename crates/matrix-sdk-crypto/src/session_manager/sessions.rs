@@ -14,11 +14,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
-use dashmap::{DashMap, DashSet};
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -50,12 +49,12 @@ pub(crate) struct SessionManager {
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
-    wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
+    outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>>,
     failures: FailuresCache<OwnedServerName>,
-    failed_devices: DashMap<OwnedUserId, FailuresCache<OwnedDeviceId>>,
+    failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<OwnedDeviceId>>>>,
 }
 
 impl SessionManager {
@@ -65,7 +64,7 @@ impl SessionManager {
 
     pub fn new(
         account: Account,
-        users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -83,7 +82,7 @@ impl SessionManager {
 
     /// Mark the outgoing request as sent.
     pub fn mark_outgoing_request_as_sent(&self, id: &TransactionId) {
-        self.outgoing_to_device_requests.remove(id);
+        self.outgoing_to_device_requests.write().unwrap().remove(id);
     }
 
     pub async fn mark_device_as_wedged(
@@ -113,10 +112,14 @@ impl SessionManager {
 
                     if should_unwedge {
                         self.users_for_key_claim
+                            .write()
+                            .unwrap()
                             .entry(device.user_id().to_owned())
                             .or_default()
                             .insert(device.device_id().into());
                         self.wedged_devices
+                            .write()
+                            .unwrap()
                             .entry(device.user_id().to_owned())
                             .or_default()
                             .insert(device.device_id().into());
@@ -130,14 +133,24 @@ impl SessionManager {
 
     #[allow(dead_code)]
     pub fn is_device_wedged(&self, device: &ReadOnlyDevice) -> bool {
-        self.wedged_devices.get(device.user_id()).is_some_and(|d| d.contains(device.device_id()))
+        self.wedged_devices
+            .read()
+            .unwrap()
+            .get(device.user_id())
+            .is_some_and(|d| d.contains(device.device_id()))
     }
 
     /// Check if the session was created to unwedge a Device.
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self.wedged_devices.get(user_id).and_then(|d| d.remove(device_id)).is_some() {
+        if self
+            .wedged_devices
+            .write()
+            .unwrap()
+            .get_mut(user_id)
+            .is_some_and(|d| d.remove(device_id))
+        {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
                 let content = serde_json::to_value(ToDeviceDummyEventContent::new())?;
                 let (_, content) = device.encrypt("m.dummy", content).await?;
@@ -154,7 +167,10 @@ impl SessionManager {
                     request: Arc::new(request.into()),
                 };
 
-                self.outgoing_to_device_requests.insert(request.request_id.clone(), request);
+                self.outgoing_to_device_requests
+                    .write()
+                    .unwrap()
+                    .insert(request.request_id.clone(), request);
             }
         }
 
@@ -265,10 +281,8 @@ impl SessionManager {
 
         // Add the list of sessions that for some reason automatically need to
         // create an Olm session.
-        for item in self.users_for_key_claim.iter() {
-            let user = item.key();
-
-            for device_id in item.value().iter() {
+        for (user, device_ids) in self.users_for_key_claim.read().unwrap().iter() {
+            for device_id in device_ids {
                 missing
                     .entry(user.to_owned())
                     .or_default()
@@ -295,7 +309,7 @@ impl SessionManager {
     }
 
     fn is_user_timed_out(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
-        self.failed_devices.get(user_id).is_some_and(|d| d.contains(device_id))
+        self.failed_devices.read().unwrap().get(user_id).is_some_and(|d| d.contains(device_id))
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
@@ -390,6 +404,8 @@ impl SessionManager {
                             );
 
                             self.failed_devices
+                                .write()
+                                .unwrap()
                                 .entry(user_id.to_owned())
                                 .or_default()
                                 .insert(device_id.to_owned());
@@ -419,7 +435,7 @@ impl SessionManager {
         info!(sessions = ?new_sessions, "Established new Olm sessions");
 
         for (user, device_map) in new_sessions {
-            if let Some(user_cache) = self.failed_devices.get(user) {
+            if let Some(user_cache) = self.failed_devices.read().unwrap().get(user) {
                 user_cache.remove(device_map.into_keys());
             }
         }
@@ -442,9 +458,13 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
+    use std::{
+        collections::BTreeMap,
+        iter,
+        ops::Deref,
+        sync::{Arc, RwLock as StdRwLock},
+    };
 
-    use dashmap::DashMap;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
@@ -513,7 +533,7 @@ mod tests {
         let user_id = user_id();
         let device_id = device_id();
 
-        let users_for_key_claim = Arc::new(DashMap::new());
+        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let account = ReadOnlyAccount::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
@@ -653,11 +673,11 @@ mod tests {
 
         let curve_key = bob_device.curve25519_key().unwrap();
 
-        assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
+        assert!(!manager.users_for_key_claim.read().unwrap().contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
         manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
-        assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
+        assert!(manager.users_for_key_claim.read().unwrap().contains_key(bob.user_id()));
 
         let (_, request) =
             manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
@@ -677,13 +697,13 @@ mod tests {
 
         let response = KeyClaimResponse::new(one_time_keys);
 
-        assert!(manager.outgoing_to_device_requests.is_empty());
+        assert!(manager.outgoing_to_device_requests.read().unwrap().is_empty());
 
         manager.receive_keys_claim_response(&response).await.unwrap();
 
         assert!(!manager.is_device_wedged(&bob_device));
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
-        assert!(!manager.outgoing_to_device_requests.is_empty())
+        assert!(!manager.outgoing_to_device_requests.read().unwrap().is_empty())
     }
 
     #[async_test]
@@ -767,6 +787,8 @@ mod tests {
         // Alice isn't timed out anymore.
         assert!(!manager
             .failed_devices
+            .write()
+            .unwrap()
             .entry(alice.to_owned())
             .or_default()
             .contains(alice_account.device_id()));

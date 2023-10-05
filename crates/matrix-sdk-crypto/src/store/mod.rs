@@ -39,17 +39,16 @@
 //! [`CryptoStore`]: trait.Cryptostore.html
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Debug,
     ops::Deref,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
 use as_variant::as_variant;
 use async_std::sync::{Condvar, Mutex as AsyncStdMutex};
 use atomic::Ordering;
-use dashmap::DashSet;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use ruma::{
@@ -109,7 +108,7 @@ pub struct Store {
 
 #[derive(Debug, Default)]
 struct StoreCache {
-    tracked_users: DashSet<OwnedUserId>,
+    tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     tracked_user_loading_lock: RwLock<bool>,
 }
 
@@ -919,7 +918,7 @@ impl Store {
     /// next time [`Store::users_for_key_query()`] is called.
     pub(crate) async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.inner.users_for_key_query.lock().await.insert_user(user);
-        self.cache().await?.tracked_users.insert(user.to_owned());
+        self.cache().await?.tracked_users.write().unwrap().insert(user.to_owned());
 
         self.inner.store.save_tracked_users(&[(user, true)]).await
     }
@@ -937,11 +936,13 @@ impl Store {
         let mut store_updates = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
 
-        for user_id in users {
-            if !cache.tracked_users.contains(user_id) {
-                cache.tracked_users.insert(user_id.to_owned());
-                key_query_lock.insert_user(user_id);
-                store_updates.push((user_id, true))
+        {
+            let mut tracked_users = cache.tracked_users.write().unwrap();
+            for user_id in users {
+                if tracked_users.insert(user_id.to_owned()) {
+                    key_query_lock.insert_user(user_id);
+                    store_updates.push((user_id, true))
+                }
             }
         }
 
@@ -963,10 +964,13 @@ impl Store {
         let mut store_updates: Vec<(&UserId, bool)> = Vec::new();
         let mut key_query_lock = self.inner.users_for_key_query.lock().await;
 
-        for user_id in users {
-            if cache.tracked_users.contains(user_id) {
-                key_query_lock.insert_user(user_id);
-                store_updates.push((user_id, true));
+        {
+            let tracked_users = &cache.tracked_users.read().unwrap();
+            for user_id in users {
+                if tracked_users.contains(user_id) {
+                    key_query_lock.insert_user(user_id);
+                    store_updates.push((user_id, true));
+                }
             }
         }
 
@@ -988,8 +992,9 @@ impl Store {
 
         {
             let cache = self.cache().await?;
+            let tracked_users = cache.tracked_users.read().unwrap();
             for user_id in users {
-                if cache.tracked_users.contains(user_id) {
+                if tracked_users.contains(user_id) {
                     let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
                     store_updates.push((user_id, !clean));
                 }
@@ -1029,8 +1034,9 @@ impl Store {
         let tracked_users = self.inner.store.load_tracked_users().await?;
 
         let mut query_users_lock = self.inner.users_for_key_query.lock().await;
+        let mut tracked_users_cache = cache.tracked_users.write().unwrap();
         for user in tracked_users {
-            cache.tracked_users.insert(user.user_id.to_owned());
+            tracked_users_cache.insert(user.user_id.to_owned());
 
             if user.dirty {
                 query_users_lock.insert_user(&user.user_id);
@@ -1100,9 +1106,7 @@ impl Store {
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub(crate) async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>> {
-        let cache = self.cache().await?;
-
-        Ok(cache.tracked_users.iter().map(|u| u.clone()).collect())
+        Ok(self.cache().await?.tracked_users.read().unwrap().iter().cloned().collect())
     }
 
     /// Check whether there is a global flag to only encrypt messages for
