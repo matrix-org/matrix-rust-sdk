@@ -14,11 +14,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
-use dashmap::DashMap;
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, VerificationLevel,
@@ -200,7 +199,7 @@ impl OlmMachine {
         let store =
             Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
         let device_id: OwnedDeviceId = device_id.into();
-        let users_for_key_claim = Arc::new(DashMap::new());
+        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
 
         let account = Account { store: store.clone(), static_data: account.static_data().clone() };
 

@@ -3176,7 +3176,6 @@ dependencies = [
  "cfg-if",
  "ctor",
  "ctr",
- "dashmap",
  "eyeball",
  "futures-core",
  "futures-executor",
