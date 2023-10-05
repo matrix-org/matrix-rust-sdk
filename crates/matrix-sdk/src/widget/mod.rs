@@ -10,7 +10,7 @@ mod client;
 mod filter;
 mod matrix;
 mod permissions;
-mod widget_settings;
+mod settings;
 
 use self::{
     client::{Action, ClientApi, Event, SendEventCommand},
@@ -19,7 +19,7 @@ use self::{
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
-    widget_settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
+    settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
 };
 
 /// An object that handles all interactions of a widget living inside a webview
