@@ -1,10 +1,10 @@
+// All Element Call related code.
+
 use serde::Serialize;
 use url::Url;
 
 use super::{url_params, WidgetSettings};
 
-// All element call related code is separated into this file.
-// The rest of the code is usable for generic widgets as well.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ElementCallParams {
@@ -33,9 +33,9 @@ struct ElementCallParams {
 /// Properties to create a new virtual Element Call widget.
 #[derive(Debug)]
 pub struct VirtualElementCallWidgetOptions {
-    /// the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    /// The url of the app e.g. <https://call.element.io>, <https://call.element.dev>.
     pub element_call_url: String,
-    /// the widget id.
+    /// The widget id.
     pub widget_id: String,
     /// The url that is used as the target for the PostMessages sent
     /// by the widget (to the client). For a web app client this is the client
@@ -48,20 +48,20 @@ pub struct VirtualElementCallWidgetOptions {
     /// implementations. So always keep this in mind. Defaults to
     /// `element_call_url` for the non IFrame (dedicated webview) usecase.
     pub parent_url: Option<String>,
-    /// defines if the branding header of Element call should be hidden.
+    /// Defines if the branding header of Element call should be hidden.
     /// (default: `true`)
     pub hide_header: Option<bool>,
-    /// if set, the lobby will be skipped and the widget will join the
+    /// If set, the lobby will be skipped and the widget will join the
     /// call on the `io.element.join` action. (default: `false`)
     pub preload: Option<bool>,
     /// The font scale which will be used inside element call. (default: `1`)
     pub font_scale: Option<f64>,
-    /// whether element call should prompt the user to open in the browser or
-    /// the app (default: `false`).
+    /// Whether element call should prompt the user to open in the browser or
+    /// the app. (default: `false`)
     pub app_prompt: Option<bool>,
-    ///Don't show the lobby and join the call immediately. (default: `false`)
+    /// Don't show the lobby and join the call immediately. (default: `false`)
     pub skip_lobby: Option<bool>,
-    ///Make it not possible to get to the calls list in the webview. (default:
+    /// Make it not possible to get to the calls list in the webview. (default:
     /// `true`)
     pub confine_to_room: Option<bool>,
     /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
@@ -79,9 +79,11 @@ impl WidgetSettings {
     /// This function returns a `WidgetSettings` object which can be used
     /// to setup a widget using `run_client_widget_api`
     /// and to generate the correct url for the widget.
-    ///  # Arguments
+    ///
+    /// # Arguments
+    ///
     /// * - `props` A struct containing the configuration parameters for a
-    ///   element call widget.
+    /// element call widget.
     pub fn new_virtual_element_call_widget(
         props: VirtualElementCallWidgetOptions,
     ) -> Result<Self, url::ParseError> {
@@ -118,10 +120,10 @@ impl WidgetSettings {
         let query = query.replace("%24", "$");
 
         // All the params will be set inside the fragment (to keep the traffic to the
-        // server minimal and most importantly don't send the passwords)
+        // server minimal and most importantly don't send the passwords).
         raw_url.set_fragment(Some(&format!("?{}", query)));
 
         // for EC we always want init on content load to be true.
-        Ok(Self { id: props.widget_id, init_after_content_load: true, raw_url })
+        Ok(Self { id: props.widget_id, init_on_content_load: true, raw_url })
     }
 }
