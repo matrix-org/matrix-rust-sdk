@@ -2136,8 +2136,8 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
-        EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests, ReadOnlyDevice,
-        ToDeviceRequest, UserIdentities,
+        EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests, ReadOnlyAccount,
+        ReadOnlyDevice, ToDeviceRequest, UserIdentities,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2364,25 +2364,23 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_invalid_signature() {
-        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+        let account = ReadOnlyAccount::with_device_id(user_id(), alice_device_id());
 
-        let account = machine.account().await.unwrap();
         let device_keys = account.device_keys().await;
 
         let key = Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap();
 
         let ret = key.verify_json(
-            machine.user_id(),
-            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
+            account.user_id(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, account.device_id()),
             &device_keys,
         );
         ret.unwrap_err();
     }
 
     #[async_test]
-    async fn one_time_key_signing() {
-        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-        let account = machine.account().await.unwrap();
+    async fn test_one_time_key_signing() {
+        let account = ReadOnlyAccount::with_device_id(user_id(), alice_device_id());
         account.update_uploaded_key_count(49);
         account.generate_one_time_keys().await;
 
@@ -2398,8 +2396,8 @@ pub(crate) mod tests {
 
         ed25519_key
             .verify_json(
-                machine.user_id(),
-                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
+                account.user_id(),
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, account.device_id()),
                 &one_time_key,
             )
             .expect("One-time key has been signed successfully");
