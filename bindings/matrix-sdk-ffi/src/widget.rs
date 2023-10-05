@@ -77,6 +77,7 @@ impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
         Ok(matrix_sdk::widget::WidgetSettings::new(id, init_after_content_load, &raw_url)?)
     }
 }
+
 impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
         let (id, init_after_content_load, raw_url) =
