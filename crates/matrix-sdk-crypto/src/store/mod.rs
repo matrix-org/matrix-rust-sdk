@@ -146,13 +146,13 @@ impl StoreTransaction {
     /// Gets a `ReadOnlyAccount` for update.
     pub async fn account(&mut self) -> Result<&mut ReadOnlyAccount> {
         if self.changes.account.is_none() {
-            self.changes.account = Some(self.cache.account.clone()); // TODO(BNJ) This should be the only call-site for ReadOnlyAccount.clone().
+            self.changes.account = Some(self.cache.account.clone());
         }
         Ok(self.changes.account.as_mut().unwrap())
     }
 
-    /// Commits all dirty fields to the store, and maintains the cache so it reflects the current
-    /// state of the database.
+    /// Commits all dirty fields to the store, and maintains the cache so it
+    /// reflects the current state of the database.
     pub async fn commit(self) -> Result<()> {
         // Save changes in the database.
         self.store.save_pending_changes(self.changes).await?;
@@ -193,7 +193,8 @@ struct StoreInner {
 
 /// Aggregated changes to be saved in the database.
 ///
-/// This is an update version of `Changes` that will replace it as #2624 progresses.
+/// This is an update version of `Changes` that will replace it as #2624
+/// progresses.
 // If you ever add a field here, make sure to update `Changes::is_empty` too.
 #[derive(Default, Debug)]
 #[allow(missing_docs)]
@@ -640,8 +641,8 @@ impl Store {
         StoreTransaction::new(self.clone()).await
     }
 
-    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would take a
-    // `&StoreTransaction`, but callers didn't quite like that.
+    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would
+    // take a `&StoreTransaction`, but callers didn't quite like that.
     #[cfg(test)]
     pub(crate) async fn with_transaction<
         T,

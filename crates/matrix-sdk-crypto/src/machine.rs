@@ -193,22 +193,18 @@ impl OlmMachine {
     ) -> Self {
         let user_id: OwnedUserId = user_id.into();
 
-        let verification_machine = VerificationMachine::new(
-            account.static_data().clone(),
-            user_identity.clone(),
-            store.clone(),
-        );
-        let store =
-            Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
+        let static_account = account.static_data().clone();
+        let verification_machine =
+            VerificationMachine::new(static_account.clone(), user_identity.clone(), store.clone());
+
+        let store = Store::new(account, user_identity.clone(), store, verification_machine.clone());
         let device_id: OwnedDeviceId = device_id.into();
         let users_for_key_claim = Arc::new(DashMap::new());
 
-        let account = Account { store: store.clone(), static_data: account.static_data().clone() };
-
-        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
+        let group_session_manager = GroupSessionManager::new(static_account.clone(), store.clone());
 
         let key_request_machine = GossipMachine::new(
-            account.static_data.clone(),
+            static_account.clone(),
             store.clone(),
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
@@ -217,14 +213,16 @@ impl OlmMachine {
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
         let session_manager = SessionManager::new(
-            account.clone(),
+            static_account.clone(),
             users_for_key_claim,
             key_request_machine.clone(),
             store.clone(),
         );
 
         #[cfg(feature = "backups_v1")]
-        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+        let backup_machine = BackupMachine::new(static_account.clone(), store.clone(), None);
+
+        let account = Account { store: store.clone(), static_data: static_account };
 
         let inner = Arc::new(OlmMachineInner {
             user_id,
@@ -1173,7 +1171,8 @@ impl OlmMachine {
         // Remove verification objects that have expired or are done.
         let mut events = self.inner.verification_machine.garbage_collect();
 
-        // The account is automatically saved by the store transaction created by the caller.
+        // The account is automatically saved by the store transaction created by the
+        // caller.
         let mut changes = Default::default();
 
         {

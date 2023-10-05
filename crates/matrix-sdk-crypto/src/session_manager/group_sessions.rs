@@ -33,7 +33,10 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
-    olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState,
+        StaticAccountData,
+    },
     store::{Changes, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
@@ -131,7 +134,7 @@ pub struct CollectRecipientsResult {
 
 #[derive(Debug, Clone)]
 pub struct GroupSessionManager {
-    account: Account,
+    account: StaticAccountData,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -143,7 +146,7 @@ pub struct GroupSessionManager {
 impl GroupSessionManager {
     const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
-    pub(crate) fn new(account: Account, store: Store) -> Self {
+    pub(crate) fn new(account: StaticAccountData, store: Store) -> Self {
         Self { account, store: store.clone(), sessions: GroupSessionCache::new(store) }
     }
 
@@ -227,7 +230,6 @@ impl GroupSessionManager {
     ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
             .account
-            .static_data
             .create_group_session_pair(room_id, settings)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;

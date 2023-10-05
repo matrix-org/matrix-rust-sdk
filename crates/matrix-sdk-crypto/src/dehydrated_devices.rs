@@ -104,9 +104,11 @@ impl DehydratedDevices {
             user_identity.clone(),
             store.clone(),
         );
-        let store = Store::new(account.clone(), user_identity, store, verification_machine);
 
-        let account = Account { static_data: account.static_data().clone(), store };
+        let static_account = account.static_data().clone();
+        let store = Store::new(account, user_identity, store, verification_machine);
+
+        let account = Account { static_data: static_account, store };
 
         DehydratedDevice { account }
     }

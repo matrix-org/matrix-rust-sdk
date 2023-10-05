@@ -57,7 +57,8 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Save the set of changes to the store.
     ///
-    /// This is an updated version of `save_changes` that will replace it as #2624 makes progress.
+    /// This is an updated version of `save_changes` that will replace it as
+    /// #2624 makes progress.
     ///
     /// # Arguments
     ///
