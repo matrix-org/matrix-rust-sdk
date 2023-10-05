@@ -1162,10 +1162,15 @@ mod tests {
             static_data: alice_machine.inner.store.static_account().clone(),
             store: alice_machine.inner.store.clone(),
         };
-        let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
+        let alice_device =
+            ReadOnlyDevice::from_account(&alice_machine.inner.store.cache().await.unwrap().account)
+                .await;
 
         let bob_machine = test_gossip_machine(other_machine_owner);
-        let bob_device = ReadOnlyDevice::from_account(bob_machine.inner.store.account()).await;
+
+        let bob_device =
+            ReadOnlyDevice::from_account(&bob_machine.inner.store.cache().await.unwrap().account)
+                .await;
 
         // We need a trusted device, otherwise we won't request keys
         let second_device = ReadOnlyDevice::from_account(&alice_2_account()).await;
@@ -1179,9 +1184,21 @@ mod tests {
             let (alice_session, bob_session) = alice_machine
                 .inner
                 .store
-                .account()
-                .create_session_for(bob_machine.inner.store.account())
-                .await;
+                .with_transaction(|mut atr| async {
+                    let sessions = bob_machine
+                        .inner
+                        .store
+                        .with_transaction(|mut btr| async {
+                            let alice_account = atr.account().await?;
+                            let bob_account = btr.account().await?;
+                            let sessions = alice_account.create_session_for(&bob_account).await;
+                            Ok((btr, sessions))
+                        })
+                        .await?;
+                    Ok((atr, sessions))
+                })
+                .await
+                .unwrap();
 
             // Populate our stores with Olm sessions and a Megolm session.
 
@@ -1717,8 +1734,16 @@ mod tests {
         alice_machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
-        let (alice_session, _) =
-            alice_machine.inner.store.account().create_session_for(&second_account).await;
+        let alice_session = alice_machine
+            .inner
+            .store
+            .with_transaction(|mut tr| async {
+                let alice_account = tr.account().await?;
+                let (alice_session, _) = alice_account.create_session_for(&second_account).await;
+                Ok((tr, alice_session))
+            })
+            .await
+            .unwrap();
 
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
 
@@ -1906,9 +1931,22 @@ mod tests {
         let (alice_session, bob_session) = alice_machine
             .inner
             .store
-            .account()
-            .create_session_for(&bob_machine.inner.store.cache().await.unwrap().account)
-            .await;
+            .with_transaction(|mut atr| async {
+                let res = bob_machine
+                    .inner
+                    .store
+                    .with_transaction(|mut btr| async {
+                        let alice_account = atr.account().await?;
+                        let bob_account = btr.account().await?;
+                        let sessions = alice_account.create_session_for(&bob_account).await;
+                        Ok((btr, sessions))
+                    })
+                    .await?;
+                Ok((atr, res))
+            })
+            .await
+            .unwrap();
+
         // We create a session now.
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
         bob_machine.inner.store.save_sessions(&[bob_session]).await.unwrap();
