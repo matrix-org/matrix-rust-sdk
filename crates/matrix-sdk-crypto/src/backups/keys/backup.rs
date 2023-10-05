@@ -18,7 +18,7 @@ use std::{
 };
 
 use ruma::{
-    api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
+    api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
     OwnedDeviceKeyId, OwnedUserId,
 };
@@ -119,7 +119,7 @@ impl MegolmV1BackupKey {
 
         let message = pk.encrypt(&key);
 
-        let session_data = SessionDataInit {
+        let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
             ciphertext: Base64::new(message.ciphertext),
             mac: Base64::new(message.mac),
