@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use language_tags::LanguageTag;
 use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter},
@@ -15,16 +16,16 @@ pub struct WidgetDriverAndHandle {
 }
 
 #[uniffi::export]
-pub fn make_widget_driver(settings: WidgetSettings) -> WidgetDriverAndHandle {
-    let (driver, handle) = matrix_sdk::widget::WidgetDriver::new(settings.into());
-    WidgetDriverAndHandle {
+pub fn make_widget_driver(settings: WidgetSettings) -> Result<WidgetDriverAndHandle, ParseError> {
+    let (driver, handle) = matrix_sdk::widget::WidgetDriver::new(settings.try_into()?);
+    Ok(WidgetDriverAndHandle {
         driver: Arc::new(WidgetDriver(Mutex::new(Some(driver)))),
         handle: Arc::new(WidgetDriverHandle(handle)),
-    }
+    })
 }
 
 /// An object that handles all interactions of a widget living inside a webview
-/// or iframe with the Matrix world.
+/// or IFrame with the Matrix world.
 #[derive(uniffi::Object)]
 pub struct WidgetDriver(Mutex<Option<matrix_sdk::widget::WidgetDriver>>);
 
@@ -48,25 +49,166 @@ impl WidgetDriver {
 }
 
 /// Information about a widget.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub id: String,
     /// Whether or not the widget should be initialized on load message
     /// (`ContentLoad` message), or upon creation/attaching of the widget to
     /// the SDK's state machine that drives the API.
-    pub init_on_load: bool,
+    pub init_after_content_load: bool,
+    /// This contains the url from the widget state event.
+    /// In this url placeholders can be used to pass information from the client
+    /// to the widget. Possible values are: `$widgetId`, `$parentUrl`,
+    /// `$userId`, `$lang`, `$fontScale`, `$analyticsID`.
+    ///
+    /// # Examples
+    ///
+    /// e.g `http://widget.domain?username=$userId`
+    /// will become: `http://widget.domain?username=@user_matrix_id:server.domain`.
+    raw_url: String,
 }
 
-impl From<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
-    fn from(value: WidgetSettings) -> Self {
-        let WidgetSettings { id, init_on_load } = value;
-        Self { id, init_on_load }
+impl TryFrom<WidgetSettings> for matrix_sdk::widget::WidgetSettings {
+    type Error = ParseError;
+
+    fn try_from(value: WidgetSettings) -> Result<Self, Self::Error> {
+        let WidgetSettings { id, init_after_content_load, raw_url } = value;
+        Ok(matrix_sdk::widget::WidgetSettings::new(id, init_after_content_load, &raw_url)?)
+    }
+}
+
+impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
+    fn from(value: matrix_sdk::widget::WidgetSettings) -> Self {
+        let (id, init_after_content_load, raw_url) =
+            (value.id().to_owned(), value.init_after_content_load(), value.raw_url().to_string());
+        WidgetSettings { id, init_after_content_load, raw_url }
+    }
+}
+
+/// Create the actual url that can be used to setup the WebView or IFrame
+/// that contains the widget.
+///
+/// # Arguments
+/// * `widget_settings` - The widget settings to generate the url for.
+/// * `room` - A matrix room which is used to query the logged in username
+/// * `props` - Properties from the client that can be used by a widget to adapt
+///   to the client. e.g. language, font-scale...
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn generate_webview_url(
+    widget_settings: WidgetSettings,
+    room: Arc<Room>,
+    props: ClientProperties,
+) -> Result<String, ParseError> {
+    Ok(matrix_sdk::widget::WidgetSettings::generate_webview_url(
+        &widget_settings.clone().try_into()?,
+        &room.inner,
+        props.into(),
+    )
+    .await
+    .map(|url| url.to_string())?)
+}
+
+/// Properties to create a new virtual Element Call widget.
+#[derive(uniffi::Record, Clone)]
+pub struct VirtualElementCallWidgetOptions {
+    /// the url to the app e.g. <https://call.element.io>, <https://call.element.dev>
+    pub element_call_url: String,
+    /// the widget id.
+    pub widget_id: String,
+    /// The url that is used as the target for the PostMessages sent
+    /// by the widget (to the client). For a web app client this is the client
+    /// url. In case of using other platforms the client most likely is setup
+    /// up to listen to postmessages in the same webview the widget is
+    /// hosted. In this case the parent_url is set to the url of the
+    /// webview with the widget. Be aware, that this means, the widget
+    /// will receive its own postmessage messages. The matrix-widget-api
+    /// (js) ignores those so this works but it might break custom
+    /// implementations. So always keep this in mind. Defaults to
+    /// `element_call_url` for the non IFrame (dedicated webview) usecase.
+    pub parent_url: Option<String>,
+    /// defines if the branding header of Element call should be hidden.
+    /// (default: `true`)
+    pub hide_header: Option<bool>,
+    /// if set, the lobby will be skipped and the widget will join the
+    /// call on the `io.element.join` action. (default: `false`)
+    pub preload: Option<bool>,
+    /// The font scale which will be used inside element call. (default: `1`)
+    pub font_scale: Option<f64>,
+    /// whether element call should prompt the user to open in the browser or
+    /// the app (default: `false`).
+    pub app_prompt: Option<bool>,
+    ///Don't show the lobby and join the call immediately. (default: `false`)
+    pub skip_lobby: Option<bool>,
+    ///Make it not possible to get to the calls list in the webview. (default:
+    /// `true`)
+    pub confine_to_room: Option<bool>,
+    /// A list of fonts to adapt to ios/android system fonts. (default:`[]`)
+    pub fonts: Option<Vec<String>>,
+    /// Can be used to pass a PostHog id to element call.
+    pub analytics_id: Option<String>,
+}
+
+impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
+    fn from(value: VirtualElementCallWidgetOptions) -> Self {
+        Self {
+            element_call_url: value.element_call_url,
+            widget_id: value.widget_id,
+            parent_url: value.parent_url,
+            hide_header: value.hide_header,
+            preload: value.preload,
+            font_scale: value.font_scale,
+            app_prompt: value.app_prompt,
+            skip_lobby: value.skip_lobby,
+            confine_to_room: value.confine_to_room,
+            fonts: value.fonts,
+            analytics_id: value.analytics_id,
+        }
+    }
+}
+
+/// `WidgetSettings` are usually created from a state event.
+/// (currently unimplemented)
+///
+/// In some cases the client wants to create custom `WidgetSettings`
+/// for specific rooms based on other conditions.
+/// This function returns a `WidgetSettings` object which can be used
+/// to setup a widget using `run_client_widget_api`
+/// and to generate the correct url for the widget.
+///  # Arguments
+/// * - `props` A struct containing the configuration parameters for a element
+///   call widget.
+#[uniffi::export]
+pub fn new_virtual_element_call_widget(
+    props: VirtualElementCallWidgetOptions,
+) -> Result<WidgetSettings, ParseError> {
+    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props.into())
+        .map(|w| w.into())?)
+}
+
+#[derive(uniffi::Record)]
+pub struct ClientProperties {
+    /// The client_id provides the widget with the option to behave differently
+    /// for different clients. e.g org.example.ios.
+    client_id: String,
+    /// The language tag the client is set to e.g. en-us. (Undefined and invalid
+    /// becomes: `en-US`)
+    language_tag: Option<String>,
+    /// A string describing the theme (dark, light) or org.example.dark.
+    /// (default: `light`)
+    theme: Option<String>,
+}
+
+impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
+    fn from(value: ClientProperties) -> Self {
+        let ClientProperties { client_id, language_tag, theme } = value;
+        let language_tag = language_tag.and_then(|l| LanguageTag::parse(&l).ok());
+        Self::new(&client_id, language_tag, theme)
     }
 }
 
 /// A handle that encapsulates the communication between a widget driver and the
-/// corresponding widget (inside a webview or iframe).
+/// corresponding widget (inside a webview or IFrame).
 #[derive(uniffi::Object)]
 pub struct WidgetDriverHandle(matrix_sdk::widget::WidgetDriverHandle);
 
@@ -96,6 +238,12 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
+    /// If this permission is requested by the widget, it can not operate
+    /// separately from the matrix client.
+    ///
+    /// This means clients should not offer to open the widget in a separate
+    /// browser/tab/webview that is not connected to the postmessage widget-api.
+    pub requires_client: bool,
 }
 
 impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
@@ -103,6 +251,7 @@ impl From<WidgetPermissions> for matrix_sdk::widget::Permissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -112,6 +261,7 @@ impl From<matrix_sdk::widget::Permissions> for WidgetPermissions {
         Self {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
+            requires_client: value.requires_client,
         }
     }
 }
@@ -191,5 +341,52 @@ impl matrix_sdk::widget::PermissionsProvider for PermissionsProviderWrap {
             .await
             // propagate panics from the blocking task
             .unwrap()
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum ParseError {
+    #[error("empty host")]
+    EmptyHost,
+    #[error("invalid international domain name")]
+    IdnaError,
+    #[error("invalid port number")]
+    InvalidPort,
+    #[error("invalid IPv4 address")]
+    InvalidIpv4Address,
+    #[error("invalid IPv6 address")]
+    InvalidIpv6Address,
+    #[error("invalid domain character")]
+    InvalidDomainCharacter,
+    #[error("relative URL without a base")]
+    RelativeUrlWithoutBase,
+    #[error("relative URL with a cannot-be-a-base base")]
+    RelativeUrlWithCannotBeABaseBase,
+    #[error("a cannot-be-a-base URL doesn’t have a host to set")]
+    SetHostOnCannotBeABaseUrl,
+    #[error("URLs more than 4 GB are not supported")]
+    Overflow,
+    #[error("unknown URL parsing error")]
+    Other,
+}
+
+impl From<url::ParseError> for ParseError {
+    fn from(value: url::ParseError) -> Self {
+        match value {
+            url::ParseError::EmptyHost => Self::EmptyHost,
+            url::ParseError::IdnaError => Self::IdnaError,
+            url::ParseError::InvalidPort => Self::InvalidPort,
+            url::ParseError::InvalidIpv4Address => Self::InvalidIpv4Address,
+            url::ParseError::InvalidIpv6Address => Self::InvalidIpv6Address,
+            url::ParseError::InvalidDomainCharacter => Self::InvalidDomainCharacter,
+            url::ParseError::RelativeUrlWithoutBase => Self::RelativeUrlWithoutBase,
+            url::ParseError::RelativeUrlWithCannotBeABaseBase => {
+                Self::RelativeUrlWithCannotBeABaseBase
+            }
+            url::ParseError::SetHostOnCannotBeABaseUrl => Self::SetHostOnCannotBeABaseUrl,
+            url::ParseError::Overflow => Self::Overflow,
+            _ => Self::Other,
+        }
     }
 }

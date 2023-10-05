@@ -10,6 +10,7 @@ mod client;
 mod filter;
 mod matrix;
 mod permissions;
+mod widget_settings;
 
 use self::{
     client::{Action, ClientApi, Event, SendEventCommand},
@@ -18,6 +19,7 @@ use self::{
 pub use self::{
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     permissions::{Permissions, PermissionsProvider},
+    widget_settings::{ClientProperties, VirtualElementCallWidgetOptions, WidgetSettings},
 };
 
 /// An object that handles all interactions of a widget living inside a webview
@@ -37,17 +39,6 @@ pub struct WidgetDriver {
     ///
     /// These can be both requests and responses.
     to_widget_tx: Sender<String>,
-}
-
-/// Information about a widget.
-#[derive(Debug)]
-pub struct WidgetSettings {
-    /// Widget's unique identifier.
-    pub id: String,
-    /// Whether or not the widget should be initialized on load message
-    /// (`ContentLoad` message), or upon creation/attaching of the widget to
-    /// the SDK's state machine that drives the API.
-    pub init_on_load: bool,
 }
 
 /// A handle that encapsulates the communication between a widget driver and the
