@@ -57,7 +57,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -114,16 +114,16 @@ pub(crate) struct StoreCache {
     pub account: ReadOnlyAccount,
 }
 
-pub(crate) struct StoreCacheGuard<'a> {
-    cache: &'a StoreCache,
+pub(crate) struct StoreCacheGuard {
+    cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
-impl<'a> Deref for StoreCacheGuard<'a> {
+impl Deref for StoreCacheGuard {
     type Target = StoreCache;
 
     fn deref(&self) -> &Self::Target {
-        self.cache
+        &*self.cache
     }
 }
 
@@ -133,30 +133,32 @@ pub struct StoreTransaction {
     store: Store,
     changes: PendingChanges,
     // TODO hold onto the cross-process crypto store lock + cache.
+    cache: OwnedRwLockWriteGuard<StoreCache>,
 }
 
 impl StoreTransaction {
     /// Starts a new `StoreTransaction`.
     pub async fn new(store: Store) -> Result<Self> {
-        Ok(Self { store, changes: PendingChanges::default() })
+        let cache = store.inner.cache.clone().write_owned().await;
+        Ok(Self { store, changes: PendingChanges::default(), cache })
     }
 
     /// Gets a `ReadOnlyAccount` for update.
-    pub async fn account(&mut self) -> Result<ReadOnlyAccount> {
-        if let Some(account) = &self.changes.account {
-            Ok(account.clone())
-        } else {
-            let cache = self.store.cache().await?;
-            self.changes.account = Some(cache.account.clone());
-            Ok(cache.account.clone())
+    pub async fn account(&mut self) -> Result<&mut ReadOnlyAccount> {
+        if self.changes.account.is_none() {
+            self.changes.account = Some(self.cache.account.clone()); // TODO(BNJ) This should be the only call-site for ReadOnlyAccount.clone().
         }
+        Ok(self.changes.account.as_mut().unwrap())
     }
 
     /// Commits all dirty fields to the store, and maintains the cache so it reflects the current
     /// state of the database.
     pub async fn commit(self) -> Result<()> {
-        // TODO make the cache coherent with the DB
+        // Save changes in the database.
         self.store.save_pending_changes(self.changes).await?;
+
+        // Make the cache coherent with the database.
+        // for changes.account: nothing to do, it's the same underlying shared account.
 
         Ok(())
     }
@@ -170,11 +172,9 @@ struct StoreInner {
     /// In-memory cache for the current crypto store.
     ///
     /// ⚠ Must remain private.
-    cache: StoreCache,
+    cache: Arc<RwLock<StoreCache>>,
 
     verification_machine: VerificationMachine,
-
-    account: ReadOnlyAccount, // TODO(bnjbvr, #2624) move this into the store cache
 
     /// Record of the users that are waiting for a /keys/query.
     //
@@ -583,29 +583,28 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 }
 
 impl Store {
-    /// Create a new Store
+    /// Create a new Store.
     pub(crate) fn new(
         account: ReadOnlyAccount,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        let inner = Arc::new(StoreInner {
-            static_account: account.static_data().clone(),
-            identity,
-            store,
-            account: account.clone(),
-            verification_machine,
-            users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
-            users_for_key_query_condvar: Condvar::new(),
-            cache: StoreCache {
-                tracked_users: Default::default(),
-                tracked_user_loading_lock: Default::default(),
-                account,
-            },
-        });
-
-        Self { inner }
+        Self {
+            inner: Arc::new(StoreInner {
+                static_account: account.static_data().clone(),
+                identity,
+                store,
+                verification_machine,
+                users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
+                users_for_key_query_condvar: Condvar::new(),
+                cache: Arc::new(RwLock::new(StoreCache {
+                    tracked_users: Default::default(),
+                    tracked_user_loading_lock: Default::default(),
+                    account,
+                })),
+            }),
+        }
     }
 
     /// UserId associated with this store
@@ -618,23 +617,18 @@ impl Store {
         self.inner.verification_machine.own_device_id()
     }
 
-    /// The Account associated with this store
-    pub(crate) fn account(&self) -> &ReadOnlyAccount {
-        &self.inner.account
-    }
-
     /// The static data for the account associated with this store.
     pub(crate) fn static_account(&self) -> &StaticAccountData {
         &self.inner.static_account
     }
 
-    pub(crate) async fn cache(&self) -> Result<StoreCacheGuard<'_>> {
+    pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {
         // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
         // - try to take the lock,
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
 
-        let cache = StoreCacheGuard { cache: &self.inner.cache };
+        let cache = StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await };
 
         // Make sure tracked users are always up to date.
         self.ensure_sync_tracked_users(&cache).await?;
@@ -1077,7 +1071,7 @@ impl Store {
     /// This method ensures that we're only going to load the users from the
     /// actual [`CryptoStore`] once, it will also make sure that any
     /// concurrent calls to this method get deduplicated.
-    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard<'_>) -> Result<()> {
+    async fn ensure_sync_tracked_users(&self, cache: &StoreCacheGuard) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
         let loaded = cache.tracked_user_loading_lock.read().await;
         if *loaded {
