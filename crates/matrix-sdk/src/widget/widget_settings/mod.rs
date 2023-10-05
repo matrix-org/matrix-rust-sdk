@@ -1,10 +1,9 @@
+pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
 use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
 use url::Url;
 
 use crate::Room;
-
-pub use element_call::VirtualElementCallWidgetOptions;
 
 mod element_call;
 mod url_params;

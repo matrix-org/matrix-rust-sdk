@@ -44,9 +44,9 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
 
     let s = url.as_str();
     let Some(beginning) = s.split_once('$').map(|s| s.0) else {
-            // There is no $ in the string so we don't need to do anything
-            return;
-        };
+        // There is no '$' in the string so we don't need to do anything
+        return;
+    };
     let mut result = String::from(beginning);
     for section in s.split('$').skip(1) {
         let mut section_added = false;
