@@ -296,6 +296,28 @@ impl Client {
 
         Ok(())
     }
+
+    pub fn test_wasm(&self) {
+        use javascriptcore::{JSContext, JSValue};
+
+        let mut bytes = 
+b"\x00asm\x01\x00\x00\x00\x01\x07\x01`\x02\x7f\x7f\x01\x7f\x03\x02\x01\x00\x05\x03\x01\x00\x10\x06\x11\x02\x7f\x00A\x80\x80\xc0\x00\x0b\x7f\x00A\x80\x80\xc0\x00\x0b\x07+\x04\x06memory\x02\x00\x03sum\x00\x00\n__data_end\x03\x00\x0b__heap_base\x03\x01\n\t\x01\x07\x00 \x00 \x01j\x0b\x00,\x0ftarget_features\x02+\x0fmutable-globals+\x08sign-ext".to_owned();
+
+        let ctx = JSContext::default();
+        let global = ctx.global_object().unwrap();
+        let wasm = global.get_property("WebAssembly").as_object().unwrap();
+        let module = wasm.get_property("Module").as_object().unwrap();
+        let bytes = unsafe { JSValue::new_typed_array_with_bytes(&ctx, &mut bytes[..]).unwrap() };
+        let compiled_module = module.call_as_constructor(&[bytes]).unwrap();
+        let instance = wasm.get_property("Instance").as_object().unwrap();
+        let instance = instance.call_as_constructor(&[compiled_module]).unwrap().as_object().unwrap();
+        let exports = instance.get_property("exports").as_object().unwrap();
+        let sum = exports.get_property("sum").as_object().unwrap();
+
+        let result = sum.call_as_function(None, &[JSValue::new_number(&ctx, 1.), JSValue::new_number(&ctx, 2.)]).unwrap();
+
+        assert_eq!(result.as_number().unwrap(), 3.);
+    }
 }
 
 impl Client {
