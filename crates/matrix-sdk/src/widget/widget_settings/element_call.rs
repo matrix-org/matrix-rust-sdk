@@ -88,16 +88,16 @@ impl WidgetSettings {
         let mut raw_url: Url = Url::parse(&format!("{}/room", props.element_call_url))?;
 
         let query_params = ElementCallParams {
-            user_id: url_params::USER_ID.to_string(),
-            room_id: url_params::ROOM_ID.to_string(),
-            widget_id: url_params::WIDGET_ID.to_string(),
-            avatar_url: url_params::AVATAR_URL.to_string(),
-            displayname: url_params::DISPLAY_NAME.to_string(),
-            lang: url_params::LANGUAGE.to_string(),
-            theme: url_params::CLIENT_THEME.to_string(),
-            client_id: url_params::CLIENT_ID.to_string(),
-            device_id: url_params::DEVICE_ID.to_string(),
-            base_url: url_params::HOMESERVER_URL.to_string(),
+            user_id: url_params::USER_ID.to_owned(),
+            room_id: url_params::ROOM_ID.to_owned(),
+            widget_id: url_params::WIDGET_ID.to_owned(),
+            avatar_url: url_params::AVATAR_URL.to_owned(),
+            displayname: url_params::DISPLAY_NAME.to_owned(),
+            lang: url_params::LANGUAGE.to_owned(),
+            theme: url_params::CLIENT_THEME.to_owned(),
+            client_id: url_params::CLIENT_ID.to_owned(),
+            device_id: url_params::DEVICE_ID.to_owned(),
+            base_url: url_params::HOMESERVER_URL.to_owned(),
 
             parent_url: props.parent_url.unwrap_or(props.element_call_url.clone()),
             skip_lobby: props.skip_lobby.unwrap_or(false),
