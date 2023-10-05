@@ -24,6 +24,7 @@ pub struct QueryProperties {
     pub(crate) device_id: String,
     pub(crate) homeserver_url: String,
 }
+
 pub fn replace_properties(url: &mut Url, props: QueryProperties) {
     let replace_map: [(&str, String); 10] = [
         (WIDGET_ID, encode(&props.widget_id).into()),
@@ -38,7 +39,7 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
         (CLIENT_ID, encode(&props.client_id).into()),
     ]
     .map(|to_replace| {
-        // Its save to unwrap here since we know all replace strings start with `$`
+        // It's safe to unwrap here since we know all replace strings start with `$`
         (to_replace.0.get(1..).unwrap(), to_replace.1)
     });
 
@@ -52,7 +53,7 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
         let mut section_added = false;
         for (old, new) in &replace_map {
             section.split_once(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'));
-            // save to unwrap here since we know all replace strings start with $
+            // It's safe to unwrap here since we know all replace strings start with `$`
             if section.starts_with(old) {
                 result.push_str(new);
                 if let Some(rest) = section.get(old.len()..) {
@@ -67,8 +68,8 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
     }
     *url = Url::parse(&result).unwrap();
 }
-#[cfg(test)]
 
+#[cfg(test)]
 mod tests {
     use url::Url;
 
