@@ -1,82 +1,13 @@
-pub use element_call::VirtualElementCallWidgetOptions;
 use language_tags::LanguageTag;
 use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
 use url::Url;
 
 use crate::Room;
 
+pub use element_call::VirtualElementCallWidgetOptions;
+
 mod element_call;
-
-mod url_params {
-    use url::Url;
-    use urlencoding::encode;
-
-    pub static USER_ID: &str = "$matrix_user_id";
-    pub static ROOM_ID: &str = "$matrix_room_id";
-    pub static WIDGET_ID: &str = "$matrix_widget_id";
-    pub static AVATAR_URL: &str = "$matrix_avatar_url";
-    pub static DISPLAY_NAME: &str = "$matrix_display_name";
-    pub static LANGUAGE: &str = "$org.matrix.msc2873.client_language";
-    pub static CLIENT_THEME: &str = "$org.matrix.msc2873.client_theme";
-    pub static CLIENT_ID: &str = "$org.matrix.msc2873.client_id";
-    pub static DEVICE_ID: &str = "$org.matrix.msc2873.matrix_device_id";
-    pub static HOMESERVER_URL: &str = "$org.matrix.msc4039.matrix_base_url";
-
-    pub struct QueryProperties {
-        pub(crate) widget_id: String,
-        pub(crate) avatar_url: String,
-        pub(crate) display_name: String,
-        pub(crate) user_id: String,
-        pub(crate) room_id: String,
-        pub(crate) language: String,
-        pub(crate) client_theme: String,
-        pub(crate) client_id: String,
-        pub(crate) device_id: String,
-        pub(crate) homeserver_url: String,
-    }
-    pub fn replace_properties(url: &mut Url, props: QueryProperties) {
-        let replace_map: [(&str, String); 10] = [
-            (WIDGET_ID, encode(&props.widget_id).into()),
-            (AVATAR_URL, encode(&props.avatar_url).into()),
-            (DEVICE_ID, encode(&props.device_id).into()),
-            (DISPLAY_NAME, encode(&props.display_name).into()),
-            (HOMESERVER_URL, encode(&props.homeserver_url).into()),
-            (USER_ID, encode(&props.user_id).into()),
-            (ROOM_ID, encode(&props.room_id).into()),
-            (LANGUAGE, encode(&props.language).into()),
-            (CLIENT_THEME, encode(&props.client_theme).into()),
-            (CLIENT_ID, encode(&props.client_id).into()),
-        ]
-        .map(|to_replace| {
-            // Its save to unwrap here since we know all replace strings start with `$`
-            (to_replace.0.get(1..).unwrap(), to_replace.1)
-        });
-
-        let s = url.as_str();
-        let Some(beginning) = s.split_once('$').map(|s| s.0) else {
-            // There is no $ in the string so we don't need to do anything
-            return;
-        };
-        let mut result = String::from(beginning);
-        for section in s.split('$').skip(1) {
-            let mut section_added = false;
-            for (old, new) in &replace_map {
-                // save to unwrap here since we know all replace strings start with $
-                if section.starts_with(old) {
-                    result.push_str(new);
-                    if let Some(rest) = section.get(old.len()..) {
-                        result.push_str(rest);
-                    }
-                    section_added = true;
-                }
-            }
-            if !section_added {
-                result.push_str(section);
-            }
-        }
-        *url = Url::parse(&result).unwrap();
-    }
-}
+mod url_params;
 
 /// Settings of the widget.
 #[derive(Debug, Clone)]
@@ -242,45 +173,10 @@ mod tests {
     use ruma::api::client::profile::get_profile;
     use url::Url;
 
-    use super::{
-        element_call::VirtualElementCallWidgetOptions,
-        url_params::{replace_properties, QueryProperties},
-        WidgetSettings,
-    };
+    use super::{element_call::VirtualElementCallWidgetOptions, WidgetSettings};
     use crate::widget::ClientProperties;
 
-    const EXAMPLE_URL: &str = "\
-    https://my.widget.org/custom/path\
-    ?widgetId=$matrix_widget_id\
-    &deviceId=$org.matrix.msc2873.matrix_device_id\
-    &avatarUrl=$matrix_avatar_url\
-    &displayname=$matrix_display_name\
-    &lang=$org.matrix.msc2873.client_language\
-    &theme=$org.matrix.msc2873.client_theme\
-    &clientId=$org.matrix.msc2873.client_id\
-    &baseUrl=$org.matrix.msc4039.matrix_base_url\
-    ";
-
     const WIDGET_ID: &str = "1/@#w23";
-
-    fn get_example_url() -> Url {
-        Url::parse(EXAMPLE_URL).expect("EXAMPLE_URL is malformatted")
-    }
-
-    fn get_example_props() -> QueryProperties {
-        QueryProperties {
-            widget_id: String::from("!@/abc_widget_id"),
-            avatar_url: "!@/abc_avatar_url".to_owned(),
-            display_name: "!@/abc_display_name".to_owned(),
-            user_id: "!@/abc_user_id".to_owned(),
-            room_id: "!@/abc_room_id".to_owned(),
-            language: "!@/abc_language".to_owned(),
-            client_theme: "!@/abc_client_theme".to_owned(),
-            client_id: "!@/abc_client_id".to_owned(),
-            device_id: "!@/abc_device_id".to_owned(),
-            homeserver_url: "!@/abc_base_url".to_owned(),
-        }
-    }
 
     fn get_widget_settings() -> WidgetSettings {
         WidgetSettings::new_virtual_element_call_widget(VirtualElementCallWidgetOptions {
@@ -319,16 +215,6 @@ mod tests {
         let fq = from_str::<QuerySet>(url.fragment_query().unwrap_or_default()).ok()?;
         let q = from_str::<QuerySet>(url.query().unwrap_or_default()).ok()?;
         Some((q, fq))
-    }
-
-    #[test]
-    fn replace_all_properties() {
-        let mut url = get_example_url();
-
-        const CONVERTED_URL: &str = "https://my.widget.org/custom/path?widgetId=%21%40%2Fabc_widget_id&deviceId=%21%40%2Fabc_device_id&avatarUrl=%21%40%2Fabc_avatar_url&displayname=%21%40%2Fabc_display_name&lang=%21%40%2Fabc_language&theme=%21%40%2Fabc_client_theme&clientId=%21%40%2Fabc_client_id&baseUrl=%21%40%2Fabc_base_url";
-
-        replace_properties(&mut url, get_example_props());
-        assert_eq!(url.as_str(), CONVERTED_URL);
     }
 
     #[test]

@@ -238,9 +238,12 @@ pub struct WidgetPermissions {
     pub read: Vec<WidgetEventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
-    /// If this is set to true the client should not give the option to pop the
-    /// widget into its own window. (The widget will set this to true if it
-    /// relies on the widget-api.)
+    /// If this permission is requested by the widget the client should not
+    /// provide the option to pop the widget into its own window.
+    ///
+    /// If the widget does not work without the widget api (e.g. it relies on
+    /// asking for matrix room messages) it will(/has to) request this
+    /// permission.
     pub requires_client: bool,
 }
 
