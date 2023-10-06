@@ -1081,7 +1081,10 @@ pub(crate) mod tests {
     use stream_assert::{assert_closed, assert_pending, assert_ready};
 
     use super::testing::{device_id, key_query, manager, other_key_query, other_user_id, user_id};
-    use crate::identities::manager::testing::{other_key_query_cross_signed, own_key_query};
+    use crate::{
+        identities::manager::testing::{other_key_query_cross_signed, own_key_query},
+        olm::PrivateCrossSigningIdentity,
+    };
 
     fn key_query_with_failures() -> KeysQueryResponse {
         let response = json!({
@@ -1185,6 +1188,95 @@ pub(crate) mod tests {
             manager.store.get_readonly_device(our_user, device_id!(device_id())).await.unwrap();
 
         assert!(device.is_some());
+    }
+
+    #[async_test]
+    async fn private_identity_invalidation_after_public_keys_change() {
+        let user_id = user_id!("@example1:localhost");
+        let manager = manager(user_id, "DEVICEID".into()).await;
+
+        let identity_request = {
+            let private_identity = manager.store.private_identity();
+            let private_identity = private_identity.lock().await;
+            private_identity.as_upload_request().await
+        };
+        let device_keys = manager.store.static_account().unsigned_device_keys();
+
+        let response = json!({
+            "device_keys": {
+                user_id: {
+                    device_keys.device_id.to_string(): device_keys
+                }
+            },
+            "master_keys": {
+                user_id: identity_request.master_key,
+            },
+            "self_signing_keys": {
+                user_id: identity_request.self_signing_key,
+            },
+            "user_signing_keys": {
+                user_id: identity_request.user_signing_key,
+            }
+        });
+
+        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
+            .expect("Can't parse the keys query response");
+
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+
+        let identity = manager.store.get_user_identity(user_id).await.unwrap().unwrap();
+        let identity = identity.own().unwrap();
+        assert!(identity.is_verified());
+
+        let identity_request = {
+            let private_identity = PrivateCrossSigningIdentity::new(user_id.into()).await;
+            private_identity.as_upload_request().await
+        };
+
+        let response = json!({
+            "master_keys": {
+                user_id: identity_request.master_key,
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["master"],
+                    "keys": {
+                        "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:SKISMLNIMH": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                        }
+                    }
+                },
+            },
+            "self_signing_keys": {
+                user_id: identity_request.self_signing_key,
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["self_signing"],
+                    "keys": {
+                        "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "W/O8BnmiUETPpH02mwYaBgvvgF/atXnusmpSTJZeUSH/vHg66xiZOhveQDG4cwaW8iMa+t9N4h1DWnRoHB4mCQ"
+                        }
+                    }
+                }
+            },
+            "user_signing_keys": {
+                user_id: identity_request.user_signing_key,
+            }
+        });
+
+        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
+            .expect("Can't parse the keys query response");
+
+        let (_, private_identity) = manager.handle_cross_signing_keys(&response).await.unwrap();
+
+        assert!(private_identity.is_some());
+        let private_identity = manager.store.private_identity();
+        assert!(private_identity.lock().await.is_empty().await);
     }
 
     #[async_test]
