@@ -78,12 +78,6 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct Account {
-    pub store: Store,
-    pub static_data: StaticAccountData,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) enum SessionType {
     New(Session),
     Existing(Session),
