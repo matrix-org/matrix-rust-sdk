@@ -593,13 +593,9 @@ mod tests {
     }
 
     #[async_test]
-    async fn session_creation_waits_for_keys_query() {
+    async fn test_session_creation_waits_for_keys_query() {
         let manager = session_manager().await;
-        let identity_manager = IdentityManager::new(
-            manager.account.static_data.user_id.clone(),
-            manager.account.static_data.device_id.clone(),
-            manager.store.clone(),
-        );
+        let identity_manager = IdentityManager::new(manager.store.clone());
 
         // start a keys query request. At this point, we are only interested in our own
         // devices.

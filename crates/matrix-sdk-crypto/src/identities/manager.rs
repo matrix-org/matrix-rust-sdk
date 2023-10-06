@@ -66,8 +66,6 @@ struct IdentityChange {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
     failures: FailuresCache<OwnedServerName>,
     store: Store,
 
@@ -91,12 +89,10 @@ struct KeysQueryRequestDetails {
 impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
-    pub fn new(user_id: OwnedUserId, device_id: OwnedDeviceId, store: Store) -> Self {
+    pub fn new(store: Store) -> Self {
         let keys_query_request_details = Mutex::new(None);
 
         IdentityManager {
-            user_id,
-            device_id,
             store,
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
@@ -104,7 +100,7 @@ impl IdentityManager {
     }
 
     fn user_id(&self) -> &UserId {
-        &self.user_id
+        &self.store.static_account().user_id
     }
 
     /// Receive a successful keys query response.
@@ -289,12 +285,10 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
-        own_user_id: OwnedUserId,
-        own_device_id: OwnedDeviceId,
         user_id: OwnedUserId,
         device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
-        let own_device_id = (*own_device_id).to_owned();
+        let own_device_id = store.static_account().device_id().to_owned();
 
         let mut changes = DeviceChanges::default();
 
@@ -345,6 +339,7 @@ impl IdentityManager {
         let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
+        let own_user_id = store.static_account().user_id();
         for device_id in deleted_devices_set {
             if user_id == *own_user_id && *device_id == &own_device_id {
                 let identity_keys = store.account().identity_keys();
@@ -384,13 +379,7 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         let tasks = device_keys_map.into_iter().map(|(user_id, device_keys_map)| {
-            spawn(Self::update_user_devices(
-                self.store.clone(),
-                self.user_id.clone(),
-                self.device_id.clone(),
-                user_id,
-                device_keys_map,
-            ))
+            spawn(Self::update_user_devices(self.store.clone(), user_id, device_keys_map))
         });
 
         let results = join_all(tasks).await;
@@ -817,7 +806,7 @@ pub(crate) mod testing {
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
         let store = Store::new(account, identity, store, verification);
-        IdentityManager::new(user_id, device_id().into(), store)
+        IdentityManager::new(store)
     }
 
     pub fn other_key_query() -> KeyQueryResponse {

@@ -211,8 +211,7 @@ impl OlmMachine {
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
         );
-        let identity_manager =
-            IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
+        let identity_manager = IdentityManager::new(store.clone());
 
         let session_manager = SessionManager::new(
             account.clone(),
