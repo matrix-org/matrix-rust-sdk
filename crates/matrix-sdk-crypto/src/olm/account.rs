@@ -496,11 +496,11 @@ impl Account {
 #[derive(Clone)]
 #[cfg_attr(not(tarpaulin_include), derive(Debug))]
 pub struct StaticAccountData {
-    /// The user_id this account belongs to
+    /// The user_id this account belongs to.
     pub user_id: OwnedUserId,
-    /// The device_id of this entry
+    /// The device_id of this entry.
     pub device_id: OwnedDeviceId,
-    /// The associated identity keys
+    /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
     // The creation time of the account in milliseconds since epoch.
     creation_local_time: MilliSecondsSinceUnixEpoch,
@@ -567,7 +567,7 @@ impl StaticAccountData {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing only facility to create a group session pair with default
-    /// settings
+    /// settings.
     pub async fn create_group_session_pair_with_defaults(
         &self,
         room_id: &RoomId,
@@ -609,7 +609,7 @@ impl StaticAccountData {
         )
     }
 
-    /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
+    /// Generate the unsigned `DeviceKeys` from this `StaticAccountData`.
     pub fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
         let keys = BTreeMap::from([
@@ -647,7 +647,7 @@ impl StaticAccountData {
         *self.identity_keys
     }
 
-    /// Get the local timestamp creation of the account in secs since epoch
+    /// Get the local timestamp creation of the account in secs since epoch.
     pub fn creation_local_time(&self) -> MilliSecondsSinceUnixEpoch {
         self.creation_local_time
     }
