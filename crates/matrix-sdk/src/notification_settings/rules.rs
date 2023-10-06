@@ -548,7 +548,7 @@ pub(crate) mod tests {
 
         assert_eq!(
             rules.is_enabled(RuleKind::Override, "unknown_rule_id"),
-            Err(NotificationSettingsError::RuleNotFound("unknown_rule_id".to_string()))
+            Err(NotificationSettingsError::RuleNotFound("unknown_rule_id".to_owned()))
         );
     }
 
