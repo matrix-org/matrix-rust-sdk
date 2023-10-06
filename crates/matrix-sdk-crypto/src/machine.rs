@@ -173,24 +173,15 @@ impl OlmMachine {
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
 
-        Ok(Self::new_helper(
-            self.user_id(),
-            device_id,
-            store,
-            account,
-            self.store().private_identity(),
-        ))
+        Ok(Self::new_helper(device_id, store, account, self.store().private_identity()))
     }
 
     fn new_helper(
-        user_id: &UserId,
         device_id: &DeviceId,
         store: Arc<CryptoStoreWrapper>,
         account: ReadOnlyAccount,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
-        let user_id: OwnedUserId = user_id.into();
-
         let verification_machine = VerificationMachine::new(
             account.static_data().clone(),
             user_identity.clone(),
@@ -198,34 +189,29 @@ impl OlmMachine {
         );
         let store =
             Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
-        let device_id: OwnedDeviceId = device_id.into();
-        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
 
         let account = Account { store: store.clone(), static_data: account.static_data().clone() };
 
-        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
+        let group_session_manager = GroupSessionManager::new(store.clone());
 
+        let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let key_request_machine = GossipMachine::new(
-            account.static_data.clone(),
             store.clone(),
             group_session_manager.session_cache(),
             users_for_key_claim.clone(),
         );
-        let identity_manager = IdentityManager::new(store.clone());
 
-        let session_manager = SessionManager::new(
-            account.clone(),
-            users_for_key_claim,
-            key_request_machine.clone(),
-            store.clone(),
-        );
+        let session_manager =
+            SessionManager::new(users_for_key_claim, key_request_machine.clone(), store.clone());
 
         #[cfg(feature = "backups_v1")]
-        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+        let backup_machine = BackupMachine::new(store.clone(), None);
+
+        let identity_manager = IdentityManager::new(store.clone());
 
         let inner = Arc::new(OlmMachineInner {
-            user_id,
-            device_id,
+            user_id: store.user_id().to_owned(),
+            device_id: device_id.to_owned(),
             account,
             user_identity,
             store,
@@ -327,7 +313,7 @@ impl OlmMachine {
 
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
-        Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
+        Ok(OlmMachine::new_helper(device_id, store, account, identity))
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.

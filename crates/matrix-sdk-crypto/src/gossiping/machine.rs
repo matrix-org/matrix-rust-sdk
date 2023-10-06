@@ -41,7 +41,7 @@ use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{EventError, OlmError, OlmResult},
-    olm::{InboundGroupSession, Session, StaticAccountData},
+    olm::{InboundGroupSession, Session},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
@@ -63,7 +63,6 @@ pub(crate) struct GossipMachine {
 
 #[derive(Debug)]
 pub(crate) struct GossipMachineInner {
-    static_account: StaticAccountData,
     store: Store,
     #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
@@ -76,7 +75,6 @@ pub(crate) struct GossipMachineInner {
 
 impl GossipMachine {
     pub fn new(
-        static_account: StaticAccountData,
         store: Store,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
@@ -86,7 +84,6 @@ impl GossipMachine {
 
         Self {
             inner: Arc::new(GossipMachineInner {
-                static_account,
                 store,
                 #[cfg(feature = "automatic-room-key-forwarding")]
                 outbound_group_sessions,
@@ -123,12 +120,12 @@ impl GossipMachine {
 
     /// Our own user id.
     pub fn user_id(&self) -> &UserId {
-        &self.inner.static_account.user_id
+        &self.inner.store.static_account().user_id
     }
 
     /// Our own device ID.
     pub fn device_id(&self) -> &DeviceId {
-        &self.inner.static_account.device_id
+        &self.inner.store.static_account().device_id
     }
 
     pub async fn outgoing_to_device_requests(
@@ -1123,11 +1120,10 @@ mod tests {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
-        let static_account = account.static_data().clone();
         let store = Store::new(account, identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(static_account, store, session_cache, Default::default())
+        GossipMachine::new(store, session_cache, Default::default())
     }
 
     async fn get_machine() -> GossipMachine {
@@ -1145,12 +1141,11 @@ mod tests {
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
-        let static_account = account.static_data().clone();
         let store = Store::new(account, identity, store, verification);
         store.save_devices(&[device, another_device]).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
-        GossipMachine::new(static_account, store, session_cache, Default::default())
+        GossipMachine::new(store, session_cache, Default::default())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1194,7 +1189,8 @@ mod tests {
         let settings = EncryptionSettings { algorithm, ..Default::default() };
         let (group_session, inbound_group_session) = bob_machine
             .inner
-            .static_account
+            .store
+            .static_account()
             .create_group_session_pair(room_id(), settings)
             .await
             .unwrap();

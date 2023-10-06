@@ -33,7 +33,6 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store, UserKeyQueryResult},
     types::{events::EventType, EventEncryptionAlgorithm},
@@ -43,7 +42,6 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionManager {
-    account: Account,
     store: Store,
     /// A map of user/devices that we need to automatically claim keys for.
     /// Submodules can insert user/device pairs into this map and the
@@ -63,13 +61,11 @@ impl SessionManager {
     const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
     pub fn new(
-        account: Account,
         users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
         Self {
-            account,
             store,
             key_request_machine,
             users_for_key_claim,
@@ -342,7 +338,7 @@ impl SessionManager {
             .failures
             .keys()
             .filter_map(|s| ServerName::parse(s).ok())
-            .filter(|s| s != self.account.static_data.user_id.server_name());
+            .filter(|s| s != self.store.static_account().user_id.server_name());
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
         self.failures.extend(failed_servers);
@@ -484,7 +480,7 @@ mod tests {
     use crate::{
         gossiping::GossipMachine,
         identities::{IdentityManager, ReadOnlyDevice},
-        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, Store},
         verification::VerificationMachine,
@@ -546,18 +542,12 @@ mod tests {
         let store = Store::new(account.clone(), identity, store, verification);
         store.save_account(account.clone()).await.unwrap();
 
-        let account = Account { static_data: account.static_data.clone(), store: store.clone() };
-
         let session_cache = GroupSessionCache::new(store.clone());
 
-        let key_request = GossipMachine::new(
-            account.static_data.clone(),
-            store.clone(),
-            session_cache,
-            users_for_key_claim.clone(),
-        );
+        let key_request =
+            GossipMachine::new(store.clone(), session_cache, users_for_key_claim.clone());
 
-        SessionManager::new(account, users_for_key_claim, key_request, store)
+        SessionManager::new(users_for_key_claim, key_request, store)
     }
 
     #[async_test]
@@ -621,7 +611,8 @@ mod tests {
         };
 
         // the initial keys query completes, and we start another
-        let response_json = json!({ "device_keys": { manager.account.static_data.user_id: {}}});
+        let response_json =
+            json!({ "device_keys": { manager.store.static_account().user_id.to_owned(): {}}});
         let response =
             KeysQueryResponse::try_from_http_response(response_from_file(&response_json)).unwrap();
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
