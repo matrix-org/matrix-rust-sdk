@@ -55,13 +55,8 @@ enum DeviceChange {
 /// An unchanged identity means same cross signing keys as well as same
 /// set of signatures on the master key.
 enum IdentityUpdateResult {
-    Updated(IdentityChange),
-    Unchanged(IdentityChange),
-}
-
-struct IdentityChange {
-    public: ReadOnlyUserIdentities,
-    private: Option<PrivateCrossSigningIdentity>,
+    Updated(ReadOnlyUserIdentities),
+    Unchanged(ReadOnlyUserIdentities),
 }
 
 #[derive(Debug, Clone)]
@@ -432,6 +427,7 @@ impl IdentityManager {
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         i: ReadOnlyUserIdentities,
+        changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
             ReadOnlyUserIdentities::Own(mut identity) => {
@@ -452,12 +448,12 @@ impl IdentityManager {
                         let has_changed =
                             identity.update(master_key, self_signing, user_signing)?;
 
-                        let private = self.check_private_identity(&identity).await;
-                        let id_change = IdentityChange { public: identity.into(), private };
+                        *changed_private_identity = self.check_private_identity(&identity).await;
+
                         if has_changed {
-                            Ok(IdentityUpdateResult::Updated(id_change))
+                            Ok(IdentityUpdateResult::Updated(identity.into()))
                         } else {
-                            Ok(IdentityUpdateResult::Unchanged(id_change))
+                            Ok(IdentityUpdateResult::Unchanged(identity.into()))
                         }
                     }
                 } else {
@@ -470,12 +466,11 @@ impl IdentityManager {
             }
             ReadOnlyUserIdentities::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
-                let id_change = IdentityChange { public: identity.into(), private: None };
 
                 if has_changed {
-                    Ok(IdentityUpdateResult::Updated(id_change))
+                    Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
-                    Ok(IdentityUpdateResult::Unchanged(id_change))
+                    Ok(IdentityUpdateResult::Unchanged(identity.into()))
                 }
             }
         }
@@ -486,7 +481,8 @@ impl IdentityManager {
         response: &KeysQueryResponse,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
-    ) -> Result<IdentityChange, SignatureError> {
+        changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
+    ) -> Result<ReadOnlyUserIdentities, SignatureError> {
         if master_key.user_id() == self.user_id() {
             if let Some(user_signing) = response
                 .user_signing_keys
@@ -504,9 +500,9 @@ impl IdentityManager {
                     let identity =
                         ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
 
-                    let private = self.check_private_identity(&identity).await;
+                    *changed_private_identity = self.check_private_identity(&identity).await;
 
-                    Ok(IdentityChange { public: identity.into(), private })
+                    Ok(identity.into())
                 }
             } else {
                 warn!(
@@ -518,7 +514,7 @@ impl IdentityManager {
             }
         } else {
             let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
-            Ok(IdentityChange { public: identity.into(), private: None })
+            Ok(identity.into())
         }
     }
 
@@ -560,7 +556,7 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
         changes: &mut IdentityChanges,
-        changed_identity: &mut Option<PrivateCrossSigningIdentity>,
+        changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
         user_id: &UserId,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
@@ -568,26 +564,36 @@ impl IdentityManager {
         if master_key.user_id() != user_id || self_signing.user_id() != user_id {
             warn!(?user_id, "User ID mismatch in one of the cross signing keys",);
         } else if let Some(i) = self.store.get_user_identity(user_id).await? {
-            match self.handle_changed_identity(response, master_key, self_signing, i).await {
-                Ok(IdentityUpdateResult::Updated(c)) => {
-                    trace!(identity = ?c.public, "Updated a user identity");
-                    changes.changed.push(c.public);
-                    *changed_identity = c.private;
+            match self
+                .handle_changed_identity(
+                    response,
+                    master_key,
+                    self_signing,
+                    i,
+                    changed_private_identity,
+                )
+                .await
+            {
+                Ok(IdentityUpdateResult::Updated(identity)) => {
+                    trace!(?identity, "Updated a user identity");
+                    changes.changed.push(identity);
                 }
-                Ok(IdentityUpdateResult::Unchanged(c)) => {
-                    trace!(identity = ?c.public, "Received an unchanged user identity");
-                    changes.unchanged.push(c.public);
+                Ok(IdentityUpdateResult::Unchanged(identity)) => {
+                    trace!(?identity, "Received an unchanged user identity");
+                    changes.unchanged.push(identity);
                 }
                 Err(e) => {
                     warn!(error = ?e, "Couldn't update an existing user identity");
                 }
             }
         } else {
-            match self.handle_new_identity(response, master_key, self_signing).await {
-                Ok(c) => {
-                    trace!(identity = ?c.public, "Created new user identity");
-                    changes.new.push(c.public);
-                    *changed_identity = c.private;
+            match self
+                .handle_new_identity(response, master_key, self_signing, changed_private_identity)
+                .await
+            {
+                Ok(identity) => {
+                    trace!(?identity, "Created new user identity");
+                    changes.new.push(identity);
                 }
                 Err(e) => {
                     warn!(error = ?e, "Couldn't create new user identity");
