@@ -145,7 +145,7 @@ impl NotificationSettings {
     ) -> Result<RoomNotificationSettings, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         // Get the current user defined mode for this room
         if let Some(mode) =
             notification_settings.get_user_defined_room_notification_mode(&parsed_room_id).await
@@ -180,7 +180,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         notification_settings.set_room_notification_mode(&parsed_room_id, mode.into()).await?;
         Ok(())
     }
@@ -200,7 +200,7 @@ impl NotificationSettings {
     ) -> Result<Option<RoomNotificationMode>, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         // Get the current user defined mode for this room
         if let Some(mode) =
             notification_settings.get_user_defined_room_notification_mode(&parsed_room_id).await
@@ -293,7 +293,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         notification_settings.delete_user_defined_room_rules(&parsed_room_id).await?;
         Ok(())
     }
@@ -459,7 +459,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let parsed_room_id = RoomId::parse(&room_id)
-            .map_err(|_e| NotificationSettingsError::InvalidRoomId(room_id))?;
+            .map_err(|_e| NotificationSettingsError::InvalidRoomId { room_id })?;
         notification_settings
             .unmute_room(&parsed_room_id, is_encrypted.into(), is_one_to_one.into())
             .await?;

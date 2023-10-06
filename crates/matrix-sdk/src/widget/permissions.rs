@@ -23,4 +23,10 @@ pub struct Permissions {
     pub read: Vec<EventFilter>,
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<EventFilter>,
+    /// If this permission is requested by the widget, it can not operate
+    /// separately from the matrix client.
+    ///
+    /// This means clients should not offer to open the widget in a separate
+    /// browser/tab/webview that is not connected to the postmessage widget-api.
+    pub requires_client: bool,
 }

@@ -16,10 +16,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     ops::Deref,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
 };
 
-use dashmap::DashMap;
 use futures_util::future::join_all;
 use itertools::{Either, Itertools};
 use matrix_sdk_common::executor::spawn;
@@ -45,10 +44,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct GroupSessionCache {
     store: Store,
-    sessions: Arc<DashMap<OwnedRoomId, OutboundGroupSession>>,
+    sessions: Arc<StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
-    sessions_being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
+    sessions_being_shared: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutboundGroupSession>>>,
 }
 
 impl GroupSessionCache {
@@ -57,7 +56,7 @@ impl GroupSessionCache {
     }
 
     pub(crate) fn insert(&self, session: OutboundGroupSession) {
-        self.sessions.insert(session.room_id().to_owned(), session);
+        self.sessions.write().unwrap().insert(session.room_id().to_owned(), session);
     }
 
     /// Either get a session for the given room from the cache or load it from
@@ -69,24 +68,27 @@ impl GroupSessionCache {
     pub async fn get_or_load(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         // Get the cached session, if there isn't one load one from the store
         // and put it in the cache.
-        if let Some(s) = self.sessions.get(room_id) {
-            Some(s.clone())
-        } else {
-            match self.store.get_outbound_group_session(room_id).await {
-                Ok(Some(s)) => {
+        if let Some(s) = self.sessions.read().unwrap().get(room_id) {
+            return Some(s.clone());
+        }
+
+        match self.store.get_outbound_group_session(room_id).await {
+            Ok(Some(s)) => {
+                {
+                    let mut sessions_being_shared = self.sessions_being_shared.write().unwrap();
                     for request_id in s.pending_request_ids() {
-                        self.sessions_being_shared.insert(request_id, s.clone());
+                        sessions_being_shared.insert(request_id, s.clone());
                     }
-
-                    self.sessions.insert(room_id.to_owned(), s.clone());
-
-                    Some(s)
                 }
-                Ok(None) => None,
-                Err(e) => {
-                    error!("Couldn't restore an outbound group session: {e:?}");
-                    None
-                }
+
+                self.sessions.write().unwrap().insert(room_id.to_owned(), s.clone());
+
+                Some(s)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                error!("Couldn't restore an outbound group session: {e:?}");
+                None
             }
         }
     }
@@ -98,7 +100,7 @@ impl GroupSessionCache {
     /// * `room_id` - The id of the room for which we should get the outbound
     /// group session.
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
-        self.sessions.get(room_id).map(|s| s.clone())
+        self.sessions.read().unwrap().get(room_id).cloned()
     }
 
     /// Get or load the session for the given room with the given session id.
@@ -165,7 +167,9 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
-        if let Some((_, session)) = self.sessions.sessions_being_shared.remove(request_id) {
+        let removed_session =
+            self.sessions.sessions_being_shared.write().unwrap().remove(request_id);
+        if let Some(session) = removed_session {
             let no_olm = session.mark_request_as_sent(request_id);
 
             let mut changes = Changes::default();
@@ -355,7 +359,7 @@ impl GroupSessionManager {
         );
 
         let users_shared_with: BTreeSet<OwnedUserId> =
-            outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
+            outbound.shared_with_set.read().unwrap().keys().cloned().collect();
 
         let users_shared_with: BTreeSet<&UserId> =
             users_shared_with.iter().map(Deref::deref).collect();
@@ -405,10 +409,9 @@ impl GroupSessionManager {
                 let recipient_device_ids: BTreeSet<&DeviceId> =
                     recipients.iter().map(|d| d.device_id()).collect();
 
-                if let Some(shared) = outbound.shared_with_set.get(user_id) {
+                if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
                     // Devices that received this session
-                    let shared: BTreeSet<OwnedDeviceId> =
-                        shared.iter().map(|d| d.key().clone()).collect();
+                    let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
                     let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
                     // The set difference between
@@ -442,7 +445,7 @@ impl GroupSessionManager {
     pub async fn encrypt_request(
         chunk: Vec<Device>,
         outbound: OutboundGroupSession,
-        being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
+        being_shared: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutboundGroupSession>>>,
     ) -> OlmResult<(Vec<Session>, Vec<(Device, WithheldCode)>)> {
         let (id, request, share_infos, used_sessions, no_olm) =
             Self::encrypt_session_for(outbound.clone(), chunk).await?;
@@ -455,7 +458,7 @@ impl GroupSessionManager {
             );
 
             outbound.add_request(id.clone(), request.into(), share_infos);
-            being_shared.insert(id, outbound.clone());
+            being_shared.write().unwrap().insert(id, outbound.clone());
         }
 
         Ok((used_sessions, no_olm))
@@ -503,6 +506,7 @@ impl GroupSessionManager {
     ) -> OlmResult<Vec<(Device, WithheldCode)>> {
         // If we have some recipients, log them here.
         if !recipient_devices.is_empty() {
+            #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
             let recipients = recipient_devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                 acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
                 acc
@@ -581,7 +585,13 @@ impl GroupSessionManager {
         // leave it be.
         if code == &WithheldCode::NoOlm {
             device.was_withheld_code_sent()
-                || self.sessions.sessions.iter().any(|s| s.is_withheld_to(device, code))
+                || self
+                    .sessions
+                    .sessions
+                    .read()
+                    .unwrap()
+                    .values()
+                    .any(|s| s.is_withheld_to(device, code))
         } else {
             group_session.is_withheld_to(device, code)
         }
@@ -644,11 +654,13 @@ impl GroupSessionManager {
             .map(chunk_to_request)
             .collect();
 
+        let mut sessions_being_shared = self.sessions.sessions_being_shared.write().unwrap();
         for (request, share_info) in result {
             if !request.messages.is_empty() {
                 let txn_id = request.txn_id.to_owned();
                 group_session.add_request(txn_id.to_owned(), request.into(), share_info);
-                self.sessions.sessions_being_shared.insert(txn_id, group_session.clone());
+
+                sessions_being_shared.insert(txn_id, group_session.clone());
             }
         }
 

@@ -56,6 +56,7 @@ use super::traits::Decryptor;
 use super::{
     event_item::EventItemIdentifier,
     item::timeline_item,
+    pagination::PaginationTokens,
     reactions::ReactionToggleResult,
     traits::RoomDataProvider,
     util::{compare_events_positions, rfind_event_by_id, rfind_event_item, RelativePosition},
@@ -306,13 +307,24 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             .insert(receipt_type, receipt);
     }
 
-    pub(super) async fn add_initial_events(&mut self, events: Vector<SyncTimelineEvent>) {
+    pub(super) async fn add_initial_events(
+        &mut self,
+        events: Vector<SyncTimelineEvent>,
+        back_pagination_token: Option<String>,
+    ) {
         if events.is_empty() {
             return;
         }
 
         let mut state = self.state.write().await;
-        state.add_initial_events(events, &self.room_data_provider, &self.settings).await;
+        state
+            .add_initial_events(
+                events,
+                back_pagination_token,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await;
     }
 
     pub(super) async fn clear(&self) {
@@ -558,17 +570,48 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
+    /// Get the back-pagination token of the first [`EventTimelineItem`].
+    ///
+    /// Returns `None` if there are no `EventTimelineItem`s, or the first one
+    /// doesn't have a back-pagination token.
+    pub(super) async fn back_pagination_token(&self) -> Option<String> {
+        let state = self.state.read().await;
+        Some(state.back_pagination_token()?.to_owned())
+    }
+
     /// Handle a list of back-paginated events.
     ///
     /// Returns the number of timeline updates that were made. Short-circuits
     /// and returns `None` if the number of items added or updated exceeds
     /// `u16::MAX`, which should practically never happen.
+    ///
+    /// # Arguments
+    ///
+    /// * `events` - The events from back-pagination
+    ///
+    /// * `back_pagination_token` - The back-pagination token for loading
+    ///   further events
     pub(super) async fn handle_back_paginated_events(
         &self,
         events: Vec<TimelineEvent>,
-    ) -> Option<HandleManyEventsResult> {
+        pagination_tokens: PaginationTokens,
+    ) -> Result<HandleManyEventsResult, HandleBackPaginatedEventsError> {
         let mut state = self.state.write().await;
-        state.handle_back_paginated_events(events, &self.room_data_provider, &self.settings).await
+        if let Some(token) = pagination_tokens.from {
+            if state.back_pagination_token() != Some(&token) {
+                return Err(HandleBackPaginatedEventsError::TokenMismatch);
+            }
+        }
+
+        state
+            .handle_back_paginated_events(
+                events,
+                pagination_tokens.to,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await
+            .ok_or(HandleBackPaginatedEventsError::ResultOverflow)
     }
 
     pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
@@ -946,6 +989,22 @@ impl TimelineInner {
 pub(super) struct HandleManyEventsResult {
     pub items_added: u16,
     pub items_updated: u16,
+}
+
+#[derive(Debug)]
+pub(super) enum HandleBackPaginatedEventsError {
+    /// The `from` token is not equal to the first event item's back-pagination
+    /// token.
+    ///
+    /// This means that prepending the events from the back-pagination response
+    /// would result in a gap in the timeline. Back-pagination must be retried
+    /// with the current back-pagination token.
+    TokenMismatch,
+
+    /// `u16` overflow when computing the number of events affected.
+    ///
+    /// This *should* never happen.
+    ResultOverflow,
 }
 
 async fn fetch_replied_to_event(

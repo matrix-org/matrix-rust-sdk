@@ -353,7 +353,7 @@ mod tests {
         let mut rule_commands = RuleCommands::new(ruleset);
         assert_eq!(
             rule_commands.set_rule_enabled(RuleKind::Room, "unknown_rule_id", true),
-            Err(NotificationSettingsError::RuleNotFound("unknown_rule_id".to_string()))
+            Err(NotificationSettingsError::RuleNotFound("unknown_rule_id".to_owned()))
         );
     }
 

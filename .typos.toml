@@ -16,6 +16,12 @@ extend-ignore-re = [
 [default.extend-identifiers]
 WeeChat = "WeeChat"
 
+# all of these are valid words, but should never appear in this repo
+[default.extend-words]
+sing = "sign"
+singed = "signed"
+singing = "signing"
+
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
 # automatically ignored, we ignore them here.

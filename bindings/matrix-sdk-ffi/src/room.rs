@@ -7,7 +7,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    room::{Receipts, Room as SdkRoom},
+    room::Room as SdkRoom,
     ruma::{
         api::client::{receipt::create_receipt::v3::ReceiptType, room::report_content},
         events::{
@@ -392,29 +392,13 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         RUNTIME.block_on(async move {
-            self.inner
+            self.timeline
+                .read()
+                .await
+                .clone()
+                .context("Timeline not set up, can't send read receipt")?
                 .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
                 .await?;
-            Ok(())
-        })
-    }
-
-    pub fn send_read_marker(
-        &self,
-        fully_read_event_id: String,
-        read_receipt_event_id: Option<String>,
-    ) -> Result<(), ClientError> {
-        let fully_read =
-            EventId::parse(fully_read_event_id).context("parsing fully read event ID")?;
-        let read_receipt = read_receipt_event_id
-            .map(EventId::parse)
-            .transpose()
-            .context("parsing read receipt event ID")?;
-        let receipts =
-            Receipts::new().fully_read_marker(fully_read).public_read_receipt(read_receipt);
-
-        RUNTIME.block_on(async move {
-            self.inner.send_multiple_receipts(receipts).await?;
             Ok(())
         })
     }
