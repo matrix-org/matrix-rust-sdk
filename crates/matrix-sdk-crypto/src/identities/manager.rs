@@ -778,7 +778,7 @@ pub(crate) mod testing {
     use crate::{
         identities::IdentityManager,
         machine::testing::response_from_file,
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore, Store},
         types::DeviceKeys,
         verification::VerificationMachine,
@@ -801,7 +801,7 @@ pub(crate) mod testing {
         let identity = PrivateCrossSigningIdentity::new(user_id().into()).await;
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id().to_owned();
-        let account = ReadOnlyAccount::with_device_id(&user_id, device_id());
+        let account = Account::with_device_id(&user_id, device_id());
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());

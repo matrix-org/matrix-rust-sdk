@@ -23,8 +23,8 @@ mod session;
 mod signing;
 mod utility;
 
+pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};
-pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount, StaticAccountData};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
@@ -56,7 +56,7 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
+        olm::{Account, ExportedRoomKey, InboundGroupSession, Session},
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent, room::encrypted::EncryptedEvent,
         },
@@ -79,9 +79,9 @@ pub(crate) mod tests {
         device_id!("BOBDEVICE")
     }
 
-    pub(crate) async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+    pub(crate) async fn get_account_and_session() -> (Account, Session) {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
@@ -100,7 +100,7 @@ pub(crate) mod tests {
 
     #[test]
     fn account_creation() {
-        let account = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let account = Account::with_device_id(alice_id(), alice_device_id());
 
         assert!(!account.shared());
 
@@ -110,7 +110,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn one_time_keys_creation() {
-        let account = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let account = Account::with_device_id(alice_id(), alice_device_id());
         let one_time_keys = account.one_time_keys().await;
 
         assert!(!one_time_keys.is_empty());
@@ -130,8 +130,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn session_creation() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
         let alice_keys = alice.identity_keys();
         alice.generate_one_time_keys_helper(1).await;
         let one_time_keys = alice.one_time_keys().await;
@@ -168,7 +168,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn group_session_creation() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await;
@@ -204,7 +204,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn edit_decryption() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
@@ -263,7 +263,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn relates_to_decryption() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
@@ -335,7 +335,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn group_session_export() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;

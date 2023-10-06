@@ -480,7 +480,7 @@ mod tests {
     use crate::{
         gossiping::GossipMachine,
         identities::{IdentityManager, ReadOnlyDevice},
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, Store},
         verification::VerificationMachine,
@@ -494,8 +494,8 @@ mod tests {
         device_id!("DEVICEID")
     }
 
-    fn bob_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
+    fn bob_account() -> Account {
+        Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
     }
 
     fn keys_claim_with_failure() -> KeyClaimResponse {
@@ -530,7 +530,7 @@ mod tests {
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
-        let account = ReadOnlyAccount::with_device_id(user_id, device_id);
+        let account = Account::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification = VerificationMachine::new(
@@ -696,7 +696,7 @@ mod tests {
     #[async_test]
     async fn failure_handling() {
         let alice = user_id!("@alice:example.org");
-        let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
+        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
         let manager = session_manager().await;
@@ -739,7 +739,7 @@ mod tests {
         let response = KeyClaimResponse::try_from_http_response(response).unwrap();
 
         let alice = user_id!("@alice:example.org");
-        let alice_account = ReadOnlyAccount::with_device_id(alice, "DEVICEID".into());
+        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
 
         let manager = session_manager().await;

@@ -748,7 +748,7 @@ pub(crate) mod tests {
         requests::{OutgoingRequest, OutgoingRequests},
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::events::ToDeviceEvents,
-        OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+        Account, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
         ReadOnlyUserIdentity,
     };
 
@@ -821,15 +821,14 @@ pub(crate) mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    pub(crate) async fn setup_stores(
-    ) -> (ReadOnlyAccount, VerificationStore, ReadOnlyAccount, VerificationStore) {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+    pub(crate) async fn setup_stores() -> (Account, VerificationStore, Account, VerificationStore) {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_store = MemoryStore::new();
         let (alice_private_identity, _, _) =
             PrivateCrossSigningIdentity::with_account(&alice).await;
         let alice_private_identity = Mutex::new(alice_private_identity);
 
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
         let bob_store = MemoryStore::new();
         let (bob_private_identity, _, _) = PrivateCrossSigningIdentity::with_account(&bob).await;
         let bob_private_identity = Mutex::new(bob_private_identity);

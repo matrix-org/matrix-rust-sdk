@@ -1065,7 +1065,7 @@ mod tests {
     };
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{CryptoStoreWrapper, MemoryStore, Store},
         types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
@@ -1098,16 +1098,16 @@ mod tests {
         room_id!("!test:example.org")
     }
 
-    fn account() -> ReadOnlyAccount {
-        ReadOnlyAccount::with_device_id(alice_id(), alice_device_id())
+    fn account() -> Account {
+        Account::with_device_id(alice_id(), alice_device_id())
     }
 
-    fn bob_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::with_device_id(bob_id(), bob_device_id())
+    fn bob_account() -> Account {
+        Account::with_device_id(bob_id(), bob_device_id())
     }
 
-    fn alice_2_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::with_device_id(alice_id(), alice2_device_id())
+    fn alice_2_account() -> Account {
+        Account::with_device_id(alice_id(), alice2_device_id())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1115,7 +1115,7 @@ mod tests {
         let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
-        let account = ReadOnlyAccount::with_device_id(&user_id, &device_id);
+        let account = Account::with_device_id(&user_id, &device_id);
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
@@ -1128,13 +1128,11 @@ mod tests {
 
     async fn get_machine() -> GossipMachine {
         let user_id = alice_id().to_owned();
-        let account = ReadOnlyAccount::with_device_id(&user_id, alice_device_id());
+        let account = Account::with_device_id(&user_id, alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
-        let another_device = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
-            &user_id,
-            alice2_device_id(),
-        ))
-        .await;
+        let another_device =
+            ReadOnlyDevice::from_account(&Account::with_device_id(&user_id, alice2_device_id()))
+                .await;
 
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
@@ -1153,7 +1151,7 @@ mod tests {
         other_machine_owner: &UserId,
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
-    ) -> (GossipMachine, ReadOnlyAccount, OutboundGroupSession, GossipMachine) {
+    ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
         let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
 

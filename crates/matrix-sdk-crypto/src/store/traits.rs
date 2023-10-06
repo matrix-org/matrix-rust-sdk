@@ -28,8 +28,8 @@ use crate::{
         Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    GossipRequest, GossippedSecret, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
-    SecretInfo, TrackedUser,
+    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    TrackedUser,
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -41,7 +41,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     type Error: fmt::Debug + Into<CryptoStoreError>;
 
     /// Load an account that was previously stored.
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, Self::Error>;
+    async fn load_account(&self) -> Result<Option<Account>, Self::Error>;
 
     /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, Self::Error>;
@@ -276,7 +276,7 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
 
-    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         self.0.load_account().await.map_err(Into::into)
     }
 

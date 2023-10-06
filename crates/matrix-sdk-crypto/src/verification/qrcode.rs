@@ -890,7 +890,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use crate::{
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         store::{Changes, CryptoStoreWrapper, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
@@ -913,7 +913,7 @@ mod tests {
 
     #[async_test]
     async fn test_verification_creation() {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
         let store = memory_store(account.user_id());
 
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
@@ -978,7 +978,7 @@ mod tests {
     #[async_test]
     async fn test_reciprocate_receival() {
         let test = |flow_id: FlowId| async move {
-            let alice_account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+            let alice_account = Account::with_device_id(user_id(), device_id());
             let store = memory_store(alice_account.user_id());
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
@@ -990,7 +990,7 @@ mod tests {
             };
 
             let bob_account =
-                ReadOnlyAccount::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
+                Account::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
             let identity = private_identity.to_public_identity().await.unwrap();

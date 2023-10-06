@@ -869,7 +869,7 @@ mod tests {
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
         },
-        ReadOnlyAccount, ReadOnlyDevice, SasState,
+        Account, ReadOnlyDevice, SasState,
     };
 
     fn alice_id() -> &'static UserId {
@@ -890,10 +890,10 @@ mod tests {
 
     async fn machine_pair() -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice)
     {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+        let bob = Account::with_device_id(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store = VerificationStore {

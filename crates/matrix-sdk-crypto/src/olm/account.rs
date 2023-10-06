@@ -146,7 +146,7 @@ impl OlmMessageHash {
     }
 }
 
-impl ReadOnlyAccount {
+impl Account {
     async fn decrypt_olm_helper(
         &self,
         store: &Store,
@@ -660,7 +660,7 @@ impl StaticAccountData {
 /// An account is the central identity for encrypted communication between two
 /// devices.
 #[derive(Clone)]
-pub struct ReadOnlyAccount {
+pub struct Account {
     pub(crate) static_data: StaticAccountData,
     /// `vodozemac` account.
     inner: Arc<Mutex<InnerAccount>>,
@@ -674,7 +674,7 @@ pub struct ReadOnlyAccount {
     uploaded_signed_key_count: Arc<AtomicU64>,
 }
 
-impl Deref for ReadOnlyAccount {
+impl Deref for Account {
     type Target = StaticAccountData;
 
     fn deref(&self) -> &Self::Target {
@@ -710,7 +710,7 @@ fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for ReadOnlyAccount {
+impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Account")
             .field("identity_keys", &self.identity_keys())
@@ -719,7 +719,7 @@ impl fmt::Debug for ReadOnlyAccount {
     }
 }
 
-impl ReadOnlyAccount {
+impl Account {
     fn new_helper(mut account: InnerAccount, user_id: &UserId, device_id: &DeviceId) -> Self {
         let identity_keys = account.identity_keys();
 
@@ -1317,7 +1317,7 @@ impl ReadOnlyAccount {
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     /// Testing only helper to create a session for the given Account
-    pub async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
+    pub async fn create_session_for(&self, other: &Account) -> (Session, Session) {
         use ruma::events::dummy::ToDeviceDummyEventContent;
 
         other.generate_one_time_keys_helper(1).await;
@@ -1371,7 +1371,7 @@ impl ReadOnlyAccount {
     }
 }
 
-impl PartialEq for ReadOnlyAccount {
+impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
     }
@@ -1392,7 +1392,7 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::ReadOnlyAccount;
+    use super::Account;
     use crate::{
         olm::SignedJsonObject,
         types::{DeviceKeys, SignedKey},
@@ -1409,7 +1409,7 @@ mod tests {
 
     #[async_test]
     async fn one_time_key_creation() -> Result<()> {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
 
         let (_, one_time_keys, _) = account.keys_for_upload().await;
         assert!(!one_time_keys.is_empty());
@@ -1446,7 +1446,7 @@ mod tests {
 
     #[async_test]
     async fn fallback_key_creation() -> Result<()> {
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
 
         let (_, _, fallback_keys) = account.keys_for_upload().await;
 
@@ -1486,7 +1486,7 @@ mod tests {
         let key = vodozemac::Curve25519PublicKey::from_base64(
             "7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs",
         )?;
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
 
         let key = account.sign_key(key, true).await;
 
@@ -1510,7 +1510,7 @@ mod tests {
     #[async_test]
     async fn test_account_and_device_creation_timestamp() -> Result<()> {
         let now = MilliSecondsSinceUnixEpoch::now();
-        let account = ReadOnlyAccount::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id());
         let then = MilliSecondsSinceUnixEpoch::now();
 
         assert!(account.creation_local_time() >= now);

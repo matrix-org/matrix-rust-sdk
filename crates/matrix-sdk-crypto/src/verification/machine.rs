@@ -539,7 +539,7 @@ mod tests {
             tests::{alice_device_id, alice_id, setup_stores, wrap_any_to_device_content},
             FlowId, VerificationStore,
         },
-        ReadOnlyAccount, VerificationRequest,
+        Account, VerificationRequest,
     };
 
     async fn verification_machine() -> (VerificationMachine, VerificationStore) {
@@ -574,7 +574,7 @@ mod tests {
 
     #[async_test]
     async fn create() {
-        let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let _ = VerificationMachine::new(
             alice.static_data,

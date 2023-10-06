@@ -786,7 +786,7 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{manager::testing::own_key_query, Device},
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
@@ -862,7 +862,7 @@ pub(crate) mod tests {
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::with_device_id(second.user_id(), second.device_id()).static_data,
+            Account::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
             Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
         );
@@ -897,13 +897,13 @@ pub(crate) mod tests {
         let response = own_key_query();
         let (_, device) = device(&response);
 
-        let account = ReadOnlyAccount::with_device_id(device.user_id(), device.device_id());
+        let account = Account::with_device_id(device.user_id(), device.device_id());
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 
         let verification_machine = VerificationMachine::new(
-            ReadOnlyAccount::with_device_id(device.user_id(), device.device_id()).static_data,
+            Account::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
             Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
         );

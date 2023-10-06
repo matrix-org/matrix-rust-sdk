@@ -20,7 +20,7 @@ macro_rules! cryptostore_integration_tests {
             use $crate::{
                 olm::{
                     Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+                    PrivateCrossSigningIdentity, Account, Session,
                 },
                 store::{
                     BackupKeys, Changes, CryptoStore, DeviceChanges,
@@ -62,7 +62,7 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            pub async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
+            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore) {
                 let store = get_store(name, None).await;
                 let account = get_account();
 
@@ -71,13 +71,13 @@ macro_rules! cryptostore_integration_tests {
                 (account, store)
             }
 
-            fn get_account() -> ReadOnlyAccount {
-                ReadOnlyAccount::with_device_id(alice_id(), alice_device_id())
+            fn get_account() -> Account {
+                Account::with_device_id(alice_id(), alice_device_id())
             }
 
-            async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-                let alice = ReadOnlyAccount::with_device_id(alice_id(), alice_device_id());
-                let bob = ReadOnlyAccount::with_device_id(bob_id(), bob_device_id());
+            async fn get_account_and_session() -> (Account, Session) {
+                let alice = Account::with_device_id(alice_id(), alice_device_id());
+                let bob = Account::with_device_id(bob_id(), bob_device_id());
 
                 bob.generate_one_time_keys_helper(1).await;
                 let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
@@ -403,13 +403,13 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "device_saving";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
-                let alice_device_1 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
+                let alice_device_1 = ReadOnlyDevice::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "FIRSTDEVICE".into(),
                 ))
                 .await;
 
-                let alice_device_2 = ReadOnlyDevice::from_account(&ReadOnlyAccount::with_device_id(
+                let alice_device_2 = ReadOnlyDevice::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "SECONDDEVICE".into(),
                 ))
@@ -489,7 +489,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let store = get_store(dir, None).await;
 
-                let account = ReadOnlyAccount::with_device_id(&user_id, device_id);
+                let account = Account::with_device_id(&user_id, device_id);
 
                 store.save_changes(Changes { account: Some(account.clone()), ..Default::default() })
                     .await

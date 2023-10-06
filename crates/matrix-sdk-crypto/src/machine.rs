@@ -62,8 +62,8 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount, SessionType,
+        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
+        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -166,7 +166,7 @@ impl OlmMachine {
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<OlmMachine, DehydrationError> {
         let account =
-            ReadOnlyAccount::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
+            Account::rehydrate(pickle_key, self.user_id(), device_id, device_data).await?;
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
 
@@ -176,7 +176,7 @@ impl OlmMachine {
     fn new_helper(
         device_id: &DeviceId,
         store: Arc<CryptoStoreWrapper>,
-        account: ReadOnlyAccount,
+        account: Account,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> Self {
         let verification_machine = VerificationMachine::new(
@@ -264,7 +264,7 @@ impl OlmMachine {
                 account
             }
             None => {
-                let account = ReadOnlyAccount::with_device_id(user_id, device_id);
+                let account = Account::with_device_id(user_id, device_id);
 
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
@@ -529,7 +529,7 @@ impl OlmMachine {
     /// Get the underlying Olm account of the machine.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub(crate) fn account(&self) -> &ReadOnlyAccount {
+    pub(crate) fn account(&self) -> &Account {
         self.inner.store.account()
     }
 
