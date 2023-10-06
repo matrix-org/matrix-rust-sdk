@@ -62,9 +62,8 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
-        SessionType,
+        CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys, InboundGroupSession,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -104,8 +103,6 @@ pub struct OlmMachineInner {
     user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
     device_id: OwnedDeviceId,
-    /// Our underlying Olm Account holding our identity keys.
-    account: Account,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
     /// device bootstrapped cross signing or cross signing isn't bootstrapped at
@@ -190,8 +187,6 @@ impl OlmMachine {
         let store =
             Store::new(account.clone(), user_identity.clone(), store, verification_machine.clone());
 
-        let account = Account { store: store.clone(), static_data: account.static_data().clone() };
-
         let group_session_manager = GroupSessionManager::new(store.clone());
 
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
@@ -212,7 +207,6 @@ impl OlmMachine {
         let inner = Arc::new(OlmMachineInner {
             user_id: store.user_id().to_owned(),
             device_id: device_id.to_owned(),
-            account,
             user_identity,
             store,
             session_manager,
@@ -379,7 +373,7 @@ impl OlmMachine {
             request_id: TransactionId::new(),
             request: Arc::new(r.into()),
         }) {
-            self.inner.account.save().await?;
+            self.inner.store.save_account(self.inner.store.account().clone()).await?;
             requests.push(r);
         }
 
@@ -549,7 +543,7 @@ impl OlmMachine {
         &self,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        self.inner.account.receive_keys_upload_response(response).await
+        self.inner.store.account().receive_keys_upload_response(&self.inner.store, response).await
     }
 
     /// Get the a key claiming request for the user/device pairs that we are
@@ -649,7 +643,8 @@ impl OlmMachine {
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
     ) -> OlmResult<OlmDecryptionInfo> {
-        let mut decrypted = self.inner.account.decrypt_to_device_event(event).await?;
+        let mut decrypted =
+            self.inner.store.account().decrypt_to_device_event(&self.inner.store, event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
         self.handle_decrypted_to_device_event(&mut decrypted, changes).await?;

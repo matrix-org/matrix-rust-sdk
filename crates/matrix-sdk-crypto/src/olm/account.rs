@@ -74,7 +74,7 @@ use crate::{
         },
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    CryptoStoreError, OlmError, SignatureError,
+    OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -152,25 +152,22 @@ impl OlmMessageHash {
     }
 }
 
-impl Account {
-    pub async fn save(&self) -> Result<(), CryptoStoreError> {
-        self.store.save_account(self.store.account().clone()).await
-    }
-
+impl ReadOnlyAccount {
     async fn decrypt_olm_helper(
         &self,
+        store: &Store,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         ciphertext: &OlmMessage,
     ) -> OlmResult<OlmDecryptionInfo> {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
-        match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
+        match self.decrypt_olm_message(store, sender, sender_key, ciphertext).await {
             Ok((session, result)) => {
                 Ok(OlmDecryptionInfo { session, message_hash, result, inbound_group_session: None })
             }
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
-                if self.store.is_message_known(&message_hash).await? {
+                if store.is_message_known(&message_hash).await? {
                     info!(?sender_key, "An Olm message got replayed, decryption failed");
                     Err(OlmError::ReplayedMessage(user_id, sender_key))
                 } else {
@@ -184,15 +181,17 @@ impl Account {
     #[cfg(feature = "experimental-algorithms")]
     async fn decrypt_olm_v2(
         &self,
+        store: &Store,
         sender: &UserId,
         content: &OlmV2Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
-        self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
+        self.decrypt_olm_helper(store, sender, content.sender_key, &content.ciphertext).await
     }
 
     #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
     async fn decrypt_olm_v1(
         &self,
+        store: &Store,
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
@@ -201,24 +200,31 @@ impl Account {
 
             Err(EventError::MissingCiphertext.into())
         } else {
-            Box::pin(self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext)).await
+            Box::pin(self.decrypt_olm_helper(
+                store,
+                sender,
+                content.sender_key,
+                &content.ciphertext,
+            ))
+            .await
         }
     }
 
     #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
     pub(crate) async fn decrypt_to_device_event(
         &self,
+        store: &Store,
         event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         trace!("Decrypting a to-device event");
 
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
-                self.decrypt_olm_v1(&event.sender, c).await
+                self.decrypt_olm_v1(store, &event.sender, c).await
             }
             #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
-                self.decrypt_olm_v2(&event.sender, c).await
+                self.decrypt_olm_v2(store, &event.sender, c).await
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
@@ -231,22 +237,24 @@ impl Account {
         }
     }
 
+    /// Handles a response to a /keys/upload request.
     pub async fn receive_keys_upload_response(
         &self,
+        store: &Store,
         response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
-        let account = self.store.account();
-        if !account.shared() {
+        if !self.shared() {
             debug!("Marking account as shared");
         }
-        account.mark_as_shared();
+        self.mark_as_shared();
 
         debug!("Marking one-time keys as published");
         // First mark the current keys as published, as updating the key counts might
         // generate some new keys if we're still below the limit.
-        account.mark_keys_as_published().await;
-        account.update_key_counts(&response.one_time_key_counts, None).await;
-        self.store.save_account(account.clone()).await?;
+        self.mark_keys_as_published().await;
+        self.update_key_counts(&response.one_time_key_counts, None).await;
+
+        store.save_account(self.clone()).await?;
 
         Ok(())
     }
@@ -256,11 +264,11 @@ impl Account {
     /// This try to decrypt an Olm message using all the sessions we share
     /// with the given sender.
     async fn decrypt_with_existing_sessions(
-        &self,
+        store: &Store,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
     ) -> OlmResult<Option<(Session, String)>> {
-        let s = self.store.get_sessions(&sender_key.to_base64()).await?;
+        let s = store.get_sessions(&sender_key.to_base64()).await?;
 
         let Some(sessions) = s else {
             // We don't have any existing sessions, return early.
@@ -307,13 +315,14 @@ impl Account {
     #[instrument(skip(self, message))]
     async fn decrypt_olm_message(
         &self,
+        store: &Store,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
     ) -> OlmResult<(SessionType, DecryptionResult)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) =
-            self.decrypt_with_existing_sessions(sender_key, message).await?
+            Self::decrypt_with_existing_sessions(store, sender_key, message).await?
         {
             // Decryption succeeded, de-structure the session/plaintext out of
             // the Option.
@@ -326,7 +335,7 @@ impl Account {
                 // return with an error if it isn't one.
                 OlmMessage::Normal(_) => {
                     let session_ids = if let Some(sessions) =
-                        self.store.get_sessions(&sender_key.to_base64()).await?
+                        store.get_sessions(&sender_key.to_base64()).await?
                     {
                         sessions.lock().await.iter().map(|s| s.session_id().to_owned()).collect()
                     } else {
@@ -343,8 +352,7 @@ impl Account {
 
                 OlmMessage::PreKey(m) => {
                     // Create the new session.
-                    let account = self.store.account();
-                    let result = match account.create_inbound_session(sender_key, m).await {
+                    let result = match self.create_inbound_session(sender_key, m).await {
                         Ok(r) => r,
                         Err(_) => {
                             return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
@@ -356,11 +364,11 @@ impl Account {
                     // TODO: separate the session cache from the storage so we only add
                     // it to the cache but don't store it.
                     let changes = Changes {
-                        account: Some(account.clone()),
+                        account: Some(self.clone()),
                         sessions: vec![result.session.clone()],
                         ..Default::default()
                     };
-                    self.store.save_changes(changes).await?;
+                    store.save_changes(changes).await?;
 
                     (SessionType::New(result.session), result.plaintext)
                 }
@@ -377,7 +385,7 @@ impl Account {
             trace!("Successfully decrypted an Olm message");
         }
 
-        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
+        match self.parse_decrypted_to_device_event(store, sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might created a new session but decryption might still
@@ -385,16 +393,15 @@ impl Account {
                 // since we don't expect this to happen often or at all.
                 match session {
                     SessionType::New(s) => {
-                        let account = self.store.account();
                         let changes = Changes {
-                            account: Some(account.clone()),
+                            account: Some(self.clone()),
                             sessions: vec![s],
                             ..Default::default()
                         };
-                        self.store.save_changes(changes).await?;
+                        store.save_changes(changes).await?;
                     }
                     SessionType::Existing(s) => {
-                        self.store.save_sessions(&[s]).await?;
+                        store.save_sessions(&[s]).await?;
                     }
                 }
 
@@ -431,6 +438,7 @@ impl Account {
     /// * `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
+        store: &Store,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         plaintext: String,
@@ -462,7 +470,7 @@ impl Account {
             // to the device.
             if !matches!(*event, AnyDecryptedOlmEvent::RoomKey(_)) {
                 let Some(device) =
-                    self.store.get_device_from_curve_key(event.sender(), sender_key).await?
+                    store.get_device_from_curve_key(event.sender(), sender_key).await?
                 else {
                     return Err(EventError::MissingSigningKey.into());
                 };

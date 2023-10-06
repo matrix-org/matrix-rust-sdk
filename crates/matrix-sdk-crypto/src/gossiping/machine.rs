@@ -1053,7 +1053,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     use crate::{
         gossiping::KeyForwardDecision,
-        olm::{Account, OutboundGroupSession},
+        olm::OutboundGroupSession,
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -1153,12 +1153,8 @@ mod tests {
         other_machine_owner: &UserId,
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
-    ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
+    ) -> (GossipMachine, ReadOnlyAccount, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
-        let alice_account = Account {
-            static_data: alice_machine.inner.store.account().static_data().clone(),
-            store: alice_machine.inner.store.clone(),
-        };
         let alice_device = ReadOnlyDevice::from_account(alice_machine.inner.store.account()).await;
 
         let bob_machine = test_gossip_machine(other_machine_owner);
@@ -1221,6 +1217,8 @@ mod tests {
 
         // Put the outbound session into bobs store.
         bob_machine.inner.outbound_group_sessions.insert(group_session.clone());
+
+        let alice_account = alice_machine.inner.store.account().clone();
 
         (alice_machine, alice_account, group_session, bob_machine)
     }
@@ -1601,7 +1599,10 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+            .await
+            .unwrap();
 
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
@@ -1663,7 +1664,10 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+            .await
+            .unwrap();
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
         };
@@ -1914,7 +1918,10 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account
+            .decrypt_to_device_event(&alice_machine.inner.store, &event)
+            .await
+            .unwrap();
 
         let AnyDecryptedOlmEvent::ForwardedRoomKey(ev) = &*decrypted.result.event else {
             panic!("Invalid decrypted event type");
