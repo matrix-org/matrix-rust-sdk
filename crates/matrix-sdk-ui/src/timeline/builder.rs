@@ -24,7 +24,7 @@ use ruma::events::{
     AnySyncTimelineEvent,
 };
 use tokio::sync::{broadcast, mpsc, Notify};
-use tracing::{error, info, info_span, trace, warn, Instrument};
+use tracing::{error, info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -176,6 +176,11 @@ impl TimelineBuilder {
         let room_update_join_handle = spawn({
             let sync_response_notify = sync_response_notify.clone();
             let inner = inner.clone();
+
+            let span =
+                info_span!(parent: Span::none(), "room_update_handler", room_id = ?room.room_id());
+            span.follows_from(Span::current());
+
             async move {
                 loop {
                     let update = match room_update_rx.recv().await {
@@ -205,7 +210,7 @@ impl TimelineBuilder {
                     sync_response_notify.notify_waiters();
                 }
             }
-            .instrument(info_span!("room_update_handler", room_id = ?room.room_id()))
+            .instrument(span)
         });
 
         let mut ignore_user_list_stream = client.subscribe_to_ignore_user_list_changes();
