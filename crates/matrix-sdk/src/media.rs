@@ -210,6 +210,7 @@ impl Media {
 
         let mut file = TokioFile::from_std(temp_file.reopen()?);
         file.write_all(&data).await?;
+        // Make sure the file metadata is flushed to disk.
         file.sync_all().await?;
 
         Ok(MediaFileHandle { file: temp_file, _directory: temp_dir })
