@@ -501,6 +501,7 @@ impl GroupSessionManager {
     ) -> OlmResult<Vec<(Device, WithheldCode)>> {
         // If we have some recipients, log them here.
         if !recipient_devices.is_empty() {
+            #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
             let recipients = recipient_devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                 acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
                 acc

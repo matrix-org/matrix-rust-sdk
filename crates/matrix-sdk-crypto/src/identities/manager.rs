@@ -183,16 +183,19 @@ impl IdentityManager {
                 .await?;
         }
 
+        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
         let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
             acc
         });
 
+        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
         let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
             acc
         });
 
+        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
         let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
             acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
             acc
