@@ -49,7 +49,7 @@ tracing = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-core = "0.1.30"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "e20b9c2b72144ef51a381c6b321ac810a4fbfdbe" }
 uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "e20b9c2b72144ef51a381c6b321ac810a4fbfdbe" }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "23098d391d9a91db7d72a0ce19e69559b4340b13" }
+vodozemac = "0.5.0"
 zeroize = "1.6.0"
 
 # Default release profile, select with `--release`
