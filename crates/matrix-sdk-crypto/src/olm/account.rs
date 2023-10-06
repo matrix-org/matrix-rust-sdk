@@ -181,10 +181,11 @@ impl Account {
     #[cfg(feature = "experimental-algorithms")]
     async fn decrypt_olm_v2(
         &self,
+        transaction: &mut StoreTransaction,
         sender: &UserId,
         content: &OlmV2Curve25519AesSha2Content,
     ) -> OlmResult<OlmDecryptionInfo> {
-        self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
+        self.decrypt_olm_helper(transaction, sender, content.sender_key, &content.ciphertext).await
     }
 
     #[instrument(skip_all, fields(sender, sender_key = %content.sender_key))]
@@ -223,7 +224,7 @@ impl Account {
             }
             #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
-                self.decrypt_olm_v2(&event.sender, c).await
+                self.decrypt_olm_v2(transaction, &event.sender, c).await
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(

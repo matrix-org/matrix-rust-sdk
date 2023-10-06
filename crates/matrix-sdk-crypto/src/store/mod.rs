@@ -57,7 +57,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::Zeroize;
@@ -115,7 +115,8 @@ pub(crate) struct StoreCache {
 }
 
 pub(crate) struct StoreCacheGuard {
-    cache: OwnedRwLockReadGuard<StoreCache>,
+    cache: Arc<StoreCache>,
+    //cache: OwnedRwLockReadGuard<StoreCache>,
     // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
@@ -123,7 +124,7 @@ impl Deref for StoreCacheGuard {
     type Target = StoreCache;
 
     fn deref(&self) -> &Self::Target {
-        &*self.cache
+        &self.cache
     }
 }
 
@@ -133,13 +134,14 @@ pub struct StoreTransaction {
     store: Store,
     changes: PendingChanges,
     // TODO hold onto the cross-process crypto store lock + cache.
-    cache: OwnedRwLockWriteGuard<StoreCache>,
+    cache: Arc<StoreCache>,
+    //cache: OwnedRwLockWriteGuard<StoreCache>,
 }
 
 impl StoreTransaction {
     /// Starts a new `StoreTransaction`.
     pub async fn new(store: Store) -> Result<Self> {
-        let cache = store.inner.cache.clone().write_owned().await;
+        let cache = store.inner.cache.clone();
         Ok(Self { store, changes: PendingChanges::default(), cache })
     }
 
@@ -172,7 +174,8 @@ struct StoreInner {
     /// In-memory cache for the current crypto store.
     ///
     /// ⚠ Must remain private.
-    cache: Arc<RwLock<StoreCache>>,
+    // TODO: (bnjbvr, #2624) add RwLock here
+    cache: Arc<StoreCache>,
 
     verification_machine: VerificationMachine,
 
@@ -599,11 +602,11 @@ impl Store {
                 verification_machine,
                 users_for_key_query: AsyncStdMutex::new(UsersForKeyQuery::new()),
                 users_for_key_query_condvar: Condvar::new(),
-                cache: Arc::new(RwLock::new(StoreCache {
+                cache: Arc::new(StoreCache {
                     tracked_users: Default::default(),
                     tracked_user_loading_lock: Default::default(),
                     account,
-                })),
+                }),
             }),
         }
     }
@@ -629,7 +632,7 @@ impl Store {
         // - if acquired, look if another process touched the underlying storage,
         // - if yes, reload everything; if no, return current cache
 
-        let cache = StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await };
+        let cache = StoreCacheGuard { cache: self.inner.cache.clone() };
 
         // Make sure tracked users are always up to date.
         self.ensure_sync_tracked_users(&cache).await?;
@@ -1136,19 +1139,20 @@ impl Store {
         timeout_duration: Duration,
         user: &UserId,
     ) -> UserKeyQueryResult {
-        let mut g = self.inner.users_for_key_query.lock().await;
+        let mut users_for_key_query = self.inner.users_for_key_query.lock().await;
 
-        let Some(w) = g.maybe_register_waiting_task(user) else {
+        let Some(waiter) = users_for_key_query.maybe_register_waiting_task(user) else {
             return UserKeyQueryResult::WasNotPending;
         };
 
-        let f1 = async {
-            while !w.completed.load(Ordering::Relaxed) {
-                g = self.inner.users_for_key_query_condvar.wait(g).await;
+        let wait_for_completion = async {
+            while !waiter.completed.load(Ordering::Relaxed) {
+                users_for_key_query =
+                    self.inner.users_for_key_query_condvar.wait(users_for_key_query).await;
             }
         };
 
-        match timeout(Box::pin(f1), timeout_duration).await {
+        match timeout(Box::pin(wait_for_completion), timeout_duration).await {
             Err(_) => {
                 warn!(
                     user_id = ?user,

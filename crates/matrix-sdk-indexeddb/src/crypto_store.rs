@@ -515,7 +515,7 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let mut stores: Vec<&str> = [
+        let stores: Vec<&str> = [
             (changes.account.is_some() , keys::CORE),
         ]
         .iter()

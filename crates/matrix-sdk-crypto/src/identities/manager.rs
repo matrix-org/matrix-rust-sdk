@@ -1217,7 +1217,7 @@ pub(crate) mod tests {
     /// user is not removed from the list of outdated users when the
     /// response is received
     #[async_test]
-    async fn invalidation_race_handling() {
+    async fn test_invalidation_race_handling() {
         let manager = manager().await;
         let alice = other_user_id();
         manager.update_tracked_users([alice]).await.unwrap();

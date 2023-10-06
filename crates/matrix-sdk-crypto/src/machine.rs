@@ -395,7 +395,7 @@ impl OlmMachine {
         {
             let mut store_transaction = self.inner.store.transaction().await?;
             let account = store_transaction.account().await?;
-            if let Some(r) = self.keys_for_upload(&account).await.map(|r| OutgoingRequest {
+            if let Some(r) = self.keys_for_upload(account).await.map(|r| OutgoingRequest {
                 request_id: TransactionId::new(),
                 request: Arc::new(r.into()),
             }) {
