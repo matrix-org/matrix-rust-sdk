@@ -57,7 +57,6 @@ use tracing::{instrument, trace};
 use vodozemac::LibolmPickleError;
 
 use crate::{
-    olm::Account,
     store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
     EncryptionSyncChanges, OlmError, OlmMachine, ReadOnlyAccount, SignatureError,
@@ -100,9 +99,7 @@ impl DehydratedDevices {
         );
         let store = Store::new(account.clone(), user_identity, store, verification_machine);
 
-        let account = Account { static_data: account.static_data().clone(), store };
-
-        DehydratedDevice { account }
+        DehydratedDevice { store }
     }
 
     /// Rehydrate the dehydrated device.
@@ -255,7 +252,7 @@ impl RehydratedDevice {
 /// [`DehydratedDevice::keys_for_upload()`] method.
 #[derive(Debug)]
 pub struct DehydratedDevice {
-    account: Account,
+    store: Store,
 }
 
 impl DehydratedDevice {
@@ -292,9 +289,9 @@ impl DehydratedDevice {
     /// ```
     #[instrument(
         skip_all, fields(
-            user_id = ?self.account.static_data.user_id,
-            device_id = ?self.account.static_data.device_id,
-            identity_keys = ?self.account.static_data.identity_keys,
+            user_id = ?self.store.static_account().user_id,
+            device_id = ?self.store.static_account().device_id,
+            identity_keys = ?self.store.static_account().identity_keys,
         )
     )]
     pub async fn keys_for_upload(
@@ -302,25 +299,19 @@ impl DehydratedDevice {
         initial_device_display_name: String,
         pickle_key: &[u8; 32],
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
-        let account = self.account.store.account();
+        let account = self.store.account();
         account.generate_fallback_key_helper().await;
         let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload().await;
 
         let mut device_keys = device_keys
             .expect("We should always try to upload device keys for a dehydrated device.");
 
-        self.account
-            .store
-            .private_identity()
-            .lock()
-            .await
-            .sign_device_keys(&mut device_keys)
-            .await?;
+        self.store.private_identity().lock().await.sign_device_keys(&mut device_keys).await?;
 
         trace!("Creating an upload request for a dehydrated device");
 
-        let pickle_key = expand_pickle_key(pickle_key, &self.account.static_data.device_id);
-        let device_id = self.account.static_data.device_id.clone();
+        let pickle_key = expand_pickle_key(pickle_key, &self.store.static_account().device_id);
+        let device_id = self.store.static_account().device_id.clone();
         let device_data = account.dehydrate(&pickle_key).await;
         let initial_device_display_name = Some(initial_device_display_name);
 
