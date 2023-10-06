@@ -412,7 +412,7 @@ impl IdentityManager {
             // this means that the private part of the master key has signed
             // the identity. We can safely mark the public part of the
             // identity as verified.
-            if private_identity.has_master_key().await {
+            if private_identity.has_master_key().await && !identity.is_verified() {
                 trace!("Marked our own identity as verified");
                 identity.mark_as_verified()
             }
