@@ -175,7 +175,7 @@ impl OlmMachine {
 
         Ok(Self::new_helper(
             self.user_id(),
-            self.device_id(),
+            device_id,
             store,
             account,
             self.store().private_identity(),

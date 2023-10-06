@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn dehydrated_device_rehydration() {
+    async fn test_dehydrated_device_rehydration() {
         let room_id = room_id!("!test:example.org");
         let alice = get_olm_machine().await;
 
@@ -510,6 +510,9 @@ mod tests {
             .rehydrate(PICKLE_KEY, &request.device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
+
+        assert_eq!(rehydrated.rehydrated.device_id(), request.device_id);
+        assert_eq!(rehydrated.original.device_id(), alice.device_id());
 
         // Push the to-device event containing the room key into the rehydrated device.
         let ret = rehydrated
